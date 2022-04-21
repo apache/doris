@@ -32,20 +32,21 @@ public:
                  ::google::protobuf::Closure* done) override {
         brpc::ClosureGuard closure_guard(done);
         std::string fun_name = request->function_name();
+        auto* result = response->add_result();
         if (fun_name == "int32_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::INT32);
+            result->mutable_type()->set_id(PGenericType::INT32);
             for (size_t i = 0; i < request->args(0).int32_value_size(); ++i) {
-                response->mutable_result()->add_int32_value(request->args(0).int32_value(i) +
-                                                            request->args(1).int32_value(i));
+                result->add_int32_value(request->args(0).int32_value(i) +
+                                        request->args(1).int32_value(i));
             }
         } else if (fun_name == "int64_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::INT64);
+            result->mutable_type()->set_id(PGenericType::INT64);
             for (size_t i = 0; i < request->args(0).int64_value_size(); ++i) {
-                response->mutable_result()->add_int64_value(request->args(0).int64_value(i) +
-                                                            request->args(1).int64_value(i));
+                result->add_int64_value(request->args(0).int64_value(i) +
+                                        request->args(1).int64_value(i));
             }
         } else if (fun_name == "int128_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::INT128);
+            result->mutable_type()->set_id(PGenericType::INT128);
             for (size_t i = 0; i < request->args(0).bytes_value_size(); ++i) {
                 __int128 v1;
                 memcpy(&v1, request->args(0).bytes_value(i).data(), sizeof(__int128));
@@ -54,26 +55,25 @@ public:
                 __int128 v = v1 + v2;
                 char buffer[sizeof(__int128)];
                 memcpy(buffer, &v, sizeof(__int128));
-                response->mutable_result()->add_bytes_value(buffer, sizeof(__int128));
+                result->add_bytes_value(buffer, sizeof(__int128));
             }
         } else if (fun_name == "float_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::FLOAT);
+            result->mutable_type()->set_id(PGenericType::FLOAT);
             for (size_t i = 0; i < request->args(0).float_value_size(); ++i) {
-                response->mutable_result()->add_float_value(request->args(0).float_value(i) +
-                                                            request->args(1).float_value(i));
+                result->add_float_value(request->args(0).float_value(i) +
+                                        request->args(1).float_value(i));
             }
         } else if (fun_name == "double_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::DOUBLE);
+            result->mutable_type()->set_id(PGenericType::DOUBLE);
             for (size_t i = 0; i < request->args(0).double_value_size(); ++i) {
-                response->mutable_result()->add_double_value(request->args(0).double_value(i) +
-                                                             request->args(1).double_value(i));
+                result->add_double_value(request->args(0).double_value(i) +
+                                         request->args(1).double_value(i));
             }
         } else if (fun_name == "str_add") {
-            response->mutable_result()->mutable_type()->set_id(PGenericType::STRING);
+            result->mutable_type()->set_id(PGenericType::STRING);
             for (size_t i = 0; i < request->args(0).string_value_size(); ++i) {
-                response->mutable_result()->add_string_value(request->args(0).string_value(i) +
-                                                             " + " +
-                                                             request->args(1).string_value(i));
+                result->add_string_value(request->args(0).string_value(i) + " + " +
+                                         request->args(1).string_value(i));
             }
         }
         response->mutable_status()->set_status_code(0);

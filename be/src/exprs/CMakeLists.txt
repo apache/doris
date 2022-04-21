@@ -52,6 +52,7 @@ add_library(Exprs
   math_functions.cpp
   null_literal.cpp  
   scalar_fn_call.cpp
+  rpc_fn.cpp
   rpc_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
@@ -64,7 +65,7 @@ add_library(Exprs
   json_functions.cpp
   operators.cpp
   hll_hash_function.cpp
-  agg_fn.cc
+  agg_fn.cpp
   new_agg_fn_evaluator.cc
   bitmap_function.cpp
   hll_function.cpp

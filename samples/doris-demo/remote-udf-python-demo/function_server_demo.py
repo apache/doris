@@ -43,7 +43,7 @@ class FunctionServerDemo(function_service_pb2_grpc.PFunctionServiceServicer):
             result_type.id = types_pb2.PGenericType.INT32
             result.type.CopyFrom(result_type)
             result.int32_value.extend([x + y for x, y in zip(request.args[0].int32_value, request.args[1].int32_value)])
-            response.result.CopyFrom(result)
+            response.result.append(result)
         return response
 
     def check_fn(self, request, context):

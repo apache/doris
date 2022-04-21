@@ -45,7 +45,7 @@ public class FunctionServiceImpl extends PFunctionServiceGrpc.PFunctionServiceIm
         if ("add_int".equals(functionName)) {
             res = FunctionService.PFunctionCallResponse.newBuilder()
                     .setStatus(Types.PStatus.newBuilder().setStatusCode(0).build())
-                    .setResult(Types.PValues.newBuilder().setHasNull(false)
+                    .addResult(Types.PValues.newBuilder().setHasNull(false)
                             .addAllInt32Value(IntStream.range(0, Math.min(request.getArgs(0)
                                             .getInt32ValueCount(), request.getArgs(1).getInt32ValueCount()))
                                     .mapToObj(i -> request.getArgs(0).getInt32Value(i) + request.getArgs(1)

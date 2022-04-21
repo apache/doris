@@ -35,8 +35,9 @@ message PFunctionCallRequest {
 }
 
 message PFunctionCallResponse {
-    optional PValues result = 1;
+    repeated PValues result = 1;
     optional PStatus status = 2;
+    optional PRequestContext context = 3;
 }
 
 message PCheckFunctionRequest {
