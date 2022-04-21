@@ -109,6 +109,13 @@ public:
             register_function(Function::name, &Function::create);
     }
 
+    template <class Function>
+    void register_table_function() {
+        function_creators[Function::name] = &createDefaultFunction<Function>;
+        function_creators[std::string(Function::name) + "_outer"] =
+                &createDefaultFunction<Function>;
+    }
+
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }

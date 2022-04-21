@@ -32,11 +32,13 @@ class TableFunctionFactory {
 public:
     TableFunctionFactory() {}
     ~TableFunctionFactory() {}
-    static Status get_fn(const std::string& fn_name, bool is_vectorized, ObjectPool* pool,
+    static Status get_fn(std::string fn_name, bool is_vectorized, ObjectPool* pool,
                          TableFunction** fn);
 
     const static std::unordered_map<std::pair<std::string, bool>, std::function<TableFunction*()>>
             _function_map;
+
+    static const std::string suffix_outer;
 };
 
 } // namespace doris

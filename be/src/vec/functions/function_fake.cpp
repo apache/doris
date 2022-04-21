@@ -17,18 +17,43 @@
 
 #include "vec/functions/function_fake.h"
 
+#include <boost/metaparse/string.hpp>
+#include <string_view>
+#include <type_traits>
+
 namespace doris::vectorized {
 
+// We can use std::basic_fixed_string with c++20 in future
+template <const char* Name, typename ReturnType = DataTypeInt32>
+struct FakeFunctionBaseImpl {
+    static constexpr auto name = Name;
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<ReturnType>();
+    }
+};
+
+#define C_STR(str_) boost::mpl::c_str<BOOST_METAPARSE_STRING(str_)>::value
+
+using FunctionEsquery = FakeFunctionBaseImpl<C_STR("esquery")>;
+
+using FunctionExplodeSplit = FakeFunctionBaseImpl<C_STR("explode_split")>;
+using FunctionExplodeNumbers = FakeFunctionBaseImpl<C_STR("explode_numbers")>;
+using FunctionExplodeJsonArrayInt = FakeFunctionBaseImpl<C_STR("explode_json_array_int")>;
+using FunctionExplodeJsonArrayString = FakeFunctionBaseImpl<C_STR("explode_json_array_string")>;
+using FunctionExplodeJsonArrayDouble = FakeFunctionBaseImpl<C_STR("explode_json_array_double")>;
+using FunctionExplodeBitmap = FakeFunctionBaseImpl<C_STR("explode_bitmap")>;
+using FunctionExplode = FakeFunctionBaseImpl<C_STR("explode")>;
+
 void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayDoubleImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayIntImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeJsonArrayStringImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeBitmapImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeImpl>>();
-    factory.register_function<FunctionFake<FunctionExplodeOuterImpl>>();
+    factory.register_function<FunctionFake<FunctionEsquery>>();
+
+    factory.register_table_function<FunctionFake<FunctionExplodeSplit>>();
+    factory.register_table_function<FunctionFake<FunctionExplodeNumbers>>();
+    factory.register_table_function<FunctionFake<FunctionExplodeJsonArrayDouble>>();
+    factory.register_table_function<FunctionFake<FunctionExplodeJsonArrayInt>>();
+    factory.register_table_function<FunctionFake<FunctionExplodeJsonArrayString>>();
+    factory.register_table_function<FunctionFake<FunctionExplodeBitmap>>();
+    factory.register_table_function<FunctionFake<FunctionExplode>>();
 }
 
 } // namespace doris::vectorized
