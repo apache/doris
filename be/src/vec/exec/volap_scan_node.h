@@ -39,6 +39,7 @@ public:
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
     Status close(RuntimeState* state) override;
+
 private:
     void transfer_thread(RuntimeState* state);
     void scanner_thread(VOlapScanner* scanner);
@@ -64,6 +65,8 @@ private:
     std::mutex _volap_scanners_lock;
 
     int _max_materialized_blocks;
+
+    size_t _block_size = 0;
 };
 } // namespace vectorized
 } // namespace doris
