@@ -159,7 +159,6 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
             LOG(WARNING) << "failed to append block: " << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
         }
-        refresh_segment_capacity();
         _num_rows_written += block_row_num;
     }
     return Status::OK();
@@ -318,6 +317,9 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
 }
 
 Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    if ((*writer)->num_rows_written() == 0) {
+        return Status::OK();
+    }
     uint64_t segment_size;
     uint64_t index_size;
     Status s = (*writer)->finalize(&segment_size, &index_size);
