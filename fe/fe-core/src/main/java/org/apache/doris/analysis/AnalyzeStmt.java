@@ -173,7 +173,7 @@ public class AnalyzeStmt extends DdlStmt {
                 table.readLock();
                 try {
                     for (String columnName : this.columnNames) {
-                        Column column = table.getColumn(columnName);
+                        Column column = table.getBaseSchema(false);
                         if (column == null) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
                         }
