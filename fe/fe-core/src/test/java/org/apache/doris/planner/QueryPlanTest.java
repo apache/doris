@@ -1992,6 +1992,7 @@ public class QueryPlanTest {
         ExplainTest explainTest = new ExplainTest();
         explainTest.before(connectContext);
         explainTest.testExplainSelect();
+        explainTest.testExplainInsertInto();
         explainTest.testExplainVerboseSelect();
         explainTest.testExplainConcatSelect();
         explainTest.testExplainVerboseConcatSelect();
@@ -2087,7 +2088,7 @@ public class QueryPlanTest {
                 "\"storage_medium\" = \"HDD\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ");\n");
-        String queryStr = "EXPLAIN INSERT INTO result_exprs\n" +
+        String queryStr = "EXPLAIN verbose INSERT INTO result_exprs\n" +
                 "SELECT a.aid,\n" +
                 "       b.bid\n" +
                 "FROM\n" +
@@ -2097,7 +2098,7 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
     }
 
     @Test
