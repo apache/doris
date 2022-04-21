@@ -108,6 +108,7 @@ enum TFileFormatType {
     FORMAT_ORC,
     FORMAT_JSON,
     FORMAT_PROTO,
+    FORMAT_TEXT,
 }
 
 struct THdfsConf {
