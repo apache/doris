@@ -45,6 +45,8 @@ public class DynamicPartitionProperty {
     public static final String CREATE_HISTORY_PARTITION = "dynamic_partition.create_history_partition";
     public static final String HISTORY_PARTITION_NUM = "dynamic_partition.history_partition_num";
     public static final String HOT_PARTITION_NUM = "dynamic_partition.hot_partition_num";
+    public static final String LOCAL_PARTITION_NUM = "dynamic_partition.local_partition_num";
+    public static final String REMOTE_STORAGE_NAME = "dynamic_partition.remote_storage_name";
     public static final String RESERVED_HISTORY_PERIODS = "dynamic_partition.reserved_history_periods";
 
     public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
@@ -71,6 +73,8 @@ public class DynamicPartitionProperty {
     // This property are used to describe the number of partitions that need to be reserved on the high-speed storage.
     // If not set, default is 0
     private int hotPartitionNum;
+    private int localPartitionNum;
+    private String remoteStorageName;
     private String reservedHistoryPeriods;
 
     public DynamicPartitionProperty(Map<String, String> properties) {
@@ -88,6 +92,8 @@ public class DynamicPartitionProperty {
             this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
             this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
             this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
+            this.localPartitionNum = Integer.parseInt(properties.getOrDefault(LOCAL_PARTITION_NUM, "0"));
+            this.remoteStorageName = properties.getOrDefault(REMOTE_STORAGE_NAME, "");
             this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             createStartOfs(properties);
         } else {
@@ -168,6 +174,14 @@ public class DynamicPartitionProperty {
         return hotPartitionNum;
     }
 
+    public int getLocalPartitionNum() {
+        return localPartitionNum;
+    }
+
+    public String getRemoteStorageName() {
+        return remoteStorageName;
+    }
+
     public String getStartOfInfo() {
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             return startOfWeek.toDisplayInfo();
@@ -210,6 +224,8 @@ public class DynamicPartitionProperty {
                 ",\n\"" + CREATE_HISTORY_PARTITION + "\" = \"" + createHistoryPartition + "\"" +
                 ",\n\"" + HISTORY_PARTITION_NUM + "\" = \"" + historyPartitionNum + "\"" +
                 ",\n\"" + HOT_PARTITION_NUM + "\" = \"" + hotPartitionNum + "\"" +
+                ",\n\"" + LOCAL_PARTITION_NUM + "\" = \"" + localPartitionNum + "\"" +
+                ",\n\"" + REMOTE_STORAGE_NAME + "\" = \"" + remoteStorageName + "\"" +
                 ",\n\"" + RESERVED_HISTORY_PERIODS + "\" = \"" + reservedHistoryPeriods + "\"";
         if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
             res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";

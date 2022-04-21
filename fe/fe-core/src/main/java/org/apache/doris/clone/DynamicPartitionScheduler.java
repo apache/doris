@@ -160,6 +160,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             idx = 0;
         }
         int hotPartitionNum = dynamicPartitionProperty.getHotPartitionNum();
+        int localPartitionNum = dynamicPartitionProperty.getLocalPartitionNum();
+        String remoteStorageName = dynamicPartitionProperty.getRemoteStorageName();
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
             String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, now, idx, partitionFormat);
@@ -215,6 +217,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
             }
 
+            if (localPartitionNum > 0) {
+                setRemoteStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now,
+                        localPartitionNum, remoteStorageName, idx);
+            }
+
             String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(
                     dynamicPartitionProperty.getTimeZone(), prevBorder, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
@@ -243,6 +250,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + hotPartitionNum,
                 DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
+    }
+
+    private void setRemoteStorageMediumProperty(
+            HashMap<String, String> partitionProperties, DynamicPartitionProperty property,
+            ZonedDateTime now, int localPartitionNum, String remoteStorageName, int offset) {
+        if (offset + localPartitionNum <= 0) {
+            return;
+        }
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, remoteStorageName);
+        String remoteCooldownTime = DynamicPartitionUtil.getPartitionRangeString(property, now, offset + localPartitionNum,
+                DynamicPartitionUtil.DATETIME_FORMAT);
+        partitionProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME, remoteCooldownTime);
     }
 
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat,

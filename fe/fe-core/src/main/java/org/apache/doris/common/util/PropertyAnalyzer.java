@@ -32,11 +32,11 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
-import org.apache.doris.thrift.TSortType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -157,15 +157,19 @@ public class PropertyAnalyzer {
 
         // Check properties
 
-        if (!hasCooldown && !hasMedium) {
+        if (!hasCooldown && !hasMedium && !hasRemoteStorageResource && !hasRemoteCooldown) {
             return oldDataProperty;
+        }
+
+        if (!hasCooldown && !hasMedium) {
+            storageMedium = oldDataProperty.getStorageMedium();
+            cooldownTimeStamp = oldDataProperty.getCooldownTimeMs();
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
         properties.remove(PROPERTIES_REMOTE_STORAGE_RESOURCE);
         properties.remove(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME);
-
 
         if (hasCooldown && !hasMedium) {
             throw new AnalysisException("Invalid data property. storage medium property is not found");

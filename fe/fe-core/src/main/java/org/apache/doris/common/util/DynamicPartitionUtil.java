@@ -240,6 +240,28 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkLocalPartitionNum(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.LOCAL_PARTITION_NUM);
+        }
+        try {
+            if (Integer.parseInt(val) < 0) {
+                throw new DdlException(DynamicPartitionProperty.LOCAL_PARTITION_NUM + " must larger than 0.");
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid " + DynamicPartitionProperty.LOCAL_PARTITION_NUM + " value");
+        }
+    }
+
+    private static void checkRemoteStorageName(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.REMOTE_STORAGE_NAME);
+        }
+        if (val.isEmpty()) {
+            throw new DdlException(DynamicPartitionProperty.REMOTE_STORAGE_NAME + " is empty.");
+        }
+    }
+
     public static List<Range> convertStringToPeriodsList(String reservedHistoryPeriods, String timeUnit) throws DdlException {
         List<Range> reservedHistoryPeriodsToRangeList = new ArrayList<Range>();
         if (DynamicPartitionProperty.NOT_SET_RESERVED_HISTORY_PERIODS.equals(reservedHistoryPeriods)) {
@@ -562,6 +584,21 @@ public class DynamicPartitionUtil {
             properties.remove(DynamicPartitionProperty.HOT_PARTITION_NUM);
             analyzedProperties.put(DynamicPartitionProperty.HOT_PARTITION_NUM, val);
         }
+
+        if (properties.containsKey(DynamicPartitionProperty.LOCAL_PARTITION_NUM)) {
+            String val = properties.get(DynamicPartitionProperty.LOCAL_PARTITION_NUM);
+            checkLocalPartitionNum(val);
+            properties.remove(DynamicPartitionProperty.LOCAL_PARTITION_NUM);
+            analyzedProperties.put(DynamicPartitionProperty.LOCAL_PARTITION_NUM, val);
+        }
+
+        if (properties.containsKey(DynamicPartitionProperty.REMOTE_STORAGE_NAME)) {
+            String val = properties.get(DynamicPartitionProperty.REMOTE_STORAGE_NAME);
+            checkRemoteStorageName(val);
+            properties.remove(DynamicPartitionProperty.REMOTE_STORAGE_NAME);
+            analyzedProperties.put(DynamicPartitionProperty.REMOTE_STORAGE_NAME, val);
+        }
+
         if (properties.containsKey(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS)) {
             String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
             checkReservedHistoryPeriodValidate(reservedHistoryPeriods, analyzedProperties.get(DynamicPartitionProperty.TIME_UNIT));
