@@ -413,9 +413,9 @@ public class OlapScanNode extends ScanNode {
         numNodes = numNodes <= 0 ? 1 : numNodes;
     }
 
-    private void computeInaccurateCardinality() {
+    private void computeInaccurateCardinality() throws UserException {
         StatsRecursiveDerive.getStatsRecursiveDerive().statsRecursiveDerive(this);
-        cardinality = statsDeriveResult.getCardinality();
+        cardinality = statsDeriveResult.getRowCount();
     }
 
     private Collection<Long> partitionPrune(PartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
@@ -562,13 +562,15 @@ public class OlapScanNode extends ScanNode {
         // FIXME(dhc): we use cardinality here to simulate ndv
         // update statsDeriveResult for real statistics
         // After statistics collection is complete, remove the logic
-        statsDeriveResult.setRowCount(cardinality);
-        for (Map.Entry<Long, Long> entry : statsDeriveResult.getColumnToNdv().entrySet()) {
-            if (entry.getValue() > 0) {
-                cardinality = Math.min(cardinality, entry.getValue());
+        if (analyzer.safeIsEnableJoinReorderBasedCost()) {
+            statsDeriveResult.setRowCount(cardinality);
+            for (Map.Entry<Long, Long> entry : statsDeriveResult.getColumnToNdv().entrySet()) {
+                if (entry.getValue() > 0) {
+                    cardinality = Math.min(cardinality, entry.getValue());
+                }
             }
+            statsDeriveResult.setRowCount(cardinality);
         }
-        statsDeriveResult.setCardinality(cardinality);
 
         if (tablets.size() == 0) {
             desc.setCardinality(0);

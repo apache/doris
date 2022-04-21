@@ -20,28 +20,28 @@ package org.apache.doris.statistics;
 import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class ScanStatsDerive extends BaseStatsDerive {
+public class OlapScanStatsDerive extends BaseStatsDerive {
     // Currently, due to the structure of doris,
     // the selected materialized view is not determined when calculating the statistical information of scan,
     // so baseIndex is used for calculation when generating Planner.
 
     // The rowCount here is the number of rows.
-    private long rowCount = -1;
+    private long inputRowCount = -1;
     private Map<Long, Long> slotIdToDataSize;
     private Map<Long, Long> slotIdToNdv;
 
     @Override
-    public ScanStatsDerive init(PlanNode node) {
+    public void init(PlanNode node) throws UserException {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
         buildColumnToStats((OlapScanNode)node);
-        return this;
     }
 
     @Override
@@ -53,10 +53,8 @@ public class ScanStatsDerive extends BaseStatsDerive {
          * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
          * - So only an inaccurate cardinality can be calculated here.
          */
-        cardinality = rowCount;
-        applyConjunctsSelectivity();
-        capCardinalityAtLimit();
-        return new StatsDeriveResult(cardinality, rowCount, slotIdToDataSize, slotIdToNdv);
+        rowCount = inputRowCount;
+        return super.deriveStats();
     }
 
     public void buildColumnToStats(OlapScanNode node) {
@@ -65,30 +63,45 @@ public class ScanStatsDerive extends BaseStatsDerive {
         if (node.getTupleDesc() != null
             && node.getTupleDesc().getTable() != null) {
             long tableId = node.getTupleDesc().getTable().getId();
-            rowCount = Catalog.getCurrentCatalog().getStatisticsManager()
+            inputRowCount = Catalog.getCurrentCatalog().getStatisticsManager()
                     .getStatistics().getTableStats(tableId).getRowCount();
         }
         for (SlotDescriptor slot : node.getTupleDesc().getSlots()) {
-            if (slot.getParent() != null
-                    && slot.getParent().getTable() != null
-                    && slot.getColumn() != null) {
-                long tableId = slot.getParent().getTable().getId();
-                String columnName = slot.getColumn().getName();
-                /*TODO:Implement the getStatistics interface
-                //now there is nothing in statistics, need to wait for collection finished
-                if (Catalog.getCurrentCatalog()
+            if (!slot.isMaterialized()) {
+                continue;
+            }
+
+            long tableId = slot.getParent().getTable().getId();
+            String columnName = slot.getColumn().getName();
+            /*TODO:Implement the getStatistics interface
+            //now there is nothing in statistics, need to wait for collection finished
+            long ndv = -1;
+            long dataSize = -1;
+            getNdvAndDataSizeFromStatistics(ndv, dataSize);
+
+            slotIdToNdv.put(slot.getId(), ndv);
+            slotIdToDataSize.put(slot.getId(), dataSize);
+             */
+        }
+    }
+
+    public void getNdvAndDataSizeFromStatistics(long ndv, long dataSize) {
+        /*
+        ndv = -1;
+        dataSize = -1;
+        if (Catalog.getCurrentCatalog()
+                    .getStatisticsManager()
+                    .getStatistics()
+                    .getColumnStats(tableId) != null) {
+                ndv = Catalog.getCurrentCatalog()
                         .getStatisticsManager()
                         .getStatistics()
-                        .getColumnStats(tableId) != null) {
-                    ndv = Catalog.getCurrentCatalog()
-                            .getStatisticsManager()
-                            .getStatistics()
-                            .getColumnStats(tableId).get(columnName).getNdv();
-                    slotIdToNdv.put(slot.getId(), ndv);
-                //same as slotIdToDataSize
-                }
-                 */
-            }
-        }
+                        .getColumnStats(tableId).get(columnName).getNdv();
+                dataSize = Catalog.getCurrentCatalog()
+                        .getStatisticsManager()
+                        .getStatistics()
+                        .getColumnStats(tableId).get(columnName).getDataSize();
+         }
+         */
     }
 }

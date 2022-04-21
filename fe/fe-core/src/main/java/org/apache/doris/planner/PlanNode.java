@@ -55,7 +55,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -138,7 +137,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     protected List<SlotId> outputSlotIds;
 
     protected NodeType nodeType = NodeType.DEFAULT;
-    protected StatsDeriveResult statsDeriveResult = new StatsDeriveResult();
+    protected StatsDeriveResult statsDeriveResult;
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -178,12 +177,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.planNodeName = VectorizedUtil.isVectorized() ?
                 "V" + planNodeName : planNodeName;
         this.numInstances = 1;
-        this.nodeType = node.getNodeType();
-        this.statsDeriveResult = new StatsDeriveResult(
-                node.getStatsDeriveResult().get().getCardinality(),
-                node.getStatsDeriveResult().get().getRowCount(),
-                node.getStatsDeriveResult().get().getColumnToDataSize(),
-                node.getStatsDeriveResult().get().getColumnToNdv());
+        this.nodeType = nodeType;
     }
 
     public enum NodeType {
@@ -203,8 +197,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         return planNodeName;
     }
 
-    public Optional<StatsDeriveResult> getStatsDeriveResult() {
-        return Optional.ofNullable(statsDeriveResult);
+    public StatsDeriveResult getStatsDeriveResult() {
+        return statsDeriveResult;
     }
 
     public NodeType getNodeType() {

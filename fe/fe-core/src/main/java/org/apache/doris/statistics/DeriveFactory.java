@@ -28,14 +28,9 @@ public class DeriveFactory {
             case MERGE_NODE:
                 break;
             case OLAP_SCAN_NODE:
-                return new ScanStatsDerive();
+                return new OlapScanStatsDerive();
             case DEFAULT:
         }
-        return new BaseStatsDerive() {
-            @Override
-            public StatsDeriveResult deriveStats() {
-                return new StatsDeriveResult();
-            }
-        };
+        return new BaseStatsDerive();
     }
 }

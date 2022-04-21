@@ -20,40 +20,50 @@ package org.apache.doris.statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNode;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
 
-public abstract class BaseStatsDerive {
-    // estimate of the output cardinality of this node;
+public class BaseStatsDerive {
+    private static final Logger LOG = LogManager.getLogger(BaseStatsDerive.class);
+    // estimate of the output rowCount of this node;
     // invalid: -1
-    protected long cardinality = -1;
+    protected long rowCount = -1;
     protected long limit = -1;
 
     protected List<Expr> conjuncts = Lists.newArrayList();
-    protected List<Optional<StatsDeriveResult>> childrenStatsResult = Lists.newArrayList();
+    protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
 
-    protected BaseStatsDerive init(PlanNode node) {
+    protected void init(PlanNode node) throws UserException {
         limit = node.getLimit();
         conjuncts.addAll(node.getConjuncts());
 
         for (PlanNode childNode : node.getChildren()) {
-            childrenStatsResult.add(childNode.getStatsDeriveResult());
+            StatsDeriveResult result = childNode.getStatsDeriveResult();
+            if (result == null) {
+                throw new UserException("childNode statsDeriveResult is null, childNodeType is " + childNode.getNodeType()
+                + "parentNodeType is " + node.getNodeType());
+            }
+            childrenStatsResult.add(result);
         }
-        return this;
     }
 
-    public abstract StatsDeriveResult deriveStats();
+    public StatsDeriveResult deriveStats() {
+        return new StatsDeriveResult(deriveRowCount(), deriveColumnToDataSize(), deriveColumnToNdv());
+    }
 
     public boolean hasLimit() {
         return limit > -1;
     }
 
     protected void applyConjunctsSelectivity() {
-        if (cardinality == -1) {
+        if (rowCount == -1) {
             return;
         }
         applySelectivity();
@@ -61,12 +71,12 @@ public abstract class BaseStatsDerive {
 
     private void applySelectivity() {
         double selectivity = computeSelectivity();
-        Preconditions.checkState(cardinality >= 0);
-        long preConjunctCardinality = cardinality;
-        cardinality = Math.round(cardinality * selectivity);
-        // don't round cardinality down to zero for safety.
-        if (cardinality == 0 && preConjunctCardinality > 0) {
-            cardinality = 1;
+        Preconditions.checkState(rowCount >= 0);
+        long preConjunctrowCount = rowCount;
+        rowCount = Math.round(rowCount * selectivity);
+        // don't round rowCount down to zero for safety.
+        if (rowCount == 0 && preConjunctrowCount > 0) {
+            rowCount = 1;
         }
     }
 
@@ -89,7 +99,7 @@ public abstract class BaseStatsDerive {
      * The second issue is addressed by an exponential backoff when multiplying each
      * additional selectivity into the final result.
      */
-    static protected double computeCombinedSelectivity(List<Expr> conjuncts) {
+    protected double computeCombinedSelectivity(List<Expr> conjuncts) {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
@@ -114,9 +124,34 @@ public abstract class BaseStatsDerive {
         return Math.max(0.0, Math.min(1.0, result));
     }
 
-    protected void capCardinalityAtLimit() {
+    protected void capRowCountAtLimit() {
         if (hasLimit()) {
-            cardinality = cardinality == -1 ? limit : Math.min(cardinality, limit);
+            rowCount = rowCount == -1 ? limit : Math.min(rowCount, limit);
         }
+    }
+
+
+    // Currently it simply adds the number of rows of children
+    protected long deriveRowCount() {
+        applyConjunctsSelectivity();
+        capRowCountAtLimit();
+        return rowCount;
+    }
+
+
+    protected HashMap<Long, Long> deriveColumnToDataSize() {
+        HashMap<Long, Long> columnToDataSize = new HashMap<>();
+        for (StatsDeriveResult child : childrenStatsResult) {
+            columnToDataSize.putAll(child.getColumnToDataSize());
+        }
+        return columnToDataSize;
+    }
+
+    protected HashMap<Long, Long> deriveColumnToNdv() {
+        HashMap<Long, Long> columnToNdv = new HashMap<>();
+        for (StatsDeriveResult child : childrenStatsResult) {
+            columnToNdv.putAll(child.getColumnToNdv());
+        }
+        return columnToNdv;
     }
 }

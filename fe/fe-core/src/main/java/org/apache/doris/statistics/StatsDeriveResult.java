@@ -23,7 +23,6 @@ import java.util.Map;
 
 // This structure is maintained in each operator to store the statistical information results obtained by the operator.
 public class StatsDeriveResult {
-    private long cardinality = -1;
     private long rowCount = -1;
     // The data size of the corresponding column in the operator
     // The actual key is slotId
@@ -34,8 +33,7 @@ public class StatsDeriveResult {
 
     public StatsDeriveResult() {}
 
-    public StatsDeriveResult(long cardinality, long rowCount, Map<Long, Long> columnToDataSize, Map<Long, Long> columnToNdv) {
-        this.cardinality = cardinality;
+    public StatsDeriveResult(long rowCount, Map<Long, Long> columnToDataSize, Map<Long, Long> columnToNdv) {
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
         this.columnToNdv.putAll(columnToNdv);
@@ -44,19 +42,7 @@ public class StatsDeriveResult {
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
     }
-
-    public void setCardinality(long cardinality) {
-        this.cardinality = cardinality;
-    }
-
-    public boolean isStatsDerived() {
-        return cardinality != -1 && rowCount != -1 && !columnToDataSize.isEmpty() && !columnToNdv.isEmpty();
-    }
-
-    public long getCardinality() {
-        return cardinality;
-    }
-
+    
     public long getRowCount() {
         return rowCount;
     }
