@@ -91,7 +91,7 @@ public class ConnectProcessor {
         try {
             ctx.getCatalog().changeDb(ctx, dbName);
         } catch (DdlException e) {
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
 

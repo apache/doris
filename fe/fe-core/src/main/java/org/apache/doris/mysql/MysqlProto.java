@@ -282,6 +282,7 @@ public class MysqlProto {
                 String dbFullName = ClusterNamespace.getFullName(context.getClusterName(), db);
                 Catalog.getCurrentCatalog().changeDb(context, dbFullName);
             } catch (DdlException e) {
+                context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                 sendResponsePacket(context);
                 return false;
             }
