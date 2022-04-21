@@ -21,7 +21,8 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -46,7 +47,7 @@ public class StatisticsJob {
         CANCELLED
     }
 
-    private long id = Catalog.getCurrentCatalog().getNextId();
+    private final long id = Catalog.getCurrentCatalog().getNextId();
 
     /**
      * to be collected database stats.
@@ -63,15 +64,12 @@ public class StatisticsJob {
      */
     private final Map<Long, List<String>> tableIdToColumnName;
 
-    /**
-     * timeout of a statistics task
-     */
-    private long taskTimeout;
+    private final Map<String, String> properties;
 
     /**
      * to be executed tasks.
      */
-    private List<StatisticsTask> tasks = Lists.newArrayList();
+    private final List<StatisticsTask> tasks = Lists.newArrayList();
 
     private JobState jobState = JobState.PENDING;
     private final List<String> errorMsgs = Lists.newArrayList();
@@ -83,18 +81,16 @@ public class StatisticsJob {
 
     public StatisticsJob(Long dbId,
                          Set<Long> tblIds,
-                         Map<Long, List<String>> tableIdToColumnName) {
+                         Map<Long, List<String>> tableIdToColumnName,
+                         Map<String, String> properties) {
         this.dbId = dbId;
         this.tblIds = tblIds;
         this.tableIdToColumnName = tableIdToColumnName;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
     public long getId() {
         return this.id;
-    }
-
-    public void setId(long id) {
-        this.id = id;
     }
 
     public long getDbId() {
@@ -109,20 +105,16 @@ public class StatisticsJob {
         return this.tableIdToColumnName;
     }
 
-    public long getTaskTimeout() {
-        return taskTimeout;
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     public List<StatisticsTask> getTasks() {
         return this.tasks;
     }
 
-    public void setTasks(List<StatisticsTask> tasks) {
-        this.tasks = tasks;
-    }
-
     public List<String> getErrorMsgs() {
-        return errorMsgs;
+        return this.errorMsgs;
     }
 
     public JobState getJobState() {
@@ -137,30 +129,12 @@ public class StatisticsJob {
         return this.startTime;
     }
 
-    public void setStartTime(long startTime) {
-        this.startTime = startTime;
-    }
-
     public long getFinishTime() {
         return this.finishTime;
     }
 
-    public void setFinishTime(long finishTime) {
-        this.finishTime = finishTime;
-    }
-
     public int getProgress() {
         return this.progress;
-    }
-
-    public void setProgress(int progress) {
-        this.progress = progress;
-    }
-
-    private void setOptional(AnalyzeStmt stmt) {
-        if (stmt.getTaskTimeout() != -1) {
-            this.taskTimeout = stmt.getTaskTimeout();
-        }
     }
 
     /**
@@ -173,8 +147,7 @@ public class StatisticsJob {
         long dbId = analyzeStmt.getDbId();
         Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
         Set<Long> tblIds = analyzeStmt.getTblIds();
-        StatisticsJob statisticsJob = new StatisticsJob(dbId, tblIds, tableIdToColumnName);
-        statisticsJob.setOptional(analyzeStmt);
-        return statisticsJob;
+        Map<String, String> properties = analyzeStmt.getProperties();
+        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
     }
 }
