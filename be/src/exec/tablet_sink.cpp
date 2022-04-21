@@ -141,6 +141,7 @@ void NodeChannel::open() {
     request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request.set_is_high_priority(_parent->_is_high_priority);
     request.set_sender_ip(BackendOptions::get_localhost());
+    request.set_is_vectorized(_is_vectorized);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -547,8 +548,6 @@ void NodeChannel::clear_all_batches() {
     _cur_batch.reset();
 }
 
-IndexChannel::~IndexChannel() {}
-
 Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
     for (auto& tablet : tablets) {
@@ -584,20 +583,6 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
         RETURN_IF_ERROR(it.second->init(state));
     }
     return Status::OK();
-}
-
-void IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
-    auto it = _channels_by_tablet.find(tablet_id);
-    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
-    for (auto channel : it->second) {
-        // if this node channel is already failed, this add_row will be skipped
-        auto st = channel->add_row(tuple, tablet_id);
-        if (!st.ok()) {
-            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
-            // continue add row to other node, the error will be checked for every batch outside
-        }
-    }
 }
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
@@ -823,14 +808,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
                 tablets.emplace_back(std::move(tablet_with_partition));
             }
         }
-        IndexChannel *index_channel;
-        if (_is_vectorized) {
-            index_channel = new VIndexChannel(this, index->index_id);
-        } else {
-            index_channel = new IndexChannel(this, index->index_id);
-        }
-        RETURN_IF_ERROR(index_channel->init(state, tablets));
-        _channels.emplace_back(index_channel);
+        _channels.emplace_back(new IndexChannel(this, index->index_id, _is_vectorized));
+        RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
 
     return Status::OK();

@@ -36,9 +36,6 @@ VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
 
 }
 
-VBrokerScanner::~VBrokerScanner() {
-}
-
 Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
     SCOPED_TIMER(_read_timer);
 

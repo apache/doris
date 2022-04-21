@@ -33,6 +33,7 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"
 #include "util/ref_count_closure.h"
@@ -90,18 +91,18 @@ struct AddBatchCounter {
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
 template <typename T>
-class ReusableClosure : public google::protobuf::Closure {
+class ReusableClosure final: public google::protobuf::Closure {
 public:
     ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
-    ~ReusableClosure() {
+    ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
     }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
 
-    void addFailedHandler(std::function<void(bool)> fn) { failed_handler = fn; }
-    void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
+    void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
+    void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
 
     void join() {
         // We rely on in_flight to assure one rpc is running,
@@ -181,7 +182,7 @@ public:
     virtual Status open_wait();
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
-    virtual Status add_row(BlockRow& block_row, int64_t tablet_id) {
+    virtual Status add_row(const BlockRow& block_row, int64_t tablet_id) {
         LOG(FATAL) << "add block row to NodeChannel not supported";
         return Status::OK();
     }
@@ -326,18 +327,16 @@ private:
 
 class IndexChannel {
 public:
-    IndexChannel(OlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {
+    IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec) :
+        _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
         _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
     }
-    virtual ~IndexChannel();
+    ~IndexChannel() = default;
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    void add_row(Tuple* tuple, int64_t tablet_id);
-
-    virtual void add_row(BlockRow& block_row, int64_t tablet_id) {
-        LOG(FATAL) << "add block row to IndexChannel not supported";
-    }
+    template <typename Row>
+    void add_row(const Row& tuple, int64_t tablet_id);
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
@@ -355,13 +354,13 @@ public:
 
     size_t num_node_channels() const { return _node_channels.size(); }
 
-protected:
+private:
     friend class NodeChannel;
     friend class VNodeChannel;
 
-    bool _is_vectorized = false;
     OlapTableSink* _parent;
     int64_t _index_id;
+    bool _is_vectorized = false;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -385,6 +384,21 @@ protected:
 
     std::shared_ptr<MemTracker> _index_channel_tracker; // TODO(zxy) use after
 };
+
+template <typename Row>
+void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
+    auto it = _channels_by_tablet.find(tablet_id);
+    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
+    for (const auto& channel : it->second) {
+        // if this node channel is already failed, this add_row will be skipped
+        auto st = channel->add_row(tuple, tablet_id);
+        if (!st.ok()) {
+            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
+            // continue add row to other node, the error will be checked for every batch outside
+        }
+    }
+}
 
 // Write data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
@@ -430,10 +444,8 @@ private:
 
 protected:
     friend class NodeChannel;
-    friend class IndexChannel;
-
     friend class VNodeChannel;
-    friend class VIndexChannel;
+    friend class IndexChannel;
 
     bool _is_vectorized = false;
 

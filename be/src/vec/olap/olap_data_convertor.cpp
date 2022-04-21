@@ -29,7 +29,7 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
     for (const auto& col : columns) {
         switch (col.type()) {
         case FieldType::OLAP_FIELD_TYPE_OBJECT: {
-            _convertors.emplace_back(std::make_shared<OlapColumnDataConvertorObject>());
+            _convertors.emplace_back(std::make_shared<OlapColumnDataConvertorBitMap>());
             break;
         }
         case FieldType::OLAP_FIELD_TYPE_HLL: {
@@ -179,7 +179,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
     return null_flag ? nullptr : _slice.data() + offset;
 }
 
-Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() {
+Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnBitmap* column_bitmap = nullptr;
     if (_nullmap) {
@@ -240,29 +240,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() 
         assert(slice == _slice.get_end_ptr());
     }
     return Status::OK();
-}
-
-// class OlapBlockDataConvertor::OlapColumnDataConvertorHLL
-void OlapBlockDataConvertor::OlapColumnDataConvertorHLL::set_source_column(
-        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
-                                                                           num_rows);
-    _raw_data.clear();
-    _slice.resize(num_rows);
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorHLL::get_data() const {
-    return _slice.data();
-}
-
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorHLL::get_data_at(size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
-    UInt8 null_flag = 0;
-    auto null_map = get_nullmap();
-    if (null_map) {
-        null_flag = null_map[offset];
-    }
-    return null_flag ? nullptr : _slice.data() + offset;
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {

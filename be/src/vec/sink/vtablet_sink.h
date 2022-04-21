@@ -28,7 +28,6 @@ class VExprContext;
 
 namespace stream_load {
 
-class VIndexChannel;
 class VNodeChannel : public NodeChannel {
 public:
     VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
@@ -39,7 +38,7 @@ public:
 
     Status open_wait() override;
 
-    Status add_row(BlockRow& block_row, int64_t tablet_id) override;
+    Status add_row(const BlockRow& block_row, int64_t tablet_id) override;
 
     int try_send_and_fetch_status(RuntimeState* state,
                                   std::unique_ptr<ThreadPoolToken>& thread_pool_token) override;
@@ -68,18 +67,8 @@ private:
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
     std::string _column_values_buffer;
-
 };
 
-class VIndexChannel : public IndexChannel {
-public:
-    VIndexChannel(OlapTableSink* parent, int64_t index_id);
-
-    ~VIndexChannel() override;
-
-    void add_row(BlockRow& block_row, int64_t tablet_id) override;
-
-};
 
 class OlapTableSink;
 

@@ -22,25 +22,24 @@
 #include "exec/broker_scan_node.h"
 #include "exec/scan_node.h"
 #include "runtime/descriptors.h"
-//#include "vec/exec/vbroker_scanner.h"
 namespace doris {
 
 class RuntimeState;
 class Status;
 
 namespace vectorized {
-class VBrokerScanNode : public BrokerScanNode {
+class VBrokerScanNode final : public BrokerScanNode {
 public:
     VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~VBrokerScanNode();
+    ~VBrokerScanNode() override = default;
 
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Close the scanner, and report errors.
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
 private:
-    virtual Status start_scanners() override;
+    Status start_scanners() override;
 
     void scanner_worker(int start_idx, int length);
     // Scan one range

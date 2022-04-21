@@ -25,9 +25,9 @@
 namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                         bool is_high_priority, const std::string& sender_ip)
+                         bool is_high_priority, const std::string& sender_ip, bool is_vec)
         : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip) {
+          _sender_ip(sender_ip), _is_vec(is_vec) {
     _mem_tracker = MemTracker::create_tracker(
             mem_limit, "LoadChannel:" + _load_id.to_string(), nullptr, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
@@ -39,7 +39,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
-              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip;
+              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip << ", is_vec=" << _is_vec;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -54,7 +54,7 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
         } else {
             // create a new tablets channel
             TabletsChannelKey key(params.id(), index_id);
-            channel.reset(new TabletsChannel(key, _is_high_priority));
+            channel.reset(new TabletsChannel(key, _is_high_priority, _is_vec));
             _tablets_channels.insert({index_id, channel});
         }
     }
@@ -83,37 +83,6 @@ Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channe
     is_finished = false;
     channel = it->second;
     return Status::OK();
-}
-
-Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
-                              PTabletWriterAddBatchResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    int64_t index_id = request.index_id();
-    // 1. get tablets channel
-    std::shared_ptr<TabletsChannel> channel;
-    bool is_finished;
-    Status st = _get_tablets_channel(channel, is_finished, index_id);
-    if (!st.ok() || is_finished) {
-        return st;
-    }
-
-    // 2. check if mem consumption exceed limit
-    handle_mem_exceed_limit(false);
-
-    // 3. add batch to tablets channel
-    if (request.has_row_batch()) {
-        RETURN_IF_ERROR(channel->add_batch(request, response));
-    }
-
-    // 4. handle eos
-    if (request.has_eos() && request.eos()) {
-        st = _handle_eos(channel, request, response);
-        if (!st.ok()) {
-            return st;
-        }
-    }
-    _last_updated_time.store(time(nullptr));
-    return st;
 }
 
 void LoadChannel::handle_mem_exceed_limit(bool force) {

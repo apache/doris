@@ -30,6 +30,9 @@
 
 namespace doris {
 
+// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
+const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
+                                                        OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
 class DataDir;
 class MemTracker;
 class RowBlock;
@@ -58,7 +61,7 @@ class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
                            const TabletSchema* tablet_schema,
-                           DataDir* data_dir,
+                           DataDir* data_dir, uint32_t max_row_per_segment,
                            const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
@@ -68,6 +71,8 @@ public:
     Status append_row(const RowType& row);
 
     Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+
+    int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
 
@@ -95,6 +100,7 @@ private:
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
     DataDir* _data_dir;
+    uint32_t _max_row_per_segment;
     SegmentWriterOptions _opts;
 
     // Not owned. owned by RowsetWriter
