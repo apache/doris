@@ -68,10 +68,8 @@ public class MetaCleaner {
         }
     }
 
-    public void cleanTheLatestInvalidImageFile() throws IOException {
-        Storage storage = new Storage(imageDir);
-        long latestVersion = storage.getImageSeq();
-        File latestInvalidImage = storage.getImageFile(latestVersion);
+    public void cleanTheLatestInvalidImageFile(String path) throws IOException {
+        File latestInvalidImage = new File(path);
         if (latestInvalidImage.exists()) {
             if (latestInvalidImage.delete()) {
                 LOG.info(latestInvalidImage.getAbsoluteFile() + " deleted.");
