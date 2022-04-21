@@ -125,7 +125,7 @@ inline void read_var_uint(UInt64& x, BufferReadable& buf) {
 }
 
 inline void write_var_uint(UInt64 x, BufferWritable& ostr) {
-    char bytes[8];
+    char bytes[9];
     uint8_t i = 0;
     while (i < 9) {
         uint8_t byte = x & 0x7F;
