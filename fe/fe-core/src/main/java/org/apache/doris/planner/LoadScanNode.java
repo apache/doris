@@ -57,6 +57,10 @@ public abstract class LoadScanNode extends ScanNode {
         super(id, desc, planNodeName, NodeType.LOAD_SCAN_NODE);
     }
 
+    public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
+        super(id, desc, planNodeName, nodeType);
+    }
+
     protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
         Expr newWhereExpr = initWhereExpr(whereExpr, tupleDesc, analyzer);
         if (newWhereExpr != null) {

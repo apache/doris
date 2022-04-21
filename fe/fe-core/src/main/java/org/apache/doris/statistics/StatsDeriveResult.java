@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import com.google.common.collect.Maps;
+import org.apache.doris.analysis.SlotId;
 
 import java.util.Map;
 
@@ -26,14 +27,12 @@ public class StatsDeriveResult {
     private long rowCount = -1;
     // The data size of the corresponding column in the operator
     // The actual key is slotId
-    private final Map<Long, Long> columnToDataSize = Maps.newHashMap();
+    private final Map<SlotId, Float> columnToDataSize = Maps.newHashMap();
     // The ndv of the corresponding column in the operator
     // The actual key is slotId
-    private final Map<Long, Long> columnToNdv = Maps.newHashMap();
+    private final Map<SlotId, Long> columnToNdv = Maps.newHashMap();
 
-    public StatsDeriveResult() {}
-
-    public StatsDeriveResult(long rowCount, Map<Long, Long> columnToDataSize, Map<Long, Long> columnToNdv) {
+    public StatsDeriveResult(long rowCount, Map<SlotId, Float> columnToDataSize, Map<SlotId, Long> columnToNdv) {
         this.rowCount = rowCount;
         this.columnToDataSize.putAll(columnToDataSize);
         this.columnToNdv.putAll(columnToNdv);
@@ -42,16 +41,16 @@ public class StatsDeriveResult {
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
     }
-    
+
     public long getRowCount() {
         return rowCount;
     }
 
-    public Map<Long, Long> getColumnToNdv() {
+    public Map<SlotId, Long> getColumnToNdv() {
         return columnToNdv;
     }
 
-    public Map<Long, Long> getColumnToDataSize() {
+    public Map<SlotId, Float> getColumnToDataSize() {
         return columnToDataSize;
     }
 }

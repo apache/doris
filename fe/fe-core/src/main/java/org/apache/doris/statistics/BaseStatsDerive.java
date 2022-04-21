@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNode;
 import org.apache.logging.log4j.LogManager;
@@ -133,22 +134,25 @@ public class BaseStatsDerive {
 
     // Currently it simply adds the number of rows of children
     protected long deriveRowCount() {
+        for (StatsDeriveResult statsDeriveResult : childrenStatsResult) {
+            rowCount = Math.max(rowCount, statsDeriveResult.getRowCount());
+        }
         applyConjunctsSelectivity();
         capRowCountAtLimit();
         return rowCount;
     }
 
 
-    protected HashMap<Long, Long> deriveColumnToDataSize() {
-        HashMap<Long, Long> columnToDataSize = new HashMap<>();
+    protected HashMap<SlotId, Float> deriveColumnToDataSize() {
+        HashMap<SlotId, Float> columnToDataSize = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToDataSize.putAll(child.getColumnToDataSize());
         }
         return columnToDataSize;
     }
 
-    protected HashMap<Long, Long> deriveColumnToNdv() {
-        HashMap<Long, Long> columnToNdv = new HashMap<>();
+    protected HashMap<SlotId, Long> deriveColumnToNdv() {
+        HashMap<SlotId, Long> columnToNdv = new HashMap<>();
         for (StatsDeriveResult child : childrenStatsResult) {
             columnToNdv.putAll(child.getColumnToNdv());
         }

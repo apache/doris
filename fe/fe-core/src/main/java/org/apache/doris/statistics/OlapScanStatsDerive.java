@@ -19,7 +19,9 @@ package org.apache.doris.statistics;
 
 import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNode;
@@ -34,14 +36,15 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
     // The rowCount here is the number of rows.
     private long inputRowCount = -1;
-    private Map<Long, Long> slotIdToDataSize;
-    private Map<Long, Long> slotIdToNdv;
+    private Map<SlotId, Float> slotIdToDataSize;
+    private Map<SlotId, Long> slotIdToNdv;
+    private Map<SlotId, Pair<Long, String>> slotIdToTableIdAndColumnName;
 
     @Override
     public void init(PlanNode node) throws UserException {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
-        buildColumnToStats((OlapScanNode)node);
+        buildStructure((OlapScanNode)node);
     }
 
     @Override
@@ -54,10 +57,17 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
          * - So only an inaccurate cardinality can be calculated here.
          */
         rowCount = inputRowCount;
-        return super.deriveStats();
+        for (Map.Entry<SlotId, Pair<Long, String>> pairEntry : slotIdToTableIdAndColumnName.entrySet()) {
+            Pair<Long, Float> ndvAndDataSize = getNdvAndDataSizeFromStatistics(pairEntry.getValue());
+            long ndv = ndvAndDataSize.first;
+            float dataSize = ndvAndDataSize.second;
+            slotIdToNdv.put(pairEntry.getKey(), ndv);
+            slotIdToDataSize.put(pairEntry.getKey(), dataSize);
+        }
+        return new StatsDeriveResult(deriveRowCount(), slotIdToDataSize, slotIdToNdv);
     }
 
-    public void buildColumnToStats(OlapScanNode node) {
+    public void buildStructure(OlapScanNode node) {
         slotIdToDataSize = new HashMap<>();
         slotIdToNdv = new HashMap<>();
         if (node.getTupleDesc() != null
@@ -73,35 +83,30 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
 
             long tableId = slot.getParent().getTable().getId();
             String columnName = slot.getColumn().getName();
-            /*TODO:Implement the getStatistics interface
-            //now there is nothing in statistics, need to wait for collection finished
-            long ndv = -1;
-            long dataSize = -1;
-            getNdvAndDataSizeFromStatistics(ndv, dataSize);
-
-            slotIdToNdv.put(slot.getId(), ndv);
-            slotIdToDataSize.put(slot.getId(), dataSize);
-             */
+            slotIdToTableIdAndColumnName.put(slot.getId(), new Pair<>(tableId, columnName));
         }
     }
 
-    public void getNdvAndDataSizeFromStatistics(long ndv, long dataSize) {
+    //TODO:Implement the getStatistics interface
+    //now there is nothing in statistics, need to wait for collection finished
+    public Pair<Long, Float> getNdvAndDataSizeFromStatistics(Pair<Long, String> pair) {
+        long ndv = -1;
+        float dataSize = -1;
         /*
-        ndv = -1;
-        dataSize = -1;
         if (Catalog.getCurrentCatalog()
                     .getStatisticsManager()
                     .getStatistics()
-                    .getColumnStats(tableId) != null) {
+                    .getColumnStats(pair.first) != null) {
                 ndv = Catalog.getCurrentCatalog()
                         .getStatisticsManager()
                         .getStatistics()
-                        .getColumnStats(tableId).get(columnName).getNdv();
+                        .getColumnStats(pair.first).get(pair.second).getNdv();
                 dataSize = Catalog.getCurrentCatalog()
                         .getStatisticsManager()
                         .getStatistics()
-                        .getColumnStats(tableId).get(columnName).getDataSize();
+                        .getColumnStats(pair.first).get(pair.second).getDataSize();
          }
          */
+        return new Pair<>(ndv, dataSize);
     }
 }

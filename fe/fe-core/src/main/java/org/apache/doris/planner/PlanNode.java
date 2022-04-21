@@ -183,9 +183,12 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public enum NodeType {
         DEFAULT,
         AGG_NODE,
+        BROKER_SCAN_NODE,
         HASH_JOIN_NODE,
+        HIVE_SCAN_NODE,
         MERGE_NODE,
         ES_SCAN_NODE,
+        ICEBREG_SCAN_NODE,
         LOAD_SCAN_NODE,
         MYSQL_SCAN_NODE,
         ODBC_SCAN_NODE,
