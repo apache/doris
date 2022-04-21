@@ -143,6 +143,13 @@ public class BrokerScanNode extends LoadScanNode {
         this.filesAdded = filesAdded;
     }
 
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+        super(id, destTupleDesc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        this.fileStatusesList = fileStatusesList;
+        this.filesAdded = filesAdded;
+    }
+
     @Override
     public void init(Analyzer analyzer) throws UserException {
         super.init(analyzer);
