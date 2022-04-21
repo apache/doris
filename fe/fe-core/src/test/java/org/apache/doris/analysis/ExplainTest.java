@@ -22,9 +22,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.UUID;
 
 
 public class ExplainTest {
@@ -73,13 +70,6 @@ public class ExplainTest {
         DropDbStmt dropSchemaStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropSchemaSql, ctx);
         DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbSql, ctx);
         Assert.assertEquals(dropDbStmt.toSql(), dropSchemaStmt.toSql());
-    }
-
-    public void testExplainInsertInto() throws Exception {
-        String sql = "explain insert into test_explain.explain_t1 select * from test_explain.explain_t2";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("CAST"));
     }
 
     public void testExplainSelect() throws Exception {
