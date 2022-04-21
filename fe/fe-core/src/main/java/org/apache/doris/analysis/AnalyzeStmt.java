@@ -60,7 +60,7 @@ import java.util.function.Predicate;
  *      properties: properties of statistics jobs
  */
 public class AnalyzeStmt extends DdlStmt {
-    private static final Logger LOG = LogManager.getLogger(CreateRoutineLoadStmt.class);
+    private static final Logger LOG = LogManager.getLogger(AnalyzeStmt.class);
 
     // time to wait for collect  statistics
     public static final String CBO_STATISTICS_TASK_TIMEOUT_SEC = "cbo_statistics_task_timeout_sec";
