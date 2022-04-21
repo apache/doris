@@ -224,7 +224,7 @@ public class HiveMetaStoreClientHelper {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey() != HiveTable.HIVE_METASTORE_URIS) {
+            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
                 configuration.set(entry.getKey(), entry.getValue());
             }
         }
@@ -246,7 +246,7 @@ public class HiveMetaStoreClientHelper {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey() != HiveTable.HIVE_METASTORE_URIS) {
+            if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
                 configuration.set(entry.getKey(), entry.getValue());
             }
         }
