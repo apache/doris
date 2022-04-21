@@ -23,13 +23,12 @@
 
 namespace doris {
 class TExprNode;
-class PFunctionService_Stub;
-class PFunctionCallResponse;
+class RPCFn;
 
 class RPCFnCall : public Expr {
 public:
     RPCFnCall(const TExprNode& node);
-    ~RPCFnCall() = default;
+    ~RPCFnCall();
 
     virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
                            ExprContext* context) override;
@@ -37,7 +36,9 @@ public:
                         FunctionContext::FunctionStateScope scope) override;
     virtual void close(RuntimeState* state, ExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new RPCFnCall(*this)); }
+    virtual Expr* clone(ObjectPool* pool) const override {
+        return pool->add(new RPCFnCall(_tnode));
+    }
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;
@@ -53,14 +54,7 @@ public:
     virtual doris_udf::CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
 private:
-    Status call_rpc(ExprContext* context, TupleRow* row, PFunctionCallResponse* response);
-    template <typename RETURN_TYPE>
-    RETURN_TYPE interpret_eval(ExprContext* context, TupleRow* row);
-    void cancel(const std::string& msg);
-
-    std::shared_ptr<PFunctionService_Stub> _client = nullptr;
-    int _fn_context_index;
-    std::string _rpc_function_symbol;
-    RuntimeState* _state;
+    std::unique_ptr<RPCFn> _rpc_fn;
+    const TExprNode& _tnode;
 };
 } // namespace doris

@@ -392,6 +392,10 @@ public class AggregateFunction extends Function {
             this.removeFnSymbol = symbol;
             return this;
         }
+        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
+            this.binaryType = binaryType;
+            return this;
+        }
 
         public AggregateFunction build() {
             AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
