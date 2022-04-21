@@ -65,6 +65,15 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
     initialize_index_by_name();
 }
 
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
+    for (const auto slot_desc : slots) {
+        auto column_ptr = slot_desc->get_empty_mutable_column();
+        column_ptr->reserve(block_size);
+        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
+                                     slot_desc->col_name()));
+    }
+}
+
 Block::Block(const PBlock& pblock) {
     const char* buf = nullptr;
     std::string compression_scratch;
