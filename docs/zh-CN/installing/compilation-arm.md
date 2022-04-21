@@ -241,10 +241,10 @@ $ cat /proc/cpuinfo | grep avx2
 不支持则使用以下命令进行编译
 
 ```
-$ USE_AVX2=0  sh build.sh
+$ USE_AVX2=OFF sh build.sh
 ```
 
-如果支持，可不加 USE_AVX2=0 ，直接执行 `sh build.sh` 即可。
+如果支持，可不加 USE_AVX2=OFF ，直接执行 `sh build.sh` 即可。
 
 #### 5. 常见错误
 

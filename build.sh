@@ -51,7 +51,7 @@ Usage: $0 <options>
      -j                 build Backend parallel
 
   Environment variables:
-    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
+    USE_AVX2            If the CPU does not support AVX2 instruction set, please set USE_AVX2=OFF. Default is ON.
     STRIP_DEBUG_INFO    If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
 
   Eg.
@@ -64,8 +64,8 @@ Usage: $0 <options>
     $0 --broker                             build Broker
     $0 --be --fe --java-udf                 build Backend, Frontend, Spark Dpp application and Java UDF library
 
-    USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
-    USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
+    USE_AVX2=OFF $0 --be                      build Backend and not using AVX2 instruction.
+    USE_AVX2=OFF STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
   "
   exit 1
 }

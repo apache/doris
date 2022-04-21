@@ -67,7 +67,7 @@ under the License.
 > 3. 从 build-env-1.3.1 的docker镜像起，同时包含了 OpenJDK 8 和 OpenJDK 11，并且默认使用 OpenJDK 11 编译。请确保编译使用的 JDK 版本和运行时使用的 JDK 版本一致，否则会导致非预期的运行错误。你可以使用在进入编译镜像的容器后，使用以下命令切换默认 JDK 版本：
 > 
 >   切换到 JDK 8：
->   
+> 
 >   ```
 >   $ alternatives --set java java-1.8.0-openjdk.x86_64
 >   $ alternatives --set javac java-1.8.0-openjdk.x86_64
@@ -75,7 +75,7 @@ under the License.
 >   ```
 >
 >   切换到 JDK 11：
->   
+> 
 >   ```
 >   $ alternatives --set java java-11-openjdk.x86_64
 >   $ alternatives --set javac java-11-openjdk.x86_64
@@ -252,7 +252,7 @@ under the License.
 如果有需求，用户可以继续使用这两个依赖库。如需使用，需要在编译时添加如下选项：
 
 ```
-WITH_MYSQL=1 WITH_LZO=1 sh build.sh
+WITH_MYSQL=ON WITH_LZO=ON sh build.sh
 ```
 
 注意，当用户依赖这两个第三方库时，则默认不在 Apache License 2.0 协议框架下使用 Doris。请注意 GPL 相关协议约束。
