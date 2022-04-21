@@ -159,6 +159,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.feIp).append("\t");
         auditBuffer.append(event.cpuTimeMs).append("\t");
         auditBuffer.append(event.sqlHash).append("\t");
+        auditBuffer.append(event.sqlDigest).append("\t");
         auditBuffer.append(event.peakMemoryBytes).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
