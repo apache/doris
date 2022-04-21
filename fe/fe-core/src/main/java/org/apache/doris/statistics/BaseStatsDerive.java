@@ -30,7 +30,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
 
 public class BaseStatsDerive {
     private static final Logger LOG = LogManager.getLogger(BaseStatsDerive.class);
@@ -40,7 +39,7 @@ public class BaseStatsDerive {
     protected long limit = -1;
 
     protected List<Expr> conjuncts = Lists.newArrayList();
-    protected List<Optional<StatsDeriveResult>> childrenStatsResult = Lists.newArrayList();
+    protected List<StatsDeriveResult> childrenStatsResult = Lists.newArrayList();
 
     protected void init(PlanNode node) throws UserException {
         limit = node.getLimit();
