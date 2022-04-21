@@ -276,7 +276,7 @@ sh start_fe.sh --image path_to_image_mem
 > 如果文件有效会输出 `Load image success. Image file /absolute/path/to/image.xxxxxx is valid`。
 >
 > 如果文件无效会输出 `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`。
-4. 依次用 image_mem 文件替换掉 FOLLOWER FE 节点上`meta_dir/image`目录下的 image 文件，重启 FOLLOWER FE 节点，
+4. 依次用 image_mem 文件替换掉 OBSERVER/FOLLOWER FE 节点上`meta_dir/image`目录下的 image 文件，重启 FOLLOWER FE 节点，
 确认元数据和查询服务都正常
 5. 用 image_mem 文件替换掉 Master FE 节点上`meta_dir/image`目录下的 image 文件，重启 Master FE 节点，
 确认 FE Master 切换正常， Master FE 节点可以通过 checkpoint 正常生成新的 image 文件

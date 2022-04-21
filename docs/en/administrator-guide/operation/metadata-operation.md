@@ -278,7 +278,7 @@ sh start_fe.sh --image path_to_image_mem
 >
 > If the file is invalid, the output will be `Load image failed. Image file /absolute/path/to/image.xxxxxx is invalid`.
 
-4. Replace the image file in the `meta_dir/image` directory on the FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
+4. Replace the image file in the `meta_dir/image` directory on the OBSERVER/FOLLOWER FE node with the image_mem file in turn, restart the FOLLOWER FE node, and confirm that the metadata and query services are normal.
 
 5. Replace the image file in the `meta_dir/image` directory on the Master FE node with the image_mem file, restart the Master FE node, and then confirm that the FE Master switch is normal and The Master FE node can generate a new image file through checkpoint.
 
