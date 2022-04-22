@@ -76,9 +76,13 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    private TStorageParam storageParam = new TStorageParam();;
+    private TStorageParam storageParam = null;
     // storageParamLock is used to lock storageParam.
-    private ReadWriteLock storageParamLock = new ReentrantReadWriteLock();
+    private ReadWriteLock storageParamLock = null;
+
+    public S3Resource() {
+        storageParamLock = new ReentrantReadWriteLock();
+    }
 
     public S3Resource(String name) {
         this(name, Maps.newHashMap());
@@ -87,7 +91,7 @@ public class S3Resource extends Resource {
     public S3Resource(String name, Map<String, String> properties) {
         super(name, ResourceType.S3);
         this.properties = properties;
-        resetStorageParam();
+        storageParamLock = new ReentrantReadWriteLock();
     }
 
     public String getProperty(String propertyKey) {
@@ -171,6 +175,9 @@ public class S3Resource extends Resource {
     }
 
     public TStorageParam getStorageParam() {
+        if (storageParam == null) {
+            resetStorageParam();
+        }
         storageParamLock.readLock().lock();
         try {
             return storageParam;
@@ -182,6 +189,7 @@ public class S3Resource extends Resource {
     public void resetStorageParam() {
         storageParamLock.writeLock().lock();
         try {
+            storageParam = new TStorageParam();
             storageParam.setStorageMedium(TStorageMedium.S3);
             storageParam.setStorageName(name);
             TS3StorageParam s3StorageParam = new TS3StorageParam();
