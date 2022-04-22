@@ -17,6 +17,7 @@
 
 #include "vec/sink/vtablet_sink.h"
 
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
@@ -42,10 +43,11 @@ Status VOlapTableSink::init(const TDataSink& sink) {
 }
 
 Status VOlapTableSink::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(OlapTableSink::prepare(state));
     // Prepare the exprs to run.
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _input_row_desc,
                                                _expr_mem_tracker));
-    return OlapTableSink::prepare(state);
+    return Status::OK();
 }
 
 Status VOlapTableSink::open(RuntimeState* state) {
@@ -55,6 +57,7 @@ Status VOlapTableSink::open(RuntimeState* state) {
 }
 
 Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status status = Status::OK();
 
     auto rows = input_block->rows();

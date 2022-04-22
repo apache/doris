@@ -48,28 +48,41 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
+static StorageEngine* k_engine = nullptr;
 
 void set_up() {
     config::path_gc_check = false;
     char buffer[MAX_PATH_LEN];
-    ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
+    EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
     FileUtils::remove_all(config::storage_root_path);
-    ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
+
+    doris::EngineOptions options;
+    options.store_paths = paths;
+    Status s = doris::StorageEngine::open(options, &k_engine);
+    EXPECT_TRUE(s.ok()) << s.to_string();
+
+    ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    exec_env->set_storage_engine(k_engine);
     std::string data_path = config::storage_root_path + "/data";
-    ASSERT_TRUE(FileUtils::create_dir(data_path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(data_path).ok());
     std::string shard_path = data_path + "/0";
-    ASSERT_TRUE(FileUtils::create_dir(shard_path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(shard_path).ok());
     std::string tablet_path = shard_path + "/12345";
-    ASSERT_TRUE(FileUtils::create_dir(tablet_path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(tablet_path).ok());
     std::string schema_hash_path = tablet_path + "/1111";
-    ASSERT_TRUE(FileUtils::create_dir(schema_hash_path).ok());
+    EXPECT_TRUE(FileUtils::create_dir(schema_hash_path).ok());
 }
 
 void tear_down() {
-    FileUtils::remove_all(config::storage_root_path);
+    if (k_engine != nullptr) {
+        k_engine->stop();
+        delete k_engine;
+        k_engine = nullptr;
+    }
 }
 
 void create_rowset_writer_context(TabletSchema* tablet_schema,
@@ -108,7 +121,7 @@ void create_rowset_reader_context(TabletSchema* tablet_schema,
     rowset_reader_context->conditions = conditions;
 }
 
-void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
+static void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     TabletSchemaPB tablet_schema_pb;
     tablet_schema_pb.set_keys_type(keys_type);
     tablet_schema_pb.set_num_short_key_columns(2);
@@ -156,7 +169,6 @@ public:
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
-
     virtual void TearDown() { tear_down(); }
 
 private:
@@ -170,11 +182,11 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     create_tablet_schema(AGG_KEYS, &tablet_schema);
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
-    ASSERT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(Status::OK(),
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    Status res = row.init(tablet_schema);
+    EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;
     row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
@@ -185,11 +197,11 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     _alpha_rowset_writer->add_row(row);
     _alpha_rowset_writer->flush();
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
-    ASSERT_TRUE(alpha_rowset != nullptr);
+    EXPECT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
     rowset_id.init(10000);
-    ASSERT_EQ(rowset_id, alpha_rowset->rowset_id());
-    ASSERT_EQ(1, alpha_rowset->num_rows());
+    EXPECT_EQ(rowset_id, alpha_rowset->rowset_id());
+    EXPECT_EQ(1, alpha_rowset->num_rows());
 }
 
 TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
@@ -198,12 +210,12 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, &rowset_writer_context);
 
-    ASSERT_EQ(OLAP_SUCCESS,
+    EXPECT_EQ(Status::OK(),
               RowsetFactory::create_rowset_writer(rowset_writer_context, &_alpha_rowset_writer));
 
     RowCursor row;
-    OLAPStatus res = row.init(tablet_schema);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    Status res = row.init(tablet_schema);
+    EXPECT_EQ(Status::OK(), res);
 
     int32_t field_0 = 10;
     row.set_not_null(0);
@@ -215,18 +227,18 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     row.set_not_null(2);
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
     res = _alpha_rowset_writer->add_row(row);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     res = _alpha_rowset_writer->flush();
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
-    ASSERT_TRUE(alpha_rowset != nullptr);
+    EXPECT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
     rowset_id.init(10000);
-    ASSERT_EQ(rowset_id, alpha_rowset->rowset_id());
-    ASSERT_EQ(1, alpha_rowset->num_rows());
+    EXPECT_EQ(rowset_id, alpha_rowset->rowset_id());
+    EXPECT_EQ(1, alpha_rowset->num_rows());
     RowsetReaderSharedPtr rowset_reader;
     res = alpha_rowset->create_reader(&rowset_reader);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     std::vector<uint32_t> return_columns;
     for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
@@ -234,7 +246,7 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     DeleteHandler delete_handler;
     DelPredicateArray predicate_array;
     res = delete_handler.init(tablet_schema, predicate_array, 4);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowsetReaderContext rowset_reader_context;
 
     std::set<uint32_t> load_bf_columns;
@@ -243,11 +255,11 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler, &predicates,
                                  &load_bf_columns, &conditions, &rowset_reader_context);
     res = rowset_reader->init(&rowset_reader_context);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    EXPECT_EQ(Status::OK(), res);
     RowBlock* row_block = nullptr;
     res = rowset_reader->next_block(&row_block);
-    ASSERT_EQ(OLAP_SUCCESS, res);
-    ASSERT_EQ(1, row_block->remaining());
+    EXPECT_EQ(Status::OK(), res);
+    EXPECT_EQ(1, row_block->remaining());
 }
 
 TEST_F(AlphaRowsetTest, TestRowCursorWithOrdinal) {
@@ -307,20 +319,15 @@ TEST_F(AlphaRowsetTest, TestRowCursorWithOrdinal) {
     // should be:
     // row1, row3, row2
     AlphaMergeContext* top1 = queue.top();
-    ASSERT_EQ(top1, &ctx1);
+    EXPECT_EQ(top1, &ctx1);
     queue.pop();
     AlphaMergeContext* top2 = queue.top();
-    ASSERT_EQ(top2, &ctx3);
+    EXPECT_EQ(top2, &ctx3);
     queue.pop();
     AlphaMergeContext* top3 = queue.top();
-    ASSERT_EQ(top3, &ctx2);
+    EXPECT_EQ(top3, &ctx2);
     queue.pop();
-    ASSERT_TRUE(queue.empty());
+    EXPECT_TRUE(queue.empty());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

@@ -38,10 +38,11 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const FilePathDesc& path_desc, const BitmapIndexPB* bitmap_index_meta)
-            : _path_desc(path_desc), _bitmap_index_meta(bitmap_index_meta) {
-        _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
-    }
+    explicit BitmapIndexReader(const FilePathDesc& path_desc,
+                               const BitmapIndexPB* bitmap_index_meta)
+            : _path_desc(path_desc),
+              _type_info(get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>()),
+              _bitmap_index_meta(bitmap_index_meta) {}
 
     Status load(bool use_page_cache, bool kept_in_memory);
 
@@ -50,13 +51,13 @@ public:
 
     int64_t bitmap_nums() { return _bitmap_column_reader->num_values(); }
 
-    std::shared_ptr<const TypeInfo> type_info() { return _typeinfo; }
+    const TypeInfo* type_info() { return _type_info; }
 
 private:
     friend class BitmapIndexIterator;
 
     FilePathDesc _path_desc;
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _type_info;
     const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
@@ -98,9 +99,9 @@ public:
     // Read and union all bitmaps in range [from, to) into `result`
     Status read_union_bitmap(rowid_t from, rowid_t to, roaring::Roaring* result);
 
-    inline rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
+    rowid_t bitmap_nums() const { return _reader->bitmap_nums(); }
 
-    inline rowid_t current_ordinal() const { return _current_rowid; }
+    rowid_t current_ordinal() const { return _current_rowid; }
 
 private:
     BitmapIndexReader* _reader;

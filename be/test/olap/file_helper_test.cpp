@@ -26,7 +26,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "olap/olap_define.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/logging.h"
 
 #ifndef BE_TEST
@@ -45,13 +45,13 @@ public:
     // create a mock cgroup folder
     virtual void SetUp() {
         std::filesystem::remove_all(_s_test_data_path);
-        ASSERT_FALSE(std::filesystem::exists(_s_test_data_path));
+        EXPECT_FALSE(std::filesystem::exists(_s_test_data_path));
         // create a mock cgroup path
-        ASSERT_TRUE(std::filesystem::create_directory(_s_test_data_path));
+        EXPECT_TRUE(std::filesystem::create_directory(_s_test_data_path));
     }
 
     // delete the mock cgroup folder
-    virtual void TearDown() { ASSERT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
+    virtual void TearDown() { EXPECT_TRUE(std::filesystem::remove_all(_s_test_data_path)); }
 
     static std::string _s_test_data_path;
 };
@@ -62,35 +62,35 @@ TEST_F(FileHandlerTest, TestWrite) {
     FileHandler file_handler;
     std::string file_name = _s_test_data_path + "/abcd123.txt";
     // create a file using open
-    ASSERT_FALSE(std::filesystem::exists(file_name));
-    OLAPStatus op_status =
+    EXPECT_FALSE(std::filesystem::exists(file_name));
+    Status op_status =
             file_handler.open_with_mode(file_name, O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR);
-    ASSERT_EQ(OLAPStatus::OLAP_SUCCESS, op_status);
-    ASSERT_TRUE(std::filesystem::exists(file_name));
+    EXPECT_EQ(Status::OK(), op_status);
+    EXPECT_TRUE(std::filesystem::exists(file_name));
 
     // tell current offset
     off_t cur_offset = file_handler.tell();
-    ASSERT_EQ(0, cur_offset);
+    EXPECT_EQ(0, cur_offset);
     off_t length = file_handler.length();
-    ASSERT_EQ(0, length);
+    EXPECT_EQ(0, length);
 
     // seek to 10 and test offset
     off_t res = file_handler.seek(10, SEEK_SET);
-    ASSERT_EQ(10, res);
+    EXPECT_EQ(10, res);
     length = file_handler.length();
-    ASSERT_EQ(0, length);
+    EXPECT_EQ(0, length);
 
     cur_offset = file_handler.tell();
-    ASSERT_EQ(10, cur_offset);
+    EXPECT_EQ(10, cur_offset);
 
     // write 12 bytes to disk
     char ten_bytes[12];
     memset(&ten_bytes, 0, sizeof(ten_bytes));
     file_handler.write(&ten_bytes, sizeof(ten_bytes));
     cur_offset = file_handler.tell();
-    ASSERT_EQ(22, cur_offset);
+    EXPECT_EQ(22, cur_offset);
     length = file_handler.length();
-    ASSERT_EQ(22, length);
+    EXPECT_EQ(22, length);
 
     char large_bytes2[(1 << 10)];
     memset(&large_bytes2, 0, sizeof(large_bytes2));
@@ -102,14 +102,3 @@ TEST_F(FileHandlerTest, TestWrite) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

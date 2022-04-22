@@ -68,14 +68,14 @@ public:
     using ValueDict = typename BloomFilterTraits<CppType>::ValueDict;
 
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                        std::shared_ptr<const TypeInfo> typeinfo)
+                                        const TypeInfo* type_info)
             : _bf_options(bf_options),
-              _typeinfo(typeinfo),
+              _type_info(type_info),
               _pool("BloomFilterIndexWriterImpl"),
               _has_null(false),
               _bf_buffer_size(0) {}
 
-    ~BloomFilterIndexWriterImpl() = default;
+    ~BloomFilterIndexWriterImpl() override = default;
 
     void add_values(const void* values, size_t count) override {
         const CppType* v = (const CppType*)values;
@@ -83,7 +83,7 @@ public:
             if (_values.find(*v) == _values.end()) {
                 if constexpr (_is_slice_type()) {
                     CppType new_value;
-                    _typeinfo->deep_copy(&new_value, v, &_pool);
+                    _type_info->deep_copy(&new_value, v, &_pool);
                     _values.insert(new_value);
                 } else if constexpr (_is_int128()) {
                     int128_t new_value;
@@ -129,12 +129,12 @@ public:
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
         // write bloom filters
-        auto bf_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        const auto* bf_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
         IndexedColumnWriterOptions options;
         options.write_ordinal_index = true;
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
-        IndexedColumnWriter bf_writer(options, bf_typeinfo, wblock);
+        IndexedColumnWriter bf_writer(options, bf_type_info, wblock);
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
@@ -153,14 +153,15 @@ public:
 private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
     static constexpr bool _is_slice_type() {
-        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR || field_type == OLAP_FIELD_TYPE_STRING;
+        return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+               field_type == OLAP_FIELD_TYPE_STRING;
     }
 
     static constexpr bool _is_int128() { return field_type == OLAP_FIELD_TYPE_LARGEINT; }
 
 private:
     BloomFilterOptions _bf_options;
-    std::shared_ptr<const TypeInfo> _typeinfo;
+    const TypeInfo* _type_info;
     MemPool _pool;
     bool _has_null;
     uint64_t _bf_buffer_size;
@@ -173,43 +174,43 @@ private:
 
 // TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
-                                      std::shared_ptr<const TypeInfo> typeinfo,
+                                      const TypeInfo* type_info,
                                       std::unique_ptr<BloomFilterIndexWriter>* res) {
-    FieldType type = typeinfo->type();
+    FieldType type = type_info->type();
     switch (type) {
     case OLAP_FIELD_TYPE_SMALLINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_INT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_INT>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_INT>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_UNSIGNED_INT:
-        res->reset(
-                new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_UNSIGNED_INT>(bf_options,
+                                                                                type_info));
         break;
     case OLAP_FIELD_TYPE_BIGINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_LARGEINT:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_CHAR:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_VARCHAR:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_STRING:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_STRING>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_DATE:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_DATETIME:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, type_info));
         break;
     case OLAP_FIELD_TYPE_DECIMAL:
-        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, typeinfo));
+        res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, type_info));
         break;
     default:
         return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));

@@ -89,6 +89,8 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(unused_rowsets_count, MetricUnit::ROWSETS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(compaction_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "compaction"}}));
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(schema_change_mem_consumption, MetricUnit::BYTES, "",
+                                   mem_consumption, Labels({{"type", "schema_change"}}));
 
 StorageEngine* StorageEngine::_s_instance = nullptr;
 
@@ -138,9 +140,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _default_rowset_type(ALPHA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
-    if (_s_instance == nullptr) {
-        _s_instance = this;
-    }
+    _s_instance = this;
     REGISTER_HOOK_METRIC(unused_rowsets_count, [this]() {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
@@ -148,11 +148,14 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
         return _compaction_mem_tracker->consumption();
     });
+    REGISTER_HOOK_METRIC(schema_change_mem_consumption,
+                         [this]() { return _schema_change_mem_tracker->consumption(); });
 }
 
 StorageEngine::~StorageEngine() {
     DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     DEREGISTER_HOOK_METRIC(compaction_mem_consumption);
+    DEREGISTER_HOOK_METRIC(schema_change_mem_consumption);
     _clear();
 
     if (_compaction_thread_pool) {
@@ -168,7 +171,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     for (auto data_dir : data_dirs) {
         threads.emplace_back([data_dir] {
             auto res = data_dir->load();
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
                              << ", data dir=" << data_dir->path();
                 // TODO(lingbin): why not exit progress, to force OP to change the conf
@@ -343,9 +346,9 @@ std::vector<DataDir*> StorageEngine::get_stores() {
 template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
-OLAPStatus StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
+Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
                                                 bool need_update) {
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     data_dir_infos->clear();
 
     MonotonicStopWatch timer;
@@ -583,11 +586,11 @@ void StorageEngine::stop() {
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
 #undef THREAD_JOIN
 
-#define THREADS_JOIN(threads)           \
-    for (const auto& thread : threads) {\
-        if (thread) {                   \
-            thread->join();             \
-        }                               \
+#define THREADS_JOIN(threads)            \
+    for (const auto& thread : threads) { \
+        if (thread) {                    \
+            thread->join();              \
+        }                                \
     }
 
     THREADS_JOIN(_path_gc_threads);
@@ -627,12 +630,10 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
         for (auto& tablet_info : tablet_infos) {
             // should use tablet uid to ensure clean txn correctly
             TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.first.tablet_id,
-                                                                 tablet_info.first.schema_hash,
                                                                  tablet_info.first.tablet_uid);
             // The tablet may be dropped or altered, leave a INFO log and go on process other tablet
             if (tablet == nullptr) {
                 LOG(INFO) << "tablet is no longer exist. tablet_id=" << tablet_info.first.tablet_id
-                          << ", schema_hash=" << tablet_info.first.schema_hash
                           << ", tablet_uid=" << tablet_info.first.tablet_uid;
                 continue;
             }
@@ -648,8 +649,8 @@ void StorageEngine::_start_clean_cache() {
     SegmentLoader::instance()->prune();
 }
 
-OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
+    Status res = Status::OK();
 
     std::unique_lock<std::mutex> l(_trash_sweep_lock, std::defer_lock);
     if (!l.try_lock()) {
@@ -676,7 +677,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     local_tm_now.tm_isdst = 0;
     if (localtime_r(&now, &local_tm_now) == nullptr) {
         LOG(WARNING) << "fail to localtime_r time. time=" << now;
-        return OLAP_ERR_OS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
     const time_t local_now = mktime(&local_tm_now); //得到当地日历时间
 
@@ -690,10 +691,10 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         double curr_usage = (double)(info.disk_capacity - info.available) / info.disk_capacity;
         tmp_usage = std::max(tmp_usage, curr_usage);
 
-        OLAPStatus curr_res = OLAP_SUCCESS;
-        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
+        Status curr_res = Status::OK();
+        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
         curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
-        if (curr_res != OLAP_SUCCESS) {
+        if (!curr_res.ok()) {
             LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
@@ -703,7 +704,7 @@ OLAPStatus StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         trash_path_desc_s << info.path_desc << TRASH_PREFIX;
         FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
         curr_res = _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
-        if (curr_res != OLAP_SUCCESS) {
+        if (!curr_res.ok()) {
             LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
                          << ", err_code=" << curr_res;
             res = curr_res;
@@ -747,14 +748,13 @@ void StorageEngine::_clean_unused_rowset_metas() {
             return true;
         }
 
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
         if (tablet == nullptr) {
             // tablet may be dropped
             // TODO(cmy): this is better to be a VLOG, because drop table is a very common case.
             // leave it as INFO log for observation. Maybe change it in future.
-            LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id() << " for rowset: " << rowset_meta->rowset_id()
-                      << ", tablet may be dropped";
+            LOG(INFO) << "failed to find tablet " << rowset_meta->tablet_id()
+                      << " for rowset: " << rowset_meta->rowset_id() << ", tablet may be dropped";
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -767,7 +767,8 @@ void StorageEngine::_clean_unused_rowset_metas() {
             // which will creates a new tablet with the same id but a different uid.
             // And in the historical version, when we deleted the replica, we did not delete the corresponding rowset meta,
             // thus causing the original rowset meta to remain(with same tablet id but different uid).
-            LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid() << " does not equal to tablet uid: " << tablet->tablet_uid();
+            LOG(WARNING) << "rowset's tablet uid " << rowset_meta->tablet_uid()
+                         << " does not equal to tablet uid: " << tablet->tablet_uid();
             invalid_rowset_metas.push_back(rowset_meta);
             return true;
         }
@@ -787,9 +788,10 @@ void StorageEngine::_clean_unused_rowset_metas() {
         RowsetMetaManager::traverse_rowset_metas(data_dir->get_meta(), clean_rowset_func);
         for (auto& rowset_meta : invalid_rowset_metas) {
             RowsetMetaManager::remove(data_dir->get_meta(), rowset_meta->tablet_uid(),
-                    rowset_meta->rowset_id());
+                                      rowset_meta->rowset_id());
         }
-        LOG(INFO) << "remove " << invalid_rowset_metas.size() << " invalid rowset meta from dir: " << data_dir->path();
+        LOG(INFO) << "remove " << invalid_rowset_metas.size()
+                  << " invalid rowset meta from dir: " << data_dir->path();
         invalid_rowset_metas.clear();
     }
 }
@@ -798,8 +800,7 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid, true);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
@@ -813,9 +814,9 @@ void StorageEngine::_clean_unused_txns() {
     }
 }
 
-OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
+Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
                                     const int32_t expire) {
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     if (!FileUtils::check_exist(scan_root_desc.filepath)) {
         // dir not existed. no need to sweep trash.
         return res;
@@ -834,7 +835,7 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
             local_tm_create.tm_isdst = 0;
             if (strptime(str_time.c_str(), "%Y%m%d%H%M%S", &local_tm_create) == nullptr) {
                 LOG(WARNING) << "fail to strptime time. [time=" << str_time << "]";
-                res = OLAP_ERR_OS_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                 continue;
             }
 
@@ -886,8 +887,8 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
                 Status ret = FileUtils::remove_all(path_name);
                 if (!ret.ok()) {
                     LOG(WARNING) << "fail to remove file or directory. path_desc: "
-                                 << scan_root_desc.debug_string();
-                    res = OLAP_ERR_OS_ERROR;
+                                 << scan_root_desc.debug_string() << ", error=" << ret.to_string();
+                    res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                     continue;
                 }
             } else {
@@ -897,7 +898,7 @@ OLAPStatus StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const ti
         }
     } catch (...) {
         LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root_desc.debug_string();
-        res = OLAP_ERR_IO_ERROR;
+        res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     return res;
@@ -923,7 +924,7 @@ void StorageEngine::start_delete_unused_rowset() {
             VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
                         << ", version:" << it->second->version().first << "-"
                         << it->second->version().second;
-            OLAPStatus status = it->second->remove();
+            Status status = it->second->remove();
             VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
                         << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
@@ -953,37 +954,37 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
 }
 
 // TODO(zc): refactor this funciton
-OLAPStatus StorageEngine::create_tablet(const TCreateTabletReq& request) {
+Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
     // Get all available stores, use ref_root_path if the caller specified
     std::vector<DataDir*> stores;
     stores = get_stores_for_create_tablet(request.storage_medium);
     if (stores.empty()) {
         LOG(WARNING) << "there is no available disk that can be used to create tablet.";
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
     TRACE("got data directory for create tablet");
     return _tablet_manager->create_tablet(request, stores);
 }
 
-OLAPStatus StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
+Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
                                             std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     auto stores = get_stores_for_create_tablet(storage_medium);
     if (stores.empty()) {
         LOG(WARNING) << "no available disk can be used to create tablet.";
-        return OLAP_ERR_NO_AVAILABLE_ROOT_PATH;
+        return Status::OLAPInternalError(OLAP_ERR_NO_AVAILABLE_ROOT_PATH);
     }
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     uint64_t shard = 0;
     res = stores[0]->get_shard(&shard);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to get root path shard. res=" << res;
         return res;
     }
@@ -997,11 +998,11 @@ OLAPStatus StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
     return res;
 }
 
-OLAPStatus StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
+Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
                                       bool restore) {
     LOG(INFO) << "begin to process load headers."
               << "tablet_id=" << request.tablet_id << ", schema_hash=" << request.schema_hash;
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
 
     DataDir* store = nullptr;
     {
@@ -1012,11 +1013,11 @@ OLAPStatus StorageEngine::load_header(const string& shard_path, const TCloneReq&
             store = get_store(store_path);
             if (store == nullptr) {
                 LOG(WARNING) << "invalid shard path, path=" << shard_path;
-                return OLAP_ERR_INVALID_ROOT_PATH;
+                return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
             }
         } catch (...) {
             LOG(WARNING) << "invalid shard path, path=" << shard_path;
-            return OLAP_ERR_INVALID_ROOT_PATH;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
         }
     }
 
@@ -1028,13 +1029,13 @@ OLAPStatus StorageEngine::load_header(const string& shard_path, const TCloneReq&
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                                                                 request.tablet_id);
     res = TabletMeta::reset_tablet_uid(header_path);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail reset tablet uid file path = " << header_path << " res=" << res;
         return res;
     }
     res = _tablet_manager->load_tablet_from_dir(store, request.tablet_id, request.schema_hash,
                                                 schema_hash_path_stream.str(), false, restore);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to process load headers. res=" << res;
         return res;
     }
@@ -1061,34 +1062,34 @@ void StorageEngine::notify_listeners() {
     }
 }
 
-OLAPStatus StorageEngine::execute_task(EngineTask* task) {
+Status StorageEngine::execute_task(EngineTask* task) {
     {
         std::vector<TabletInfo> tablet_infos;
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
-        std::vector<UniqueWriteLock> wrlocks;
+        std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
+                wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before prepare tabletid: "
                              << tablet_info.tablet_id;
             }
         }
         // add write lock to all related tablets
-        OLAPStatus prepare_status = task->prepare();
-        if (prepare_status != OLAP_SUCCESS) {
+        Status prepare_status = task->prepare();
+        if (prepare_status != Status::OK()) {
             return prepare_status;
         }
     }
 
     // do execute work without lock
-    OLAPStatus exec_status = task->execute();
-    if (exec_status != OLAP_SUCCESS) {
+    Status exec_status = task->execute();
+    if (exec_status != Status::OK()) {
         return exec_status;
     }
 
@@ -1098,20 +1099,20 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
         task->get_related_tablets(&tablet_infos);
         sort(tablet_infos.begin(), tablet_infos.end());
         std::vector<TabletSharedPtr> related_tablets;
-        std::vector<UniqueWriteLock> wrlocks;
+        std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
             TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.schema_hash);
+                    _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
-                wrlocks.push_back(UniqueWriteLock(tablet->get_header_lock()));
+                wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
             } else {
                 LOG(WARNING) << "could not get tablet before finish tabletid: "
                              << tablet_info.tablet_id;
             }
         }
         // add write lock to all related tablets
-        OLAPStatus fin_status = task->finish();
+        Status fin_status = task->finish();
         return fin_status;
     }
 }

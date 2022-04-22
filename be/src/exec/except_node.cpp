@@ -21,7 +21,6 @@
 #include "exprs/expr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 ExceptNode::ExceptNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -40,8 +39,9 @@ Status ExceptNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status ExceptNode::open(RuntimeState* state) {
-    RETURN_IF_ERROR(SetOperationNode::open(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Except Node, while probing the hash table.");
+    RETURN_IF_ERROR(SetOperationNode::open(state));
     // if a table is empty, the result must be empty
     if (_hash_tbl->size() == 0) {
         _hash_tbl_iterator = _hash_tbl->begin();
@@ -88,6 +88,7 @@ Status ExceptNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos)
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     *eos = true;
     if (reached_limit()) {
         return Status::OK();

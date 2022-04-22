@@ -29,7 +29,7 @@
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_request.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -38,14 +38,12 @@ class HttpTestHandler : public HttpHandler {
 public:
     void handle(HttpRequest* req) override {
         std::string path = GetCurrentRunningDir();
-        ASSERT_FALSE(path.empty());
-
-        std::unique_ptr<SequentialFile> file;
+        EXPECT_FALSE(path.empty());
 
         auto& file_name = req->param("FILE");
 
         FILE* fp = fopen((path + "/plugin_test/source/" + file_name).c_str(), "r");
-        ASSERT_TRUE(fp != nullptr);
+        EXPECT_TRUE(fp != nullptr);
 
         std::string response;
         char f[1024];
@@ -72,8 +70,6 @@ public:
         _server.reset(new EvHttpServer(29191));
         _server->register_handler(GET, "/{FILE}", &_handler);
         _server->start();
-
-        std::cout << "the path: " << _path << std::endl;
     }
 
 public:
@@ -86,10 +82,10 @@ TEST_F(PluginZipTest, local_normal) {
     FileUtils::remove_all(_path + "/plugin_test/target");
 
     PluginZip zip(_path + "/plugin_test/source/test.zip");
-    ASSERT_TRUE(zip.extract(_path + "/plugin_test/target/", "test").ok());
+    EXPECT_TRUE(zip.extract(_path + "/plugin_test/target/", "test").ok());
 
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test"));
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test/test.txt"));
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test"));
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test/test.txt"));
 
     std::unique_ptr<RandomAccessFile> file;
     Env::Default()->new_random_access_file(_path + "/plugin_test/target/test/test.txt", &file);
@@ -98,7 +94,7 @@ TEST_F(PluginZipTest, local_normal) {
     Slice s(f, 11);
     file->read_at(0, &s);
 
-    ASSERT_EQ("hello world", s.to_string());
+    EXPECT_EQ("hello world", s.to_string());
 
     FileUtils::remove_all(_path + "/plugin_test/target/");
 }
@@ -108,11 +104,11 @@ TEST_F(PluginZipTest, http_normal) {
 
     PluginZip zip("http://127.0.0.1:29191/test.zip");
 
-    //    ASSERT_TRUE(zip.extract(_path + "/plugin_test/target/", "test").ok());
+    //    EXPECT_TRUE(zip.extract(_path + "/plugin_test/target/", "test").ok());
     Status st = (zip.extract(_path + "/plugin_test/target/", "test"));
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test"));
-    ASSERT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test/test.txt"));
+    EXPECT_TRUE(st.ok()) << st.to_string();
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test"));
+    EXPECT_TRUE(FileUtils::check_exist(_path + "/plugin_test/target/test/test.txt"));
 
     std::unique_ptr<RandomAccessFile> file;
     Env::Default()->new_random_access_file(_path + "/plugin_test/target/test/test.txt", &file);
@@ -121,16 +117,16 @@ TEST_F(PluginZipTest, http_normal) {
     Slice s(f, 11);
     file->read_at(0, &s);
 
-    ASSERT_EQ("hello world", s.to_string());
+    EXPECT_EQ("hello world", s.to_string());
 
     std::set<std::string> dirs;
     std::set<std::string> files;
-    ASSERT_TRUE(
+    EXPECT_TRUE(
             FileUtils::list_dirs_files(_path + "/plugin_test/target", &dirs, &files, Env::Default())
                     .ok());
 
-    ASSERT_EQ(1, dirs.size());
-    ASSERT_EQ(1, files.size());
+    EXPECT_EQ(1, dirs.size());
+    EXPECT_EQ(1, files.size());
 
     FileUtils::remove_all(_path + "/plugin_test/target/");
 }
@@ -142,12 +138,7 @@ TEST_F(PluginZipTest, already_install) {
     FileUtils::remove_all(_path + "/plugin_test/target");
 
     PluginZip zip("http://127.0.0.1:29191/test.zip");
-    ASSERT_FALSE(zip.extract(_path + "/plugin_test/", "source").ok());
+    EXPECT_FALSE(zip.extract(_path + "/plugin_test/", "source").ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

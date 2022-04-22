@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/buffer-builder.hpp
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
@@ -34,14 +37,14 @@ public:
 
     ~BufferBuilder() {}
 
-    inline void append(const void* buffer, int len) {
+    void append(const void* buffer, int len) {
         DCHECK_LE(_size + len, _capacity);
         memcpy(_buffer + _size, buffer, len);
         _size += len;
     }
 
     template <typename T>
-    inline void append(const T& v) {
+    void append(const T& v) {
         append(&v, sizeof(T));
     }
 

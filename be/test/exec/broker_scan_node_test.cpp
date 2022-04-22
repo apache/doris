@@ -403,7 +403,7 @@ TEST_F(BrokerScanNodeTest, normal) {
     BrokerScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     scan_node.init(_tnode);
     auto status = scan_node.prepare(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // set scan range
     std::vector<TScanRangeParams> scan_ranges;
@@ -421,7 +421,7 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
-        std::vector<std::string> columns_from_path{"1"};
+        std::vector<std::string> columns_from_path {"1"};
         range.__set_columns_from_path(columns_from_path);
         range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
@@ -443,7 +443,7 @@ TEST_F(BrokerScanNodeTest, normal) {
         range.file_type = TFileType::FILE_LOCAL;
         range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         range.splittable = true;
-        std::vector<std::string> columns_from_path{"2"};
+        std::vector<std::string> columns_from_path {"2"};
         range.__set_columns_from_path(columns_from_path);
         range.__set_num_of_columns_from_file(3);
         broker_scan_range.ranges.push_back(range);
@@ -456,25 +456,25 @@ TEST_F(BrokerScanNodeTest, normal) {
     scan_node.set_scan_ranges(scan_ranges);
 
     status = scan_node.open(&_runtime_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     // Get batch
     RowBatch batch(scan_node.row_desc(), _runtime_state.batch_size());
 
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &batch, &eos);
-    ASSERT_EQ(3, batch.num_rows());
-    ASSERT_FALSE(eos);
+    EXPECT_EQ(3, batch.num_rows());
+    EXPECT_FALSE(eos);
 
     batch.reset();
     status = scan_node.get_next(&_runtime_state, &batch, &eos);
-    ASSERT_EQ(1, batch.num_rows());
-    ASSERT_FALSE(eos);
+    EXPECT_EQ(1, batch.num_rows());
+    EXPECT_FALSE(eos);
 
     batch.reset();
     status = scan_node.get_next(&_runtime_state, &batch, &eos);
-    ASSERT_EQ(0, batch.num_rows());
-    ASSERT_TRUE(eos);
+    EXPECT_EQ(0, batch.num_rows());
+    EXPECT_TRUE(eos);
 
     scan_node.close(&_runtime_state);
     {
@@ -485,14 +485,3 @@ TEST_F(BrokerScanNodeTest, normal) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

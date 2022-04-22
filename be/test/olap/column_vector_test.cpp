@@ -42,7 +42,7 @@ private:
 };
 
 template <FieldType type>
-void test_read_write_scalar_column_vector(std::shared_ptr<const TypeInfo> type_info, const uint8_t* src_data,
+void test_read_write_scalar_column_vector(const TypeInfo* type_info, const uint8_t* src_data,
                                           size_t data_size) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
@@ -50,10 +50,10 @@ void test_read_write_scalar_column_vector(std::shared_ptr<const TypeInfo> type_i
 
     size_t init_size = data_size / 2;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    ASSERT_TRUE(ColumnVectorBatch::create(init_size, true, type_info, nullptr, &cvb).ok());
+    EXPECT_TRUE(ColumnVectorBatch::create(init_size, true, type_info, nullptr, &cvb).ok());
     memcpy(cvb->mutable_cell_ptr(0), src, init_size * TYPE_SIZE);
     cvb->set_null_bits(0, init_size, false);
-    ASSERT_TRUE(cvb->resize(data_size).ok());
+    EXPECT_TRUE(cvb->resize(data_size).ok());
     size_t second_write_size = data_size - init_size;
     memcpy(cvb->mutable_cell_ptr(init_size), src + init_size, second_write_size * TYPE_SIZE);
     cvb->set_null_bits(init_size, second_write_size, false);
@@ -62,17 +62,17 @@ void test_read_write_scalar_column_vector(std::shared_ptr<const TypeInfo> type_i
             type_info->type() == OLAP_FIELD_TYPE_CHAR) {
             Slice* src_slice = (Slice*)src_data;
 
-            ASSERT_EQ(src_slice[idx].to_string(),
+            EXPECT_EQ(src_slice[idx].to_string(),
                       reinterpret_cast<const Slice*>(cvb->cell_ptr(idx))->to_string())
                     << "idx:" << idx;
         } else {
-            ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(cvb->cell_ptr(idx)));
+            EXPECT_EQ(src[idx], *reinterpret_cast<const Type*>(cvb->cell_ptr(idx)));
         }
     }
 }
 
 template <FieldType item_type>
-void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_type_info, size_t array_size,
+void test_read_write_array_column_vector(const TypeInfo* array_type_info, size_t array_size,
                                          CollectionValue* result) {
     DCHECK(array_size > 1);
 
@@ -86,7 +86,7 @@ void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_t
 
     size_t array_init_size = array_size / 2;
     std::unique_ptr<ColumnVectorBatch> cvb;
-    ASSERT_TRUE(
+    EXPECT_TRUE(
             ColumnVectorBatch::create(array_init_size, true, array_type_info, field, &cvb).ok());
 
     auto* array_cvb = reinterpret_cast<ArrayColumnVectorBatch*>(cvb.get());
@@ -102,7 +102,7 @@ void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_t
     array_cvb->get_offset_by_length(0, array_init_size);
 
     size_t first_write_item = array_cvb->item_offset(array_init_size) - array_cvb->item_offset(0);
-    ASSERT_TRUE(item_cvb->resize(first_write_item).ok());
+    EXPECT_TRUE(item_cvb->resize(first_write_item).ok());
     for (size_t i = 0; i < array_init_size; ++i) {
         memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data(),
                result[i].length() * ITEM_TYPE_SIZE);
@@ -112,7 +112,7 @@ void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_t
     array_cvb->prepare_for_read(0, array_init_size, false);
 
     // second write
-    ASSERT_TRUE(array_cvb->resize(array_size).ok());
+    EXPECT_TRUE(array_cvb->resize(array_size).ok());
     for (int i = array_init_size; i < array_size; ++i) {
         uint32_t len = result[i].length();
         memcpy(offset_cvb->mutable_cell_ptr(i + 1), &len, sizeof(uint32_t));
@@ -121,7 +121,7 @@ void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_t
     array_cvb->get_offset_by_length(array_init_size, array_size - array_init_size);
 
     size_t total_item_size = array_cvb->item_offset(array_size);
-    ASSERT_TRUE(item_cvb->resize(total_item_size).ok());
+    EXPECT_TRUE(item_cvb->resize(total_item_size).ok());
 
     for (size_t i = array_init_size; i < array_size; ++i) {
         memcpy(item_cvb->mutable_cell_ptr(array_cvb->item_offset(i)), result[i].data(),
@@ -132,7 +132,7 @@ void test_read_write_array_column_vector(std::shared_ptr<const TypeInfo> array_t
     array_cvb->prepare_for_read(0, array_size, false);
 
     for (size_t idx = 0; idx < array_size; ++idx) {
-        ASSERT_TRUE(array_type_info->equal(&result[idx], array_cvb->cell_ptr(idx)))
+        EXPECT_TRUE(array_type_info->equal(&result[idx], array_cvb->cell_ptr(idx)))
                 << "idx:" << idx;
     }
     delete field;
@@ -145,8 +145,8 @@ TEST_F(ColumnVectorTest, scalar_column_vector_test) {
         for (int i = 0; i < size; ++i) {
             val[i] = i;
         }
-        auto ti = get_scalar_type_info(OLAP_FIELD_TYPE_TINYINT);
-        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(ti, val, size);
+        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>();
+        test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, val, size);
         delete[] val;
     }
     {
@@ -155,7 +155,7 @@ TEST_F(ColumnVectorTest, scalar_column_vector_test) {
         for (int i = 0; i < size; ++i) {
             set_column_value_by_type(OLAP_FIELD_TYPE_CHAR, i, (char*)&char_vals[i], &_pool, 8);
         }
-        auto ti = get_scalar_type_info(OLAP_FIELD_TYPE_CHAR);
+        const auto* ti = get_scalar_type_info<OLAP_FIELD_TYPE_CHAR>();
         test_read_write_scalar_column_vector<OLAP_FIELD_TYPE_CHAR>(ti, (uint8_t*)char_vals, size);
         delete[] char_vals;
     }
@@ -179,7 +179,7 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
                 array_val[array_index].set_length(3);
             }
         }
-        auto type_info = ArrayTypeInfoResolver::instance()->get_type_info(OLAP_FIELD_TYPE_TINYINT);
+        const auto* type_info = get_collection_type_info<OLAP_FIELD_TYPE_TINYINT>();
         test_read_write_array_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, num_array,
                                                                      array_val);
 
@@ -191,8 +191,3 @@ TEST_F(ColumnVectorTest, array_column_vector_test) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

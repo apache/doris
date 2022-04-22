@@ -18,6 +18,7 @@
 package org.apache.doris.master;
 
 
+import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -79,7 +80,6 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -257,10 +257,8 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, Long> tabletSyncMap = LinkedListMultimap.create();
         // db id -> tablet id
         ListMultimap<Long, Long> tabletDeleteFromMeta = LinkedListMultimap.create();
-        // tablet ids which schema hash is valid
-        Set<Long> foundTabletsWithValidSchema = Sets.newConcurrentHashSet();
-        // tablet ids which schema hash is invalid
-        Map<Long, TTabletInfo> foundTabletsWithInvalidSchema = Maps.newConcurrentMap();
+        // tablet ids which both in fe and be
+        Set<Long> tabletFoundInMeta = Sets.newConcurrentHashSet();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
 
@@ -277,8 +275,7 @@ public class ReportHandler extends Daemon {
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
                 tabletSyncMap,
                 tabletDeleteFromMeta,
-                foundTabletsWithValidSchema,
-                foundTabletsWithInvalidSchema,
+                tabletFoundInMeta,
                 tabletMigrationMap,
                 transactionsToPublish,
                 transactionsToClear,
@@ -297,8 +294,8 @@ public class ReportHandler extends Daemon {
         }
 
         // 4. handle (be - meta)
-        if (foundTabletsWithValidSchema.size() != backendTablets.size()) {
-            deleteFromBackend(backendTablets, foundTabletsWithValidSchema, foundTabletsWithInvalidSchema, backendId);
+        if (tabletFoundInMeta.size() != backendTablets.size()) {
+            deleteFromBackend(backendTablets, tabletFoundInMeta, backendId);
         }
 
         // 5. migration (ssd <-> hdd)
@@ -665,67 +662,42 @@ public class ReportHandler extends Daemon {
     }
 
     private static void deleteFromBackend(Map<Long, TTablet> backendTablets,
-                                          Set<Long> foundTabletsWithValidSchema,
-                                          Map<Long, TTabletInfo> foundTabletsWithInvalidSchema,
+                                          Set<Long> tabletFoundInMeta,
                                           long backendId) {
         int deleteFromBackendCounter = 0;
         int addToMetaCounter = 0;
         AgentBatchTask batchTask = new AgentBatchTask();
-        // This means that the meta of all backend tablets can be found in fe, we only need to process tablets with invalid Schema
-        if (foundTabletsWithValidSchema.size() + foundTabletsWithInvalidSchema.size() == backendTablets.size()) {
-            for (Long tabletId : foundTabletsWithInvalidSchema.keySet()) {
-                // this tablet is found in meta but with invalid schema hash. delete it.
-                int schemaHash = foundTabletsWithInvalidSchema.get(tabletId).getSchemaHash();
-                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, schemaHash);
+        for (Long tabletId : backendTablets.keySet()) {
+            TTablet backendTablet = backendTablets.get(tabletId);
+            TTabletInfo backendTabletInfo = backendTablet.getTabletInfos().get(0);
+            boolean needDelete = false;
+            if (!tabletFoundInMeta.contains(tabletId)) {
+                if (isBackendReplicaHealthy(backendTabletInfo)) {
+                    // if this tablet is not in meta. try adding it.
+                    // if add failed. delete this tablet from backend.
+                    try {
+                        addReplica(tabletId, backendTabletInfo, backendId);
+                        // update counter
+                        needDelete = false;
+                        ++addToMetaCounter;
+                    } catch (MetaNotFoundException e) {
+                        LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
+                                tabletId, backendId, e.getMessage());
+                        needDelete = true;
+                    }
+                } else {
+                    needDelete = true;
+                }
+            }
+
+            if (needDelete) {
+                // drop replica
+                DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
                 batchTask.addTask(task);
-                LOG.warn("delete tablet[" + tabletId + " - " + schemaHash + "] from backend[" + backendId
-                        + "] because invalid schema hash");
+                LOG.warn("delete tablet[" + tabletId + "] from backend[" + backendId + "] because not found in meta");
                 ++deleteFromBackendCounter;
             }
-        } else {
-            for (Long tabletId : backendTablets.keySet()) {
-                if (foundTabletsWithInvalidSchema.containsKey(tabletId)) {
-                    int schemaHash = foundTabletsWithInvalidSchema.get(tabletId).getSchemaHash();
-                    DropReplicaTask task = new DropReplicaTask(backendId, tabletId, schemaHash);
-                    batchTask.addTask(task);
-                    LOG.warn("delete tablet[" + tabletId + " - " + schemaHash + "] from backend[" + backendId
-                            + "] because invalid schema hash");
-                    ++deleteFromBackendCounter;
-                    continue;
-                }
-                TTablet backendTablet = backendTablets.get(tabletId);
-                for (TTabletInfo backendTabletInfo : backendTablet.getTabletInfos()) {
-                    boolean needDelete = false;
-                    if (!foundTabletsWithValidSchema.contains(tabletId)) {
-                        if (isBackendReplicaHealthy(backendTabletInfo)) {
-                            // if this tablet is not in meta. try adding it.
-                            // if add failed. delete this tablet from backend.
-                            try {
-                                addReplica(tabletId, backendTabletInfo, backendId);
-                                // update counter
-                                needDelete = false;
-                                ++addToMetaCounter;
-                            } catch (MetaNotFoundException e) {
-                                LOG.warn("failed add to meta. tablet[{}], backend[{}]. {}",
-                                        tabletId, backendId, e.getMessage());
-                                needDelete = true;
-                            }
-                        } else {
-                            needDelete = true;
-                        }
-                    }
-
-                    if (needDelete) {
-                        // drop replica
-                        DropReplicaTask task = new DropReplicaTask(backendId, tabletId, backendTabletInfo.getSchemaHash());
-                        batchTask.addTask(task);
-                        LOG.warn("delete tablet[" + tabletId + " - " + backendTabletInfo.getSchemaHash()
-                                + "] from backend[" + backendId + "] because not found in meta");
-                        ++deleteFromBackendCounter;
-                    }
-                } // end for tabletInfos
-            } // end for backendTabletIds
-        }
+        } // end for backendTabletIds
 
         if (batchTask.getTaskNum() != 0) {
             AgentTaskExecutor.submit(batchTask);

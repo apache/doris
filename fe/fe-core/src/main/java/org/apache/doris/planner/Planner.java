@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Planner.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -30,7 +33,6 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
@@ -171,6 +173,13 @@ public class Planner {
 
         if (VectorizedUtil.isVectorized()) {
             singleNodePlan.convertToVectoriezd();
+        }
+
+        if (analyzer.getContext() != null
+                && analyzer.getContext().getSessionVariable().isEnableProjection()
+                && statement instanceof SelectStmt) {
+            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
         }
 
         if (statement instanceof InsertStmt) {

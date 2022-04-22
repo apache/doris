@@ -20,10 +20,11 @@
 #include <memory>
 #include <string>
 
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/string_value.h"
-#include "test_util/array_utils.h"
+#include "testutil/array_utils.h"
 
 namespace doris {
 
@@ -43,21 +44,21 @@ ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types
     return column;
 }
 
-std::shared_ptr<const TypeInfo> get_type_info(const ColumnPB& column_pb) {
+static TypeInfoPtr get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);
 }
 
-void test_array_parser(const ColumnPB& column_pb, const std::string& json,
-                       const CollectionValue& expect) {
+static void test_array_parser(const ColumnPB& column_pb, const std::string& json,
+                              const CollectionValue& expect) {
     MemTracker tracker(1024 * 1024, "ArrayParserTest");
     MemPool mem_pool(&tracker);
     FunctionContext context;
     ArrayUtils::prepare_context(context, mem_pool, column_pb);
     CollectionValue actual;
     auto status = ArrayUtils::create_collection_value(&actual, &context, json);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     EXPECT_TRUE(get_type_info(column_pb)->equal(&expect, &actual));
 }
 
@@ -118,8 +119,3 @@ TEST(ArrayParserTest, TestNestedArray) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

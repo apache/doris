@@ -26,9 +26,26 @@ under the License.
 
 ## LDAP
 
+### Name
+
+LDAP
+
 ### Description
 
+SET LDAP_ADMIN_PASSWORD
+
+```sql
+ SET LDAP_ADMIN_PASSWORD = 'plain password'
+```
+
+ SET LDAP_ADMIN_PASSWORD 命令用于设置LDAP管理员密码。使用LDAP认证时，doris需使用管理员账户和密码来向LDAP服务查询登录用户的信息。
+
 ### Example
+
+1. 设置LDAP管理员密码
+```sql
+SET LDAP_ADMIN_PASSWORD = '123456'
+```
 
 ### Keywords
 

@@ -160,12 +160,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
 * `disable_colocate_join`
 
-    Controls whether the [Colocation Join](./colocation-join.md) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
+    Controls whether the [Colocation Join](../advanced/join-optimization/colocation-join.html) function is enabled. The default is false, which means that the feature is enabled. True means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Colocation Join.
     
-
 * `enable_bucket_shuffle_join`
 
-    Controls whether the [Bucket Shuffle Join] (./bucket-shuffle-join.md) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
+    Controls whether the [Bucket Shuffle Join](../advanced/join-optimization/bucket-shuffle-join.html) function is enabled. The default is true, which means that the feature is enabled. False means that the feature is disabled. When this feature is disabled, the query plan will not attempt to perform a Bucket Shuffle Join.
 
 * `disable_streaming_preaggregations`
 
@@ -173,7 +172,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     
 * `enable_insert_strict`
 
-    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](./load-data/insert-into-manual.md).
+    Used to set the `strict` mode when loading data via INSERT statement. The default is false, which means that the `strict` mode is not turned on. For an introduction to this mode, see [here](../data-operate/import/import-way/insert-into-manual.html).
 
 * `enable_spilling`
 
@@ -220,7 +219,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     5. `SHOW PROC;`
 
         Forward to Master to view information about the relevant PROC stored in the Master FE metadata. Mainly used for metadata comparison.
-        
+    
 * `init_connect`
 
     Used for compatibility with MySQL clients. No practical effect.
@@ -246,7 +245,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
     Used for compatibility with MySQL clients. No practical effect.
     
 * `license`
-    
+  
     Show Doris's license. No other effect.
 
 * `load_mem_limit`
@@ -295,11 +294,11 @@ Translated with www.DeepL.com/Translator (free version)
     
 * `max_pushdown_conditions_per_column`
 
-    For the specific meaning of this variable, please refer to the description of `max_pushdown_conditions_per_column` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+    For the specific meaning of this variable, please refer to the description of `max_pushdown_conditions_per_column` in [BE Configuration](../admin-manual/config/be-config.html). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
 
 * `max_scan_key_num`
 
-    For the specific meaning of this variable, please refer to the description of `doris_max_scan_key_num` in [BE Configuration](./config/be_config.md). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
+    For the specific meaning of this variable, please refer to the description of `doris_max_scan_key_num` in [BE Configuration](../admin-manual/config/be-config.html). This variable is set to -1 by default, which means that the configuration value in `be.conf` is used. If the setting is greater than 0, the query in the current session will use the variable value, and ignore the configuration value in `be.conf`.
 
 * `net_buffer_length`
 
@@ -351,7 +350,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](https://doris.apache.org/zh-CN/administrator-guide/sql-mode.html).
     
 * `sql_safe_updates`
 
@@ -466,34 +465,39 @@ Translated with www.DeepL.com/Translator (free version)
 * `block_encryption_mode`
   The block_encryption_mode variable controls the block encryption mode. The default setting is empty, when use AES equal to `AES_128_ECB`, when use SM4 equal to `SM3_128_ECB`
   available values:
-```
-  AES_128_ECB,
-  AES_192_ECB,
-  AES_256_ECB,
-  AES_128_CBC,
-  AES_192_CBC,
-  AES_256_CBC,
-  AES_128_CFB,
-  AES_192_CFB,
-  AES_256_CFB,
-  AES_128_CFB1,
-  AES_192_CFB1,
-  AES_256_CFB1,
-  AES_128_CFB8,
-  AES_192_CFB8,
-  AES_256_CFB8,
-  AES_128_CFB128,
-  AES_192_CFB128,
-  AES_256_CFB128,
-  AES_128_CTR,
-  AES_192_CTR,
-  AES_256_CTR,
-  AES_128_OFB,
-  AES_192_OFB,
-  AES_256_OFB,
-  SM4_128_ECB,
-  SM4_128_CBC,
-  SM4_128_CFB128,
-  SM4_128_OFB,
-  SM4_128_CTR,
-```
+  
+  ```
+    AES_128_ECB,
+    AES_192_ECB,
+    AES_256_ECB,
+    AES_128_CBC,
+    AES_192_CBC,
+    AES_256_CBC,
+    AES_128_CFB,
+    AES_192_CFB,
+    AES_256_CFB,
+    AES_128_CFB1,
+    AES_192_CFB1,
+    AES_256_CFB1,
+    AES_128_CFB8,
+    AES_192_CFB8,
+    AES_256_CFB8,
+    AES_128_CFB128,
+    AES_192_CFB128,
+    AES_256_CFB128,
+    AES_128_CTR,
+    AES_192_CTR,
+    AES_256_CTR,
+    AES_128_OFB,
+    AES_192_OFB,
+    AES_256_OFB,
+    SM4_128_ECB,
+    SM4_128_CBC,
+    SM4_128_CFB128,
+    SM4_128_OFB,
+    SM4_128_CTR,
+  ```
+  
+* `enable_infer_predicate`
+  
+  Used to control whether predicate deduction is performed. There are two values: true and false. It is turned off by default, and the system does not perform predicate deduction, and uses the original predicate for related operations. When set to true, predicate expansion occurs.

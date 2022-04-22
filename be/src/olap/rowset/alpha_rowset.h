@@ -39,25 +39,25 @@ class AlphaRowset : public Rowset {
 public:
     virtual ~AlphaRowset() {}
 
-    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
+    Status create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
+    Status split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count, size_t key_num,
                            std::vector<OlapTuple>* ranges) override;
 
-    OLAPStatus remove() override;
+    Status remove() override;
 
-    OLAPStatus link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
+    Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
-    OLAPStatus copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
+    Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    OLAPStatus convert_from_old_files(const std::string& snapshot_path,
+    Status convert_from_old_files(const std::string& snapshot_path,
                                       std::vector<std::string>* success_files);
 
-    OLAPStatus convert_to_old_files(const std::string& snapshot_path,
+    Status convert_to_old_files(const std::string& snapshot_path,
                                     std::vector<std::string>* success_files);
 
-    OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override;
+    Status remove_old_files(std::vector<std::string>* files_to_remove) override;
 
     bool check_path(const std::string& path) override;
 
@@ -70,9 +70,9 @@ protected:
                 RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
-    OLAPStatus init() override;
+    Status init() override;
 
-    OLAPStatus do_load(bool use_cache) override;
+    Status do_load(bool use_cache) override;
 
     void do_close() override {}
 

@@ -23,6 +23,12 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFake<FunctionEsqueryImpl>>();
     factory.register_function<FunctionFake<FunctionExplodeSplitImpl>>();
     factory.register_function<FunctionFake<FunctionExplodeNumbersImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeJsonArrayDoubleImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeJsonArrayIntImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeJsonArrayStringImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeBitmapImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeImpl>>();
+    factory.register_function<FunctionFake<FunctionExplodeOuterImpl>>();
 }
 
 } // namespace doris::vectorized

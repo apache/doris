@@ -69,7 +69,7 @@ namespace doris {
 bool k_doris_exit = false;
 
 void Daemon::tcmalloc_gc_thread() {
-    while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(10))) {
+    while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         size_t used_size = 0;
         size_t free_size = 0;
 
@@ -89,13 +89,15 @@ void Daemon::tcmalloc_gc_thread() {
 
 void Daemon::memory_maintenance_thread() {
     while (!_stop_background_threads_latch.wait_for(
-            MonoDelta::FromSeconds(config::memory_maintenance_sleep_time_s))) {
+            std::chrono::seconds(config::memory_maintenance_sleep_time_s))) {
         ExecEnv* env = ExecEnv::GetInstance();
         // ExecEnv may not have been created yet or this may be the catalogd or statestored,
         // which don't have ExecEnvs.
         if (env != nullptr) {
             BufferPool* buffer_pool = env->buffer_pool();
-            if (buffer_pool != nullptr) buffer_pool->Maintenance();
+            if (buffer_pool != nullptr) {
+                buffer_pool->Maintenance();
+            }
         }
     }
 }
@@ -164,7 +166,7 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
                                                                             &lst_net_receive_bytes);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(15)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
 
 static void init_doris_metrics(const std::vector<StorePath>& store_paths) {

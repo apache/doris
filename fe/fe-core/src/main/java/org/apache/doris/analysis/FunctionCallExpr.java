@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FunctionCallExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -89,8 +92,6 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    public static final String UNKNOWN_TABLE_FUNCTION_MSG = "This table function not supported now";
-
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -125,7 +126,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public FunctionCallExpr(String fnName, FunctionParams params) {
-        this(new FunctionName(fnName), params);
+        this(new FunctionName(fnName), params, false);
     }
 
     public FunctionCallExpr(FunctionName fnName, FunctionParams params) {
@@ -140,8 +141,8 @@ public class FunctionCallExpr extends Expr {
         this.isMergeAggFn = isMergeAggFn;
         if (params.exprs() != null) {
             children.addAll(params.exprs());
-            originChildSize = children.size();
         }
+        originChildSize = children.size();
     }
 
     // Constructs the same agg function with new params.
@@ -236,29 +237,21 @@ public class FunctionCallExpr extends Expr {
                 && fnParams.isStar() == o.fnParams.isStar();
     }
 
-    @Override
-    public String toSqlImpl() {
-        Expr expr;
-        if (originStmtFnExpr != null) {
-            expr = originStmtFnExpr;
-        } else {
-            expr = this;
-        }
+    private String paramsToSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append(((FunctionCallExpr) expr).fnName).append("(");
-        if (((FunctionCallExpr) expr).fnParams.isStar()) {
+        sb.append("(");
+
+        if (fnParams.isStar()) {
             sb.append("*");
         }
-        if (((FunctionCallExpr) expr).fnParams.isDistinct()) {
+        if (fnParams.isDistinct()) {
             sb.append("DISTINCT ");
         }
-        boolean isJsonFunction = false;
         int len = children.size();
         List<String> result = Lists.newArrayList();
         if (fnName.getFunction().equalsIgnoreCase("json_array") ||
                 fnName.getFunction().equalsIgnoreCase("json_object")) {
             len = len - 1;
-            isJsonFunction = true;
         }
         if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
                 fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
@@ -277,7 +270,23 @@ public class FunctionCallExpr extends Expr {
             }
         }
         sb.append(Joiner.on(", ").join(result)).append(")");
-        if (fnName.getFunction().equalsIgnoreCase("json_quote") || isJsonFunction) {
+        return sb.toString();
+    }
+
+    @Override
+    public String toSqlImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(((FunctionCallExpr) expr).fnName);
+        sb.append(paramsToSql());
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
+            fnName.getFunction().equalsIgnoreCase("json_array") ||
+            fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -784,6 +793,34 @@ public class FunctionCallExpr extends Expr {
 
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), new Type[]{compatibleType},
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase(FunctionSet.WINDOW_FUNNEL)) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 4) {
+                throw new AnalysisException("The " + fnName + " function must have at least four params");
+            }
+
+            if (!children.get(0).type.isIntegerType()) {
+                throw new AnalysisException("The window params of " + fnName + " function must be integer");
+            }
+            if (!children.get(1).type.isStringType()) {
+                throw new AnalysisException("The mode params of " + fnName + " function must be integer");
+            }
+            if (!children.get(2).type.isDateType()) {
+                throw new AnalysisException("The 3rd param of " + fnName + " function must be DATE or DATETIME");
+            }
+
+            Type[] childTypes = new Type[children.size()];
+            for (int i = 0; i < 3; i++) {
+                childTypes[i] = children.get(i).type;
+            }
+            for (int i = 3; i < children.size(); i++) {
+                if (children.get(i).type != Type.BOOLEAN) {
+                    throw new AnalysisException("The 4th and subsequent params of " + fnName + " function must be boolean");
+                }
+                childTypes[i] = children.get(i).type;
+            }
+
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -791,7 +828,7 @@ public class FunctionCallExpr extends Expr {
                 fn = getTableFunction(fnName.getFunction(), childTypes,
                         Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
                 if (fn == null) {
-                    throw new AnalysisException(UNKNOWN_TABLE_FUNCTION_MSG);
+                    throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
             } else {
                 // now first find function in built-in functions

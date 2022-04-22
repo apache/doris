@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanFragment.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -238,7 +241,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             }
             Preconditions.checkState(sink == null);
             if (queryStmt != null && queryStmt.hasOutFileClause()) {
-                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause());
+                sink = new ResultFileSink(planRoot.getId(), queryStmt.getOutFileClause(), queryStmt.getColLabels());
             } else {
                 // add ResultSink
                 // we're streaming to an result sink
@@ -327,15 +330,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         PlanFragment dest = getDestFragment();
         Preconditions.checkNotNull(dest);
         dest.addChild(this);
-    }
-
-    public List<DataPartition> getInputDataPartition() {
-        List<DataPartition> result = Lists.newArrayList();
-        result.add(getDataPartition());
-        for (PlanFragment child : children) {
-            result.add(child.getOutputPartition());
-        }
-        return result;
     }
 
     public DataPartition getDataPartition() {

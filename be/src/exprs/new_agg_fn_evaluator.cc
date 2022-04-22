@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.cc
+// and modified by Doris
 
 #include "exprs/new_agg_fn_evaluator.h"
 
@@ -113,11 +116,10 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
     *result = nullptr;
 
     // Create a new AggFn evaluator.
-    NewAggFnEvaluator* agg_fn_eval =
-            pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
+    NewAggFnEvaluator* agg_fn_eval = pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
 
     agg_fn_eval->agg_fn_ctx_.reset(FunctionContextImpl::create_context(
-            state, mem_pool, agg_fn.GetIntermediateTypeDesc(), agg_fn.GetOutputTypeDesc(),
+            state, mem_pool, agg_fn.get_intermediate_type_desc(), agg_fn.get_output_type_desc(),
             agg_fn.arg_type_descs(), 0, false));
 
     Status status;
@@ -281,7 +283,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
 // This function would be replaced in codegen.
 void NewAggFnEvaluator::Init(Tuple* dst) {
     DCHECK(opened_);
-    DCHECK(agg_fn_.init_fn_ != nullptr);
+    DCHECK(agg_fn_._init_fn != nullptr);
     for (ExprContext* input_eval : input_evals_) {
         DCHECK(input_eval->opened());
     }
@@ -298,7 +300,7 @@ void NewAggFnEvaluator::Init(Tuple* dst) {
         sv->ptr = reinterpret_cast<uint8_t*>(slot);
         sv->len = type.len;
     }
-    reinterpret_cast<InitFn>(agg_fn_.init_fn_)(agg_fn_ctx_.get(), staging_intermediate_val_);
+    reinterpret_cast<InitFn>(agg_fn_._init_fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
     SetDstSlot(staging_intermediate_val_, slot_desc, dst);
     agg_fn_ctx_->impl()->set_num_updates(0);
     agg_fn_ctx_->impl()->set_num_removes(0);
@@ -516,12 +518,12 @@ void NewAggFnEvaluator::Update(const TupleRow* row, Tuple* dst, void* fn) {
 }
 
 void NewAggFnEvaluator::Merge(Tuple* src, Tuple* dst) {
-    DCHECK(agg_fn_.merge_fn_ != nullptr);
+    DCHECK(agg_fn_._merge_fn != nullptr);
     const SlotDescriptor& slot_desc = intermediate_slot_desc();
     SetAnyVal(slot_desc, dst, staging_intermediate_val_);
     SetAnyVal(slot_desc, src, staging_merge_input_val_);
     // The merge fn always takes one input argument.
-    reinterpret_cast<UpdateFn1>(agg_fn_.merge_fn_)(agg_fn_ctx_.get(), *staging_merge_input_val_,
+    reinterpret_cast<UpdateFn1>(agg_fn_._merge_fn)(agg_fn_ctx_.get(), *staging_merge_input_val_,
                                                    staging_intermediate_val_);
     SetDstSlot(staging_intermediate_val_, slot_desc, dst);
 }
@@ -647,13 +649,3 @@ void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
         cloned_evals->push_back(cloned_eval);
     }
 }
-
-//
-//void NewAggFnEvaluator::FreeLocalAllocations() {
-//  ExprContext::FreeLocalAllocations(input_evals_);
-//  agg_fn_ctx_->impl()->FreeLocalAllocations();
-//}
-
-//void NewAggFnEvaluator::FreeLocalAllocations(const vector<NewAggFnEvaluator*>& evals) {
-//  for (NewAggFnEvaluator* eval : evals) eval->FreeLocalAllocations();
-//}

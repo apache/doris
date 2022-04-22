@@ -72,9 +72,9 @@ Initially, a database can be created through root or admin users:
 
 `CREATE DATABASE example_db;`
 
-> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
+> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;`
 
-> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
+> If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER`, etc.
 
 After the database is created, you can view the database information through `SHOW DATABASES'.
 
@@ -131,10 +131,10 @@ Create a logical table with the name table1. The number of barrels is 10.
 
 The schema of this table is as follows:
 
-* Siteid: Type is INT (4 bytes), default value is 10
-* citycode: The type is SMALLINT (2 bytes)
-* username: The type is VARCHAR, the maximum length is 32, and the default value is an empty string.
-* pv: Type is BIGINT (8 bytes), default value is 0; this is an index column, Doris will aggregate the index column internally, the aggregation method of this column is SUM.
+* Siteid: Type is INT (4 bytes), default value is 10 bytes.
+* citycode: The type is SMALLINT (2 bytes).
+* username: The type is VARCHAR, the maximum length is 32 bytes, and the default value is an empty string.
+* pv: Type is BIGINT (8 bytes), default value is 0 byte; this is an index column, Doris will aggregate the index column internally, the aggregation method of this column is SUM.
 
 The TABLE statement is as follows:
 ```
@@ -157,10 +157,10 @@ Create a logical table named table2.
 The schema of this table is as follows:
 
 * event_day: Type DATE, no default
-* Siteid: Type is INT (4 bytes), default value is 10
-* citycode: The type is SMALLINT (2 bytes)
-* username: The type is VARCHAR, the maximum length is 32, and the default value is an empty string.
-* pv: Type is BIGINT (8 bytes), default value is 0; this is an index column, Doris will aggregate the index column internally, the aggregation method of this column is SUM.
+* Siteid: Type is INT (4 bytes), default value is 10 bytes.
+* citycode: The type is SMALLINT (2 bytes).
+* username: The type is VARCHAR, the maximum length is 32 bytes, and the default value is an empty string.
+* pv: Type is BIGINT (8 bytes), default value is 0 byte; this is an index column, Doris will aggregate the index column internally, the aggregation method of this column is SUM.
 
 We use the event_day column as the partition column to create three partitions: p201706, p201707, and p201708.
 
@@ -233,7 +233,7 @@ MySQL> DESC table2;
 >
 > 1. By setting replication_num, the above tables are all single-copy tables. Doris recommends that users adopt the default three-copy settings to ensure high availability.
 > 2. Composite partition tables can be added or deleted dynamically. See the Partition section in `HELP ALTER TABLE`.
-> 3. Data import can import the specified Partition. See `HELP LOAD'.
+> 3. Data import can import the specified Partition. See `HELP LOAD`.
 > 4. Schema of table can be dynamically modified.
 > 5. Rollup can be added to Table to improve query performance. This section can be referred to the description of Rollup in Advanced Usage Guide.
 > 6. The default value of Null property for column is true, which may result in poor scan performance.
@@ -244,7 +244,7 @@ Doris supports a variety of data import methods. Specifically, you can refer to 
 
 #### Flow-in
 
-Streaming import transfers data to Doris via HTTP protocol. It can import local data directly without relying on other systems or components. Detailed grammar help can be found in `HELP STREAM LOAD;'
+Streaming import transfers data to Doris via HTTP protocol. It can import local data directly without relying on other systems or components. Detailed grammar help can be found in `HELP STREAM LOAD;`
 
 Example 1: With "table1_20170707" as Label, import table1 tables using the local file table1_data.
 
@@ -271,7 +271,7 @@ Example 2: With "table2_20170707" as Label, import table2 tables using the local
 curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
-The local file `table2_data'is separated by `|'. The details are as follows:
+The local file `table2_data`is separated by `|`. The details are as follows:
 
 ```
 2017-07-03|1|1|jim|2
@@ -313,7 +313,7 @@ PROPERTIES
 
 Broker imports are asynchronous commands. Successful execution of the above commands only indicates successful submission of tasks. Successful imports need to be checked through `SHOW LOAD;' Such as:
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+`SHOW LOAD WHERE LABEL = "table1_20170708";`
 
 In the return result, FINISHED in the `State` field indicates that the import was successful.
 

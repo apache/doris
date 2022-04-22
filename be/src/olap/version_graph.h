@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
-#define DORIS_BE_SRC_OLAP_VERSION_GRAPH_H
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
@@ -45,10 +44,10 @@ public:
     void add_version_to_graph(const Version& version);
     /// Delete a version from graph. Notice that this del operation only remove this edges and
     /// remain the vertex.
-    OLAPStatus delete_version_from_graph(const Version& version);
+    Status delete_version_from_graph(const Version& version);
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
-    OLAPStatus capture_consistent_versions(const Version& spec_version,
+    Status capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
 
     // See comment of TimestampedVersionTracker's get_orphan_vertex_ratio();
@@ -157,7 +156,7 @@ public:
     /// Given a spec_version, this method can find a version path which is the shortest path
     /// in the graph. The version paths are added to version_path as return info.
     /// If this version not in main version, version_path can be included expired rowset.
-    OLAPStatus capture_consistent_versions(const Version& spec_version,
+    Status capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
 
     /// Capture all expired path version.
@@ -214,4 +213,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_VERSION_GRAPH_H

@@ -42,9 +42,9 @@ public:
         FileUtils::create_dir(_root_path);
 
         _meta = new OlapMeta(_root_path);
-        OLAPStatus s = _meta->init();
-        ASSERT_EQ(OLAP_SUCCESS, s);
-        ASSERT_TRUE(std::filesystem::exists(_root_path + "/meta"));
+        Status s = _meta->init();
+        EXPECT_EQ(Status::OK(), s);
+        EXPECT_TRUE(std::filesystem::exists(_root_path + "/meta"));
     }
 
     virtual void TearDown() {
@@ -59,51 +59,51 @@ private:
 
 TEST_F(OlapMetaTest, TestGetRootPath) {
     std::string root_path = _meta->get_root_path();
-    ASSERT_EQ("./ut_dir/olap_meta_test", root_path);
+    EXPECT_EQ("./ut_dir/olap_meta_test", root_path);
 }
 
 TEST_F(OlapMetaTest, TestPutAndGet) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    EXPECT_EQ(Status::OK(), s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
-    ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(value, value_get);
+    EXPECT_EQ(Status::OK(), s);
+    EXPECT_EQ(value, value_get);
 
     // abnormal cases
     s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
-    ASSERT_EQ(OLAP_ERR_META_KEY_NOT_FOUND, s);
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND), s);
 }
 
 TEST_F(OlapMetaTest, TestRemove) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    OLAPStatus s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    EXPECT_EQ(Status::OK(), s);
     std::string value_get;
     s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
-    ASSERT_EQ(OLAP_SUCCESS, s);
-    ASSERT_EQ(value, value_get);
+    EXPECT_EQ(Status::OK(), s);
+    EXPECT_EQ(value, value_get);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, key);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
     s = _meta->remove(META_COLUMN_FAMILY_INDEX, "key_not_exist");
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(Status::OK(), s);
 }
 
 TEST_F(OlapMetaTest, TestIterate) {
     // normal cases
     std::string key = "hdr_key";
     std::string value = "value";
-    OLAPStatus s = OLAP_SUCCESS;
+    Status s = Status::OK();
     for (int i = 0; i < 10; i++) {
         std::stringstream ss;
         ss << key << "_" << i;
         s = _meta->put(META_COLUMN_FAMILY_INDEX, ss.str(), value);
-        ASSERT_EQ(OLAP_SUCCESS, s);
+        EXPECT_EQ(Status::OK(), s);
     }
     bool error_flag = false;
     s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
@@ -114,13 +114,8 @@ TEST_F(OlapMetaTest, TestIterate) {
                            }
                            return true;
                        });
-    ASSERT_EQ(false, error_flag);
-    ASSERT_EQ(OLAP_SUCCESS, s);
+    EXPECT_EQ(false, error_flag);
+    EXPECT_EQ(Status::OK(), s);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

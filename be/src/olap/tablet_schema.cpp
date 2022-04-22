@@ -286,7 +286,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = get_type_info(filed_type)->size();
+    _length = get_scalar_type_info(filed_type)->size();
     _is_nullable = is_nullable;
 }
 
@@ -377,7 +377,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     }
     column->set_visible(_visible);
 
-    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
@@ -510,7 +510,8 @@ vectorized::Block TabletSchema::create_block(
     for (int i = 0; i < return_columns.size(); ++i) {
         const auto& col = _cols[return_columns[i]];
         bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
-                tablet_columns_need_convert_null->find(return_columns[i]) != tablet_columns_need_convert_null->end());
+                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                                    tablet_columns_need_convert_null->end());
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
         auto column = data_type->create_column();
         block.insert({std::move(column), data_type, col.name()});

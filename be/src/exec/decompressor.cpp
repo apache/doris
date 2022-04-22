@@ -55,8 +55,6 @@ Status Decompressor::create_decompressor(CompressType type, Decompressor** decom
     return st;
 }
 
-Decompressor::~Decompressor() {}
-
 std::string Decompressor::debug_info() {
     return "Decompressor";
 }
@@ -71,7 +69,7 @@ GzipDecompressor::~GzipDecompressor() {
 }
 
 Status GzipDecompressor::init() {
-    _z_strm = {0};
+    _z_strm = {nullptr};
     _z_strm.zalloc = Z_NULL;
     _z_strm.zfree = Z_NULL;
     _z_strm.opaque = Z_NULL;

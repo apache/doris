@@ -59,8 +59,8 @@ ColumnDataWriter::~ColumnDataWriter() {
     SAFE_DELETE(_segment_writer);
 }
 
-OLAPStatus ColumnDataWriter::init() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status ColumnDataWriter::init() {
+    Status res = Status::OK();
 
     for (size_t i = 0; i < _zone_maps.size(); ++i) {
         _zone_maps[i].first = WrapperField::create(_segment_group->get_tablet_schema().column(i));
@@ -81,11 +81,11 @@ OLAPStatus ColumnDataWriter::init() {
 
     if (nullptr == _row_block) {
         LOG(WARNING) << "fail to new RowBlock.";
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     res = _cursor.init(_segment_group->get_tablet_schema());
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to initiate row cursor. [res=" << res << "]";
         return res;
     }
@@ -96,18 +96,18 @@ OLAPStatus ColumnDataWriter::init() {
     block_info.null_supported = true;
 
     _row_block->init(block_info);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnDataWriter::_init_segment() {
-    OLAPStatus res = _add_segment();
-    if (OLAP_SUCCESS != res) {
+Status ColumnDataWriter::_init_segment() {
+    Status res = _add_segment();
+    if (!res.ok()) {
         LOG(WARNING) << "fail to add segment. [res=" << res << "]";
         return res;
     }
 
     res = _segment_group->add_segment();
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to add index segment. [res=" << res << "]";
         return res;
     }
@@ -117,19 +117,19 @@ OLAPStatus ColumnDataWriter::_init_segment() {
 }
 
 template <typename RowType>
-OLAPStatus ColumnDataWriter::write(const RowType& row) {
+Status ColumnDataWriter::write(const RowType& row) {
     // copy input row to row block
     _row_block->get_row(_row_index, &_cursor);
     copy_row(&_cursor, row, _row_block->mem_pool());
     next(row);
     if (_row_index >= _segment_group->get_num_rows_per_row_block()) {
-        if (OLAP_SUCCESS != _flush_row_block(false)) {
+        if (!_flush_row_block(false)) {
             LOG(WARNING) << "failed to flush data while attaching row cursor.";
-            return OLAP_ERR_OTHER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
         }
         RETURN_NOT_OK(_flush_segment_with_verification());
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 template <typename RowType>
@@ -150,10 +150,10 @@ void ColumnDataWriter::next(const RowType& row) {
     ++_row_index;
 }
 
-OLAPStatus ColumnDataWriter::finalize() {
+Status ColumnDataWriter::finalize() {
     if (_all_num_rows == 0 && _row_index == 0) {
         _segment_group->set_empty(true);
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // Segment which size reaches OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE
@@ -167,58 +167,58 @@ OLAPStatus ColumnDataWriter::finalize() {
         // it dedicates that there is no necessity
         // to generate segment object and file.
         // Return OLAP_SUCCESS is OK.
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    OLAPStatus res = _flush_row_block(true);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("failed to flush data while attaching row cursor.[res=%d]", res);
+    Status res = _flush_row_block(true);
+    if (!res.ok()) {
+        LOG(WARNING) << "failed to flush data while attaching row cursor.res = " << res;
         return res;
     }
 
     res = _finalize_segment();
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to finalize segment. res=" << res << ", _row_index=" << _row_index
                      << ", _all_num_rows=" << _all_num_rows;
         return res;
     }
 
     res = _segment_group->add_zone_maps(_zone_maps);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "Fail to set zone_map! res=" << res;
         return res;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
+Status ColumnDataWriter::_flush_row_block(bool finalize) {
     if (!_new_segment_created) {
         RETURN_NOT_OK(_init_segment());
     }
 
     if (_row_index < 1) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     // 与OLAPDataWriter不同,这里不是真的写RowBlock,所以并不需要finalize RowBlock
     // 但考虑到兼容Row Block的使用方式,还是调用了finalize
-    OLAPStatus res = _row_block->finalize(_row_index);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to finalize row block. [num_rows=%u res=%d]", _row_index, res);
-        return OLAP_ERR_WRITER_ROW_BLOCK_ERROR;
+    Status res = _row_block->finalize(_row_index);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to finalize row block. num_rows=" << _row_index << "res=" << res;
+        return Status::OLAPInternalError(OLAP_ERR_WRITER_ROW_BLOCK_ERROR);
     }
 
     // 目标是将自己的block按条写入目标block中。
     res = _segment_writer->write_batch(_row_block, &_cursor, finalize);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to write row to segment. [res=%d]", res);
-        return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write row to segment. res = " << res;
+        return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
     }
 
     // 在SegmentGroup中记录的不是数据文件的偏移,而是block的编号
-    if (OLAP_SUCCESS != _segment_group->add_row_block(*_row_block, _block_id++)) {
+    if (!_segment_group->add_row_block(*_row_block, _block_id++)) {
         OLAP_LOG_WARNING("fail to update index.");
-        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_WRITER_INDEX_WRITE_ERROR);
     }
 
     // In order to reuse row_block, clear the row_block after finalize
@@ -226,15 +226,15 @@ OLAPStatus ColumnDataWriter::_flush_row_block(bool finalize) {
     _num_rows += _row_index;
     _all_num_rows += _row_index;
     _row_index = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnDataWriter::_add_segment() {
+Status ColumnDataWriter::_add_segment() {
     std::string file_name;
 
     if (nullptr != _segment_writer) {
         OLAP_LOG_WARNING("previous segment is not finalized before add new segment.");
-        return OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED;
+        return Status::OLAPInternalError(OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED);
     }
 
     file_name = _segment_group->construct_data_file_path(_segment);
@@ -244,55 +244,54 @@ OLAPStatus ColumnDataWriter::_add_segment() {
 
     if (nullptr == _segment_writer) {
         OLAP_LOG_WARNING("fail to allocate SegmentWriter");
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     if (_is_push_write) {
         res = _segment_writer->init(config::push_write_mbytes_per_sec);
     } else {
         res = _segment_writer->init(config::base_compaction_write_mbytes_per_sec);
     }
 
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         OLAP_LOG_WARNING("fail to init segment writer");
         return res;
     }
 
     ++_segment;
     _block_id = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnDataWriter::_flush_segment_with_verification() {
+Status ColumnDataWriter::_flush_segment_with_verification() {
     uint64_t segment_size = _segment_writer->estimate_segment_size();
     if (UNLIKELY(segment_size < _max_segment_size)) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    OLAPStatus res = _finalize_segment();
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to finalize segment. [res=%d]", res);
+    Status res = _finalize_segment();
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to finalize segment. res = " << res;
         return res;
     }
 
     _new_segment_created = false;
     _num_rows = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus ColumnDataWriter::_finalize_segment() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status ColumnDataWriter::_finalize_segment() {
     uint32_t data_segment_size;
-
-    if ((res = _segment_writer->finalize(&data_segment_size)) != OLAP_SUCCESS) {
+    Status res = _segment_writer->finalize(&data_segment_size);
+    if (res != Status::OK()) {
         OLAP_LOG_WARNING("fail to finish segment from olap_data.");
         return res;
     }
-
-    if ((res != _segment_group->finalize_segment(data_segment_size, _num_rows)) != OLAP_SUCCESS) {
+    res = _segment_group->finalize_segment(data_segment_size, _num_rows);
+    if (res != Status::OK()) {
         OLAP_LOG_WARNING("fail to finish segment from olap_index.");
-        return OLAP_ERR_WRITER_INDEX_WRITE_ERROR;
+        return res;
     }
 
     SAFE_DELETE(_segment_writer);
@@ -312,8 +311,8 @@ CompressKind ColumnDataWriter::compress_kind() {
     return _compress_kind;
 }
 
-template OLAPStatus ColumnDataWriter::write<RowCursor>(const RowCursor& row);
-template OLAPStatus ColumnDataWriter::write<ContiguousRow>(const ContiguousRow& row);
+template Status ColumnDataWriter::write<RowCursor>(const RowCursor& row);
+template Status ColumnDataWriter::write<ContiguousRow>(const ContiguousRow& row);
 
 template void ColumnDataWriter::next<RowCursor>(const RowCursor& row);
 template void ColumnDataWriter::next<ContiguousRow>(const ContiguousRow& row);

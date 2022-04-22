@@ -682,6 +682,11 @@ public class EditLog {
                     catalog.getResourceMgr().replayDropResource(operationLog);
                     break;
                 }
+                case OperationType.OP_ALTER_RESOURCE: {
+                    final Resource resource = (Resource) journal.getData();
+                    catalog.getResourceMgr().replayAlterResource(resource);
+                    break;
+                }
                 case OperationType.OP_CREATE_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
                     catalog.getSmallFileMgr().replayCreateFile(smallFile);
@@ -1309,6 +1314,10 @@ public class EditLog {
 
     public void logDropResource(DropResourceOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
+    }
+
+    public void logAlterResource(Resource resource) {
+        logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
     public void logCreateSmallFile(SmallFile info) {

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
 #define DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
@@ -32,6 +35,7 @@ class RuntimeState;
 class Tuple;
 class TupleRow;
 class TExprNode;
+class RPCFn;
 
 /// --- AggFn overview
 ///
@@ -49,33 +53,33 @@ class TExprNode;
 /// AggFnEvaluator is the interface for evaluating aggregate functions against input
 /// tuple rows. It invokes the following functions at different phases of the aggregation:
 ///
-/// init_fn_     : An initialization function that initializes the aggregate value.
+/// _init_fn     : An initialization function that initializes the aggregate value.
 ///
-/// update_fn_   : An update function that processes the arguments for each row in the
+/// _update_fn   : An update function that processes the arguments for each row in the
 ///                query result set and accumulates an intermediate result. For example,
 ///                this function might increment a counter, append to a string buffer or
 ///                add the input to a cumulative sum.
 ///
-/// merge_fn_    : A merge function that combines multiple intermediate results into a
+/// _merge_fn    : A merge function that combines multiple intermediate results into a
 ///                single value.
 ///
-/// serialize_fn_: A serialization function that flattens any intermediate values
+/// _serialize_fn: A serialization function that flattens any intermediate values
 ///                containing pointers, and frees any memory allocated during the init,
 ///                update and merge phases.
 ///
-/// finalize_fn_ : A finalize function that either passes through the combined result
+/// _finalize_fn : A finalize function that either passes through the combined result
 ///                unchanged, or does one final transformation. Also frees the resources
 ///                allocated during init, update and merge phases.
 ///
-/// get_value_fn_: Used by AnalyticEval node to obtain the current intermediate value.
+/// _get_value_fn: Used by AnalyticEval node to obtain the current intermediate value.
 ///
-/// remove_fn_   : Used by AnalyticEval node to undo the update to the intermediate value
+/// _remove_fn   : Used by AnalyticEval node to undo the update to the intermediate value
 ///                by an input row as it falls out of a sliding window.
 ///
 class AggFn : public Expr {
 public:
     /// Override the base class' implementation.
-    virtual bool IsAggFn() const { return true; }
+    virtual bool is_agg_fn() const { return true; }
 
     /// Enum for some built-in aggregation ops.
     enum AggregationOp {
@@ -96,7 +100,7 @@ public:
     /// the row descriptor of the input tuple row; 'intermediate_slot_desc' is the slot
     /// descriptor of the intermediate value; 'output_slot_desc' is the slot descriptor
     /// of the output value. On failure, returns error status and sets 'agg_fn' to nullptr.
-    static Status Create(const TExpr& texpr, const RowDescriptor& row_desc,
+    static Status create(const TExpr& texpr, const RowDescriptor& row_desc,
                          const SlotDescriptor& intermediate_slot_desc,
                          const SlotDescriptor& output_slot_desc, RuntimeState* state,
                          AggFn** agg_fn) WARN_UNUSED_RESULT;
@@ -112,25 +116,25 @@ public:
     const SlotDescriptor& intermediate_slot_desc() const { return intermediate_slot_desc_; }
     // Output type is the same as Expr::type().
     const SlotDescriptor& output_slot_desc() const { return output_slot_desc_; }
-    void* remove_fn() const { return remove_fn_; }
-    void* merge_or_update_fn() const { return is_merge_ ? merge_fn_ : update_fn_; }
-    void* serialize_fn() const { return serialize_fn_; }
-    void* get_value_fn() const { return get_value_fn_; }
-    void* finalize_fn() const { return finalize_fn_; }
-    bool SupportsRemove() const { return remove_fn_ != nullptr; }
-    bool SupportsSerialize() const { return serialize_fn_ != nullptr; }
-    FunctionContext::TypeDesc GetIntermediateTypeDesc() const;
-    FunctionContext::TypeDesc GetOutputTypeDesc() const;
+    void* remove_fn() const { return _remove_fn; }
+    void* merge_or_update_fn() const { return is_merge_ ? _merge_fn : _update_fn; }
+    void* serialize_fn() const { return _serialize_fn; }
+    void* get_value_fn() const { return _get_value_fn; }
+    void* finalize_fn() const { return _finalize_fn; }
+    bool supports_remove() const { return _remove_fn != nullptr; }
+    bool supports_serialize() const { return _serialize_fn != nullptr; }
+    FunctionContext::TypeDesc get_intermediate_type_desc() const;
+    FunctionContext::TypeDesc get_output_type_desc() const;
     const std::vector<FunctionContext::TypeDesc>& arg_type_descs() const { return arg_type_descs_; }
 
     /// Releases all cache entries to libCache for all nodes in the expr tree.
-    virtual void Close();
-    static void Close(const std::vector<AggFn*>& exprs);
+    virtual void close();
+    static void close(const std::vector<AggFn*>& exprs);
 
     Expr* clone(ObjectPool* pool) const { return nullptr; }
 
-    virtual std::string DebugString() const;
-    static std::string DebugString(const std::vector<AggFn*>& exprs);
+    virtual std::string debug_string() const;
+    static std::string debug_string(const std::vector<AggFn*>& exprs);
 
     const int get_vararg_start_idx() const { return _vararg_start_idx; }
 
@@ -155,22 +159,30 @@ private:
     AggregationOp agg_op_;
 
     /// Function pointers for the different phases of the aggregate function.
-    void* init_fn_ = nullptr;
-    void* update_fn_ = nullptr;
-    void* remove_fn_ = nullptr;
-    void* merge_fn_ = nullptr;
-    void* serialize_fn_ = nullptr;
-    void* get_value_fn_ = nullptr;
-    void* finalize_fn_ = nullptr;
+    void* _init_fn = nullptr;
+    void* _update_fn = nullptr;
+    void* _remove_fn = nullptr;
+    void* _merge_fn = nullptr;
+    void* _serialize_fn = nullptr;
+    void* _get_value_fn = nullptr;
+    void* _finalize_fn = nullptr;
 
     int _vararg_start_idx;
+
+    std::unique_ptr<RPCFn> _rpc_init;
+    std::unique_ptr<RPCFn> _rpc_update;
+    std::unique_ptr<RPCFn> _rpc_remove;
+    std::unique_ptr<RPCFn> _rpc_merge;
+    std::unique_ptr<RPCFn> _rpc_serialize;
+    std::unique_ptr<RPCFn> _rpc_get_value;
+    std::unique_ptr<RPCFn> _rpc_finalize;
 
     AggFn(const TExprNode& node, const SlotDescriptor& intermediate_slot_desc,
           const SlotDescriptor& output_slot_desc);
 
     /// Initializes the AggFn and its input expressions. May load the UDAF from LibCache
     /// if necessary.
-    virtual Status Init(const RowDescriptor& desc, RuntimeState* state) WARN_UNUSED_RESULT;
+    virtual Status init(const RowDescriptor& desc, RuntimeState* state) WARN_UNUSED_RESULT;
 };
 
 } // namespace doris

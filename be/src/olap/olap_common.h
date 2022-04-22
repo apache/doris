@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_COMMON_H
-#define DORIS_BE_SRC_OLAP_OLAP_COMMON_H
+#pragma once
 
 #include <netinet/in.h>
 
@@ -115,6 +114,8 @@ enum DelCondSatisfied {
     DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
 };
 // Define all data types supported by Field.
+// If new filed_type is defined, not only new TypeInfo may need be defined,
+// but also some functions like get_type_info in types.cpp need to be changed.
 enum FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -263,6 +264,10 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
+    int64_t short_cond_ns = 0;
+    int64_t pred_col_read_ns = 0;
+    int64_t lazy_read_ns = 0;
+    int64_t output_col_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
@@ -384,4 +389,3 @@ struct RowsetId {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H

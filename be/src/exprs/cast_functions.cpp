@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/cast-functions.cpp
+// and modified by Doris
 
 #include "exprs/cast_functions.h"
 
@@ -26,7 +29,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
 #include "string_functions.h"
-#include "util/array_parser.hpp"
+#include "util/array_parser.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 

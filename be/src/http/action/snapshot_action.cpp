@@ -99,11 +99,11 @@ int64_t SnapshotAction::make_snapshot(int64_t tablet_id, int32_t schema_hash,
     request.tablet_id = tablet_id;
     request.schema_hash = schema_hash;
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    Status res = Status::OK();
     bool allow_incremental_clone; // not used
     res = SnapshotManager::instance()->make_snapshot(request, snapshot_path,
                                                      &allow_incremental_clone);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "make snapshot failed. status: " << res << ", signature: " << tablet_id;
         return -1L;
     } else {

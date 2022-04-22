@@ -100,22 +100,35 @@ public:
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
     void join() {
-        if (cid != INVALID_BTHREAD_ID && _packet_in_flight) {
-            brpc::Join(cid);
+        // We rely on in_flight to assure one rpc is running,
+        // while cid is not reliable due to memory order.
+        // in_flight is written before getting callid,
+        // so we can not use memory fence to synchronize.
+        while (_packet_in_flight) {
+            // cid here is complicated
+            if (cid != INVALID_BTHREAD_ID) {
+                // actually cid may be the last rpc call id.
+                brpc::Join(cid);
+            }
+            if (_packet_in_flight) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
         }
     }
 
     // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
-        join();
-        DCHECK(_packet_in_flight == false);
         cntl.Reset();
         cid = cntl.call_id();
     }
 
-    void set_in_flight() {
-        DCHECK(_packet_in_flight == false);
-        _packet_in_flight = true;
+    bool try_set_in_flight() {
+        bool value = false;
+        return _packet_in_flight.compare_exchange_strong(value, true);
+    }
+
+    void clear_in_flight() {
+        _packet_in_flight = false;
     }
 
     bool is_packet_in_flight() { return _packet_in_flight; }
@@ -134,7 +147,7 @@ public:
         } else {
             success_handler(result, _is_last_rpc);
         }
-        _packet_in_flight = false;
+        clear_in_flight();
     }
 
     brpc::Controller cntl;
@@ -245,8 +258,6 @@ private:
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished {false};
 
-    std::atomic<bool> _last_patch_processed_finished {true};
-
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
@@ -312,13 +323,15 @@ public:
 
     void add_row(BlockRow& block_row, int64_t tablet_id);
 
-    void for_each_node_channel(const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
+    void for_each_node_channel(
+            const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
     }
 
-    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err, int64_t tablet_id = -1);
+    void mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                        int64_t tablet_id = -1);
     Status check_intolerable_failure();
 
     // set error tablet info in runtime state, so that it can be returned to FE.
@@ -496,9 +509,7 @@ protected:
     // compute tablet index for every row batch
     // FIND_TABLET_EVERY_SINK is only used for random distribution info, which indicates that we should
     // only compute tablet index in the corresponding partition once for the whole time in olap table sink
-    enum FindTabletMode {
-        FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK
-    };
+    enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
 };
 

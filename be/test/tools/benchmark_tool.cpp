@@ -34,6 +34,7 @@
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
@@ -51,7 +52,7 @@
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/debug_util.h"
 #include "util/file_utils.h"
 
@@ -190,7 +191,7 @@ public:
 
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
             ColumnBlock column_block(cvb.get(), &pool);
@@ -345,7 +346,9 @@ public:
         std::string storage_name;
         fs::fs_util::block_manager(storage_name)->create_block(block_opts, &wblock);
         SegmentWriterOptions opts;
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, opts);
+        DataDir data_dir(kSegmentDir);
+        data_dir.init();
+        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, &data_dir, opts);
         writer.init(1024);
 
         RowCursor row;
@@ -616,7 +619,6 @@ private:
 };
 
 } //namespace doris
-
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);

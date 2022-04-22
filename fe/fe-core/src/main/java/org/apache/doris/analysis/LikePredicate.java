@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LikePredicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -113,14 +116,16 @@ public class LikePredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (!getChild(0).getType().isStringType() && !getChild(0).getType().isFixedPointType()
-                && !getChild(0).getType().isNull()) {
+        if (getChild(0).getType().isObjectStored()) {
             throw new AnalysisException(
-              "left operand of " + op.toString() + " must be of type STRING or FIXED_POINT_TYPE: " + toSql());
+                    "left operand of " + op.toString() + " must not be Bitmap or HLL: " + toSql());
         }
         if (!getChild(1).getType().isStringType() && !getChild(1).getType().isNull()) {
-            throw new AnalysisException(
-              "right operand of " + op.toString() + " must be of type STRING: " + toSql());
+            throw new AnalysisException("right operand of " + op.toString() + " must be of type STRING: " + toSql());
+        }
+
+        if (!getChild(0).getType().isStringType()) {
+            uncheckedCastChild(Type.VARCHAR, 0);
         }
 
         fn = getBuiltinFunction(analyzer, op.toString(),

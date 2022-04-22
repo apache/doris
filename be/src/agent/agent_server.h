@@ -45,6 +45,7 @@ public:
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
+    // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
     // Multi-Load will still use the following 3 methods for now.

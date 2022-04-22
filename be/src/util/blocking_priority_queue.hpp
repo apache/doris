@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/blocking-priority-queue.hpp
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BLOCKING_PRIORITY_QUEUE_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_BLOCKING_PRIORITY_QUEUE_HPP
@@ -78,8 +81,8 @@ public:
 
             timer.start();
             if (timeout_ms != 0) {
-                auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-                if (_get_cv.wait_until(unique_lock, deadline) == std::cv_status::timeout) {
+                if (_get_cv.wait_for(unique_lock, std::chrono::milliseconds(timeout_ms)) ==
+                    std::cv_status::timeout) {
                     return false;
                 }
             } else {

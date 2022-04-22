@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/HashJoinNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -31,6 +34,7 @@ import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.CheckedMath;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -43,6 +47,7 @@ import org.apache.doris.thrift.TPlanNodeType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -51,6 +56,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -75,6 +81,8 @@ public class HashJoinNode extends PlanNode {
     private boolean isColocate = false; //the flag for colocate join
     private String colocateReason = ""; // if can not do colocate join, set reason here
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
+
+    private List<SlotId> hashOutputSlotIds;
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
@@ -163,6 +171,67 @@ public class HashJoinNode extends PlanNode {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+    
+    /**
+     * Calculate the slots output after going through the hash table in the hash join node.
+     * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
+     *   it's output needs to contain other conjunct and conjunct columns.
+     * hash output slots = output slots + conjunct slots + other conjunct slots
+     * For example:
+     * select b.k1 from test.t1 a right join test.t1 b on a.k1=b.k1 and b.k2>1 where a.k2>1;
+     * output slots: b.k1
+     * other conjuncts: a.k2>1
+     * conjuncts: b.k2>1
+     * hash output slots: a.k2, b.k2, b.k1
+     * eq conjuncts: a.k1=b.k1
+     * @param slotIdList
+     */
+    private void initHashOutputSlotIds(List<SlotId> slotIdList) {
+        hashOutputSlotIds = new ArrayList<>(slotIdList);
+        List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
+        Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
+        for (SlotId slotId : otherAndConjunctSlotIds) {
+            if (!hashOutputSlotIds.contains(slotId)) {
+                hashOutputSlotIds.add(slotId);
+            }
+        }
+    }
+
+    @Override
+    public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
+        outputSlotIds = Lists.newArrayList();
+        for (TupleId tupleId : tupleIds) {
+            for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
+                if (slotDescriptor.isMaterialized() &&
+                        (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
+                    outputSlotIds.add(slotDescriptor.getId());
+                }
+            }
+        }
+        initHashOutputSlotIds(outputSlotIds);
+    }
+
+    // output slots + predicate slots = input slots
+    @Override
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        Preconditions.checkState(outputSlotIds != null);
+        Set<SlotId> result = Sets.newHashSet();
+        result.addAll(outputSlotIds);
+        // eq conjunct
+        List<SlotId> eqConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(eqJoinConjuncts, null, eqConjunctSlotIds);
+        result.addAll(eqConjunctSlotIds);
+        // other conjunct
+        List<SlotId> otherConjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(otherJoinConjuncts, null, otherConjunctSlotIds);
+        result.addAll(otherConjunctSlotIds);
+        // conjunct
+        List<SlotId> conjunctSlotIds = Lists.newArrayList();
+        Expr.getIds(conjuncts, null, conjunctSlotIds);
+        result.addAll(conjunctSlotIds);
+        return result;
     }
 
     @Override
@@ -607,6 +676,11 @@ public class HashJoinNode extends PlanNode {
         if (votherJoinConjunct != null) {
             msg.hash_join_node.setVotherJoinConjunct(votherJoinConjunct.treeToThrift());
         }
+        if (hashOutputSlotIds != null) {
+            for (SlotId slotId : hashOutputSlotIds) {
+                msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
+            }
+        }
     }
 
     @Override
@@ -638,6 +712,21 @@ public class HashJoinNode extends PlanNode {
         }
         output.append(detailPrefix).append(String.format(
                 "cardinality=%s", cardinality)).append("\n");
+        // todo unify in plan node
+        if (outputSlotIds != null) {
+            output.append(detailPrefix).append("output slot ids: ");
+            for (SlotId slotId : outputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
+        if (hashOutputSlotIds != null) {
+            output.append(detailPrefix).append("hash output slot ids: ");
+            for (SlotId slotId : hashOutputSlotIds) {
+                output.append(slotId).append(" ");
+            }
+            output.append("\n");
+        }
         return output.toString();
     }
 

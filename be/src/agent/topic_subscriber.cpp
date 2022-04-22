@@ -16,8 +16,8 @@
 // under the License.
 
 #include "agent/topic_subscriber.h"
+
 #include "common/logging.h"
-#include "util/mutex.h"
 
 namespace doris {
 
@@ -38,13 +38,13 @@ TopicSubscriber::~TopicSubscriber() {
 
 void TopicSubscriber::register_listener(TTopicType::type topic_type, TopicListener* listener) {
     // Unique lock here to prevent access to listeners
-    WriteLock lock(_listener_mtx);
+    std::lock_guard<std::shared_mutex> lock(_listener_mtx);
     this->_registered_listeners[topic_type].push_back(listener);
 }
 
 void TopicSubscriber::handle_updates(const TAgentPublishRequest& agent_publish_request) {
     // Shared lock here in order to avoid updates in listeners' map
-    ReadLock lock(_listener_mtx);
+    std::shared_lock lock(_listener_mtx);
     // Currently, not deal with protocol version, the listener should deal with protocol version
     const std::vector<TTopicUpdate>& topic_updates = agent_publish_request.updates;
     std::vector<TTopicUpdate>::const_iterator topic_update_it = topic_updates.begin();

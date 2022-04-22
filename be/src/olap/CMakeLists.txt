@@ -86,7 +86,6 @@ add_library(Olap STATIC
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
-    tablet_sync_service.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp

@@ -1,0 +1,1 @@
+insert into test_basic_agg values(0,0,0,0,0,'0',0,0,0,0,0);

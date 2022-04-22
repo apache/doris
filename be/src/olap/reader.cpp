@@ -105,11 +105,11 @@ TabletReader::~TabletReader() {
     }
 }
 
-OLAPStatus TabletReader::init(const ReaderParams& read_params) {
+Status TabletReader::init(const ReaderParams& read_params) {
     _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
 
-    OLAPStatus res = _init_params(read_params);
-    if (res != OLAP_SUCCESS) {
+    Status res = _init_params(read_params);
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when init params. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
                      << ", schema_hash:" << read_params.tablet->schema_hash()
@@ -120,7 +120,8 @@ OLAPStatus TabletReader::init(const ReaderParams& read_params) {
 }
 
 // When only one rowset has data, and this rowset is nonoverlapping, we can read directly without aggregation
-bool TabletReader::_optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+bool TabletReader::_optimize_for_single_rowset(
+        const std::vector<RowsetReaderSharedPtr>& rs_readers) {
     bool has_delete_rowset = false;
     bool has_overlapping = false;
     int nonoverlapping_count = 0;
@@ -143,12 +144,12 @@ bool TabletReader::_optimize_for_single_rowset(const std::vector<RowsetReaderSha
     return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
-OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
+Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
         LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
-        return OLAP_ERR_VERSION_NOT_EXIST;
+        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
     }
 
     bool eof = false;
@@ -183,7 +184,7 @@ OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     }
 
     if (eof) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     bool need_ordered_result = true;
@@ -223,10 +224,10 @@ OLAPStatus TabletReader::_capture_rs_readers(const ReaderParams& read_params,
 
     *valid_rs_readers = *rs_readers;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
+Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
     _direct_mode = read_params.direct_mode;
@@ -238,20 +239,20 @@ OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
     _init_conditions_param(read_params);
     _init_load_bf_columns(read_params);
 
-    OLAPStatus res = _init_delete_condition(read_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init delete param. [res=%d]", res);
+    Status res = _init_delete_condition(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init delete param. res = " << res;
         return res;
     }
 
     res = _init_return_columns(read_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init return columns. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init return columns. res = " << res;
         return res;
     }
 
     res = _init_keys_param(read_params);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to init keys param. res=" << res;
         return res;
     }
@@ -275,7 +276,7 @@ OLAPStatus TabletReader::_init_params(const ReaderParams& read_params) {
     return res;
 }
 
-OLAPStatus TabletReader::_init_return_columns(const ReaderParams& read_params) {
+Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_QUERY) {
         _return_columns = read_params.return_columns;
         _tablet_columns_convert_to_null_set = read_params.tablet_columns_convert_to_null_set;
@@ -321,12 +322,12 @@ OLAPStatus TabletReader::_init_return_columns(const ReaderParams& read_params) {
     } else {
         OLAP_LOG_WARNING("fail to init return columns. [reader_type=%d return_columns_size=%u]",
                          read_params.reader_type, read_params.return_columns.size());
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     std::sort(_key_cids.begin(), _key_cids.end(), std::greater<uint32_t>());
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TabletReader::_init_seek_columns() {
@@ -349,9 +350,9 @@ void TabletReader::_init_seek_columns() {
     }
 }
 
-OLAPStatus TabletReader::_init_keys_param(const ReaderParams& read_params) {
+Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     if (read_params.start_key.empty()) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     _keys_param.start_key_include = read_params.start_key_include;
@@ -367,7 +368,7 @@ OLAPStatus TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 << "Input param are invalid. Column count is bigger than num_columns of schema. "
                 << "column_count=" << scan_key_size
                 << ", schema.num_columns=" << _tablet->tablet_schema().num_columns();
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     std::vector<uint32_t> columns(scan_key_size);
@@ -380,19 +381,19 @@ OLAPStatus TabletReader::_init_keys_param(const ReaderParams& read_params) {
         if (read_params.start_key[i].size() != scan_key_size) {
             OLAP_LOG_WARNING("The start_key.at(%ld).size == %ld, not equals the %ld", i,
                              read_params.start_key[i].size(), scan_key_size);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        OLAPStatus res = _keys_param.start_keys[i].init_scan_key(
+        Status res = _keys_param.start_keys[i].init_scan_key(
                 _tablet->tablet_schema(), read_params.start_key[i].values(), schema);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
         }
 
         res = _keys_param.start_keys[i].from_tuple(read_params.start_key[i]);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << "key_index=" << i;
             return res;
         }
     }
@@ -404,26 +405,26 @@ OLAPStatus TabletReader::_init_keys_param(const ReaderParams& read_params) {
         if (read_params.end_key[i].size() != scan_key_size) {
             OLAP_LOG_WARNING("The end_key.at(%ld).size == %ld, not equals the %ld", i,
                              read_params.end_key[i].size(), scan_key_size);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        OLAPStatus res = _keys_param.end_keys[i].init_scan_key(
+        Status res = _keys_param.end_keys[i].init_scan_key(
                 _tablet->tablet_schema(), read_params.end_key[i].values(), schema);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
         }
 
         res = _keys_param.end_keys[i].from_tuple(read_params.end_key[i]);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << " key_index=" << i;
             return res;
         }
     }
 
     //TODO:check the valid of start_key and end_key.(eg. start_key <= end_key)
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
@@ -438,11 +439,11 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
                 _value_col_predicates.push_back(predicate);
             } else {
                 _col_predicates.push_back(predicate);
-                OLAPStatus status = _conditions.append_condition(condition);
-                DCHECK_EQ(OLAP_SUCCESS, status);
+                Status status = _conditions.append_condition(condition);
+                DCHECK_EQ(Status::OK(), status);
             }
-            OLAPStatus status = _all_conditions.append_condition(condition);
-            DCHECK_EQ(OLAP_SUCCESS, status);
+            Status status = _all_conditions.append_condition(condition);
+            DCHECK_EQ(Status::OK(), status);
         }
     }
 
@@ -452,102 +453,102 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 }
 
-#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                   \
-    ColumnPredicate* TabletReader::_new_##NAME##_pred(const TabletColumn& column, int index,          \
-                                                const std::string& cond, bool opposite) const { \
-        ColumnPredicate* predicate = nullptr;                                                   \
-        switch (column.type()) {                                                                \
-        case OLAP_FIELD_TYPE_TINYINT: {                                                         \
-            int8_t value = 0;                                                                   \
-            std::from_chars(cond.data(), cond.data() + cond.size(), value);                     \
-            predicate = new PREDICATE<int8_t>(index, value, opposite);                          \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_SMALLINT: {                                                        \
-            int16_t value = 0;                                                                  \
-            std::from_chars(cond.data(), cond.data() + cond.size(), value);                     \
-            predicate = new PREDICATE<int16_t>(index, value, opposite);                         \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_INT: {                                                             \
-            int32_t value = 0;                                                                  \
-            std::from_chars(cond.data(), cond.data() + cond.size(), value);                     \
-            predicate = new PREDICATE<int32_t>(index, value, opposite);                         \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_BIGINT: {                                                          \
-            int64_t value = 0;                                                                  \
-            std::from_chars(cond.data(), cond.data() + cond.size(), value);                     \
-            predicate = new PREDICATE<int64_t>(index, value, opposite);                         \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_LARGEINT: {                                                        \
-            int128_t value = 0;                                                                 \
-            StringParser::ParseResult result;                                                   \
-            value = StringParser::string_to_int<__int128>(cond.data(), cond.size(), &result);   \
-            predicate = new PREDICATE<int128_t>(index, value, opposite);                        \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_DECIMAL: {                                                         \
-            decimal12_t value = {0, 0};                                                         \
-            value.from_string(cond);                                                            \
-            predicate = new PREDICATE<decimal12_t>(index, value, opposite);                     \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_CHAR: {                                                            \
-            StringValue value;                                                                  \
-            size_t length = std::max(static_cast<size_t>(column.length()), cond.length());      \
-            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));      \
-            memset(buffer, 0, length);                                                          \
-            memory_copy(buffer, cond.c_str(), cond.length());                                   \
-            value.len = length;                                                                 \
-            value.ptr = buffer;                                                                 \
-            predicate = new PREDICATE<StringValue>(index, value, opposite);                     \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_VARCHAR:                                                           \
-        case OLAP_FIELD_TYPE_STRING: {                                                          \
-            StringValue value;                                                                  \
-            int32_t length = cond.length();                                                     \
-            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));      \
-            memory_copy(buffer, cond.c_str(), length);                                          \
-            value.len = length;                                                                 \
-            value.ptr = buffer;                                                                 \
-            predicate = new PREDICATE<StringValue>(index, value, opposite);                     \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_DATE: {                                                            \
-            uint24_t value = timestamp_from_date(cond);                                         \
-            predicate = new PREDICATE<uint24_t>(index, value, opposite);                        \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_DATETIME: {                                                        \
-            uint64_t value = timestamp_from_datetime(cond);                                     \
-            predicate = new PREDICATE<uint64_t>(index, value, opposite);                        \
-            break;                                                                              \
-        }                                                                                       \
-        case OLAP_FIELD_TYPE_BOOL: {                                                            \
-            int32_t ivalue = 0;                                                                 \
-            auto result = std::from_chars(cond.data(), cond.data() + cond.size(), ivalue);      \
-            bool value = false;                                                                 \
-            if (result.ec == std::errc()) {                                                     \
-                if (ivalue == 0) {                                                              \
-                    value = false;                                                              \
-                } else {                                                                        \
-                    value = true;                                                               \
-                }                                                                               \
-            } else {                                                                            \
-                StringParser::ParseResult parse_result;                                         \
-                value = StringParser::string_to_bool(cond.data(), cond.size(), &parse_result);  \
-            }                                                                                   \
-            predicate = new PREDICATE<bool>(index, value, opposite);                            \
-            break;                                                                              \
-        }                                                                                       \
-        default:                                                                                \
-            break;                                                                              \
-        }                                                                                       \
-                                                                                                \
-        return predicate;                                                                       \
+#define COMPARISON_PREDICATE_CONDITION_VALUE(NAME, PREDICATE)                                      \
+    ColumnPredicate* TabletReader::_new_##NAME##_pred(                                             \
+            const TabletColumn& column, int index, const std::string& cond, bool opposite) const { \
+        ColumnPredicate* predicate = nullptr;                                                      \
+        switch (column.type()) {                                                                   \
+        case OLAP_FIELD_TYPE_TINYINT: {                                                            \
+            int8_t value = 0;                                                                      \
+            std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
+            predicate = new PREDICATE<int8_t>(index, value, opposite);                             \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_SMALLINT: {                                                           \
+            int16_t value = 0;                                                                     \
+            std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
+            predicate = new PREDICATE<int16_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_INT: {                                                                \
+            int32_t value = 0;                                                                     \
+            std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
+            predicate = new PREDICATE<int32_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_BIGINT: {                                                             \
+            int64_t value = 0;                                                                     \
+            std::from_chars(cond.data(), cond.data() + cond.size(), value);                        \
+            predicate = new PREDICATE<int64_t>(index, value, opposite);                            \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_LARGEINT: {                                                           \
+            int128_t value = 0;                                                                    \
+            StringParser::ParseResult result;                                                      \
+            value = StringParser::string_to_int<__int128>(cond.data(), cond.size(), &result);      \
+            predicate = new PREDICATE<int128_t>(index, value, opposite);                           \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DECIMAL: {                                                            \
+            decimal12_t value = {0, 0};                                                            \
+            value.from_string(cond);                                                               \
+            predicate = new PREDICATE<decimal12_t>(index, value, opposite);                        \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_CHAR: {                                                               \
+            StringValue value;                                                                     \
+            size_t length = std::max(static_cast<size_t>(column.length()), cond.length());         \
+            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));         \
+            memset(buffer, 0, length);                                                             \
+            memory_copy(buffer, cond.c_str(), cond.length());                                      \
+            value.len = length;                                                                    \
+            value.ptr = buffer;                                                                    \
+            predicate = new PREDICATE<StringValue>(index, value, opposite);                        \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_VARCHAR:                                                              \
+        case OLAP_FIELD_TYPE_STRING: {                                                             \
+            StringValue value;                                                                     \
+            int32_t length = cond.length();                                                        \
+            char* buffer = reinterpret_cast<char*>(_predicate_mem_pool->allocate(length));         \
+            memory_copy(buffer, cond.c_str(), length);                                             \
+            value.len = length;                                                                    \
+            value.ptr = buffer;                                                                    \
+            predicate = new PREDICATE<StringValue>(index, value, opposite);                        \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DATE: {                                                               \
+            uint24_t value = timestamp_from_date(cond);                                            \
+            predicate = new PREDICATE<uint24_t>(index, value, opposite);                           \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_DATETIME: {                                                           \
+            uint64_t value = timestamp_from_datetime(cond);                                        \
+            predicate = new PREDICATE<uint64_t>(index, value, opposite);                           \
+            break;                                                                                 \
+        }                                                                                          \
+        case OLAP_FIELD_TYPE_BOOL: {                                                               \
+            int32_t ivalue = 0;                                                                    \
+            auto result = std::from_chars(cond.data(), cond.data() + cond.size(), ivalue);         \
+            bool value = false;                                                                    \
+            if (result.ec == std::errc()) {                                                        \
+                if (ivalue == 0) {                                                                 \
+                    value = false;                                                                 \
+                } else {                                                                           \
+                    value = true;                                                                  \
+                }                                                                                  \
+            } else {                                                                               \
+                StringParser::ParseResult parse_result;                                            \
+                value = StringParser::string_to_bool(cond.data(), cond.size(), &parse_result);     \
+            }                                                                                      \
+            predicate = new PREDICATE<bool>(index, value, opposite);                               \
+            break;                                                                                 \
+        }                                                                                          \
+        default:                                                                                   \
+            break;                                                                                 \
+        }                                                                                          \
+                                                                                                   \
+        return predicate;                                                                          \
     }
 
 COMPARISON_PREDICATE_CONDITION_VALUE(eq, EqualPredicate)
@@ -568,7 +569,8 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
                                                                       column.type());
 }
 
-ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition, bool opposite) const {
+ColumnPredicate* TabletReader::_parse_to_predicate(const TCondition& condition,
+                                                   bool opposite) const {
     // TODO: not equal and not in predicate is not pushed down
     int32_t index = _tablet->field_index(condition.column_name);
     if (index < 0) {
@@ -761,7 +763,7 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params) {
 }
 
 void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Conditions* conditions,
-                                   std::set<uint32_t>* load_bf_columns) {
+                                         std::set<uint32_t>* load_bf_columns) {
     // add all columns with condition to load_bf_columns
     for (const auto& cond_column : conditions->columns()) {
         if (!_tablet->tablet_schema().column(cond_column.first).is_bf_column()) {
@@ -814,15 +816,15 @@ void TabletReader::_init_load_bf_columns(const ReaderParams& read_params, Condit
     }
 }
 
-OLAPStatus TabletReader::_init_delete_condition(const ReaderParams& read_params) {
+Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
-    OLAPStatus ret;
+    Status ret;
     {
-        ReadLock rdlock(_tablet->get_header_lock());
+        std::shared_lock rdlock(_tablet->get_header_lock());
         ret = _delete_handler.init(_tablet->tablet_schema(), _tablet->delete_predicates(),
-                                              read_params.version.second, this);
+                                   read_params.version.second, this);
     }
     // Only BASE_COMPACTION need set filter_delete = true
     // other reader type:

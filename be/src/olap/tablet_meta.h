@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TABLET_META_H
-#define DORIS_BE_SRC_OLAP_TABLET_META_H
+#pragma once
 
 #include <mutex>
 #include <shared_mutex>
@@ -31,7 +30,6 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
-#include "util/mutex.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -73,7 +71,7 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static OLAPStatus create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
+    static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                              uint64_t shard_id, uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                              TabletMetaSharedPtr* tablet_meta);
@@ -92,53 +90,53 @@ public:
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
-    OLAPStatus create_from_file(const std::string& file_path);
-    OLAPStatus save(const std::string& file_path);
-    static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
-    static OLAPStatus reset_tablet_uid(const std::string& file_path);
+    Status create_from_file(const std::string& file_path);
+    Status save(const std::string& file_path);
+    static Status save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
+    static Status reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
                                                   int64_t tablet_id);
-    OLAPStatus save_meta(DataDir* data_dir);
+    Status save_meta(DataDir* data_dir);
 
-    OLAPStatus serialize(std::string* meta_binary);
-    OLAPStatus deserialize(const std::string& meta_binary);
+    Status serialize(std::string* meta_binary);
+    Status deserialize(const std::string& meta_binary);
     void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     uint32_t mem_size() const;
 
-    inline TabletTypePB tablet_type() const { return _tablet_type; }
-    inline TabletUid tablet_uid() const;
-    inline int64_t table_id() const;
-    inline int64_t partition_id() const;
-    inline int64_t tablet_id() const;
-    inline int32_t schema_hash() const;
-    inline int16_t shard_id() const;
-    inline void set_shard_id(int32_t shard_id);
-    inline int64_t creation_time() const;
-    inline void set_creation_time(int64_t creation_time);
-    inline int64_t cumulative_layer_point() const;
-    inline void set_cumulative_layer_point(int64_t new_point);
+    TabletTypePB tablet_type() const { return _tablet_type; }
+    TabletUid tablet_uid() const;
+    int64_t table_id() const;
+    int64_t partition_id() const;
+    int64_t tablet_id() const;
+     int32_t schema_hash() const;
+     int16_t shard_id() const;
+     void set_shard_id(int32_t shard_id);
+     int64_t creation_time() const;
+     void set_creation_time(int64_t creation_time);
+     int64_t cumulative_layer_point() const;
+     void set_cumulative_layer_point(int64_t new_point);
 
-    inline size_t num_rows() const;
+    size_t num_rows() const;
     // disk space occupied by tablet
-    inline size_t tablet_footprint() const;
-    inline size_t version_count() const;
+    size_t tablet_footprint() const;
+    size_t version_count() const;
     Version max_version() const;
 
-    inline TabletState tablet_state() const;
-    inline void set_tablet_state(TabletState state);
+    TabletState tablet_state() const;
+    void set_tablet_state(TabletState state);
 
-    inline bool in_restore_mode() const;
-    inline void set_in_restore_mode(bool in_restore_mode);
+    bool in_restore_mode() const;
+    void set_in_restore_mode(bool in_restore_mode);
 
-    inline const TabletSchema& tablet_schema() const;
+    const TabletSchema& tablet_schema() const;
 
-    inline TabletSchema* mutable_tablet_schema();
+    TabletSchema* mutable_tablet_schema();
 
-    inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
-    OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
+    const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
+    Status add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
     // If same_version is true, the rowset in "to_delete" will not be added
@@ -148,7 +146,7 @@ public:
                          bool same_version = false);
     void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
-    inline const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
+    const std::vector<RowsetMetaSharedPtr>& all_stale_rs_metas() const;
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_stale_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_stale_rs_meta_by_version(const Version& version) const;
@@ -160,7 +158,7 @@ public:
 
     std::string full_name() const;
 
-    OLAPStatus set_partition_id(int64_t partition_id);
+    Status set_partition_id(int64_t partition_id);
 
     RowsetTypePB preferred_rowset_type() const { return _preferred_rowset_type; }
 
@@ -171,7 +169,7 @@ public:
     // used for after tablet cloned to clear stale rowset
     void clear_stale_rowset() { _stale_rs_metas.clear(); }
 
-    inline bool all_beta() const;
+    bool all_beta() const;
 
     std::string remote_storage_name() const {
         return _remote_storage_name;
@@ -182,7 +180,7 @@ public:
     }
 
 private:
-    OLAPStatus _save_meta(DataDir* data_dir);
+    Status _save_meta(DataDir* data_dir);
     void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
 
     // _del_pred_array is ignored to compare.
@@ -338,4 +336,3 @@ bool operator!=(const TabletMeta& a, const TabletMeta& b);
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_OLAP_TABLET_META_H

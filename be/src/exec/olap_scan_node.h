@@ -57,7 +57,7 @@ public:
     Status collect_query_statistics(QueryStatistics* statistics) override;
     Status close(RuntimeState* state) override;
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
-    inline void set_no_agg_finalize() { _need_agg_finalize = false; }
+    void set_no_agg_finalize() { _need_agg_finalize = false; }
 
 protected:
     struct HeapType {
@@ -289,6 +289,10 @@ protected:
 
     RuntimeProfile::Counter* _rows_vec_cond_counter = nullptr;
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
+    RuntimeProfile::Counter* _short_cond_timer = nullptr;
+    RuntimeProfile::Counter* _pred_col_read_timer = nullptr;
+    RuntimeProfile::Counter* _lazy_read_timer = nullptr;
+    RuntimeProfile::Counter* _output_col_timer = nullptr;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;

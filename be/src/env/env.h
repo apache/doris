@@ -5,6 +5,7 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors
+
 #pragma once
 
 #include <list>
@@ -22,7 +23,6 @@ namespace doris {
 class RandomAccessFile;
 class RandomRWFile;
 class WritableFile;
-class SequentialFile;
 class PosixEnv;
 class StorageBackend;
 struct FilePathDesc;
@@ -49,15 +49,6 @@ public:
     // system.  Sophisticated users may wish to provide their own Env
     // implementation instead of relying on this default environment.
     static Env* Default();
-
-    // Create a brand new sequentially-readable file with the specified name.
-    // On success, stores a pointer to the new file in *result and returns OK.
-    // On failure stores nullptr in *result and returns non-OK.  If the file does
-    // not exist, returns a non-OK status.
-    //
-    // The returned file will only be accessed by one thread at a time.
-    virtual Status new_sequential_file(const std::string& fname,
-                                       std::unique_ptr<SequentialFile>* result) = 0;
 
     // Create a brand new random access read-only file with the
     // specified name.  On success, stores a pointer to the new file in
@@ -299,34 +290,6 @@ struct RandomRWFileOptions {
     bool sync_on_close = false;
     // See OpenMode for details.
     Env::OpenMode mode = Env::CREATE_OR_OPEN_WITH_TRUNCATE;
-};
-
-// A file abstraction for reading sequentially through a file
-class SequentialFile {
-public:
-    SequentialFile() {}
-    virtual ~SequentialFile() {}
-
-    // Read up to "result.size" bytes from the file.
-    // Sets "result.data" to the data that was read.
-    //
-    // If an error was encountered, returns a non-OK status
-    // and the contents of "result" are invalid.
-    //
-    // REQUIRES: External synchronization
-    virtual Status read(Slice* result) = 0;
-
-    // Skip "n" bytes from the file. This is guaranteed to be no
-    // slower that reading the same data, but may be faster.
-    //
-    // If end of file is reached, skipping will stop at the end of the
-    // file, and Skip will return OK.
-    //
-    // REQUIRES: External synchronization
-    virtual Status skip(uint64_t n) = 0;
-
-    // Returns the filename provided when the SequentialFile was constructed.
-    virtual const std::string& filename() const = 0;
 };
 
 class RandomAccessFile {

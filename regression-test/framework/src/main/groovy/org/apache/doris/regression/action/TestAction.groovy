@@ -17,18 +17,36 @@
 
 package org.apache.doris.regression.action
 
+import groovy.transform.CompileStatic
 import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.FromString
 import groovy.util.logging.Slf4j
-import java.sql.Connection
+import org.apache.commons.io.LineIterator
+import org.apache.doris.regression.util.DataUtils
+import org.apache.doris.regression.util.OutputUtils
+import org.apache.http.HttpStatus
+import org.apache.http.client.methods.CloseableHttpResponse
+import org.apache.http.client.methods.RequestBuilder
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.util.EntityUtils
 
+import javax.swing.text.html.parser.Entity
+import java.nio.charset.StandardCharsets
+import java.sql.Connection
+import java.sql.ResultSetMetaData
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import org.junit.Assert
 
+import java.util.function.Consumer
+
 @Slf4j
+@CompileStatic
 class TestAction implements SuiteAction {
     private String sql
+    private boolean isOrder
+    private String resultFileUri
+    private Iterator<Object> resultIterator
     private Object result
     private long time
     private long rowNum = -1
@@ -70,27 +88,85 @@ class TestAction implements SuiteAction {
                 if (this.result != null) {
                     Assert.assertEquals(this.result, result.result)
                 }
+                if (this.resultIterator != null) {
+                    String errorMsg = OutputUtils.checkOutput(this.resultIterator, result.result.iterator(),
+                        { Object row ->
+                            if (row instanceof List) {
+                                return OutputUtils.toCsvString(row as List)
+                            } else {
+                                return OutputUtils.toCsvString(row as Object)
+                            }
+                        },
+                            { List<Object> row -> OutputUtils.toCsvString(row) }, "Check failed", result.meta)
+                    if (errorMsg != null) {
+                        throw new IllegalStateException(errorMsg)
+                    }
+                }
+                if (this.resultFileUri != null) {
+                    Consumer<InputStream> checkFunc = { InputStream inputStream ->
+                        def lineIt = new LineIterator(new InputStreamReader(inputStream, StandardCharsets.UTF_8))
+                        def csvIt = new OutputUtils.CsvParserIterator(lineIt)
+                        String errMsg = OutputUtils.checkOutput(csvIt, result.result.iterator(),
+                                { List<String> row -> OutputUtils.toCsvString(row as List<Object>) },
+                                { List<Object> row -> OutputUtils.toCsvString(row) },
+                                "Check failed compare to", result.meta)
+                        if (errMsg != null) {
+                            throw new IllegalStateException(errMsg)
+                        }
+                    }
+
+                    if (this.resultFileUri.startsWith("http://") || this.resultFileUri.startsWith("https://")) {
+                        log.info("Compare to http stream: ${this.resultFileUri}")
+                        HttpClients.createDefault().withCloseable { client ->
+                            client.execute(RequestBuilder.get(this.resultFileUri).build()).withCloseable { CloseableHttpResponse resp ->
+                                int code = resp.getStatusLine().getStatusCode()
+                                if (code != HttpStatus.SC_OK) {
+                                    String streamBody = EntityUtils.toString(resp.getEntity())
+                                    throw new IllegalStateException("Get http stream failed, status code is ${code}, body:\n${streamBody}")
+                                }
+                                checkFunc(resp.entity.content)
+                            }
+                        }
+                    } else {
+                        String fileName = resultFileUri
+                        if (!new File(fileName).isAbsolute()) {
+                            fileName = new File(context.dataPath, fileName).getAbsolutePath()
+                        }
+                        def file = new File(fileName)
+                        if (!file.exists()) {
+                            log.warn("Result file not exists: ${file}".toString())
+                        }
+
+                        log.info("Compare to local file: ${file}".toString())
+                        file.newInputStream().withCloseable { inputStream ->
+                            checkFunc(inputStream)
+                        }
+                    }
+                }
             }
         } catch (Throwable t) {
-            log.info("TestAction Exception: ", t)
-            List resList = [context.file.getName(), 'test', sql, t]
-            context.recorder.reportDiffResult(resList)
-            throw t
+            throw new IllegalStateException("TestAction failed, sql:\n${sql}", t)
         }
     }
 
     ActionResult doRun(Connection conn) {
-        Object result = null
+        List<List<Object>> result = null
+        ResultSetMetaData meta = null
         Throwable ex = null
+
         long startTime = System.currentTimeMillis()
         try {
-            log.info("Execute sql:\n${sql}".toString())
-            result = JdbcUtils.executeToList(conn, sql)
+            log.info("Execute ${isOrder ? "order_" : ""}sql:\n${sql}".toString())
+            (result, meta) = JdbcUtils.executeToList(conn, sql)
+            if (isOrder) {
+                result = DataUtils.sortByToString(result)
+            }
         } catch (Throwable t) {
             ex = t
         }
         long endTime = System.currentTimeMillis()
-        return new ActionResult(result, ex, startTime, endTime)
+
+        return new ActionResult(result, ex, startTime, endTime, meta)
     }
 
     void sql(String sql) {
@@ -99,6 +175,10 @@ class TestAction implements SuiteAction {
 
     void sql(Closure<String> sqlSupplier) {
         this.sql = sqlSupplier.call()
+    }
+
+    void order(boolean isOrder) {
+        this.isOrder = isOrder
     }
 
     void time(long time) {
@@ -125,6 +205,22 @@ class TestAction implements SuiteAction {
         this.result = resultSupplier.call()
     }
 
+    void resultIterator(Iterator<Object> resultIterator) {
+        this.resultIterator = resultIterator
+    }
+
+    void resultIterator(Closure<Iterator<Object>> resultIteratorSupplier) {
+        this.resultIterator = resultIteratorSupplier.call()
+    }
+
+    void resultFile(String resultFile) {
+        this.resultFileUri = resultFile
+    }
+
+    void resultFile(Closure<String> resultFileSupplier) {
+        this.resultFileUri = resultFileSupplier.call()
+    }
+
     void exception(String exceptionMsg) {
         this.exception = exceptionMsg
     }
@@ -138,16 +234,18 @@ class TestAction implements SuiteAction {
     }
 
     class ActionResult {
-        Object result
+        List<List<Object>> result
         Throwable exception
         long startTime
         long endTime
+        ResultSetMetaData meta
 
-        ActionResult(Object result, Throwable exception, long startTime, long endTime) {
+        ActionResult(List<List<Object>> result, Throwable exception, long startTime, long endTime, ResultSetMetaData meta) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
+            this.meta = meta
         }
     }
 }

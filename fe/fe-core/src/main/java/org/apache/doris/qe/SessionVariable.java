@@ -176,6 +176,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BLOCK_ENCRYPTION_MODE = "block_encryption_mode";
 
+    public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
+
+    public static final String ENABLE_PROJECTION = "enable_projection";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -428,6 +432,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = BLOCK_ENCRYPTION_MODE)
     private String blockEncryptionMode = "";
+
+    // the maximum size in bytes for a table that will be broadcast to all be nodes
+    // when performing a join, By setting this value to -1 broadcasting can be disabled.
+    // Default value is 1Gto
+    @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
+    public double autoBroadcastJoinThreshold = 0.8;
+  
+    @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
+    private boolean enableProjection = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -892,6 +905,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+
+    public boolean isEnableProjection() {
+        return enableProjection;
+    }
 
     // Serialize to thrift object
     // used for rest api

@@ -79,6 +79,10 @@ private:
 
     void _init_lazy_materialization();
     void _vec_init_lazy_materialization();
+    // TODO: Fix Me
+    // CHAR type in storge layer padding the 0 in length. But query engine need ignore the padding 0.
+    // so segment iterator need to shrink char column before output it. only use in vec query engine.
+    void _vec_init_char_column_id();
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -97,20 +101,20 @@ private:
                              std::vector<vectorized::MutableColumnPtr>& non_pred_vector);
     void _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t& selected_size);
     void _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t* selected_size);
-    void _output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse);
+    void _output_non_pred_columns(vectorized::Block* block);
     void _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                  std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
                                  size_t select_size, vectorized::MutableColumns* mutable_columns);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size,
-                                     bool is_block_mem_reuse) {
+                                     uint16_t* sel_rowid_idx, uint16_t select_size) {
+        SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
-            RETURN_IF_ERROR(block->copy_column_data_to_block(
-                    is_block_mem_reuse, _current_return_columns[cid].get(), sel_rowid_idx,
-                    select_size, block_cid, _opts.block_row_max));
+            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
+                                                             sel_rowid_idx, select_size, block_cid,
+                                                             _opts.block_row_max));
         }
         return Status::OK();
     }

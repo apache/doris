@@ -65,6 +65,15 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
     initialize_index_by_name();
 }
 
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
+    for (const auto slot_desc : slots) {
+        auto column_ptr = slot_desc->get_empty_mutable_column();
+        column_ptr->reserve(block_size);
+        insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
+                                     slot_desc->col_name()));
+    }
+}
+
 Block::Block(const PBlock& pblock) {
     const char* buf = nullptr;
     std::string compression_scratch;
@@ -342,9 +351,6 @@ std::string Block::dump_names() const {
 }
 
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
-    if (rows() == 0) {
-        return "empty block.";
-    }
     std::vector<std::string> headers;
     std::vector<size_t> headers_size;
     for (auto it = data.begin(); it != data.end(); ++it) {
@@ -370,6 +376,9 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     out << std::setw(1) << "|" << std::endl;
     // header bottom line
     line();
+    if (rows() == 0) {
+        return out.str();
+    }
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
@@ -866,9 +875,6 @@ Block MutableBlock::to_block(int start_column, int end_column) {
 }
 
 std::string MutableBlock::dump_data(size_t row_limit) const {
-    if (rows() == 0) {
-        return "empty block.";
-    }
     std::vector<std::string> headers;
     std::vector<size_t> headers_size;
     for (size_t i = 0; i < columns(); ++i) {
@@ -894,6 +900,9 @@ std::string MutableBlock::dump_data(size_t row_limit) const {
     out << std::setw(1) << "|" << std::endl;
     // header bottom line
     line();
+    if (rows() == 0) {
+        return out.str();
+    }
     // content
     for (size_t row_num = 0; row_num < rows() && row_num < row_limit; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
@@ -924,22 +933,24 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
     return temp_block;
 }
 
-void Block::shrink_char_type_column_suffix_zero(std::vector<size_t> char_type_idx) {
+void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
-        if (this->get_by_position(idx).column->is_nullable()) {
-            this->get_by_position(idx).column = ColumnNullable::create(
-                    reinterpret_cast<const ColumnString*>(
-                            reinterpret_cast<const ColumnNullable*>(
-                                    this->get_by_position(idx).column.get())
-                                    ->get_nested_column_ptr()
-                                    .get())
-                            ->get_shinked_column(),
-                    reinterpret_cast<const ColumnNullable*>(this->get_by_position(idx).column.get())
-                            ->get_null_map_column_ptr());
-        } else {
-            this->get_by_position(idx).column =
-                    reinterpret_cast<const ColumnString*>(this->get_by_position(idx).column.get())
-                            ->get_shinked_column();
+        if (idx < data.size()) {
+            if (this->get_by_position(idx).column->is_nullable()) {
+                this->get_by_position(idx).column = ColumnNullable::create(
+                        reinterpret_cast<const ColumnString *>(
+                                reinterpret_cast<const ColumnNullable *>(
+                                        this->get_by_position(idx).column.get())
+                                        ->get_nested_column_ptr()
+                                        .get())
+                                ->get_shinked_column(),
+                        reinterpret_cast<const ColumnNullable *>(this->get_by_position(idx).column.get())
+                                ->get_null_map_column_ptr());
+            } else {
+                this->get_by_position(idx).column =
+                        reinterpret_cast<const ColumnString *>(this->get_by_position(idx).column.get())
+                                ->get_shinked_column();
+            }
         }
     }
 }

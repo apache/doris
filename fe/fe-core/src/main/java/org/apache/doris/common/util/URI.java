@@ -201,4 +201,9 @@ public class URI {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
     }
+
+    @Override
+    public String toString() {
+        return location;
+    }
 }

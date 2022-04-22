@@ -36,7 +36,10 @@ TEST(function_array_index_test, array_contains) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
 
         Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec, 2}, UInt8(1)}, {{vec, 4}, UInt8(0)}, {{Null(), 1}, Null()}, {{empty_arr, 1}, UInt8(0)}};
+        DataSet data_set = {{{vec, 2}, UInt8(1)},
+                            {{vec, 4}, UInt8(0)},
+                            {{Null(), 1}, Null()},
+                            {{empty_arr, 1}, UInt8(0)}};
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
@@ -46,7 +49,10 @@ TEST(function_array_index_test, array_contains) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int8};
 
         Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec, Int8(2)}, UInt8(1)}, {{vec, Int8(4)}, UInt8(0)}, {{Null(), Int8(1)}, Null()}, {{empty_arr, Int8(1)}, UInt8(0)}};
+        DataSet data_set = {{{vec, Int8(2)}, UInt8(1)},
+                            {{vec, Int8(4)}, UInt8(0)},
+                            {{Null(), Int8(1)}, Null()},
+                            {{empty_arr, Int8(1)}, UInt8(0)}};
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
@@ -56,7 +62,10 @@ TEST(function_array_index_test, array_contains) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int64};
 
         Array vec = {Int8(1), Int8(2), Int8(3)};
-        DataSet data_set = {{{vec, Int64(2)}, UInt8(1)}, {{vec, Int64(4)}, UInt8(0)}, {{Null(), Int64(1)}, Null()}, {{empty_arr, Int64(1)}, UInt8(0)}};
+        DataSet data_set = {{{vec, Int64(2)}, UInt8(1)},
+                            {{vec, Int64(4)}, UInt8(0)},
+                            {{Null(), Int64(1)}, Null()},
+                            {{empty_arr, Int64(1)}, UInt8(0)}};
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
@@ -65,9 +74,12 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def",3)};
-        DataSet data_set = {{{vec, std::string("abc")}, UInt8(1)}, {{vec, std::string("aaa")}, UInt8(0)},
-                            {{vec, std::string("")}, UInt8(1)}, {{Null(), std::string("abc")}, Null()}, {{empty_arr, std::string("")}, UInt8(0)}};
+        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        DataSet data_set = {{{vec, std::string("abc")}, UInt8(1)},
+                            {{vec, std::string("aaa")}, UInt8(0)},
+                            {{vec, std::string("")}, UInt8(1)},
+                            {{Null(), std::string("abc")}, Null()},
+                            {{empty_arr, std::string("")}, UInt8(0)}};
 
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
@@ -82,7 +94,10 @@ TEST(function_array_index_test, array_position) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int32};
 
         Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec, 2}, Int64(2)}, {{vec, 4}, Int64(0)}, {{Null(), 1}, Null()}, {{empty_arr, 1}, Int64(0)}};
+        DataSet data_set = {{{vec, 2}, Int64(2)},
+                            {{vec, 4}, Int64(0)},
+                            {{Null(), 1}, Null()},
+                            {{empty_arr, 1}, Int64(0)}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
@@ -92,7 +107,10 @@ TEST(function_array_index_test, array_position) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int32, TypeIndex::Int8};
 
         Array vec = {Int32(1), Int32(2), Int32(3)};
-        DataSet data_set = {{{vec, Int8(2)}, Int64(2)}, {{vec, Int8(4)}, Int64(0)}, {{Null(), Int8(1)}, Null()}, {{empty_arr, Int8(1)}, Int64(0)}};
+        DataSet data_set = {{{vec, Int8(2)}, Int64(2)},
+                            {{vec, Int8(4)}, Int64(0)},
+                            {{Null(), Int8(1)}, Null()},
+                            {{empty_arr, Int8(1)}, Int64(0)}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
@@ -102,7 +120,10 @@ TEST(function_array_index_test, array_position) {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int8, TypeIndex::Int64};
 
         Array vec = {Int8(1), Int8(2), Int8(3)};
-        DataSet data_set = {{{vec, Int64(2)}, Int64(2)}, {{vec, Int64(4)}, Int64(0)}, {{Null(), Int64(1)}, Null()}, {{empty_arr, Int64(1)}, Int64(0)}};
+        DataSet data_set = {{{vec, Int64(2)}, Int64(2)},
+                            {{vec, Int64(4)}, Int64(0)},
+                            {{Null(), Int64(1)}, Null()},
+                            {{empty_arr, Int64(1)}, Int64(0)}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
@@ -111,17 +132,15 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def",3)};
-        DataSet data_set = {{{vec, std::string("abc")}, Int64(1)}, {{vec, std::string("aaa")}, Int64(0)},
-                            {{vec, std::string("")}, Int64(2)}, {{Null(), std::string("abc")}, Null()}, {{empty_arr, std::string("")}, Int64(0)}};
+        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        DataSet data_set = {{{vec, std::string("abc")}, Int64(1)},
+                            {{vec, std::string("aaa")}, Int64(0)},
+                            {{vec, std::string("")}, Int64(2)},
+                            {{Null(), std::string("abc")}, Null()},
+                            {{empty_arr, std::string("")}, Int64(0)}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

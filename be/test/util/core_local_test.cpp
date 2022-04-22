@@ -23,9 +23,9 @@
 #include <thread>
 
 #include "common/logging.h"
+#include "testutil/test_util.h"
 #include "time.h"
 #include "util/stopwatch.hpp"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -64,7 +64,7 @@ TEST_F(CoreLocalTest, CoreLocalValue) {
     for (int i = 0; i < value.size(); ++i) {
         sum += __sync_fetch_and_add(value.access_at_core(i), 0);
     }
-    ASSERT_EQ(8 * loop, sum);
+    EXPECT_EQ(8 * loop, sum);
     LOG(INFO) << "time:" << sum_ns / sum << "ns/op";
 }
 
@@ -72,40 +72,40 @@ TEST_F(CoreLocalTest, CoreDataAllocator) {
     CoreDataAllocatorFactory factory;
     auto allocator1 = factory.get_allocator(1, 8);
     auto ptr = allocator1->get_or_create(0);
-    ASSERT_TRUE(ptr != nullptr);
+    EXPECT_TRUE(ptr != nullptr);
     {
         auto ptr2 = allocator1->get_or_create(0);
-        ASSERT_TRUE(ptr == ptr2);
+        EXPECT_TRUE(ptr == ptr2);
     }
     {
         auto ptr2 = allocator1->get_or_create(4096);
-        ASSERT_TRUE(ptr2 != nullptr);
+        EXPECT_TRUE(ptr2 != nullptr);
     }
     {
         auto allocator2 = factory.get_allocator(2, 8);
-        ASSERT_TRUE(allocator2 != allocator1);
+        EXPECT_TRUE(allocator2 != allocator1);
     }
 }
 
 TEST_F(CoreLocalTest, CoreLocalValueController) {
     CoreLocalValueController<int64_t> controller;
     auto id = controller.get_id();
-    ASSERT_EQ(0, id);
+    EXPECT_EQ(0, id);
     controller.reclaim_id(id);
     id = controller.get_id();
-    ASSERT_EQ(0, id);
+    EXPECT_EQ(0, id);
     id = controller.get_id();
-    ASSERT_EQ(1, id);
+    EXPECT_EQ(1, id);
 }
 
 TEST_F(CoreLocalTest, CoreLocalValueNormal) {
     CoreLocalValue<int64_t> value;
     for (int i = 0; i < value.size(); ++i) {
-        ASSERT_EQ(0, *value.access_at_core(i));
+        EXPECT_EQ(0, *value.access_at_core(i));
         *value.access_at_core(i) += 1;
     }
     for (int i = 0; i < value.size(); ++i) {
-        ASSERT_EQ(1, *value.access_at_core(i));
+        EXPECT_EQ(1, *value.access_at_core(i));
     }
     for (int i = 0; i < 10000; ++i) {
         *value.access() += 1;
@@ -114,11 +114,6 @@ TEST_F(CoreLocalTest, CoreLocalValueNormal) {
     for (int i = 0; i < value.size(); ++i) {
         sum += *value.access_at_core(i);
     }
-    ASSERT_EQ(10000 + value.size(), sum);
+    EXPECT_EQ(10000 + value.size(), sum);
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

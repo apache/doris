@@ -30,8 +30,7 @@ namespace doris {
 
 namespace segment_v2 {
 
-ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field)
-        : _field(field), _pool("ZoneMapIndexWriter") {
+ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field), _pool("ZoneMapIndexWriter") {
     _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
     _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
@@ -56,12 +55,12 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
     }
 }
 
-void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap & zone_map) {
+void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap& zone_map) {
     _field->modify_zone_map_index(zone_map.max_value);
 }
 
 void ZoneMapIndexWriter::reset_page_zone_map() {
-    _page_zone_map.pass_all  = true;
+    _page_zone_map.pass_all = true;
 }
 
 void ZoneMapIndexWriter::reset_segment_zone_map() {
@@ -106,14 +105,14 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    auto typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(typeinfo.get(), false);
+    options.encoding = EncodingInfo::get_default_encoding(type_info, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, typeinfo, wblock);
+    IndexedColumnWriter writer(options, type_info, wblock);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {

@@ -41,32 +41,26 @@ TEST_F(KafkaConsumerPipeTest, append_read) {
 
     Status st;
     st = k_pipe.append_with_line_delimiter(msg1.c_str(), msg1.length());
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = k_pipe.append_with_line_delimiter(msg2.c_str(), msg2.length());
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = k_pipe.finish();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     char buf[1024];
     int64_t data_size = 1024;
     int64_t read_bytes = 0;
     bool eof = false;
     st = k_pipe.read((uint8_t*)buf, data_size, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(read_bytes, msg1.length() + msg2.length() + 2);
-    ASSERT_EQ(eof, false);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(read_bytes, msg1.length() + msg2.length() + 2);
+    EXPECT_EQ(eof, false);
 
     data_size = 1024;
     st = k_pipe.read((uint8_t*)buf, data_size, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(read_bytes, 0);
-    ASSERT_EQ(eof, true);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(read_bytes, 0);
+    EXPECT_EQ(eof, true);
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

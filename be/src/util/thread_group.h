@@ -18,10 +18,10 @@
 #pragma once
 
 #include <list>
+#include <shared_mutex>
 #include <thread>
 
 #include "common/status.h"
-#include "util/mutex.h"
 
 namespace doris {
 class ThreadGroup {
@@ -35,7 +35,7 @@ public:
 
     bool is_this_thread_in() const {
         std::thread::id id = std::this_thread::get_id();
-        ReadLock rdlock(_mutex);
+        std::shared_lock rdlock(_mutex);
         for (auto const& thrd : _threads) {
             if (thrd->get_id() == id) {
                 return true;
@@ -47,7 +47,7 @@ public:
     bool is_thread_in(std::thread* thrd) const {
         if (thrd) {
             std::thread::id id = thrd->get_id();
-            ReadLock rdlock(_mutex);
+            std::shared_lock rdlock(_mutex);
             for (auto const& th : _threads) {
                 if (th->get_id() == id) {
                     return true;
@@ -61,7 +61,7 @@ public:
 
     template <typename F>
     std::thread* create_thread(F threadfunc) {
-        WriteLock wrlock(_mutex);
+        std::lock_guard<std::shared_mutex> wrlock(_mutex);
         std::unique_ptr<std::thread> new_thread = std::make_unique<std::thread>(threadfunc);
         _threads.push_back(new_thread.get());
         return new_thread.release();
@@ -70,7 +70,7 @@ public:
     Status add_thread(std::thread* thrd) {
         if (thrd) {
             if (!is_thread_in(thrd)) {
-                WriteLock guard(_mutex);
+                std::lock_guard<std::shared_mutex> guard(_mutex);
                 _threads.push_back(thrd);
                 return Status::OK();
             } else {
@@ -82,7 +82,7 @@ public:
     }
 
     void remove_thread(std::thread* thrd) {
-        WriteLock wrlock(_mutex);
+        std::lock_guard<std::shared_mutex> wrlock(_mutex);
         std::list<std::thread*>::const_iterator it =
                 std::find(_threads.begin(), _threads.end(), thrd);
         if (it != _threads.end()) {
@@ -94,7 +94,7 @@ public:
         if (is_this_thread_in()) {
             return Status::RuntimeError("trying joining itself");
         }
-        ReadLock rdlock(_mutex);
+        std::shared_lock rdlock(_mutex);
 
         for (auto thrd : _threads) {
             if (thrd->joinable()) {
@@ -105,7 +105,7 @@ public:
     }
 
     size_t size() const {
-        ReadLock rdlock(_mutex);
+        std::shared_lock rdlock(_mutex);
         return _threads.size();
     }
 

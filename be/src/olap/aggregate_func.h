@@ -46,7 +46,7 @@ public:
     // Memory Note: For plain memory can be allocated from *mem_pool, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize function to avoid memory leak.
-    inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+    void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
                      ObjectPool* agg_pool) const {
         _init_fn(dst, src, src_null, mem_pool, agg_pool);
     }
@@ -58,7 +58,7 @@ public:
     // will be added to sum.
 
     // Memory Note: Same with init function.
-    inline void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) const {
+    void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) const {
         _update_fn(dst, src, mem_pool);
     }
 
@@ -70,7 +70,7 @@ public:
     // Memory Note: All heap memory allocated in init and update function should be freed
     // before this function return. Memory allocated from *mem_pool will be still available
     // and will be freed by client.
-    inline void finalize(RowCursorCell* src, MemPool* mem_pool) const {
+    void finalize(RowCursorCell* src, MemPool* mem_pool) const {
         _finalize_fn(src, mem_pool);
     }
 
@@ -98,13 +98,29 @@ struct BaseAggregateFuncs {
         if (src_null) {
             return;
         }
-        if constexpr (field_type == OLAP_FIELD_TYPE_ARRAY) {
-            auto _type_info = get_collection_type_info(sub_type);
-            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
-        } else {
-            // get type at compile time for performance
-            auto _type_info = get_scalar_type_info<field_type>();
-            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        const auto* type_info = get_scalar_type_info<field_type>();
+        type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+
+    // Default update do nothing.
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {}
+
+    // Default finalize do nothing.
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
+};
+
+template <FieldType sub_type>
+struct BaseAggregateFuncs<OLAP_FIELD_TYPE_ARRAY, sub_type> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        // nested array type is unsupported for base aggregate function now
+        if (sub_type != OLAP_FIELD_TYPE_ARRAY) {
+            const auto* type_info = get_collection_type_info<sub_type>();
+            type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         }
     }
 

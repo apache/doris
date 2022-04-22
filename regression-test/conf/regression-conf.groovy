@@ -38,5 +38,14 @@ dataPath = "${DORIS_HOME}/regression-test/data"
 testGroups = ""
 // empty suite will test all suite
 testSuites = ""
+// empty directories will test all directories
+testDirectories = ""
 
 customConf1 = "test_custom_conf_value"
+
+// for test csv with header
+enableHdfs=false // set to true if hdfs is ready
+hdfsFs = "hdfs://127.0.0.1:9000"
+hdfsUser = "doris-test"
+hdfsPasswd = ""
+brokerName = "broker_name"

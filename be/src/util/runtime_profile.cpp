@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/runtime-profile.cc
+// and modified by Doris
 
 #include "util/runtime_profile.h"
 
@@ -26,7 +29,6 @@
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
 #include "util/pretty_printer.h"
 #include "util/thrift_util.h"
 #include "util/url_coding.h"
@@ -41,11 +43,10 @@ static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSw
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
 // The root counter name for all top level counters.
-static const std::string ROOT_COUNTER = "";
+static const std::string ROOT_COUNTER;
 
 RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
-          _own_pool(false),
           _name(name),
           _metadata(-1),
           _is_averaged_profile(is_averaged_profile),
@@ -54,7 +55,7 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 
-RuntimeProfile::~RuntimeProfile() {}
+RuntimeProfile::~RuntimeProfile() = default;
 
 void RuntimeProfile::merge(RuntimeProfile* other) {
     DCHECK(other != nullptr);

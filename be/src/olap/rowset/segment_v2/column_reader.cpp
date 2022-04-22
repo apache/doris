@@ -393,7 +393,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     if (_array_reader->is_nullable()) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
-    auto offset_type_info = get_scalar_type_info(OLAP_FIELD_TYPE_UNSIGNED_INT);
+    const auto* offset_type_info = get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>();
     RETURN_IF_ERROR(
             ColumnVectorBatch::create(1024, false, offset_type_info, nullptr, &_length_batch));
     return Status::OK();
@@ -717,7 +717,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
         } else {
             _type_size = _type_info->size();
             _mem_value = reinterpret_cast<void*>(_pool->allocate(_type_size));
-            OLAPStatus s = OLAP_SUCCESS;
+            Status s = Status::OK();
             if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
                 int32_t length = _schema_length;
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
@@ -740,9 +740,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             } else {
                 s = _type_info->from_string(_mem_value, _default_value);
             }
-            if (s != OLAP_SUCCESS) {
-                return Status::InternalError(strings::Substitute(
-                        "get value of type from default value failed. status:$0", s));
+            if (!s.ok()) {
+                return s;
             }
         }
     } else if (_is_nullable) {
@@ -775,39 +774,58 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
 
 void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPtr &dst, size_t n) {
     vectorized::Int128 int128;
-    char* data_ptr = (char*)&int128;
+    char* data_ptr = (char *) &int128;
     size_t data_len = sizeof(int128);
 
-    auto type = _type_info->type();
-    if (type == OLAP_FIELD_TYPE_DATE) {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
+    auto insert_column_data = [&]() {
+        for (size_t i = 0; i < n; ++i) {
+            dst->insert_data(data_ptr, data_len);
+        }
+    };
 
-        vectorized::VecDateTimeValue value;
-        value.from_date_str(str.c_str(), str.length());
-        value.cast_to_date();
-        //TODO: here is int128 = int64
-        int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-    } else if (type == OLAP_FIELD_TYPE_DATETIME) {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
+    switch (_type_info->type()) {
+        case OLAP_FIELD_TYPE_OBJECT:
+        case OLAP_FIELD_TYPE_HLL:{
+            dst->insert_many_defaults(n);
+            break;
+        }
 
-        vectorized::VecDateTimeValue value;
-        value.from_date_str(str.c_str(), str.length());
-        value.to_datetime();
+        case OLAP_FIELD_TYPE_DATE: {
+            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
+            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
 
-        int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-    } else if (type == OLAP_FIELD_TYPE_DECIMAL) {
-        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-        decimal12_t* d = (decimal12_t*)_mem_value;
-        int128 = DecimalV2Value(d->integer, d->fraction).value();
-    } else {
-        data_ptr = (char*)_mem_value;
-        data_len = _type_size;
-    }
+            vectorized::VecDateTimeValue value;
+            value.from_date_str(str.c_str(), str.length());
+            value.cast_to_date();
+            //TODO: here is int128 = int64, here rely on the logic of little endian
+            int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+            insert_column_data();
+            break;
+        }
+        case OLAP_FIELD_TYPE_DATETIME: {
+            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
+            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
 
-    for (size_t i = 0; i < n; ++i) {
-        dst->insert_data(data_ptr, data_len);
+            vectorized::VecDateTimeValue value;
+            value.from_date_str(str.c_str(), str.length());
+            value.to_datetime();
+
+            int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+            insert_column_data();
+            break;
+        }
+        case OLAP_FIELD_TYPE_DECIMAL: {
+            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
+            decimal12_t *d = (decimal12_t *) _mem_value;
+            int128 = DecimalV2Value(d->integer, d->fraction).value();
+            insert_column_data();
+            break;
+        }
+        default: {
+            data_ptr = (char *) _mem_value;
+            data_len = _type_size;
+            insert_column_data();
+        }
     }
 }
 

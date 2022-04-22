@@ -36,7 +36,7 @@ namespace segment_v2 {
 
 class BitmapIndexWriter {
 public:
-    static Status create(std::shared_ptr<const TypeInfo> typeinfo, std::unique_ptr<BitmapIndexWriter>* res);
+    static Status create(const TypeInfo* type_info, std::unique_ptr<BitmapIndexWriter>* res);
 
     BitmapIndexWriter() = default;
     virtual ~BitmapIndexWriter() = default;

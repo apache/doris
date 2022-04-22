@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Analyzer.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -33,6 +36,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
@@ -47,10 +51,9 @@ import org.apache.doris.rewrite.InferFiltersRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.rewrite.RewriteAliasFunctionRule;
 import org.apache.doris.rewrite.RewriteBinaryPredicatesRule;
+import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.RewriteEncryptKeyRule;
 import org.apache.doris.rewrite.RewriteFromUnixTimeRule;
-import org.apache.doris.rewrite.RewriteLikePredicateRule;
-import org.apache.doris.rewrite.RewriteDateLiteralRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
 import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
@@ -179,6 +182,10 @@ public class Analyzer {
     public List<RuntimeFilter> getAssignedRuntimeFilter() { return assignedRuntimeFilters; }
     public void clearAssignedRuntimeFilters() { assignedRuntimeFilters.clear(); }
 
+    public long getAutoBroadcastJoinThreshold() {
+        return globalState.autoBroadcastJoinThreshold;
+    }
+
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
     // a tuple is outer/semi joined, etc. Remove the maps in favor of making
@@ -292,6 +299,19 @@ public class Analyzer {
 
         private final ExprRewriter mvExprRewriter;
 
+        private final long autoBroadcastJoinThreshold;
+
+        /**
+         * This property is mainly used to store the vectorized switch of the current query.
+         * true: the vectorization of the current query is turned on
+         * false: the vectorization of the current query is turned off.
+         * It is different from the vectorized switch`enableVectorizedEngine` of the session.
+         * It is only valid for a single query, while the session switch is valid for all queries in the session.
+         * It cannot be set directly by the user, only by inheritance from session`enableVectorizedEngine`
+         * or internal adjustment of the system.
+         */
+        private boolean enableQueryVec;
+
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
             this.context = context;
@@ -311,7 +331,6 @@ public class Analyzer {
             rules.add(RewriteDateLiteralRule.INSTANCE);
             rules.add(RewriteEncryptKeyRule.INSTANCE);
             rules.add(RewriteAliasFunctionRule.INSTANCE);
-            rules.add(RewriteLikePredicateRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -325,8 +344,30 @@ public class Analyzer {
             mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);
             mvRewriteRules.add(CountFieldToSum.INSTANCE);
             mvExprRewriter = new ExprRewriter(mvRewriteRules);
+
+            // context maybe null. eg, for StreamLoadPlanner.
+            // and autoBroadcastJoinThreshold is only used for Query's DistributedPlanner.
+            // so it is ok to not set autoBroadcastJoinThreshold if context is null
+            if (context != null) {
+                // compute max exec mem could be used for broadcast join
+                long perNodeMemLimit = context.getSessionVariable().getMaxExecMemByte();
+                double autoBroadcastJoinThresholdPercentage = context.getSessionVariable().autoBroadcastJoinThreshold;
+                if (autoBroadcastJoinThresholdPercentage > 1) {
+                    autoBroadcastJoinThresholdPercentage = 1.0;
+                } else if (autoBroadcastJoinThresholdPercentage <= 0) {
+                    autoBroadcastJoinThresholdPercentage = -1.0;
+                }
+                autoBroadcastJoinThreshold = (long) (perNodeMemLimit * autoBroadcastJoinThresholdPercentage);
+            } else {
+                // autoBroadcastJoinThreshold is a "final" field, must set an initial value for it
+                autoBroadcastJoinThreshold = 0;
+            }
+            if (context != null) {
+                enableQueryVec = context.getSessionVariable().enableVectorizedEngine();
+            }
         }
-    };
+    }
+
     private final GlobalState globalState;
 
     // An analyzer stores analysis state for a single select block. A select block can be
@@ -620,9 +661,34 @@ public class Analyzer {
         return db.getTableOrAnalysisException(tblName.getTbl());
     }
 
-    public ExprRewriter getExprRewriter() { return globalState.exprRewriter_; }
+    public ExprRewriter getExprRewriter() {
+        return globalState.exprRewriter_;
+    }
 
-    public ExprRewriter getMVExprRewriter() { return globalState.mvExprRewriter; }
+    public ExprRewriter getMVExprRewriter() {
+        return globalState.mvExprRewriter;
+    }
+
+    /**
+     * Only the top-level `query vec` value of the query analyzer represents the value of the entire query.
+     * Other sub-analyzers cannot represent the value of `query vec`.
+     * @return
+     */
+    public boolean enableQueryVec() {
+        if (ancestors.isEmpty()) {
+            return globalState.enableQueryVec;
+        } else {
+            return ancestors.get(ancestors.size() - 1).enableQueryVec();
+        }
+    }
+
+    /**
+     * Since analyzer cannot get sub-analyzers from top to bottom.
+     * So I can only set the `query vec` variable of the top level analyzer of query to true.
+     */
+    public void disableQueryVec() {
+        globalState.enableQueryVec = false;
+    }
 
     /**
      * Return descriptor of registered table/alias.
@@ -731,7 +797,6 @@ public class Analyzer {
             result.setMultiRef(true);
             return result;
         }
-
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
         result.setColumn(col);
@@ -868,18 +933,47 @@ public class Analyzer {
     }
 
     /**
-     * All tuple of outer join tuple should be null in slot desc
+     * The main function of this method is to set the column property on the nullable side of the outer join
+     * to nullable in the case of vectorization.
+     * For example:
+     * Query: select * from t1 left join t2 on t1.k1=t2.k1
+     * Origin: t2.k1 not null
+     * Result: t2.k1 is nullable
+     *
+     * @throws VecNotImplException In some cases, it is not possible to directly modify the column property to nullable.
+     *     It will report an error and fall back from vectorized mode to non-vectorized mode for execution.
+     *     If the nullside column of the outer join is a column that must return non-null like count(*)
+     *     then there is no way to force the column to be nullable.
+     *     At this time, vectorization cannot support this situation,
+     *     so it is necessary to fall back to non-vectorization for processing.
+     *     For example:
+     *       Query: select * from t1 left join (select k1, count(k2) as count_k2 from t2 group by k1) tmp on t1.k1=tmp.k1
+     *       Origin: tmp.k1 not null, tmp.count_k2 not null
+     *       Result: throw VecNotImplException
      */
-    public void changeAllOuterJoinTupleToNull() {
+    public void changeAllOuterJoinTupleToNull() throws VecNotImplException {
         for (TupleId tid : globalState.outerJoinedTupleIds.keySet()) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                slotDescriptor.setIsNullable(true);
+                changeSlotToNull(slotDescriptor);
             }
         }
 
         for (TupleId tid : globalState.outerJoinedMaterializedTupleIds) {
             for (SlotDescriptor slotDescriptor : getTupleDesc(tid).getSlots()) {
-                slotDescriptor.setIsNullable(true);
+                changeSlotToNull(slotDescriptor);
+            }
+        }
+    }
+
+    private void changeSlotToNull(SlotDescriptor slotDescriptor) throws VecNotImplException {
+        if (slotDescriptor.getSourceExprs().isEmpty()) {
+            slotDescriptor.setIsNullable(true);
+            return;
+        }
+        for (Expr sourceExpr : slotDescriptor.getSourceExprs()) {
+            if (!sourceExpr.isNullable()) {
+                throw new VecNotImplException("The slot (" + slotDescriptor.toString()
+                        + ") could not be changed to nullable");
             }
         }
     }

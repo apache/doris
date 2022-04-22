@@ -14,16 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-sender.cc
+// and modified by Doris
 
 #include "runtime/data_stream_sender.h"
 
 #include <arpa/inet.h>
-#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <iostream>
 #include <random>
-#include <thread>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -39,6 +40,7 @@
 #include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
@@ -388,10 +390,10 @@ Status DataStreamSender::prepare(RuntimeState* state) {
           << "])";
     _profile = _pool->add(new RuntimeProfile(title.str()));
     SCOPED_TIMER(_profile->total_time_counter());
-    // TODO(zxy) used after
     _mem_tracker = MemTracker::create_tracker(
             -1, "DataStreamSender:" + print_id(state->fragment_instance_id()),
-            state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
+            nullptr, MemTrackerLevel::VERBOSE, _profile);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
         std::random_device rd;
@@ -432,6 +434,7 @@ DataStreamSender::~DataStreamSender() {
 
 Status DataStreamSender::open(RuntimeState* state) {
     DCHECK(state != nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     RETURN_IF_ERROR(Expr::open(_partition_expr_ctxs, state));
     for (auto iter : _partition_infos) {
         RETURN_IF_ERROR(iter->open(state));
@@ -441,6 +444,7 @@ Status DataStreamSender::open(RuntimeState* state) {
 
 Status DataStreamSender::send(RuntimeState* state, RowBatch* batch) {
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(_mem_tracker);
 
     // Unpartition or _channel size
     if (_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) {

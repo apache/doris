@@ -48,13 +48,13 @@ public:
     bool delete_flag() const { return _segment_group->delete_flag(); }
     uint32_t num_segments() const { return _segment_group->num_segments(); }
 
-    OLAPStatus init();
+    Status init();
 
-    OLAPStatus prepare_block_read(const RowCursor* start_key, bool find_start_key,
+    Status prepare_block_read(const RowCursor* start_key, bool find_start_key,
                                   const RowCursor* end_key, bool find_end_key,
                                   RowBlock** first_block);
 
-    OLAPStatus get_next_block(RowBlock** row_block);
+    Status get_next_block(RowBlock** row_block);
 
     void set_read_params(const std::vector<uint32_t>& return_columns,
                          const std::vector<uint32_t>& seek_columns,
@@ -62,7 +62,7 @@ public:
                          std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
                          RuntimeState* runtime_state);
 
-    OLAPStatus get_first_row_block(RowBlock** row_block);
+    Status get_first_row_block(RowBlock** row_block);
 
     // Only used to binary search in full-key find row
     const RowCursor* seek_and_get_current_row(const RowBlockPosition& position);
@@ -97,38 +97,38 @@ public:
 
     // To compatible with schema change read, use this function to init column data
     // for schema change read. Only called in get_first_row_block
-    OLAPStatus schema_change_init();
+    Status schema_change_init();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(ColumnData);
 
     // Try to seek to 'key'. If this function returned with OLAP_SUCCESS, current_row()
     // point to the first row meet the requirement.
-    // If there is no such row, OLAP_ERR_DATA_EOF will return.
+    // If there is no such row, Status::OLAPInternalError(OLAP_ERR_DATA_EOF) will return.
     // If error happened, other code will return
-    OLAPStatus _seek_to_row(const RowCursor& key, bool find_key, bool is_end_key);
+    Status _seek_to_row(const RowCursor& key, bool find_key, bool is_end_key);
 
     // seek to block_pos without load that block, caller must call _get_block()
     // to load _read_block with data. If without_filter is false, this will seek to
     // other block. Because the seeked block may be filtered by condition or delete.
-    OLAPStatus _seek_to_block(const RowBlockPosition& block_pos, bool without_filter);
+    Status _seek_to_block(const RowBlockPosition& block_pos, bool without_filter);
 
-    OLAPStatus _find_position_by_short_key(const RowCursor& key, bool find_last_key,
+    Status _find_position_by_short_key(const RowCursor& key, bool find_last_key,
                                            RowBlockPosition* position);
-    OLAPStatus _find_position_by_full_key(const RowCursor& key, bool find_last_key,
+    Status _find_position_by_full_key(const RowCursor& key, bool find_last_key,
                                           RowBlockPosition* position);
 
     // Used in _seek_to_row, this function will goto next row that valid for this
     // ColumnData
-    OLAPStatus _next_row(const RowCursor** row, bool without_filter);
+    Status _next_row(const RowCursor** row, bool without_filter);
 
     // get block from reader, just read vector batch from _current_segment.
     // The read batch return by got_batch.
-    OLAPStatus _get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
+    Status _get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
                                       int rows_read);
 
     // get block from segment reader. If this function returns OLAP_SUCCESS
-    OLAPStatus _get_block(bool without_filter, int rows_read = 0);
+    Status _get_block(bool without_filter, int rows_read = 0);
 
     const RowCursor* _current_row() {
         _read_block->get_row(_read_block->pos(), &_cursor);
@@ -202,9 +202,9 @@ public:
 private:
     bool _compare(const iterator_offset_t& index, const RowCursor& key,
                   ComparatorEnum comparator_enum) const {
-        OLAPStatus res = OLAP_SUCCESS;
+        Status res = Status::OK();
         RowBlockPosition position = _start_block_position;
-        if (OLAP_SUCCESS != (res = _segment_group->advance_row_block(index, &position))) {
+        if (!(res = _segment_group->advance_row_block(index, &position))) {
             LOG(WARNING) << "fail to advance row block. res=" << res;
             throw ComparatorException();
         }

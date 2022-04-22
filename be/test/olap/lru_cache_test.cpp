@@ -21,7 +21,7 @@
 
 #include <vector>
 
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/logging.h"
 
 using namespace doris;
@@ -49,7 +49,7 @@ const CacheKey EncodeKey(std::string* result, int k) {
 }
 
 static int DecodeKey(const CacheKey& k) {
-    assert(k.size() == 4);
+    EXPECT_EQ(k.size(), 4);
     return DecodeFixed32(k.data());
 }
 static void* EncodeValue(uintptr_t v) {
@@ -116,75 +116,72 @@ public:
 CacheTest* CacheTest::_s_current;
 
 TEST_F(CacheTest, HitAndMiss) {
-    ASSERT_EQ(-1, Lookup(100));
+    EXPECT_EQ(-1, Lookup(100));
 
     Insert(100, 101, 1);
-    ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(-1, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    EXPECT_EQ(101, Lookup(100));
+    EXPECT_EQ(-1, Lookup(200));
+    EXPECT_EQ(-1, Lookup(300));
 
     Insert(200, 201, 1);
-    ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    EXPECT_EQ(101, Lookup(100));
+    EXPECT_EQ(201, Lookup(200));
+    EXPECT_EQ(-1, Lookup(300));
 
     Insert(100, 102, 1);
-    ASSERT_EQ(102, Lookup(100));
-    ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    EXPECT_EQ(102, Lookup(100));
+    EXPECT_EQ(201, Lookup(200));
+    EXPECT_EQ(-1, Lookup(300));
 
-    ASSERT_EQ(1, _deleted_keys.size());
-    ASSERT_EQ(100, _deleted_keys[0]);
-    ASSERT_EQ(101, _deleted_values[0]);
+    EXPECT_EQ(1, _deleted_keys.size());
+    EXPECT_EQ(100, _deleted_keys[0]);
+    EXPECT_EQ(101, _deleted_values[0]);
 }
 
 TEST_F(CacheTest, Erase) {
     Erase(200);
-    ASSERT_EQ(0, _deleted_keys.size());
+    EXPECT_EQ(0, _deleted_keys.size());
 
     Insert(100, 101, 1);
     Insert(200, 201, 1);
     Erase(100);
-    ASSERT_EQ(-1, Lookup(100));
-    ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(1, _deleted_keys.size());
-    ASSERT_EQ(100, _deleted_keys[0]);
-    ASSERT_EQ(101, _deleted_values[0]);
+    EXPECT_EQ(-1, Lookup(100));
+    EXPECT_EQ(201, Lookup(200));
+    EXPECT_EQ(1, _deleted_keys.size());
+    EXPECT_EQ(100, _deleted_keys[0]);
+    EXPECT_EQ(101, _deleted_values[0]);
 
     Erase(100);
-    ASSERT_EQ(-1, Lookup(100));
-    ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(1, _deleted_keys.size());
+    EXPECT_EQ(-1, Lookup(100));
+    EXPECT_EQ(201, Lookup(200));
+    EXPECT_EQ(1, _deleted_keys.size());
 }
 
 TEST_F(CacheTest, EntriesArePinned) {
     Insert(100, 101, 1);
     std::string result1;
     Cache::Handle* h1 = _cache->lookup(EncodeKey(&result1, 100));
-    if (h1 == nullptr) {
-        std::cout << "h1 is null" << std::endl;
-    }
-    ASSERT_EQ(101, DecodeValue(_cache->value(h1)));
+    EXPECT_EQ(101, DecodeValue(_cache->value(h1)));
 
     Insert(100, 102, 1);
     std::string result2;
     Cache::Handle* h2 = _cache->lookup(EncodeKey(&result2, 100));
-    ASSERT_EQ(102, DecodeValue(_cache->value(h2)));
-    ASSERT_EQ(0, _deleted_keys.size());
+    EXPECT_EQ(102, DecodeValue(_cache->value(h2)));
+    EXPECT_EQ(0, _deleted_keys.size());
 
     _cache->release(h1);
-    ASSERT_EQ(1, _deleted_keys.size());
-    ASSERT_EQ(100, _deleted_keys[0]);
-    ASSERT_EQ(101, _deleted_values[0]);
+    EXPECT_EQ(1, _deleted_keys.size());
+    EXPECT_EQ(100, _deleted_keys[0]);
+    EXPECT_EQ(101, _deleted_values[0]);
 
     Erase(100);
-    ASSERT_EQ(-1, Lookup(100));
-    ASSERT_EQ(1, _deleted_keys.size());
+    EXPECT_EQ(-1, Lookup(100));
+    EXPECT_EQ(1, _deleted_keys.size());
 
     _cache->release(h2);
-    ASSERT_EQ(2, _deleted_keys.size());
-    ASSERT_EQ(100, _deleted_keys[1]);
-    ASSERT_EQ(102, _deleted_values[1]);
+    EXPECT_EQ(2, _deleted_keys.size());
+    EXPECT_EQ(100, _deleted_keys[1]);
+    EXPECT_EQ(102, _deleted_values[1]);
 }
 
 TEST_F(CacheTest, EvictionPolicy) {
@@ -194,12 +191,12 @@ TEST_F(CacheTest, EvictionPolicy) {
     // Frequently used entry must be kept around
     for (int i = 0; i < kCacheSize + 100; i++) {
         Insert(1000 + i, 2000 + i, 1);
-        ASSERT_EQ(2000 + i, Lookup(1000 + i));
-        ASSERT_EQ(101, Lookup(100));
+        EXPECT_EQ(2000 + i, Lookup(1000 + i));
+        EXPECT_EQ(101, Lookup(100));
     }
 
-    ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(-1, Lookup(200));
+    EXPECT_EQ(101, Lookup(100));
+    EXPECT_EQ(-1, Lookup(200));
 }
 
 TEST_F(CacheTest, EvictionPolicyWithDurable) {
@@ -210,18 +207,16 @@ TEST_F(CacheTest, EvictionPolicyWithDurable) {
     // Frequently used entry must be kept around
     for (int i = 0; i < kCacheSize + 100; i++) {
         Insert(1000 + i, 2000 + i, 1);
-        ASSERT_EQ(2000 + i, Lookup(1000 + i));
-        ASSERT_EQ(101, Lookup(100));
+        EXPECT_EQ(2000 + i, Lookup(1000 + i));
+        EXPECT_EQ(101, Lookup(100));
     }
 
-    ASSERT_EQ(-1, Lookup(300));
-    ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(201, Lookup(200));
+    EXPECT_EQ(-1, Lookup(300));
+    EXPECT_EQ(101, Lookup(100));
+    EXPECT_EQ(201, Lookup(200));
 }
 
-static void deleter(const CacheKey& key, void* v) {
-    std::cout << "delete key " << key.to_string() << std::endl;
-}
+static void deleter(const CacheKey& key, void* v) {}
 
 static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
                             CachePriority priority) {
@@ -237,31 +232,31 @@ TEST_F(CacheTest, Usage) {
     // 95 + 3 means handle_size + key size
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(198, cache.get_usage()); // 100 + 95 + 3
+    EXPECT_EQ(198, cache.get_usage()); // 100 + 95 + 3
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(496, cache.get_usage()); // 198 + 200 + 95 + 3
+    EXPECT_EQ(496, cache.get_usage()); // 198 + 200 + 95 + 3
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(894, cache.get_usage()); // 496 + 300 + 95 + 3
+    EXPECT_EQ(894, cache.get_usage()); // 496 + 300 + 95 + 3
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(796, cache.get_usage()); // 894 + 400 + 95 + 3 - (300 + 100 + (95 + 3) * 2)
+    EXPECT_EQ(796, cache.get_usage()); // 894 + 400 + 95 + 3 - (300 + 100 + (95 + 3) * 2)
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(896, cache.get_usage()); // 796 + 500 + 95 + 3 - (400 + 95 +3)
+    EXPECT_EQ(896, cache.get_usage()); // 796 + 500 + 95 + 3 - (400 + 95 +3)
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(996, cache.get_usage()); // 896 + 600 + 95 +3 - (500 + 95 + 3)
+    EXPECT_EQ(996, cache.get_usage()); // 896 + 600 + 95 +3 - (500 + 95 + 3)
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(1048, cache.get_usage()); // 996 + 950 + 95 +3 - (200 + 600 + (95 + 3) * 2)
+    EXPECT_EQ(1048, cache.get_usage()); // 996 + 950 + 95 +3 - (200 + 600 + (95 + 3) * 2)
 }
 
 TEST_F(CacheTest, Prune) {
@@ -272,49 +267,49 @@ TEST_F(CacheTest, Prune) {
     // 95 + 3 means handle_size + key size
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(1, cache.get_usage());
+    EXPECT_EQ(1, cache.get_usage());
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(2, cache.get_usage());
+    EXPECT_EQ(2, cache.get_usage());
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(3, cache.get_usage());
+    EXPECT_EQ(3, cache.get_usage());
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(4, cache.get_usage());
+    EXPECT_EQ(4, cache.get_usage());
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(5, cache.get_usage());
+    EXPECT_EQ(5, cache.get_usage());
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(5, cache.get_usage());
+    EXPECT_EQ(5, cache.get_usage());
 
     CacheKey key7("700");
     insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
-    ASSERT_EQ(5, cache.get_usage());
+    EXPECT_EQ(5, cache.get_usage());
 
     auto pred = [](const void* value) -> bool { return false; };
     cache.prune_if(pred);
-    ASSERT_EQ(5, cache.get_usage());
+    EXPECT_EQ(5, cache.get_usage());
 
     auto pred2 = [](const void* value) -> bool { return DecodeValue((void*)value) > 400; };
     cache.prune_if(pred2);
-    ASSERT_EQ(2, cache.get_usage());
+    EXPECT_EQ(2, cache.get_usage());
 
     cache.prune();
-    ASSERT_EQ(0, cache.get_usage());
+    EXPECT_EQ(0, cache.get_usage());
 
     for (int i = 1; i <= 5; ++i) {
         insert_LRUCache(cache, CacheKey {std::to_string(i)}, i, CachePriority::NORMAL);
-        ASSERT_EQ(i, cache.get_usage());
+        EXPECT_EQ(i, cache.get_usage());
     }
     cache.prune_if([](const void*) { return true; });
-    ASSERT_EQ(0, cache.get_usage());
+    EXPECT_EQ(0, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {
@@ -341,23 +336,23 @@ TEST_F(CacheTest, HeavyEntries) {
 
         if (r >= 0) {
             cached_weight += weight;
-            ASSERT_EQ(1000 + i, r);
+            EXPECT_EQ(1000 + i, r);
         }
     }
 
-    ASSERT_LE(cached_weight, kCacheSize + kCacheSize / 10);
+    EXPECT_LE(cached_weight, kCacheSize + kCacheSize / 10);
 }
 
 TEST_F(CacheTest, NewId) {
     uint64_t a = _cache->new_id();
     uint64_t b = _cache->new_id();
-    ASSERT_NE(a, b);
+    EXPECT_NE(a, b);
 }
 
 TEST_F(CacheTest, SimpleBenchmark) {
     for (int i = 0; i < kCacheSize * LOOP_LESS_OR_MORE(10, 10000); i++) {
         Insert(1000 + i, 2000 + i, 1);
-        ASSERT_EQ(2000 + i, Lookup(1000 + i));
+        EXPECT_EQ(2000 + i, Lookup(1000 + i));
     }
 }
 
@@ -365,14 +360,14 @@ TEST(CacheHandleTest, HandleTableTest) {
     HandleTable ht;
 
     for (uint32_t i = 0; i < ht._length; ++i) {
-        ASSERT_NE(ht._list[i], nullptr);
-        ASSERT_EQ(ht._list[i]->next_hash, nullptr);
-        ASSERT_EQ(ht._list[i]->prev_hash, nullptr);
+        EXPECT_NE(ht._list[i], nullptr);
+        EXPECT_EQ(ht._list[i]->next_hash, nullptr);
+        EXPECT_EQ(ht._list[i]->prev_hash, nullptr);
     }
 
     const int count = 10;
     CacheKey keys[count] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
-    ASSERT_NE(keys[0], keys[1]);
+    EXPECT_NE(keys[0], keys[1]);
     LRUHandle* hs[count];
     for (int i = 0; i < count; ++i) {
         CacheKey* key = &keys[i];
@@ -392,21 +387,21 @@ TEST(CacheHandleTest, HandleTableTest) {
         memcpy(h->key_data, key->data(), key->size());
 
         LRUHandle* old = ht.insert(h);
-        ASSERT_EQ(ht._elems, i + 1);
-        ASSERT_EQ(old, nullptr); // there is no entry with the same key and hash
+        EXPECT_EQ(ht._elems, i + 1);
+        EXPECT_EQ(old, nullptr); // there is no entry with the same key and hash
         hs[i] = h;
     }
-    ASSERT_EQ(ht._elems, count);
+    EXPECT_EQ(ht._elems, count);
     LRUHandle* h = ht.lookup(CacheKey(std::to_string(count - 1)), 1);
     LRUHandle* head = ht._list[1 & (ht._length - 1)];
-    ASSERT_EQ(head, h->prev_hash);
-    ASSERT_EQ(head->next_hash, h);
+    EXPECT_EQ(head, h->prev_hash);
+    EXPECT_EQ(head->next_hash, h);
     int index = count - 1;
     while (h != nullptr) {
-        ASSERT_EQ(hs[index], h) << index;
+        EXPECT_EQ(hs[index], h) << index;
         h = h->next_hash;
         if (h != nullptr) {
-            ASSERT_EQ(hs[index], h->prev_hash);
+            EXPECT_EQ(hs[index], h->prev_hash);
         }
         --index;
     }
@@ -428,41 +423,41 @@ TEST(CacheHandleTest, HandleTableTest) {
         h->priority = CachePriority::NORMAL;
         memcpy(h->key_data, key->data(), key->size());
 
-        ASSERT_EQ(ht.insert(h), hs[i]); // there is an entry with the same key and hash
-        ASSERT_EQ(ht._elems, count);
+        EXPECT_EQ(ht.insert(h), hs[i]); // there is an entry with the same key and hash
+        EXPECT_EQ(ht._elems, count);
         free(hs[i]);
         hs[i] = h;
     }
-    ASSERT_EQ(ht._elems, count);
+    EXPECT_EQ(ht._elems, count);
 
     for (int i = 0; i < count; ++i) {
-        ASSERT_EQ(ht.lookup(keys[i], 1), hs[i]);
+        EXPECT_EQ(ht.lookup(keys[i], 1), hs[i]);
     }
 
     LRUHandle* old = ht.remove(CacheKey("9"), 1); // first in hash table linked-list
-    ASSERT_EQ(old, hs[9]);
-    ASSERT_EQ(old->prev_hash, head);
-    ASSERT_EQ(old->next_hash, hs[8]); // hs[8] is the new first node
-    ASSERT_EQ(head->next_hash, hs[8]);
-    ASSERT_EQ(hs[8]->prev_hash, head);
+    EXPECT_EQ(old, hs[9]);
+    EXPECT_EQ(old->prev_hash, head);
+    EXPECT_EQ(old->next_hash, hs[8]); // hs[8] is the new first node
+    EXPECT_EQ(head->next_hash, hs[8]);
+    EXPECT_EQ(hs[8]->prev_hash, head);
 
     old = ht.remove(CacheKey("0"), 1); // last in hash table linked-list
-    ASSERT_EQ(old, hs[0]);
-    ASSERT_EQ(old->prev_hash, hs[1]); // hs[1] is the new last node
-    ASSERT_EQ(old->prev_hash->next_hash, nullptr);
+    EXPECT_EQ(old, hs[0]);
+    EXPECT_EQ(old->prev_hash, hs[1]); // hs[1] is the new last node
+    EXPECT_EQ(old->prev_hash->next_hash, nullptr);
 
     old = ht.remove(CacheKey("5"), 1); // middle in hash table linked-list
-    ASSERT_EQ(old, hs[5]);
-    ASSERT_EQ(old->prev_hash, hs[6]);
-    ASSERT_EQ(old->next_hash, hs[4]);
-    ASSERT_EQ(hs[6]->next_hash, hs[4]);
-    ASSERT_EQ(hs[4]->prev_hash, hs[6]);
+    EXPECT_EQ(old, hs[5]);
+    EXPECT_EQ(old->prev_hash, hs[6]);
+    EXPECT_EQ(old->next_hash, hs[4]);
+    EXPECT_EQ(hs[6]->next_hash, hs[4]);
+    EXPECT_EQ(hs[4]->prev_hash, hs[6]);
 
     ht.remove(hs[4]); // middle in hash table linked-list
-    ASSERT_EQ(hs[6]->next_hash, hs[3]);
-    ASSERT_EQ(hs[3]->prev_hash, hs[6]);
+    EXPECT_EQ(hs[6]->next_hash, hs[3]);
+    EXPECT_EQ(hs[3]->prev_hash, hs[6]);
 
-    ASSERT_EQ(ht._elems, count - 4);
+    EXPECT_EQ(ht._elems, count - 4);
 
     for (int i = 0; i < count; ++i) {
         free(hs[i]);
@@ -470,8 +465,3 @@ TEST(CacheHandleTest, HandleTableTest) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

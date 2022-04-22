@@ -134,10 +134,10 @@ constexpr size_t max_char_length(const char* const* name, size_t end) {
 
 static constexpr const char* s_month_name[] = {
         "",     "January", "February",  "March",   "April",    "May",      "June",
-        "July", "August",  "September", "October", "November", "December", NULL};
+        "July", "August",  "September", "October", "November", "December", nullptr};
 
 static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
-                                             "Friday", "Saturday", "Sunday",    NULL};
+                                             "Friday", "Saturday", "Sunday",    nullptr};
 
 static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
 static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
@@ -157,7 +157,27 @@ public:
               _month(0), // so this is a difference between Vectorization mode and Rowbatch mode with DateTimeValue;
               _year(0) {} // before int128  16 bytes  --->  after int64 8 bytes
 
-    explicit VecDateTimeValue(int64_t t) { from_date_int64(t); }
+    // The data format of DATE/DATETIME is different in storage layer and execute layer.
+    // So we should use diffrent creator to get data from value.
+    // We should use create_from_olap_xxx only at binary data scaned from storage engine and convert to typed data.
+    // At other case, we just use binary_cast<vectorized::Int64, vectorized::VecDateTimeValue>.
+
+    // olap storage layer date data format:
+    // 64 bits binary data [year(remaining bits), month(4 bits), day(5 bits)]
+    // execute layer date/datetime and olap storage layer datetime data format:
+    // 8 bytes interger data [year(remaining digits), month(2 digits), day(2 digits), hour(2 digits), minute(2 digits) ,second(2 digits)]
+
+    static VecDateTimeValue create_from_olap_date(uint64_t value) {
+        VecDateTimeValue date;
+        date.from_olap_date(value);
+        return date;
+    }
+
+    static VecDateTimeValue create_from_olap_datetime(uint64_t value) {
+        VecDateTimeValue datetime;
+        datetime.from_olap_datetime(value);
+        return datetime;
+    }
 
     void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
                   uint32_t second);
@@ -336,7 +356,7 @@ public:
         return true;
     };
 
-    inline uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
+    uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     // Calculate how many days since 0000-01-01
     // 0000-01-01 is 1st B.C.
@@ -378,8 +398,8 @@ public:
     void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    inline uint8_t weekday() const { return calc_weekday(daynr(), false); }
-    inline auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
     // WEEK_MONDAY_FIRST (0)
@@ -497,7 +517,7 @@ public:
         return value;
     }
 
-    inline uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
@@ -594,7 +614,7 @@ private:
     char* to_date_buffer(char* to) const;
     char* to_time_buffer(char* to) const;
 
-    // Used to convert to uint64_t
+    // Used to convert to int64_t
     int64_t to_datetime_int64() const;
     int64_t to_date_int64() const;
     int64_t to_time_int64() const;

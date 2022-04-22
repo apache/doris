@@ -102,10 +102,12 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 
 // 默认会读所有的组,读多个组可以用半角逗号隔开，如: "demo,performance"
-// 一般不需要在配置文件中修改，而是通过run-regression-test.sh来动态指定和覆盖
+// 一般不需要在配置文件中修改，而是通过run-regression-test.sh --run -g来动态指定和覆盖
 testGroups = ""
-// 默认会读所有的用例, 同样可以使用run-regression-test.sh来动态指定和覆盖
+// 默认会读所有的用例, 同样可以使用run-regression-test.sh --run -s来动态指定和覆盖
 testSuites = ""
+// 默认会加载的用例目录, 可以通过run-regression-test.sh --run -d来动态指定和覆盖
+testDirectories = ""
 
 // 其他自定义配置
 customConf1 = "test_custom_conf_value"
@@ -128,30 +130,31 @@ sql action用于提交sql并获取结果，如果查询失败则会抛出异常
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/sql_action.groovy`:
 ```groovy
-// execute sql and ignore result
-sql "show databases"
+suite("sql_action", "demo") {
+    // execute sql and ignore result
+    sql "show databases"
 
-// execute sql and get result, outer List denote rows, inner List denote columns in a single row
-List<List<Object>> tables = sql "show tables"
+    // execute sql and get result, outer List denote rows, inner List denote columns in a single row
+    List<List<Object>> tables = sql "show tables"
 
-// assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
-assertTrue(tables.size() >= 0) // test rowCount >= 0
+    // assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
+    assertTrue(tables.size() >= 0) // test rowCount >= 0
 
-// syntax error
-try {
-    sql "a b c d e"
-    throw new IllegalStateException("Should be syntax error")
-} catch (java.sql.SQLException t) {
-    assertTrue(true)
-}
+    // syntax error
+    try {
+        sql "a b c d e"
+        throw new IllegalStateException("Should be syntax error")
+    } catch (java.sql.SQLException t) {
+        assertTrue(true)
+    }
 
-def testTable = "test_sql_action1"
+    def testTable = "test_sql_action1"
 
-try {
-    sql "DROP TABLE IF EXISTS ${testTable}"
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
 
-    // multi-line sql
-    def result1 = sql """
+        // multi-line sql
+        def result1 = sql """
                         CREATE TABLE IF NOT EXISTS ${testTable} (
                             id int
                         )
@@ -161,40 +164,40 @@ try {
                         ) 
                         """
 
-    // DDL/DML return 1 row and 1 column, the only value is update row count
-    assertTrue(result1.size() == 1)
-    assertTrue(result1[0].size() == 1)
-    assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+        // DDL/DML return 1 row and 1 column, the only value is update row count
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
 
-    def result2 = sql "INSERT INTO test_sql_action1 values(1), (2), (3)"
-    assertTrue(result2.size() == 1)
-    assertTrue(result2[0].size() == 1)
-    assertTrue(result2[0][0] == 3, "Insert should update 3 rows")
-} finally {
-    /**
-     * try_xxx(args) means:
-     *
-     * try {
-     *    return xxx(args)
-     * } catch (Throwable t) {
-     *     // do nothing
-     *     return null
-     * }
-     */
-    try_sql("DROP TABLE IF EXISTS ${testTable}")
+        def result2 = sql "INSERT INTO test_sql_action1 values(1), (2), (3)"
+        assertTrue(result2.size() == 1)
+        assertTrue(result2[0].size() == 1)
+        assertTrue(result2[0][0] == 3, "Insert should update 3 rows")
+    } finally {
+        /**
+         * try_xxx(args) means:
+         *
+         * try {
+         *    return xxx(args)
+         * } catch (Throwable t) {
+         *     // do nothing
+         *     return null
+         * }
+         */
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
 
-    // you can see the error sql will not throw exception and return
-    try {
-        def errorSqlResult = try_sql("a b c d e f g")
-        assertTrue(errorSqlResult == null)
-    } catch (Throwable t) {
-        assertTrue(false, "Never catch exception")
+        // you can see the error sql will not throw exception and return
+        try {
+            def errorSqlResult = try_sql("a b c d e f g")
+            assertTrue(errorSqlResult == null)
+        } catch (Throwable t) {
+            assertTrue(false, "Never catch exception")
+        }
     }
-}
 
-// order_sql(sqlStr) equals to sql(sqlStr, isOrder=true)
-// sort result by string dict
-def list = order_sql """
+    // order_sql(sqlStr) equals to sql(sqlStr, isOrder=true)
+    // sort result by string dict
+    def list = order_sql """
                 select 2
                 union all
                 select 1
@@ -205,11 +208,13 @@ def list = order_sql """
                 union all
                 select 3
                 """
-assertEquals(null, list[0][0])
-assertEquals(1, list[1][0])
-assertEquals(15, list[2][0])
-assertEquals(2, list[3][0])
-assertEquals(3, list[4][0])
+
+    assertEquals(null, list[0][0])
+    assertEquals(1, list[1][0])
+    assertEquals(15, list[2][0])
+    assertEquals(2, list[3][0])
+    assertEquals(3, list[4][0])
+}
 ```
 
 ### qt action
@@ -219,22 +224,23 @@ qt action用于提交sql，并使用对应的.out TSV文件来校验结果
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/qt_action.groovy`:
 ```groovy
-/**
- * qt_xxx sql equals to quickTest(xxx, sql) witch xxx is tag.
- * the result will be compare to the relate file: ${DORIS_HOME}/regression_test/data/qt_action.out.
- *
- * if you want to generate .out tsv file for real execute result. you can run with -genOut or -forceGenOut option.
- * e.g
- *   ${DORIS_HOME}/run-regression-test.sh --run qt_action -genOut
- *   ${DORIS_HOME}/run-regression-test.sh --run qt_action -forceGenOut
- */
-qt_select "select 1, 'beijing' union all select 2, 'shanghai'"
+suite("qt_action", "demo") {
+    /**
+     * qt_xxx sql equals to quickTest(xxx, sql) witch xxx is tag.
+     * the result will be compare to the relate file: ${DORIS_HOME}/regression_test/data/qt_action.out.
+     *
+     * if you want to generate .out tsv file for real execute result. you can run with -genOut or -forceGenOut option.
+     * e.g
+     *   ${DORIS_HOME}/run-regression-test.sh --run qt_action -genOut
+     *   ${DORIS_HOME}/run-regression-test.sh --run qt_action -forceGenOut
+     */
+    qt_select "select 1, 'beijing' union all select 2, 'shanghai'"
 
-qt_select2 "select 2"
+    qt_select2 "select 2"
 
-// order result by string dict then compare to .out file.
-// order_qt_xxx sql equals to quickTest(xxx, sql, true).
-order_qt_union_all  """
+    // order result by string dict then compare to .out file.
+    // order_qt_xxx sql equals to quickTest(xxx, sql, true).
+    order_qt_union_all  """
                 select 2
                 union all
                 select 1
@@ -245,6 +251,7 @@ order_qt_union_all  """
                 union all
                 select 3
                 """
+}
 ```
 
 ### test action
@@ -252,7 +259,9 @@ test action可以使用更复杂的校验规则来测试，比如验证行数、
 
 可用参数
 - String sql: 输入的sql字符串
-- List<List<Object>> result: 提供一个List对象，用于校验真实查询结果对比是否相等
+- List<List<Object>> result: 提供一个List对象，用于比较真实查询结果与List对象是否相等
+- Iterator<Object> resultIterator: 提供一个Iterator对象，用于比较真实查询结果与Iterator是否相等
+- String resultFile: 提供一个文件Uri(可以是本地文件相对路径，或http(s)路径)，用于比较真实查询结果与http响应流是否相等，格式与.out文件格式类似，但没有块头和注释
 - String exception: 校验抛出的异常是否包含某些字符串
 - long rowNum: 验证结果行数
 - long time: 验证执行时间是否小于这个值，单位是毫秒
@@ -260,14 +269,15 @@ test action可以使用更复杂的校验规则来测试，比如验证行数、
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/qt_action.groovy`:
 ```groovy
-test {
-    sql "abcdefg"
-    // check exception message contains
-    exception "errCode = 2, detailMessage = Syntax error"
-}
+suite("test_action", "demo") {
+    test {
+        sql "abcdefg"
+        // check exception message contains
+        exception "errCode = 2, detailMessage = Syntax error"
+    }
 
-test {
-    sql """
+    test {
+        sql """
             select *
             from (
                 select 1 id
@@ -276,33 +286,33 @@ test {
             ) a
             order by id"""
 
-    // multi check condition
+        // multi check condition
 
-    // check return 2 rows
-    rowNum 2
-    // execute time must <= 5000 millisecond
-    time 5000
-    // check result, must be 2 rows and 1 column, the first row is 1, second is 2
-    result(
-        [[1], [2]]
-    )
-}
-
-test {
-    sql "a b c d e f g"
-
-    // other check will not work because already declared a check callback
-    exception "aaaaaaaaa"
-
-    // callback
-    check { result, exception, startTime, endTime ->
-        // assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
-        assertTrue(exception != null)
+        // check return 2 rows
+        rowNum 2
+        // execute time must <= 5000 millisecond
+        time 5000
+        // check result, must be 2 rows and 1 column, the first row is 1, second is 2
+        result(
+            [[1], [2]]
+        )
     }
-}
 
-test {
-    sql  """
+    test {
+        sql "a b c d e f g"
+
+        // other check will not work because already declared a check callback
+        exception "aaaaaaaaa"
+
+        // callback
+        check { result, exception, startTime, endTime ->
+            // assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
+            assertTrue(exception != null)
+        }
+    }
+
+    test {
+        sql  """
                 select 2
                 union all
                 select 1
@@ -314,15 +324,34 @@ test {
                 select 3
                 """
 
-    check { result, ex, startTime, endTime ->
-        // same as order_sql(sqlStr)
-        result = sortRows(result)
+        check { result, ex, startTime, endTime ->
+            // same as order_sql(sqlStr)
+            result = sortRows(result)
 
-        assertEquals(null, result[0][0])
-        assertEquals(1, result[1][0])
-        assertEquals(15, result[2][0])
-        assertEquals(2, result[3][0])
-        assertEquals(3, result[4][0])
+            assertEquals(null, result[0][0])
+            assertEquals(1, result[1][0])
+            assertEquals(15, result[2][0])
+            assertEquals(2, result[3][0])
+            assertEquals(3, result[4][0])
+        }
+    }
+
+    // execute sql and order query result, then compare to iterator
+    def selectValues = [1, 2, 3, 4]
+    test {
+        order true
+        sql selectUnionAll(selectValues)
+        resultIterator(selectValues.iterator())
+    }
+
+    // compare to data/demo/test_action.csv
+    test {
+        order true
+        sql selectUnionAll(selectValues)
+
+        // you can set to http://xxx or https://xxx
+        // and compare to http response body
+        resultFile "test_action.csv"
     }
 }
 ```
@@ -339,35 +368,37 @@ explain action用来校验explain返回的字符串是否包含某些字符串
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/explain_action.groovy`:
 ```groovy
-explain {
-    sql("select 100")
+suite("explain_action", "demo") {
+    explain {
+        sql("select 100")
 
-    // contains("OUTPUT EXPRS:<slot 0> 100\n") && contains("PARTITION: UNPARTITIONED\n")
-    contains "OUTPUT EXPRS:<slot 0> 100\n"
-    contains "PARTITION: UNPARTITIONED\n"
-}
+        // contains("OUTPUT EXPRS:<slot 0> 100\n") && contains("PARTITION: UNPARTITIONED\n")
+        contains "OUTPUT EXPRS:<slot 0> 100\n"
+        contains "PARTITION: UNPARTITIONED\n"
+    }
 
-explain {
-    sql("select 100")
+    explain {
+        sql("select 100")
 
-    // contains(" 100\n") && !contains("abcdefg") && !("1234567")
-    contains " 100\n"
-    notContains "abcdefg"
-    notContains "1234567"
-}
+        // contains(" 100\n") && !contains("abcdefg") && !("1234567")
+        contains " 100\n"
+        notContains "abcdefg"
+        notContains "1234567"
+    }
 
-explain {
-    sql("select 100")
-    // simple callback
-    check { explainStr -> explainStr.contains("abcdefg") || explainStr.contains(" 100\n") }
-}
+    explain {
+        sql("select 100")
+        // simple callback
+        check { explainStr -> explainStr.contains("abcdefg") || explainStr.contains(" 100\n") }
+    }
 
-explain {
-    sql("a b c d e")
-    // callback with exception and time
-    check { explainStr, exception, startTime, endTime ->
-        // assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
-        assertTrue(exception != null)
+    explain {
+        sql("a b c d e")
+        // callback with exception and time
+        check { explainStr, exception, startTime, endTime ->
+            // assertXxx() will invoke junit5's Assertions.assertXxx() dynamically
+            assertTrue(exception != null)
+        }
     }
 }
 ```
@@ -387,63 +418,68 @@ streamLoad action用于导入数据
 
 下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/streamLoad_action.groovy`:
 ```groovy
-def tableName = "test_streamload_action1"
+suite("streamLoad_action", "demo") {
 
-sql """
-    CREATE TABLE IF NOT EXISTS ${tableName} (
-        id int,
-        name varchar(255)
-    )
-    DISTRIBUTED BY HASH(id) BUCKETS 1
-    PROPERTIES (
-      "replication_num" = "1"
-    ) 
-"""
+    def tableName = "test_streamload_action1"
 
-streamLoad {
-    // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
-    // db 'regression_test'
-    table tableName
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                id int,
+                name varchar(255)
+            )
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES (
+              "replication_num" = "1"
+            ) 
+        """
 
-    // default label is UUID:
-    // set 'label' UUID.randomUUID().toString()
+    streamLoad {
+        // you can skip declare db, because a default db already specify in ${DORIS_HOME}/conf/regression-conf.groovy
+        // db 'regression_test'
+        table tableName
 
-    // default column_separator is specify in doris fe config, usually is '\t'.
-    // this line change to ','
-    set 'column_separator', ','
+        // default label is UUID:
+        // set 'label' UUID.randomUUID().toString()
 
-    // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
-    // also, you can stream load a http stream, e.g. http://xxx/some.csv
-    file 'streamload_input.csv'
+        // default column_separator is specify in doris fe config, usually is '\t'.
+        // this line change to ','
+        set 'column_separator', ','
 
-    time 10000 // limit inflight 10s
+        // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
+        // also, you can stream load a http stream, e.g. http://xxx/some.csv
+        file 'streamload_input.csv'
 
-    // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
-}
+        time 10000 // limit inflight 10s
+
+        // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
+    }
 
 
-// stream load 100 rows
-def rowCount = 100
-def rowIt = java.util.stream.LongStream.range(0, rowCount) // [0, rowCount)
-        .mapToObj({i -> [i, "a_" + i]}) // change Long to List<Long, String>
-        .iterator()
+    // stream load 100 rows
+    def rowCount = 100
+    // range: [0, rowCount)
+    // or rangeClosed: [0, rowCount]
+    def rowIt = range(0, rowCount)
+            .mapToObj({i -> [i, "a_" + i]}) // change Long to List<Long, String>
+            .iterator()
 
-streamLoad {
-    table tableName
-    // also, you can upload a memory iterator
-    inputIterator rowIt
+    streamLoad {
+        table tableName
+        // also, you can upload a memory iterator
+        inputIterator rowIt
 
-    // if declared a check callback, the default check condition will ignore.
-    // So you must check all condition
-    check { result, exception, startTime, endTime ->
-        if (exception != null) {
-            throw exception
+        // if declared a check callback, the default check condition will ignore.
+        // So you must check all condition
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
-        log.info("Stream load result: ${result}".toString())
-        def json = parseJson(result)
-        assertEquals("success", json.Status.toLowerCase())
-        assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
     }
 }
 ```
@@ -478,8 +514,14 @@ thread, lazyCheck, events, connect, selectUnionAll
 # 测试demo group下的sql_action
 ./run-regression-test.sh --run -g demo -s sql_action
 
+# 测试demo目录下的sql_action
+./run-regression-test.sh --run -d demo -s sql_action
+
 # 自定义配置
 ./run-regression-test.sh --run -conf a=b
+
+# 并发执行
+./run-regression-test.sh --run -parallel 5 -suiteParallel 10 -actionParallel 20
 ```
 
 ## 使用查询结果自动生成.out文件
@@ -489,4 +531,12 @@ thread, lazyCheck, events, connect, selectUnionAll
 
 # 使用查询结果自动生成sql_action用例的.out文件，如果.out文件存在则覆盖
 ./run-regression-test.sh --run sql_action -forceGenOut
+```
+
+## CI/CD的支持
+### TeamCity
+TeamCity可以通过stdout识别Service Message。当使用`--teamcity`参数启动回归测试框架时，回归测试框架就会在stdout打印TeamCity Service Message，TeamCity将会自动读取stdout中的事件日志，并在当前流水线中展示`Tests`，其中会展示测试的test及其日志。
+因此只需要配置下面一行启动回归测试框架的命令即可。其中`-Dteamcity.enableStdErr=false`可以让错误日志也打印到stdout中，方便按时间顺序分析日志。
+```shell
+JAVA_OPTS="-Dteamcity.enableStdErr=${enableStdErr}" ./run-regression-test.sh --teamcity --run
 ```

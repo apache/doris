@@ -38,7 +38,7 @@ struct BloomFilterOptions;
 
 class BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, std::shared_ptr<const TypeInfo> typeinfo,
+    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* type_info,
                          std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;

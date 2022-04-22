@@ -22,7 +22,7 @@ import groovy.transform.stc.FromString
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.JdbcUtils
 import groovy.util.logging.Slf4j
-
+import java.sql.ResultSetMetaData
 import java.util.stream.Collectors
 
 @Slf4j
@@ -80,15 +80,11 @@ class ExplainAction implements SuiteAction {
                 }
             } catch (Throwable t) {
                 log.error("Explain and custom check failed", t)
-                List resList = [context.file.getName(), 'explain', sql, t]
-                context.recorder.reportDiffResult(resList)
                 throw t
             }
         } else if (result.exception != null) {
             String msg = "Explain failed"
             log.error(msg, result.exception)
-            List resList = [context.file.getName(), 'explain', sql, result.exception]
-            context.recorder.reportDiffResult(resList)
             throw new IllegalStateException(msg, result.exception)
         } else {
             for (String string : containsStrings) {
@@ -97,8 +93,6 @@ class ExplainAction implements SuiteAction {
                             + "but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
-                    List resList = [context.file.getName(), 'explain', sql, t]
-                    context.recorder.reportDiffResult(resList)
                     throw t
                 }
             }
@@ -108,8 +102,6 @@ class ExplainAction implements SuiteAction {
                             + "but actual explain string is:\n${explainString}").toString()
                     log.info(msg)
                     def t = new IllegalStateException(msg)
-                    List resList = [context.file.getName(), 'explain', sql, t]
-                    context.recorder.reportDiffResult(resList)
                     throw t
                 }
             }
@@ -120,13 +112,14 @@ class ExplainAction implements SuiteAction {
         log.info("Execute sql:\n${explainSql}".toString())
         long startTime = System.currentTimeMillis()
         String explainString = null
+        ResultSetMetaData meta = null
         try {
-            explainString = JdbcUtils.executeToList(context.getConnection(), explainSql).stream()
-                    .map({row -> row.get(0).toString()})
-                    .collect(Collectors.joining("\n"))
-            return new ActionResult(explainString, null, startTime, System.currentTimeMillis())
+            def temp = null
+            (temp, meta) = JdbcUtils.executeToList(context.getConnection(), explainSql)
+            explainString = temp.stream().map({row -> row.get(0).toString()}).collect(Collectors.joining("\n"))
+            return new ActionResult(explainString, null, startTime, System.currentTimeMillis(), meta)
         } catch (Throwable t) {
-            return new ActionResult(explainString, t, startTime, System.currentTimeMillis())
+            return new ActionResult(explainString, t, startTime, System.currentTimeMillis(), meta)
         }
     }
 
@@ -135,12 +128,14 @@ class ExplainAction implements SuiteAction {
         Throwable exception
         long startTime
         long endTime
+        ResultSetMetaData meta
 
-        ActionResult(String result, Throwable exception, long startTime, long endTime) {
+        ActionResult(String result, Throwable exception, long startTime, long endTime, ResultSetMetaData meta) {
             this.result = result
             this.exception = exception
             this.startTime = startTime
             this.endTime = endTime
+            this.meta = meta
         }
     }
 }

@@ -22,6 +22,7 @@
 #include "olap/memtable.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -39,23 +40,28 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 // after the submit() method returns, even if the caller immediately releases the
 // passed shared_ptr object, the Memtable object will not be destructed because
 // its reference count is not 0.
-OLAPStatus FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
-    RETURN_NOT_OK(_flush_status.load());
+Status FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
+    ErrorCode s = _flush_status.load();
+    if (s != OLAP_SUCCESS) {
+        return Status::OLAPInternalError(s);
+    }
     int64_t submit_task_time = MonotonicNanos();
     _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable, submit_task_time));
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void FlushToken::cancel() {
     _flush_token->shutdown();
 }
 
-OLAPStatus FlushToken::wait() {
+Status FlushToken::wait() {
     _flush_token->wait();
-    return _flush_status.load();
+    ErrorCode s = _flush_status.load();
+    return s == OLAP_SUCCESS ? Status::OK() : Status::OLAPInternalError(s);
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t submit_task_time) {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD, memtable->mem_tracker());
     _stats.flush_wait_time_ns += (MonotonicNanos() - submit_task_time);
     SCOPED_CLEANUP({ memtable.reset(); });
     // If previous flush has failed, return directly
@@ -65,7 +71,12 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable, int64_t sub
 
     MonotonicStopWatch timer;
     timer.start();
-    _flush_status.store(memtable->flush());
+    Status s = memtable->flush();
+    if (!s) {
+        LOG(WARNING) << "Flush memtable failed with res = " << s;
+    }
+    // If s is not ok, ignore the code, just use other code is ok
+    _flush_status.store(s.ok() ? OLAP_SUCCESS : OLAP_ERR_OTHER_ERROR);
     if (_flush_status.load() != OLAP_SUCCESS) {
         return;
     }
@@ -98,7 +109,7 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
 }
 
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
-OLAPStatus MemTableFlushExecutor::create_flush_token(
+Status MemTableFlushExecutor::create_flush_token(
         std::unique_ptr<FlushToken>* flush_token,
         RowsetTypePB rowset_type, bool is_high_priority) {
     if (!is_high_priority) {
@@ -118,7 +129,7 @@ OLAPStatus MemTableFlushExecutor::create_flush_token(
             flush_token->reset(new FlushToken(_high_prio_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

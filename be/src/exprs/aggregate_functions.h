@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/aggregate-functions.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_AGGREGATE_FUNCTIONS_H
 #define DORIS_BE_SRC_QUERY_EXPRS_AGGREGATE_FUNCTIONS_H
@@ -231,12 +234,10 @@ public:
                                                     StringVal* dst);
     static void count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src,
                                                       StringVal* dst);
-    static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx,
-                                                             const StringVal& state_sv);
+
     static StringVal count_or_sum_distinct_decimalv2_serialize(FunctionContext* ctx,
                                                                const StringVal& state_sv);
-    static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx,
-                                                     const StringVal& state_sv);
+
     static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                        const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx,
@@ -264,6 +265,8 @@ public:
     static void knuth_var_init(FunctionContext* context, StringVal* val);
     template <typename T>
     static void knuth_var_update(FunctionContext* context, const T& input, StringVal* val);
+    template <typename T>
+    static void knuth_var_remove(FunctionContext* context, const T& src, StringVal* dst);
     static void knuth_var_merge(FunctionContext* context, const StringVal& src, StringVal* dst);
     static DoubleVal knuth_var_finalize(FunctionContext* context, const StringVal& val);
 
@@ -276,8 +279,14 @@ public:
     /// Calculates the biased STDDEV, uses KnuthVar Init-Update-Merge functions
     static DoubleVal knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
 
+    static DoubleVal knuth_var_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_var_pop_get_value(FunctionContext* context, const StringVal& val);
+    static DoubleVal knuth_stddev_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_stddev_pop_get_value(FunctionContext* context, const StringVal& val);
+
     // variance/stddev for decimals.
     static void decimalv2_knuth_var_init(FunctionContext* context, StringVal* val);
+    static void knuth_var_remove(FunctionContext* ctx, const DecimalV2Val& src, StringVal* dst);
     static void knuth_var_update(FunctionContext* context, const DecimalV2Val& src, StringVal* val);
     static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src,
                                           StringVal* val);
@@ -288,6 +297,15 @@ public:
     static DecimalV2Val decimalv2_knuth_stddev_finalize(FunctionContext* context,
                                                         const StringVal& val);
     static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context,
+                                                            const StringVal& val);
+
+    static DecimalV2Val decimalv2_knuth_var_get_value(FunctionContext* ctx,
+                                                      const StringVal& state_sv);
+    static DecimalV2Val decimalv2_knuth_var_pop_get_value(FunctionContext* context,
+                                                         const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_get_value(FunctionContext* context,
+                                                        const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_pop_get_value(FunctionContext* context,
                                                             const StringVal& val);
 
     /// ----------------------------- Analytic Functions ---------------------------------
@@ -348,6 +366,16 @@ public:
     template <typename T>
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
                                  const doris_udf::BigIntVal&, const T&, T* dst);
+
+    // windowFunnel
+    static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
+    static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
+                             const StringVal& mode, const DateTimeVal& timestamp,
+                             int num_cond, const BooleanVal* conds, StringVal* dst);
+    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src,
+                            StringVal* dst);
+    static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
+    static IntVal window_funnel_finalize(FunctionContext* ctx, const StringVal& src);
 
     // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
     //            when doris 0.12 release

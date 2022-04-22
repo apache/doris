@@ -808,7 +808,7 @@ Max number of txns for every txn_partition_map in txn manager, this is a self pr
 
 * Type: int
 * Description: Max send batch parallelism for OlapTableSink. The value set by the user for `send_batch_parallelism` is not allowed to exceed `max_send_batch_parallelism_per_job`, if exceed, the value of `send_batch_parallelism` would be `max_send_batch_parallelism_per_job`.
-* Default value: 1
+* Default value: 5
 
 ### `max_tablet_num_per_shard`
 
@@ -862,7 +862,7 @@ Minimum read buffer size (in bytes)
 
 * Type: int32
 * Description: During the cumulative compaction process, when the selected tablet fails to be merged successfully, it will wait for a period of time before it may be selected again. The waiting period is the value of this configuration.
-* Default value: 600
+* Default value: 5
 * Unit: seconds
 
 ### `min_compaction_threads`

@@ -206,8 +206,7 @@ Status BinaryDictPageDecoder::init() {
     if (_encoding_type == DICT_ENCODING) {
         // copy the codewords into a temporary buffer first
         // And then copy the strings corresponding to the codewords to the destination buffer
-        auto type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
-
+        const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_INT>();
         RETURN_IF_ERROR(ColumnVectorBatch::create(0, false, type_info, nullptr, &_batch));
         _data_page_decoder.reset(_bit_shuffle_ptr = new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
@@ -240,7 +239,7 @@ void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRe
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
     if (_encoding_type == PLAIN_ENCODING) {
-        dst = (*(std::move(dst->convert_to_predicate_column_if_dictionary()))).assume_mutable();
+        dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
     // dictionary encoding

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/slot-ref.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
 #define DORIS_BE_SRC_QUERY_EXPRS_SLOT_REF_H
@@ -56,7 +59,7 @@ public:
     virtual bool is_bound(std::vector<TupleId>* tuple_ids) const override;
     virtual int get_slot_ids(std::vector<SlotId>* slot_ids) const override;
     SlotId slot_id() const { return _slot_id; }
-    inline NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
+    NullIndicatorOffset null_indicator_offset() const { return _null_indicator_offset; }
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;

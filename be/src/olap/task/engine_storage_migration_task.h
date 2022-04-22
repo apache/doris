@@ -28,32 +28,32 @@ namespace doris {
 // Usually used for storage medium migration, or migration of tablets between disks.
 class EngineStorageMigrationTask : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 public:
     EngineStorageMigrationTask(const TabletSharedPtr& tablet, DataDir* dest_store);
     ~EngineStorageMigrationTask() {}
 
 private:
-    OLAPStatus _migrate();
+    Status _migrate();
     // check if task is timeout
     bool _is_timeout();
-    OLAPStatus _get_versions(int32_t start_version,
-                                 int32_t* end_version,
-                                 std::vector<RowsetSharedPtr> *consistent_rowsets);
-    OLAPStatus _check_running_txns();
+    Status _get_versions(int32_t start_version, int32_t* end_version,
+                             std::vector<RowsetSharedPtr>* consistent_rowsets);
+    Status _check_running_txns();
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration lock is transferred to the caller if check succ
-    OLAPStatus _check_running_txns_until_timeout(UniqueWriteLock* migration_wlock);
+    Status _check_running_txns_until_timeout(
+            std::unique_lock<std::shared_mutex>* migration_wlock);
 
     // if the size less than threshold, return true
-    bool _is_rowsets_size_less_than_threshold(const std::vector<RowsetSharedPtr>& consistent_rowsets);
+    bool _is_rowsets_size_less_than_threshold(
+            const std::vector<RowsetSharedPtr>& consistent_rowsets);
 
-    OLAPStatus _gen_and_write_header_to_hdr_file(
-                            uint64_t shard,
-                            const std::string& full_path,
-                            const std::vector<RowsetSharedPtr>& consistent_rowsets);
-    OLAPStatus _reload_tablet(const std::string& full_path);
+    Status _gen_and_write_header_to_hdr_file(
+            uint64_t shard, const std::string& full_path,
+            const std::vector<RowsetSharedPtr>& consistent_rowsets);
+    Status _reload_tablet(const std::string& full_path);
 
     void _generate_new_header(uint64_t new_shard,
                               const std::vector<RowsetSharedPtr>& consistent_rowsets,
@@ -61,7 +61,7 @@ private:
 
     // TODO: hkp
     // rewrite this function
-    OLAPStatus _copy_index_and_data_files(
+    Status _copy_index_and_data_files(
             const std::string& full_path,
             const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
 

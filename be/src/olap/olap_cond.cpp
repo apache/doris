@@ -96,13 +96,13 @@ Cond::~Cond() {
     max_value_field = nullptr;
 }
 
-OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
+Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
         OLAP_LOG_WARNING("Condition op type is invalid. [name=%s, op=%d, size=%d]",
                          tcond.column_name.c_str(), op, tcond.condition_values.size());
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     if (op == OP_IS) {
         // 'is null' or 'is not null'
@@ -112,7 +112,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
         if (strcasecmp(operand->c_str(), "NULL") == 0) {
             f->set_null();
@@ -127,10 +127,10 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         if (f == nullptr) {
             OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
-        OLAPStatus res = f->from_string(*operand);
-        if (res != OLAP_SUCCESS) {
+        Status res = f->from_string(*operand);
+        if (!res.ok()) {
             OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
                              tcond.column_name.c_str(), operand->c_str(), op);
             return res;
@@ -144,10 +144,10 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
             if (f == nullptr) {
                 OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
-            OLAPStatus res = f->from_string(operand);
-            if (res != OLAP_SUCCESS) {
+            Status res = f->from_string(operand);
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
                                  tcond.column_name.c_str(), operand.c_str(), op);
                 return res;
@@ -171,7 +171,7 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool Cond::eval(const RowCursorCell& cell) const {
@@ -500,14 +500,14 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
+Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
     std::unique_ptr<Cond> cond(new Cond());
     auto res = cond->init(tcond, column);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         return res;
     }
     _conds.push_back(cond.release());
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool CondColumn::eval(const RowCursor& row) const {
@@ -587,18 +587,18 @@ bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
     return true;
 }
 
-OLAPStatus Conditions::append_condition(const TCondition& tcond) {
+Status Conditions::append_condition(const TCondition& tcond) {
     DCHECK(_schema != nullptr);
     int32_t index = _schema->field_index(tcond.column_name);
     if (index < 0) {
         LOG(WARNING) << "fail to get field index, field name=" << tcond.column_name;
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     // Skip column which is non-key, or whose type is string or float
     const TabletColumn& column = _schema->column(index);
     if (column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     CondColumn* cond_col = nullptr;

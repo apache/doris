@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import org.apache.doris.PaloFe;
-import org.apache.doris.http.HttpServer;
 
 public class Config extends ConfigBase {
 
@@ -327,22 +326,6 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int http_port = 8030;
 
-    /*
-     * Netty http param
-     */
-    @ConfField public static int http_max_line_length = HttpServer.DEFAULT_MAX_LINE_LENGTH;
-
-    @ConfField public static int http_max_header_size = HttpServer.DEFAULT_MAX_HEADER_SIZE;
-
-    @ConfField public static int http_max_chunk_size = HttpServer.DEFAULT_MAX_CHUNK_SIZE;
-
-    /**
-     * The backlog_num for netty http server
-     * When you enlarge this backlog_num, you should enlarge the value in
-     * the linux /proc/sys/net/core/somaxconn file at the same time
-     */
-    @ConfField public static int http_backlog_num = 1024;
-
     /**
      * Jetty container default configuration
      * Jetty's thread architecture model is very simple, divided into three thread pools:
@@ -360,10 +343,25 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
     @ConfField public static int jetty_server_workers = 0;
+
+    /**
+     * Configure the default minimum and maximum number of threads for jetty.
+     * The default minimum and maximum number of threads for jetty is 10 and the maximum is 200.
+     * If this is relatively small in a high-concurrency import scenario,
+     * users can adjust it according to their own conditions.
+     */
+    @ConfField public static int jetty_threadPool_minThreads = 20;
+    @ConfField public static int jetty_threadPool_maxThreads = 400;
+
     /**
      * jetty Maximum number of bytes in put or post method,default:100MB
      */
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+
+    /**
+     * Mini load disabled by default
+     */
+    @ConfField public static boolean disable_mini_load = true;
 
     /**
      * The backlog_num for mysql nio server
@@ -1650,4 +1648,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean skip_compaction_slower_replica = true;
+
+    /**
+     * Enable quantile_state type column
+     * Default is false.
+     * */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_quantile_state_type = false;
+
 }

@@ -59,7 +59,7 @@ The overall release process is as follows.
 3. verify the branch
 	1. stability testing
 	2. verify the compilation flow of the branch code
-	3. Prepare Release Nodes
+	3. Prepare Release Notes
 4. prepare release materials
     1. Tagging
     2. upload the content to be released to the [Apache Dev SVN repository](https://dist.apache.org/repos/dist/dev/incubator/doris)

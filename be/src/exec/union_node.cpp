@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/union-node.cc
+// and modified by Doris
 
 #include "exec/union_node.h"
 
@@ -67,6 +70,7 @@ Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status UnionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _materialize_exprs_evaluate_timer =
@@ -93,6 +97,7 @@ Status UnionNode::prepare(RuntimeState* state) {
 
 Status UnionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     // open const expr lists.
     for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
@@ -231,6 +236,7 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
 
 Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     // TODO(zc)

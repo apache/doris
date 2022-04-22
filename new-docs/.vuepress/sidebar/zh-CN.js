@@ -40,7 +40,6 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "install-deploy",
-      "docker-install",
       {
         title: "源码编译",
         directoryPath: "source-install/",
@@ -97,7 +96,6 @@ module.exports = [
               "external-storage-load",
               "kafka-load",
               "external-table-load",
-              "rdbms-load",
               "jdbc-load",
               "load-atomicity",
               "load-data-convert",
@@ -122,7 +120,7 @@ module.exports = [
         ],
       },
       {
-        title: "数据导出",
+        title: "Export导出",
         directoryPath: "export/",
         initialOpenGroupIndex: -1,
         children: [
@@ -150,7 +148,15 @@ module.exports = [
     initialOpenGroupIndex: -1,
     children: [
       "materialized-view",
-      "schema-change",
+      {
+        title: "表结构变更",
+        directoryPath: "alter-table/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "schema-change",
+          "replace-table"
+        ],
+      },
       {
         title: "Doris表分区",
         directoryPath: "partition/",
@@ -160,23 +166,40 @@ module.exports = [
           "table-tmp-partition"
         ],
       },
-      "bucket-shuffle-join",
-      "colocation-join",
-      "runtime-filter",
+      {
+        title: "Join优化",
+        directoryPath: "join-optimization/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "bucket-shuffle-join",
+          "colocation-join",
+          "runtime-filter"
+        ],
+      },
       {
         title: "数据缓存",
         directoryPath: "cache/",
         initialOpenGroupIndex: -1,
         children: [
-          "partition-cache",
-          "query-cache"
+          "partition-cache"
         ],
       },
+      "broker",
+      "resource",
       "orthogonal-bitmap-manual",
-      "orthogonal-hll-manual",
       "variables",
       "time-zone",
-      "small-file-mgr"
+      "small-file-mgr",
+      {
+          title: "最佳实践",
+          directoryPath: "best-practice/",
+          initialOpenGroupIndex: -1,
+          children: [
+            "query-analysis",
+            "import-analysis",
+            "debug-log"
+          ],
+      }
     ],
   },
   {
@@ -493,7 +516,6 @@ module.exports = [
             initialOpenGroupIndex: -1,
             children: [
               "CREATE-USER",
-              "ALTER-USER",
               "CREATE-ROLE",
               "DROP-ROLE",
               "DROP-USER",
@@ -531,6 +553,7 @@ module.exports = [
                 initialOpenGroupIndex: -1,
                 children: [
                   "ALTER-DATABASE",
+                  "ALTER-SQL-BLOCK-RULE",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",
                   "ALTER-TABLE-PROPERTY",
@@ -566,9 +589,11 @@ module.exports = [
                   "CREATE-INDEX",
                   "CREATE-MATERIALIZED-VIEW",
                   "CREATE-RESOURCE",
+                  "CREATE-SQL-BLOCK-RULE",
                   "CREATE-TABLE-LIKE",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
+                  "CREATE-EXTERNAL-TABLE",
                 ],
               },
               {
@@ -583,6 +608,7 @@ module.exports = [
                   "DROP-INDEX",
                   "DROP-MATERIALIZED-VIEW",
                   "DROP-RESOURCE",
+                  "DROP-SQL-BLOCK-RULE",
                   "DROP-TABLE",
                   "TRUNCATE-TABLE",
                 ],
@@ -607,6 +633,10 @@ module.exports = [
                   "RESUME-ROUTINE-LOAD",
                   "STOP-ROUTINE-LOAD",
                   "STREAM-LOAD",
+                  "PAUSE-SYNC-JOB",
+                  "RESUME-SYNC-JOB",
+                  "STOP-SYNC-JOB",
+                  "CREATE-SYNC-JOB",
                 ],
               },
               {
@@ -618,7 +648,8 @@ module.exports = [
                   "INSERT",
                   "UPDATE",
                 ],
-              },             
+              },
+              "OUTFILE"             
             ],
           },
           {
@@ -693,13 +724,16 @@ module.exports = [
               "SHOW-ROUTINE-LOAD",
               "SHOW-SMALL-FILES",
               "SHOW-SNAPSHOT",
+              "SHOW-SQL-BLOCK-RULE",
               "SHOW-STATUS",
               "SHOW-STREAM-LOAD",
+              "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
               "SHOW-TRIGGERS",
+              "SHOW-TRASH",
               "SHOW-USER",
               "SHOW-VARIABLES",
               "SHOW-VIEW",
@@ -748,14 +782,14 @@ module.exports = [
     directoryPath: "admin-manual/",
     initialOpenGroupIndex: -1,
     children: [
-      "upgrade",
-      "elastic-expansion",
       {
-        title: "集群高可用",
-        directoryPath: "cluster-admin/",
+        title: "集群管理",
+        directoryPath: "cluster-management/",
         initialOpenGroupIndex: -1,
         children: [
-          "doris-ha"
+           "upgrade",
+           "elastic-expansion",
+           "load-balancing"
         ],
       },
       {
@@ -768,6 +802,7 @@ module.exports = [
           "delete-recover"
         ],
       },
+      "sql-interception",
       "query-profile",
       "optimization",
       {
@@ -804,9 +839,90 @@ module.exports = [
           "user-property"
         ],
       },
-      "user-privilege",
+      {
+        title: "用户权限及认证",
+        directoryPath: "privilege-ldap/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "user-privilege",
+          "ldap"
+        ],
+      },
       "multi-tenant",
-      "ldap"
+      {
+        title: "HTTP API",
+        directoryPath: "http-actions/",
+        initialOpenGroupIndex: -1,
+        children: [
+          {
+            title: "FE",
+            directoryPath: "fe/",
+            initialOpenGroupIndex: -1,
+            children: [
+              {
+                title: "MANAGER",
+                directoryPath: "manager/",
+                initialOpenGroupIndex: -1,
+                children: [
+                  "cluster-action",
+                  "node-action",
+                  "query-profile-action",
+                ],
+              },
+              "backends-action",
+              "bootstrap-action",
+              "cancel-load-action",
+              "check-decommission-action",
+              "check-storage-type-action",
+              "config-action",
+              "connection-action",
+              "get-ddl-stmt-action",
+              "get-load-info-action",
+              "get-load-state",
+              "get-log-file-action",
+              "get-small-file",
+              "ha-action",
+              "hardware-info-action",
+              "health-action",
+              "log-action",
+              "logout-action",
+              "meta-action",
+              "meta-info-action",
+              "meta-replay-state-action",
+              "profile-action",
+              "query-detail-action",
+              "query-profile-action",
+              "row-count-action",
+              "session-action",
+              "set-config-action",
+              "show-data-action",
+              "show-meta-info-action",
+              "show-proc-action",
+              "show-runtime-info-action",
+              "statement-execution-action",
+              "system-action",
+              "table-query-plan-action",
+              "table-row-count-action",
+              "table-schema-action",
+              "upload-action",
+            ],
+          },
+          "cancel-label",
+          "check-reset-rpc-cache",
+          "compaction-action",
+          "connection-action",
+          "fe-get-log-file",
+          "get-load-state",
+          "get-tablets",
+          "profile-action",
+          "query-detail-action",
+          "restore-tablet",
+          "show-data-action",
+          "tablet-migration-action",
+          "tablets_distribution",
+        ],
+        sidebarDepth: 1,
+      },
     ],
   },
   {

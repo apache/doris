@@ -243,7 +243,7 @@ doris默认为表名大小写敏感，如有表名大小写不敏感的需求需
 
 * 查看BE状态
 
-    使用 mysql-client 连接到 FE，并执行 `SHOW PROC '/backends';` 查看 BE 运行情况。如一切正常，`isAlive` 列应为 `true`。
+    使用 mysql-client 连接到 FE，并执行 `SHOW PROC '/backends';` 查看 BE 运行情况。如一切正常，`Alive` 列应为 `true`。
 
 #### （可选）FS_Broker 部署
 

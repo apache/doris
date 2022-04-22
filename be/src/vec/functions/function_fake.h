@@ -19,8 +19,10 @@
 
 #include "common/status.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
 
@@ -44,6 +46,52 @@ struct FunctionExplodeNumbersImpl {
     static constexpr auto name = "explode_numbers";
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return std::make_shared<DataTypeInt32>();
+    }
+};
+
+struct FunctionExplodeJsonArrayIntImpl {
+    static constexpr auto name = "explode_json_array_int";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+};
+
+struct FunctionExplodeJsonArrayStringImpl {
+    static constexpr auto name = "explode_json_array_string";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeString>();
+    }
+};
+
+struct FunctionExplodeJsonArrayDoubleImpl {
+    static constexpr auto name = "explode_json_array_double";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeFloat64>();
+    }
+};
+
+struct FunctionExplodeBitmapImpl {
+    static constexpr auto name = "explode_bitmap";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        return std::make_shared<DataTypeInt64>();
+    }
+};
+
+struct FunctionExplodeImpl {
+    static constexpr auto name = "explode";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+    }
+};
+
+struct FunctionExplodeOuterImpl {
+    static constexpr auto name = "explode_outer";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
     }
 };
 

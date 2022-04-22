@@ -49,7 +49,7 @@ public class AggregateFunction extends Function {
     private static final Logger LOG = LogManager.getLogger(AggregateFunction.class);
 
     public static ImmutableSet<String> NOT_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
-            ImmutableSet.of("row_number", "rank", "dense_rank", "hll_union_agg", "hll_union", "bitmap_union", "bitmap_intersect", FunctionSet.COUNT, "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize");
+            ImmutableSet.of("row_number", "rank", "dense_rank", "multi_distinct_count", "multi_distinct_sum", "hll_union_agg", "hll_union", "bitmap_union", "bitmap_intersect", FunctionSet.COUNT, "approx_count_distinct", "ndv", FunctionSet.BITMAP_UNION_INT, FunctionSet.BITMAP_UNION_COUNT, "ndv_no_finalize", FunctionSet.WINDOW_FUNNEL);
 
     public static ImmutableSet<String> ALWAYS_NULLABLE_AGGREGATE_FUNCTION_NAME_SET =
             ImmutableSet.of("stddev_samp", "variance_samp", "var_samp", "percentile_approx");
@@ -392,6 +392,10 @@ public class AggregateFunction extends Function {
             this.removeFnSymbol = symbol;
             return this;
         }
+        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
+            this.binaryType = binaryType;
+            return this;
+        }
 
         public AggregateFunction build() {
             AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
@@ -442,8 +446,8 @@ public class AggregateFunction extends Function {
         }
 
         sb.append(" PROPERTIES (")
-                .append("\n  \"INIT_FN\"=\"" + getUpdateFnSymbol() + "\"")
-                .append(",\n  \"UPDATE_FN\"=\"" + getInitFnSymbol() + "\"")
+                .append("\n  \"INIT_FN\"=\"" + getInitFnSymbol() + "\"")
+                .append(",\n  \"UPDATE_FN\"=\"" + getUpdateFnSymbol() + "\"")
                 .append(",\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\"");
         if (getSerializeFnSymbol() != null) {
             sb.append(",\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\"");
