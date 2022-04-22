@@ -24,7 +24,7 @@
 namespace doris::vectorized {
 
 // We can use std::basic_fixed_string with c++20 in the future
-template <const char* Name, typename ReturnType = DataTypeInt32>
+template <const char* Name, typename ReturnType>
 struct FakeFunctionBaseImpl {
     static constexpr auto name = Name;
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -34,15 +34,26 @@ struct FakeFunctionBaseImpl {
 
 #define C_STR(str_) boost::mpl::c_str<BOOST_METAPARSE_STRING(str_)>::value
 
-using FunctionEsquery = FakeFunctionBaseImpl<C_STR("esquery")>;
+using FunctionEsquery = FakeFunctionBaseImpl<C_STR("esquery"), DataTypeUInt8>;
 
-using FunctionExplodeSplit = FakeFunctionBaseImpl<C_STR("explode_split")>;
-using FunctionExplodeNumbers = FakeFunctionBaseImpl<C_STR("explode_numbers")>;
-using FunctionExplodeJsonArrayInt = FakeFunctionBaseImpl<C_STR("explode_json_array_int")>;
-using FunctionExplodeJsonArrayString = FakeFunctionBaseImpl<C_STR("explode_json_array_string")>;
-using FunctionExplodeJsonArrayDouble = FakeFunctionBaseImpl<C_STR("explode_json_array_double")>;
-using FunctionExplodeBitmap = FakeFunctionBaseImpl<C_STR("explode_bitmap")>;
-using FunctionExplode = FakeFunctionBaseImpl<C_STR("explode")>;
+using FunctionExplodeSplit = FakeFunctionBaseImpl<C_STR("explode_split"), DataTypeString>;
+using FunctionExplodeNumbers = FakeFunctionBaseImpl<C_STR("explode_numbers"), DataTypeInt32>;
+using FunctionExplodeJsonArrayInt =
+        FakeFunctionBaseImpl<C_STR("explode_json_array_int"), DataTypeInt64>;
+using FunctionExplodeJsonArrayString =
+        FakeFunctionBaseImpl<C_STR("explode_json_array_string"), DataTypeString>;
+using FunctionExplodeJsonArrayDouble =
+        FakeFunctionBaseImpl<C_STR("explode_json_array_double"), DataTypeFloat64>;
+using FunctionExplodeBitmap = FakeFunctionBaseImpl<C_STR("explode_bitmap"), DataTypeInt64>;
+
+struct FunctionExplode {
+    static constexpr auto name = "explode";
+    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
+        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
+        return make_nullable(
+                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
+    }
+};
 
 void register_function_fake(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionFake<FunctionEsquery>>();
