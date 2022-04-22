@@ -43,7 +43,7 @@ public:
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                    const SchemaMapping& schema_mapping) override;
 
-    OLAPStatus add_rowset_for_migration(RowsetSharedPtr rowset) override;
+    Status add_rowset_for_migration(RowsetSharedPtr rowset) override;
     Status flush() override;
 
     // get a rowset

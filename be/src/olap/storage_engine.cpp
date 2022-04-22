@@ -692,7 +692,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         tmp_usage = std::max(tmp_usage, curr_usage);
 
         Status curr_res = Status::OK();
-        string snapshot_path = info.path_desc.filepath + SNAPSHOT_PREFIX;
+        FilePathDesc snapshot_path_desc(info.path_desc.filepath + SNAPSHOT_PREFIX);
         curr_res = _do_sweep(snapshot_path_desc, local_now, snapshot_expire);
         if (!curr_res.ok()) {
             LOG(WARNING) << "failed to sweep snapshot. path=" << snapshot_path_desc.filepath
@@ -852,13 +852,11 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
             if (difftime(local_now, mktime(&local_tm_create)) >= actual_expire) {
                 std::string storage_name_path = path_name + "/" + STORAGE_NAME;
                 if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
-                    faststring buf;
-                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path, &buf).ok()) {
+                    FilePathDesc remote_path_desc = scan_root_desc;
+                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path, &(remote_path_desc.storage_name)).ok()) {
                         LOG(WARNING) << "read storage_name failed: " << storage_name_path;
                         continue;
                     }
-                    FilePathDesc remote_path_desc = scan_root_desc;
-                    remote_path_desc.storage_name = buf.ToString();
                     boost::algorithm::trim(remote_path_desc.storage_name);
                     std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
                             get_storage_backend(remote_path_desc.storage_name);
@@ -879,7 +877,7 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
                         if (!ret.ok()) {
                             LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
                                          << ", error=" << ret.to_string();
-                            res = OLAP_ERR_OS_ERROR;
+                            res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                             continue;
                         }
                     }

@@ -50,7 +50,7 @@ public:
     virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                            const SchemaMapping& schema_mapping) = 0;
 
-    virtual OLAPStatus add_rowset_for_migration(RowsetSharedPtr rowset) = 0;
+    virtual Status add_rowset_for_migration(RowsetSharedPtr rowset) = 0;
 
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met

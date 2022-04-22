@@ -67,7 +67,7 @@ StorageMigrationV2Handler::~StorageMigrationV2Handler() {
     DEREGISTER_HOOK_METRIC(storage_migration_mem_consumption);
 }
 
-OLAPStatus StorageMigrationV2Handler::process_storage_migration_v2(const TStorageMigrationReqV2& request) {
+Status StorageMigrationV2Handler::process_storage_migration_v2(const TStorageMigrationReqV2& request) {
     LOG(INFO) << "begin to do request storage_migration: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", migration_version=" << request.migration_version;
@@ -76,29 +76,29 @@ OLAPStatus StorageMigrationV2Handler::process_storage_migration_v2(const TStorag
             request.base_tablet_id, request.base_schema_hash);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
     // Lock schema_change_lock util schema change info is stored in tablet header
     std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(), std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
-        return OLAP_ERR_TRY_LOCK_FAILED;
+        return Status::OLAPInternalError(OLAP_ERR_TRY_LOCK_FAILED);
     }
 
-    OLAPStatus res = _do_process_storage_migration_v2(request);
+    Status res = _do_process_storage_migration_v2(request);
     LOG(INFO) << "finished storage_migration process, res=" << res;
     return res;
 }
 
-OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TStorageMigrationReqV2& request) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status StorageMigrationV2Handler::_do_process_storage_migration_v2(const TStorageMigrationReqV2& request) {
+    Status res = Status::OK();
     TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
                      << ", base_schema_hash=" << request.base_schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // new tablet has to exist
@@ -108,7 +108,7 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
         LOG(WARNING) << "fail to find new tablet."
                      << " new_tablet=" << request.new_tablet_id
                      << ", new_schema_hash=" << request.new_schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // check if tablet's state is not_ready, if it is ready, it means the tablet already finished
@@ -126,13 +126,13 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
               << " base_tablet=" << base_tablet->full_name()
               << " new_tablet=" << new_tablet->full_name();
 
-    ReadLock base_migration_rlock(base_tablet->get_migration_lock(), std::try_to_lock);
+    std::shared_lock base_migration_rlock(base_tablet->get_migration_lock(), std::try_to_lock);
     if (!base_migration_rlock.owns_lock()) {
-        return OLAP_ERR_RWLOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
     }
-    ReadLock new_migration_rlock(new_tablet->get_migration_lock(), std::try_to_lock);
+    std::shared_lock new_migration_rlock(new_tablet->get_migration_lock(), std::try_to_lock);
     if (!new_migration_rlock.owns_lock()) {
-        return OLAP_ERR_RWLOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
     }
 
     std::vector<Version> versions_to_be_changed;
@@ -146,8 +146,8 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
     {
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
-        WriteLock base_tablet_rdlock(base_tablet->get_header_lock());
-        WriteLock new_tablet_rdlock(new_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
         // check if the tablet has alter task
         // if it has alter task, it means it is under old alter process
         size_t num_cols = base_tablet->tablet_schema().num_columns();
@@ -171,7 +171,7 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
         do {
             // get history data to be converted and it will check if there is hold in base tablet
             res = _get_versions_to_be_changed(base_tablet, &versions_to_be_changed);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 LOG(WARNING) << "fail to get version to be changed. res=" << res;
                 break;
             }
@@ -182,7 +182,7 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
                 LOG(WARNING) << "base tablet's max version="
                              << (max_rowset == nullptr ? 0 : max_rowset->end_version())
                              << " is less than request version=" << request.migration_version;
-                res = OLAP_ERR_VERSION_NOT_EXIST;
+                res = Status::OLAPInternalError(OLAP_ERR_VERSION_NOT_EXIST);
                 break;
             }
             // before calculating version_to_be_changed,
@@ -219,7 +219,7 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
 
             res = delete_handler.init(base_tablet->tablet_schema(), base_tablet->delete_predicates(),
                                       end_version);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 LOG(WARNING) << "init delete handler failed. base_tablet=" << base_tablet->full_name()
                              << ", end_version=" << end_version;
 
@@ -234,13 +234,13 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
                 LOG(WARNING) << "fail to acquire all data sources. "
                              << "version_num=" << versions_to_be_changed.size()
                              << ", data_source_num=" << rs_readers.size();
-                res = OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
+                res = Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
                 break;
             }
 
             for (auto& rs_reader : rs_readers) {
                 res = rs_reader->init(&reader_context);
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     LOG(WARNING) << "failed to init rowset reader: " << base_tablet->full_name();
                     break;
                 }
@@ -250,7 +250,7 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
     }
 
     do {
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             break;
         }
         StorageMigrationParams sm_params;
@@ -260,26 +260,26 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
         sm_params.delete_handler = &delete_handler;
 
         res = _convert_historical_rowsets(sm_params);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             break;
         }
         // set state to ready
-        WriteLock new_wlock(new_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> new_wlock(new_tablet->get_header_lock());
         res = new_tablet->set_tablet_state(TabletState::TABLET_RUNNING);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             break;
         }
         new_tablet->save_meta();
     } while (0);
 
-    if (res == OLAP_SUCCESS) {
+    if (res.ok()) {
         // _validate_migration_result should be outside the above while loop.
         // to avoid requiring the header lock twice.
         res = _validate_migration_result(new_tablet, request);
     }
 
     // if failed convert history data, then just remove the new tablet
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", drop new_tablet=" << new_tablet->full_name();
         // do not drop the new tablet and its data. GC thread will
@@ -288,12 +288,12 @@ OLAPStatus StorageMigrationV2Handler::_do_process_storage_migration_v2(const TSt
     return res;
 }
 
-OLAPStatus StorageMigrationV2Handler::_get_versions_to_be_changed(
+Status StorageMigrationV2Handler::_get_versions_to_be_changed(
         TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
-        return OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS;
+        return Status::OLAPInternalError(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS);
     }
 
     std::vector<Version> span_versions;
@@ -302,10 +302,10 @@ OLAPStatus StorageMigrationV2Handler::_get_versions_to_be_changed(
     versions_to_be_changed->insert(versions_to_be_changed->end(), span_versions.begin(),
                                    span_versions.end());
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigrationParams& sm_params) {
+Status StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigrationParams& sm_params) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << sm_params.base_tablet->full_name()
               << ", new_tablet=" << sm_params.new_tablet->full_name();
@@ -318,7 +318,7 @@ OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageM
         }
     }
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     for (auto& rs_reader : sm_params.ref_rowset_readers) {
         VLOG_TRACE << "begin to convert a history rowset. version=" << rs_reader->version().first
                    << "-" << rs_reader->version().second;
@@ -343,9 +343,9 @@ OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageM
         writer_context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
 
         std::unique_ptr<RowsetWriter> rowset_writer;
-        OLAPStatus status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
-        if (status != OLAP_SUCCESS) {
-            res = OLAP_ERR_ROWSET_BUILDER_INIT;
+        Status status = RowsetFactory::create_rowset_writer(writer_context, &rowset_writer);
+        if (!status.ok()) {
+            res = Status::OLAPInternalError(OLAP_ERR_ROWSET_BUILDER_INIT);
             goto PROCESS_ALTER_EXIT;
         }
 
@@ -369,13 +369,13 @@ OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageM
             goto PROCESS_ALTER_EXIT;
         }
         res = sm_params.new_tablet->add_rowset(new_rowset, false);
-        if (res == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+        if (res == Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sm_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
             StorageEngine::instance()->add_unused_rowset(new_rowset);
-            res = OLAP_SUCCESS;
-        } else if (res != OLAP_SUCCESS) {
+            res = Status::OK();
+        } else if (!res.ok()) {
             LOG(WARNING) << "failed to register new version. "
                          << " tablet=" << sm_params.new_tablet->full_name()
                          << ", version=" << rs_reader->version().first << "-"
@@ -395,10 +395,10 @@ OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageM
     // XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
     PROCESS_ALTER_EXIT : {
     // save tablet meta here because rowset meta is not saved during add rowset
-    WriteLock new_wlock(sm_params.new_tablet->get_header_lock());
+    std::lock_guard<std::shared_mutex> new_wlock(sm_params.new_tablet->get_header_lock());
     sm_params.new_tablet->save_meta();
 }
-    if (res == OLAP_SUCCESS) {
+    if (res.ok()) {
         Version test_version(0, end_version);
         res = sm_params.new_tablet->check_version_integrity(test_version);
     }
@@ -409,7 +409,7 @@ OLAPStatus StorageMigrationV2Handler::_convert_historical_rowsets(const StorageM
     return res;
 }
 
-OLAPStatus StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr new_tablet,
+Status StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr new_tablet,
                                                        const TStorageMigrationReqV2& request) {
     Version max_continuous_version = {-1, 0};
     new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
@@ -417,24 +417,24 @@ OLAPStatus StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr
               << ", start_version=" << max_continuous_version.first
               << ", end_version=" << max_continuous_version.second;
     if (max_continuous_version.second < request.migration_version) {
-        return OLAP_ERR_VERSION_NOT_EXIST;
+        return Status::OLAPInternalError(OLAP_ERR_VERSION_NOT_EXIST);
     }
 
     std::vector<std::pair<Version, RowsetSharedPtr>> version_rowsets;
     {
-        ReadLock rdlock(new_tablet->get_header_lock());
+        std::shared_lock rdlock(new_tablet->get_header_lock(), std::try_to_lock);
         new_tablet->acquire_version_and_rowsets(&version_rowsets);
     }
     for (auto& pair : version_rowsets) {
         RowsetSharedPtr rowset = pair.second;
         if (!rowset->check_file_exist()) {
-            return OLAP_ERR_FILE_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_FILE_NOT_EXIST);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus StorageMigrationV2Handler::_generate_rowset_writer(
+Status StorageMigrationV2Handler::_generate_rowset_writer(
         const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
         RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet) {
     if (!src_desc.is_remote() && dst_desc.is_remote()) {
@@ -453,7 +453,7 @@ OLAPStatus StorageMigrationV2Handler::_generate_rowset_writer(
         if (!st.ok()) {
             LOG(WARNING) << "fail to write tablet_uid and storage_name. path=" << remote_file_param_path
                          << ", error:" << st.to_string();
-            return OLAP_ERR_COPY_FILE_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_COPY_FILE_ERROR);
         }
         LOG(INFO) << "write storage_param successfully: " << remote_file_param_path;
     }

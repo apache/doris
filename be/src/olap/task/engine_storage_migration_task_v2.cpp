@@ -34,12 +34,12 @@ EngineStorageMigrationTaskV2::EngineStorageMigrationTaskV2(const TStorageMigrati
             StorageEngine::instance()->storage_migration_mem_tracker(), MemTrackerLevel::TASK);
 }
 
-OLAPStatus EngineStorageMigrationTaskV2::execute() {
+Status EngineStorageMigrationTaskV2::execute() {
     DorisMetrics::instance()->storage_migrate_v2_requests_total->increment(1);
     StorageMigrationV2Handler* storage_migration_v2_handler = StorageMigrationV2Handler::instance();
-    OLAPStatus res = storage_migration_v2_handler->process_storage_migration_v2(_storage_migration_req);
+    Status res = storage_migration_v2_handler->process_storage_migration_v2(_storage_migration_req);
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "failed to do storage migration task. res=" << res
                      << " base_tablet_id=" << _storage_migration_req.base_tablet_id
                      << ", base_schema_hash=" << _storage_migration_req.base_schema_hash

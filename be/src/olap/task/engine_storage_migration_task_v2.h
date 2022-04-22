@@ -28,7 +28,7 @@ namespace doris {
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineStorageMigrationTaskV2 : public EngineTask {
 public:
-    virtual OLAPStatus execute();
+    virtual Status execute();
 
 public:
     EngineStorageMigrationTaskV2(const TStorageMigrationReqV2& request);

@@ -231,8 +231,8 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request,
         Status st = StorageBackendMgr::instance()->get_storage_param(request.storage_param.storage_name, &storage_param);
         if (!st.ok() || storage_param.DebugString() != fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
             LOG(INFO) << "remote storage need to change, create it. storage_name: " << request.storage_param.storage_name;
-            RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->create_remote_storage(
-                    fs::fs_util::get_storage_param_pb(request.storage_param)), OLAP_ERR_OS_ERROR,
+            RETURN_NOT_OK_STATUS_WITH_WARN(StorageBackendMgr::instance()->create_remote_storage(
+                    fs::fs_util::get_storage_param_pb(request.storage_param)),
                             "remote storage create failed. storage_name: " + request.storage_param.storage_name);
         }
     }
@@ -1037,7 +1037,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
         string remote_file_param_path = schema_hash_path + REMOTE_FILE_PARAM;
         if (data_dir->is_remote() && FileUtils::check_exist(remote_file_param_path)) {
             // it means you must remove remote file for this segment first
-            faststring json_buf;
+            string json_buf;
             Status s = env_util::read_file_to_string(Env::Default(), remote_file_param_path, &json_buf);
             if (!s.ok()) {
                 LOG(WARNING) << "delete unused file error when read remote_file_param_path: "
@@ -1048,7 +1048,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
             std::string storage_name = nullptr;
             std::string tablet_uid = nullptr;
             rapidjson::Document dom;
-            if (!dom.Parse(json_buf.ToString().c_str()).HasParseError()) {
+            if (!dom.Parse(json_buf.c_str()).HasParseError()) {
                 if (dom.HasMember(TABLET_UID.c_str()) && dom[TABLET_UID.c_str()].IsString()
                     && dom.HasMember(STORAGE_NAME.c_str()) && dom[STORAGE_NAME.c_str()].IsString()) {
                     storage_name = dom[STORAGE_NAME.c_str()].GetString();

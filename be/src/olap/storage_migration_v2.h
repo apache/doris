@@ -41,12 +41,12 @@ public:
     }
 
     // schema change v2, it will not set alter task in base tablet
-    OLAPStatus process_storage_migration_v2(const TStorageMigrationReqV2& request);
+    Status process_storage_migration_v2(const TStorageMigrationReqV2& request);
 
 private:
 
-    OLAPStatus _get_versions_to_be_changed(TabletSharedPtr base_tablet,
-                                           std::vector<Version>* versions_to_be_changed);
+    Status _get_versions_to_be_changed(TabletSharedPtr base_tablet,
+                                       std::vector<Version>* versions_to_be_changed);
 
     struct StorageMigrationParams {
         TabletSharedPtr base_tablet;
@@ -55,13 +55,13 @@ private:
         DeleteHandler* delete_handler = nullptr;
     };
 
-    OLAPStatus _do_process_storage_migration_v2(const TStorageMigrationReqV2& request);
+    Status _do_process_storage_migration_v2(const TStorageMigrationReqV2& request);
 
-    OLAPStatus _validate_migration_result(TabletSharedPtr new_tablet, const TStorageMigrationReqV2& request);
+    Status _validate_migration_result(TabletSharedPtr new_tablet, const TStorageMigrationReqV2& request);
 
-    OLAPStatus _convert_historical_rowsets(const StorageMigrationParams& sm_params);
+    Status _convert_historical_rowsets(const StorageMigrationParams& sm_params);
 
-    OLAPStatus _generate_rowset_writer(
+    Status _generate_rowset_writer(
             const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
             RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet);
 

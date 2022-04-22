@@ -141,7 +141,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
             status = Env::Default()->delete_file(dst_path_desc.filepath);
             if (!status.ok()) {
                 LOG(WARNING) << "file delete failed: " << dst_path_desc.filepath;
-                return OLAP_ERR_FILE_ALREADY_EXIST;
+                return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
             }
         }
         if (!status.is_not_found()) {
@@ -174,7 +174,7 @@ Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc,
             status = storage_backend->rm(dst_path_desc.remote_path);
             if (!status.ok()) {
                 LOG(WARNING) << "file delete failed: " << dst_path_desc.remote_path;
-                return OLAP_ERR_FILE_ALREADY_EXIST;
+                return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
             }
         } else if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
@@ -189,7 +189,7 @@ Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc,
         }
         if (delete_src && !Env::Default()->delete_file(src_path_desc.filepath).ok()) {
             LOG(WARNING) << "fail to delete local file: " << src_path_desc.filepath << ", errno=" << Errno::no();
-            return OLAP_ERR_OS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         LOG(INFO) << "succeed to upload file. from " << src_path_desc.filepath << " to "
                   << dst_path_desc.remote_path;

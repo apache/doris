@@ -1660,9 +1660,9 @@ void TaskWorkerPool::_storage_medium_migrate_v2_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1728,9 +1728,9 @@ void TaskWorkerPool::_storage_medium_migrate_v2(const TAgentTaskRequest& agent_t
         new_tablet_id = agent_task_req.storage_migration_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.storage_migration_req_v2.new_schema_hash;
         EngineStorageMigrationTaskV2 engine_task(agent_task_req.storage_migration_req_v2);
-        OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
-        if (sc_status != OLAP_SUCCESS) {
-            if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
             status = Status::DataQualityError("The data quality does not satisfy");

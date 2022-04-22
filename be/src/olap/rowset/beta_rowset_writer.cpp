@@ -141,19 +141,19 @@ Status BetaRowsetWriter::add_rowset_for_linked_schema_change(
     return add_rowset(rowset);
 }
 
-OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
+    Status res = Status::OK();
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     if (!rowset->rowset_path_desc().is_remote() && !_context.path_desc.is_remote()) {
         res = rowset->copy_files_to(_context.path_desc.filepath, _context.rowset_id);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "copy_files failed. src: " << rowset->rowset_path_desc().filepath
                          << ", dest: " << _context.path_desc.filepath;
             return res;
         }
     } else if (!rowset->rowset_path_desc().is_remote() && _context.path_desc.is_remote()) {
         res = rowset->upload_files_to(_context.path_desc, _context.rowset_id);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             LOG(WARNING) << "upload_files failed. src: " << rowset->rowset_path_desc().debug_string()
                          << ", dest: " << _context.path_desc.debug_string();
             return res;
@@ -161,7 +161,7 @@ OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
     } else {
         LOG(WARNING) << "add_rowset_for_migration failed. storage_medium is invalid. src: "
                 << rowset->rowset_path_desc().debug_string() << ", dest: " << _context.path_desc.debug_string();
-        return OLAP_ERR_OTHER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_ROWSET_ADD_MIGRATION_V2);
     }
 
     _num_rows_written += rowset->num_rows();
@@ -172,7 +172,7 @@ OLAPStatus BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 Status BetaRowsetWriter::flush() {
