@@ -252,6 +252,34 @@ public class Coordinator {
         this.assignedRuntimeFilters = analyzer.getAssignedRuntimeFilter();
     }
 
+    public Coordinator(ConnectContext context, DescriptorTable descriptorTable, boolean isBlock, List<PlanFragment> fragments, List<ScanNode> scanNodes, List<RuntimeFilter> runtimeFilters) {
+        this.isBlockQuery = isBlock;
+        this.queryId = context.queryId();
+        this.fragments = fragments;
+        this.scanNodes = scanNodes;
+        this.descTable = descriptorTable.toThrift();
+        this.returnedAllResults = false;
+        initQueryOptions(context);
+
+        // setFromUserProperty(analyzer);
+
+        this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
+        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
+        this.queryGlobals.setLoadZeroTolerance(false);
+        if (context.getSessionVariable().getTimeZone().equals("CST")) {
+            this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
+        } else {
+            this.queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
+        }
+        this.tResourceInfo = new TResourceInfo(context.getQualifiedUser(),
+                context.getSessionVariable().getResourceGroup());
+        this.needReport = context.getSessionVariable().enableProfile();
+        this.nextInstanceId = new TUniqueId();
+        nextInstanceId.setHi(queryId.hi);
+        nextInstanceId.setLo(queryId.lo + 1);
+        this.assignedRuntimeFilters = runtimeFilters;
+    }
+
     // Used for broker load task/export task/update coordinator
     public Coordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                        List<PlanFragment> fragments, List<ScanNode> scanNodes, String timezone,

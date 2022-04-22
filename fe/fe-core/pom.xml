@@ -33,6 +33,7 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <log4j2.version>2.17.2</log4j2.version>
+        <antlr4.version>4.9.3</antlr4.version>
     </properties>
     <profiles>
         <profile>
@@ -607,6 +608,13 @@ under the License.
             <artifactId>mariadb-java-client</artifactId>
         </dependency>
 
+        <!-- antl4 -->
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr4.version}</version>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>palo-fe</finalName>
@@ -654,6 +662,25 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+            <!--antlr-->
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr4.version}</version>
+                <executions>
+                    <execution>
+                        <id>antlr</id>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <visitor>true</visitor>
+                    <sourceDirectory>src/main/antlr4</sourceDirectory>
+                    <treatWarningsAsErrors>true</treatWarningsAsErrors>
+                </configuration>
             </plugin>
             <!-- jmockit -->
             <plugin>

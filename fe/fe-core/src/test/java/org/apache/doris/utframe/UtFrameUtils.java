@@ -18,6 +18,8 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -291,6 +293,20 @@ public class UtFrameUtils {
             return stmtExecutor;
         } else {
             return null;
+        }
+    }
+
+    public static void createDb(ConnectContext ctx, String db) throws Exception {
+        String sql = "CREATE DATABASE " + db;
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(sql, ctx);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+    }
+
+    public static void createTables(ConnectContext ctx, String... sqls) throws Exception {
+        for (String sql : sqls) {
+            CreateTableStmt createTableStmt =
+                    (CreateTableStmt) parseAndAnalyzeStmt(sql, ctx);
+            Catalog.getCurrentCatalog().createTable(createTableStmt);
         }
     }
 }

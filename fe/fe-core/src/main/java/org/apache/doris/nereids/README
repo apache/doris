@@ -1,0 +1,2 @@
+Parser and expressions is inspired by Spark: https://spark.apache.org
+Optimizer is inspired by NoisePage: https://github.com/cmu-db/noisepage
