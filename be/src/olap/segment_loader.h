@@ -84,10 +84,10 @@ public:
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
-    OLAPStatus load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle, bool use_cache = false);
+    Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle, bool use_cache = false);
 
     // Try to prune the segment cache if expired.
-    OLAPStatus prune();
+    Status prune();
 
 private:
     SegmentLoader();

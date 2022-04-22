@@ -48,7 +48,7 @@ AlphaRowsetWriter::~AlphaRowsetWriter() {
     _segment_groups.clear();
 }
 
-OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+Status AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _rowset_writer_context = rowset_writer_context;
     _current_rowset_meta.reset(new (std::nothrow) AlphaRowsetMeta());
     _current_rowset_meta->set_rowset_id(_rowset_writer_context.rowset_id);
@@ -70,28 +70,28 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
         _current_rowset_meta->set_version(_rowset_writer_context.version);
     }
     RETURN_NOT_OK(_init());
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 template <typename RowType>
-OLAPStatus AlphaRowsetWriter::_add_row(const RowType& row) {
+Status AlphaRowsetWriter::_add_row(const RowType& row) {
     if (_writer_state != WRITER_INITED) {
         RETURN_NOT_OK(_init());
     }
-    OLAPStatus status = _column_data_writer->write(row);
-    if (status != OLAP_SUCCESS) {
+    Status status = _column_data_writer->write(row);
+    if (!status.ok()) {
         std::string error_msg = "add row failed";
         LOG(WARNING) << error_msg;
         return status;
     }
     ++_num_rows_written;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-template OLAPStatus AlphaRowsetWriter::_add_row(const RowCursor& row);
-template OLAPStatus AlphaRowsetWriter::_add_row(const ContiguousRow& row);
+template Status AlphaRowsetWriter::_add_row(const RowCursor& row);
+template Status AlphaRowsetWriter::_add_row(const ContiguousRow& row);
 
-OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
+Status AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     _need_column_data_writer = false;
     // this api is for clone
     AlphaRowsetSharedPtr alpha_rowset = std::dynamic_pointer_cast<AlphaRowset>(rowset);
@@ -109,10 +109,10 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     if (rowset->rowset_meta()->has_delete_predicate()) {
         _current_rowset_meta->set_delete_predicate(rowset->rowset_meta()->delete_predicate());
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus AlphaRowsetWriter::add_rowset_for_linked_schema_change(
+Status AlphaRowsetWriter::add_rowset_for_linked_schema_change(
         RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) {
     _need_column_data_writer = false;
     // this api is for LinkedSchemaChange
@@ -130,12 +130,12 @@ OLAPStatus AlphaRowsetWriter::add_rowset_for_linked_schema_change(
         RETURN_NOT_OK(flush());
         _num_rows_written += segment_group->num_rows();
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus AlphaRowsetWriter::flush() {
+Status AlphaRowsetWriter::flush() {
     if (_writer_state == WRITER_FLUSHED) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     DCHECK(_writer_state == WRITER_INITED);
     if (_need_column_data_writer) {
@@ -144,7 +144,7 @@ OLAPStatus AlphaRowsetWriter::flush() {
     }
     SAFE_DELETE(_column_data_writer);
     _writer_state = WRITER_FLUSHED;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 RowsetSharedPtr AlphaRowsetWriter::build() {
@@ -159,7 +159,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     }
     int total_num_segments = 0;
     for (auto& segment_group : _segment_groups) {
-        if (segment_group->load() != OLAP_SUCCESS) {
+        if (segment_group->load() != Status::OK()) {
             return nullptr;
         }
         if (!segment_group->check()) {
@@ -223,7 +223,7 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     auto status = RowsetFactory::create_rowset(_rowset_writer_context.tablet_schema,
                                                _rowset_writer_context.path_desc,
                                                _current_rowset_meta, &rowset);
-    if (status != OLAP_SUCCESS) {
+    if (!status.ok()) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
     }
@@ -231,22 +231,22 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     return rowset;
 }
 
-OLAPStatus AlphaRowsetWriter::_garbage_collection() {
+Status AlphaRowsetWriter::_garbage_collection() {
     for (auto& segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
             LOG(WARNING) << "delete segment group files failed."
                          << " tablet id:" << segment_group->get_tablet_id()
                          << ", rowset path:" << segment_group->rowset_path_prefix();
-            return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
+            return Status::OLAPInternalError(OLAP_ERR_ROWSET_DELETE_FILE_FAILED);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus AlphaRowsetWriter::_init() {
+Status AlphaRowsetWriter::_init() {
     if (_writer_state == WRITER_INITED) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     if (_is_pending_rowset) {
         _cur_segment_group = new (std::nothrow) SegmentGroup(
@@ -270,15 +270,15 @@ OLAPStatus AlphaRowsetWriter::_init() {
             _cur_segment_group, true, _rowset_writer_context.tablet_schema->compress_kind(),
             _rowset_writer_context.tablet_schema->bloom_filter_fpp());
     DCHECK(_column_data_writer != nullptr) << "memory error occurs when creating writer";
-    OLAPStatus res = _column_data_writer->init();
-    if (res != OLAP_SUCCESS) {
+    Status res = _column_data_writer->init();
+    if (!res.ok()) {
         LOG(WARNING) << "column data writer init failed";
         return res;
     }
 
     _segment_group_id++;
     _writer_state = WRITER_INITED;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool AlphaRowsetWriter::_validate_rowset() {

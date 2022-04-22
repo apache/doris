@@ -37,20 +37,20 @@ TEST(CRC, StandardResults) {
     char buf[32];
 
     memset(buf, 0, sizeof(buf));
-    ASSERT_EQ(0x8a9136aaU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x8a9136aaU, Value(buf, sizeof(buf)));
 
     memset(buf, 0xff, sizeof(buf));
-    ASSERT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x62a8ab43U, Value(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(i);
     }
-    ASSERT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x46dd794eU, Value(buf, sizeof(buf)));
 
     for (int i = 0; i < 32; i++) {
         buf[i] = static_cast<char>(31 - i);
     }
-    ASSERT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
+    EXPECT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
 
     unsigned char data[48] = {
             0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -58,24 +58,19 @@ TEST(CRC, StandardResults) {
             0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x18, 0x28, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
-    ASSERT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
+    EXPECT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
 }
 
 TEST(CRC, Values) {
-    ASSERT_NE(Value("a", 1), Value("foo", 3));
+    EXPECT_NE(Value("a", 1), Value("foo", 3));
 }
 
 TEST(CRC, Extend) {
-    ASSERT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
+    EXPECT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
 
     std::vector<Slice> slices = {Slice("hello "), Slice("world")};
-    ASSERT_EQ(Value("hello world", 11), Value(slices));
+    EXPECT_EQ(Value("hello world", 11), Value(slices));
 }
 
 } // namespace crc32c
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

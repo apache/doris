@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_PUSH_HANDLER_H
-#define DORIS_BE_SRC_OLAP_PUSH_HANDLER_H
+#pragma once
 
 #include <map>
 #include <string>
@@ -52,7 +51,7 @@ public:
     ~PushHandler() {}
 
     // Load local data file into specified tablet.
-    OLAPStatus process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+    Status process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                            PushType push_type,
                                            std::vector<TTabletInfo>* tablet_info_vec);
 
@@ -60,11 +59,11 @@ public:
     int64_t write_rows() const { return _write_rows; }
 
 private:
-    OLAPStatus _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
+    Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
                            RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
-    OLAPStatus _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
+    Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
                         RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
 
     // Only for debug
@@ -73,7 +72,7 @@ private:
     void _get_tablet_infos(const std::vector<TabletVars>& tablet_infos,
                            std::vector<TTabletInfo>* tablet_info_vec);
 
-    OLAPStatus _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+    Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                        PushType push_type, vector<TabletVars>* tablet_vars,
                                        std::vector<TTabletInfo>* tablet_info_vec);
 
@@ -92,7 +91,7 @@ public:
     BinaryFile() {}
     virtual ~BinaryFile() { close(); }
 
-    OLAPStatus init(const char* path);
+    Status init(const char* path);
 
     size_t header_size() const { return _header.size(); }
     size_t file_length() const { return _header.file_length(); }
@@ -110,10 +109,10 @@ public:
     static IBinaryReader* create(bool need_decompress);
     virtual ~IBinaryReader() {}
 
-    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file) = 0;
-    virtual OLAPStatus finalize() = 0;
+    virtual Status init(TabletSharedPtr tablet, BinaryFile* file) = 0;
+    virtual Status finalize() = 0;
 
-    virtual OLAPStatus next(RowCursor* row) = 0;
+    virtual Status next(RowCursor* row) = 0;
 
     virtual bool eof() = 0;
 
@@ -142,10 +141,10 @@ public:
     explicit BinaryReader();
     virtual ~BinaryReader() { finalize(); }
 
-    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
-    virtual OLAPStatus finalize();
+    virtual Status init(TabletSharedPtr tablet, BinaryFile* file);
+    virtual Status finalize();
 
-    virtual OLAPStatus next(RowCursor* row);
+    virtual Status next(RowCursor* row);
 
     virtual bool eof() { return _curr >= _content_len; }
 
@@ -159,15 +158,15 @@ public:
     explicit LzoBinaryReader();
     virtual ~LzoBinaryReader() { finalize(); }
 
-    virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
-    virtual OLAPStatus finalize();
+    virtual Status init(TabletSharedPtr tablet, BinaryFile* file);
+    virtual Status finalize();
 
-    virtual OLAPStatus next(RowCursor* row);
+    virtual Status next(RowCursor* row);
 
     virtual bool eof() { return _curr >= _content_len && _row_num == 0; }
 
 private:
-    OLAPStatus _next_block();
+    Status _next_block();
 
     typedef uint32_t RowNumType;
     typedef uint64_t CompressedSizeType;
@@ -187,21 +186,21 @@ public:
     PushBrokerReader() : _ready(false), _eof(false), _fill_tuple(false) {}
     ~PushBrokerReader() {}
 
-    OLAPStatus init(const Schema* schema, const TBrokerScanRange& t_scan_range,
+    Status init(const Schema* schema, const TBrokerScanRange& t_scan_range,
                     const TDescriptorTable& t_desc_tbl);
-    OLAPStatus next(ContiguousRow* row);
+    Status next(ContiguousRow* row);
     void print_profile();
 
-    OLAPStatus close() {
+    Status close() {
         _ready = false;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     bool eof() { return _eof; }
     bool is_fill_tuple() { return _fill_tuple; }
     MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
-    OLAPStatus fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+    Status fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
                               FieldType type);
     bool _ready;
     bool _eof;
@@ -220,4 +219,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_PUSH_HANDLER_H

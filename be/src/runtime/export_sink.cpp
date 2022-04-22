@@ -28,7 +28,6 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
-#include "runtime/mysql_table_sink.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
@@ -45,7 +44,8 @@ ExportSink::ExportSink(ObjectPool* pool, const RowDescriptor& row_desc,
           _t_output_expr(t_exprs),
           _bytes_written_counter(nullptr),
           _rows_written_counter(nullptr),
-          _write_timer(nullptr) {
+          _write_timer(nullptr),
+          _header_sent(false) {
     _name = "ExportSink";
 }
 
@@ -90,12 +90,24 @@ Status ExportSink::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status ExportSink::write_csv_header() {
+    if (!_header_sent && _t_export_sink.header.size() > 0) {
+        size_t written_len = 0;
+        RETURN_IF_ERROR(
+                _file_writer->write(reinterpret_cast<const uint8_t*>(_t_export_sink.header.c_str()),
+                                    _t_export_sink.header.size(), &written_len));
+        _header_sent = true;
+    }
+    return Status::OK();
+}
+
 Status ExportSink::send(RuntimeState* state, RowBatch* batch) {
     VLOG_ROW << "debug: export_sink send batch: " << batch->to_string();
     SCOPED_TIMER(_profile->total_time_counter());
     int num_rows = batch->num_rows();
     // we send at most 1024 rows at a time
     int batch_send_rows = num_rows > 1024 ? 1024 : num_rows;
+    RETURN_IF_ERROR(write_csv_header());
     std::stringstream ss;
     for (int i = 0; i < num_rows;) {
         ss.str("");

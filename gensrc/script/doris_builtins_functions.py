@@ -17,6 +17,9 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# This file is copied from
+# https://github.com/apache/impala/blob/branch-2.9.0/common/function-registry/impala_functions.py
+# and modified by Doris
 
 # This is a list of all the functions that are not auto-generated.
 # It contains all the meta data that describes the function.
@@ -1175,7 +1178,7 @@ visible_functions = [
             '', '', 'vec', ''],
 
     #hll function
-    [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
+    [['hll_cardinality'], 'BIGINT', ['HLL'],
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['hll_hash'], 'HLL', ['VARCHAR'],
@@ -1183,9 +1186,6 @@ visible_functions = [
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['hll_empty'], 'HLL', [],
         '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE',
-        '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
-    [['hll_cardinality'], 'BIGINT', ['STRING'],
-        '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NOT_NULLABLE'],
     [['hll_hash'], 'HLL', ['STRING'],
         '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE',
@@ -1390,7 +1390,8 @@ visible_functions = [
 
     # geo functions
     [['ST_Point'], 'VARCHAR', ['DOUBLE', 'DOUBLE'],
-        '_ZN5doris12GeoFunctions8st_pointEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_', '', '', 'vec', 'ALWAYS_NULLABLE'],
+        '_ZN5doris12GeoFunctions8st_pointEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_',
+        '', '', 'vec', 'ALWAYS_NULLABLE'],
     [['ST_X'], 'DOUBLE', ['VARCHAR'],
         '_ZN5doris12GeoFunctions4st_xEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '', '', 'vec', 'ALWAYS_NULLABLE'],
@@ -1418,46 +1419,46 @@ visible_functions = [
         '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
     [['ST_GeometryFromText', 'ST_GeomFromText'], 'VARCHAR', ['STRING'],
         '_ZN5doris12GeoFunctions11st_from_wktEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions19st_from_wkt_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
 
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris12GeoFunctions7st_lineEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
     [['ST_LineFromText', 'ST_LineStringFromText'], 'VARCHAR', ['STRING'],
         '_ZN5doris12GeoFunctions7st_lineEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions15st_line_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
 
     [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['VARCHAR'],
         '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
     [['ST_Polygon', 'ST_PolyFromText', 'ST_PolygonFromText'], 'VARCHAR', ['STRING'],
         '_ZN5doris12GeoFunctions10st_polygonEPN9doris_udf15FunctionContextERKNS1_9StringValE',
         '_ZN5doris12GeoFunctions18st_polygon_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
 
     [['ST_Circle'], 'VARCHAR', ['DOUBLE', 'DOUBLE', 'DOUBLE'],
         '_ZN5doris12GeoFunctions9st_circleEPN9doris_udf15FunctionContextERKNS1_9DoubleValES6_S6_',
         '_ZN5doris12GeoFunctions17st_circle_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_from_wkt_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', ''],
+        'vec', 'ALWAYS_NULLABLE'],
 
     [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris12GeoFunctions11st_containsEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '_ZN5doris12GeoFunctions19st_contains_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
         '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '', 'ALWAYS_NULLABLE'],
+        'vec', 'ALWAYS_NULLABLE'],
     # grouping sets functions
     [['grouping_id'], 'BIGINT', ['BIGINT'],
         '_ZN5doris21GroupingSetsFunctions11grouping_idEPN9doris_udf15FunctionContextERKNS1_9BigIntValE',

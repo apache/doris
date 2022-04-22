@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/exec-node.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
 #define DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
@@ -28,11 +31,11 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/query_statistics.h"
+#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/blocking_queue.hpp"
 #include "util/runtime_profile.h"
 #include "util/uid_util.h" // for print_id
-
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {

@@ -21,7 +21,6 @@
 
 #include <vector>
 
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/utils.h"
 #include "runtime/primitive_type.h"
@@ -243,8 +242,8 @@ Status DppWriter::add_batch(RowBatch* batch) {
             return status;
         }
         int len = _pos - _buf;
-        OLAPStatus olap_status = _fp->write(_buf, len);
-        if (olap_status != OLAP_SUCCESS) {
+        Status olap_status = _fp->write(_buf, len);
+        if (!olap_status.ok()) {
             return Status::InternalError("write to file failed.");
         }
         _content_adler32 = olap_adler32(_content_adler32, _buf, len);

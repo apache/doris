@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TXN_MANAGER_H
-#define DORIS_BE_SRC_OLAP_TXN_MANAGER_H
+#pragma once
 
 #include <pthread.h>
 #include <rapidjson/document.h>
@@ -71,48 +70,48 @@ public:
         delete[] _txn_mutex;
     }
 
-    OLAPStatus prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                            TTransactionId transaction_id, const PUniqueId& load_id);
 
-    OLAPStatus commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                           TTransactionId transaction_id, const PUniqueId& load_id,
                           const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
-    OLAPStatus publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                            TTransactionId transaction_id, const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
-    OLAPStatus rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                             TTransactionId transaction_id);
 
-    OLAPStatus delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
+    Status delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                           TTransactionId transaction_id);
 
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
-    OLAPStatus prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+    Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
                            const PUniqueId& load_id);
 
-    OLAPStatus commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+    Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
                           const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
                           bool is_recovery);
 
     // remove a txn from txn manager
     // not persist rowset meta because
-    OLAPStatus publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+    Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
                            const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
-    OLAPStatus rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
+    Status rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
                             TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     // remove the txn from txn manager
     // delete the related rowset if it is not null
     // delete rowset related data if it is not null
-    OLAPStatus delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
+    Status delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     void get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
@@ -160,13 +159,13 @@ private:
             txn_tablet_map_t;
     typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
 
-    inline std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
+    std::shared_mutex& _get_txn_map_lock(TTransactionId transactionId);
 
-    inline txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
+    txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
 
-    inline txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
+    txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
-    inline Mutex& _get_txn_lock(TTransactionId transactionId);
+    inline std::mutex& _get_txn_lock(TTransactionId transactionId);
 
     // Insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling.
@@ -188,7 +187,7 @@ private:
 
     std::shared_mutex* _txn_map_locks;
 
-    Mutex* _txn_mutex;
+    std::mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager
 
@@ -205,9 +204,9 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(
     return _txn_partition_maps[transactionId & (_txn_map_shard_size - 1)];
 }
 
-inline Mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
+inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
     return _txn_mutex[transactionId & (_txn_shard_size - 1)];
 }
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_TXN_MANAGER_H
+

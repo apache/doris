@@ -158,9 +158,9 @@ TEST_PREDICATE_DEFINITION(TestLessPredicate)
         TYPE value = 5;                                                                           \
         ColumnPredicate* pred = new EqualPredicate<TYPE>(0, value);                               \
         pred->evaluate(_vectorized_batch);                                                        \
-        ASSERT_EQ(_vectorized_batch->size(), 1);                                                  \
+        EXPECT_EQ(_vectorized_batch->size(), 1);                                                  \
         uint16_t* sel = _vectorized_batch->selected();                                            \
-        ASSERT_EQ(*(col_data + sel[0]), 5);                                                       \
+        EXPECT_EQ(*(col_data + sel[0]), 5);                                                       \
                                                                                                   \
         /* for has nulls */                                                                       \
         col_vector->set_no_nulls(false);                                                          \
@@ -177,9 +177,9 @@ TEST_PREDICATE_DEFINITION(TestLessPredicate)
         _vectorized_batch->set_size(size);                                                        \
         _vectorized_batch->set_selected_in_use(false);                                            \
         pred->evaluate(_vectorized_batch);                                                        \
-        ASSERT_EQ(_vectorized_batch->size(), 1);                                                  \
+        EXPECT_EQ(_vectorized_batch->size(), 1);                                                  \
         sel = _vectorized_batch->selected();                                                      \
-        ASSERT_EQ(*(col_data + sel[0]), 5);                                                       \
+        EXPECT_EQ(*(col_data + sel[0]), 5);                                                       \
         delete pred;                                                                              \
     }
 
@@ -210,9 +210,9 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
         *(col_data + i) = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_FLOAT_EQ(*(col_data + sel[0]), 5.0);
+    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 5.0);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -224,8 +224,8 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
         *reinterpret_cast<float*>(col_block_view.data()) = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -242,9 +242,9 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_FLOAT_EQ(*(col_data + sel[0]), 5.0);
+    EXPECT_FLOAT_EQ(*(col_data + sel[0]), 5.0);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -259,8 +259,8 @@ TEST_F(TestEqualPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_FLOAT_EQ(*(float*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
 
     delete pred;
 }
@@ -287,9 +287,9 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
         *(col_data + i) = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_DOUBLE_EQ(*(col_data + sel[0]), 5.0);
+    EXPECT_DOUBLE_EQ(*(col_data + sel[0]), 5.0);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -301,8 +301,8 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
         *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -319,9 +319,9 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_DOUBLE_EQ(*(col_data + sel[0]), 5.0);
+    EXPECT_DOUBLE_EQ(*(col_data + sel[0]), 5.0);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -336,8 +336,8 @@ TEST_F(TestEqualPredicate, DOUBLE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_DOUBLE_EQ(*(double*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), 5.0);
 
     delete pred;
 }
@@ -366,9 +366,9 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
         (*(col_data + i)).fraction = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(*(col_data + sel[0]), value);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -381,8 +381,8 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
         reinterpret_cast<decimal12_t*>(col_block_view.data())->fraction = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -400,9 +400,9 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(*(col_data + sel[0]), value);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -418,8 +418,8 @@ TEST_F(TestEqualPredicate, DECIMAL_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(*(decimal12_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
 
     delete pred;
 }
@@ -430,14 +430,14 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
                     &char_tablet_schema);
     // test WrapperField.from_string() for char type
     WrapperField* field = WrapperField::create(char_tablet_schema.column(0));
-    ASSERT_EQ(OLAP_SUCCESS, field->from_string("true"));
+    EXPECT_EQ(Status::OK(), field->from_string("true"));
     const std::string tmp = field->to_string();
-    ASSERT_EQ(5, tmp.size());
-    ASSERT_EQ('t', tmp[0]);
-    ASSERT_EQ('r', tmp[1]);
-    ASSERT_EQ('u', tmp[2]);
-    ASSERT_EQ('e', tmp[3]);
-    ASSERT_EQ(0, tmp[4]);
+    EXPECT_EQ(5, tmp.size());
+    EXPECT_EQ('t', tmp[0]);
+    EXPECT_EQ('r', tmp[1]);
+    EXPECT_EQ('u', tmp[2]);
+    EXPECT_EQ('e', tmp[3]);
+    EXPECT_EQ(0, tmp[4]);
 
     TabletSchema tablet_schema;
     SetTabletSchema(std::string("STRING_COLUMN"), "VARCHAR", "REPLACE", 1, true, true,
@@ -472,10 +472,10 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
         string_buffer += i + 1;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(sel[0], 3);
-    ASSERT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(sel[0], 3);
+    EXPECT_EQ(*(col_data + sel[0]), value);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -494,8 +494,8 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
         string_buffer += i + 1;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -518,9 +518,9 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(*(col_data + sel[0]), value);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -541,8 +541,8 @@ TEST_F(TestEqualPredicate, STRING_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr(), value);
 
     delete field;
     delete pred;
@@ -578,11 +578,11 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(sel[0], 3);
-    ASSERT_EQ(*(col_data + sel[0]), value);
-    ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
+    EXPECT_EQ(sel[0], 3);
+    EXPECT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -595,8 +595,8 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_date_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-10");
 
@@ -616,10 +616,10 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(*(col_data + sel[0]), value);
-    ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
+    EXPECT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -635,8 +635,8 @@ TEST_F(TestEqualPredicate, DATE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_date_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-10");
 
@@ -674,11 +674,11 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(sel[0], 3);
-    ASSERT_EQ(*(col_data + sel[0]), value);
-    ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
+    EXPECT_EQ(sel[0], 3);
+    EXPECT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -691,8 +691,8 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
         *reinterpret_cast<uint64_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_datetime_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_datetime_string(
                       *(uint64_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-10 01:00:00");
 
@@ -712,10 +712,10 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(*(col_data + sel[0]), value);
-    ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
+    EXPECT_EQ(*(col_data + sel[0]), value);
+    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -731,8 +731,8 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_datetime_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_datetime_string(
                       *(uint64_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-10 01:00:00");
 
@@ -762,13 +762,13 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
         TYPE value = 5;                                                                         \
         ColumnPredicate* pred = new LessPredicate<TYPE>(0, value);                              \
         pred->evaluate(_vectorized_batch);                                                      \
-        ASSERT_EQ(_vectorized_batch->size(), 5);                                                \
+        EXPECT_EQ(_vectorized_batch->size(), 5);                                                \
         uint16_t* sel = _vectorized_batch->selected();                                          \
         TYPE sum = 0;                                                                           \
         for (int i = 0; i < _vectorized_batch->size(); ++i) {                                   \
             sum += *(col_data + sel[i]);                                                        \
         }                                                                                       \
-        ASSERT_EQ(sum, 10);                                                                     \
+        EXPECT_EQ(sum, 10);                                                                     \
                                                                                                 \
         /* for has nulls */                                                                     \
         col_vector->set_no_nulls(false);                                                        \
@@ -785,13 +785,13 @@ TEST_F(TestEqualPredicate, DATETIME_COLUMN) {
         _vectorized_batch->set_size(size);                                                      \
         _vectorized_batch->set_selected_in_use(false);                                          \
         pred->evaluate(_vectorized_batch);                                                      \
-        ASSERT_EQ(_vectorized_batch->size(), 2);                                                \
+        EXPECT_EQ(_vectorized_batch->size(), 2);                                                \
         sel = _vectorized_batch->selected();                                                    \
         sum = 0;                                                                                \
         for (int i = 0; i < _vectorized_batch->size(); ++i) {                                   \
             sum += *(col_data + sel[i]);                                                        \
         }                                                                                       \
-        ASSERT_EQ(sum, 4);                                                                      \
+        EXPECT_EQ(sum, 4);                                                                      \
         delete pred;                                                                            \
     }
 
@@ -822,13 +822,13 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
         *(col_data + i) = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 5);
+    EXPECT_EQ(_vectorized_batch->size(), 5);
     uint16_t* sel = _vectorized_batch->selected();
     float sum = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_FLOAT_EQ(sum, 10.0);
+    EXPECT_FLOAT_EQ(sum, 10.0);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -840,12 +840,12 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
         *reinterpret_cast<float*>(col_block_view.data()) = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
     sum = 0;
     for (int i = 0; i < 5; ++i) {
         sum += *(float*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
-    ASSERT_FLOAT_EQ(sum, 10.0);
+    EXPECT_FLOAT_EQ(sum, 10.0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -862,13 +862,13 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 2);
+    EXPECT_EQ(_vectorized_batch->size(), 2);
     sel = _vectorized_batch->selected();
     sum = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_FLOAT_EQ(sum, 4.0);
+    EXPECT_FLOAT_EQ(sum, 4.0);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -883,12 +883,12 @@ TEST_F(TestLessPredicate, FLOAT_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
     sum = 0;
     for (int i = 0; i < 2; ++i) {
         sum += *(float*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
-    ASSERT_FLOAT_EQ(sum, 4.0);
+    EXPECT_FLOAT_EQ(sum, 4.0);
 
     delete pred;
 }
@@ -915,13 +915,13 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
         *(col_data + i) = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 5);
+    EXPECT_EQ(_vectorized_batch->size(), 5);
     uint16_t* sel = _vectorized_batch->selected();
     double sum = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_DOUBLE_EQ(sum, 10.0);
+    EXPECT_DOUBLE_EQ(sum, 10.0);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -933,12 +933,12 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
         *reinterpret_cast<double*>(col_block_view.data()) = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
     sum = 0;
     for (int i = 0; i < 5; ++i) {
         sum += *(double*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
-    ASSERT_DOUBLE_EQ(sum, 10.0);
+    EXPECT_DOUBLE_EQ(sum, 10.0);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -955,13 +955,13 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 2);
+    EXPECT_EQ(_vectorized_batch->size(), 2);
     sel = _vectorized_batch->selected();
     sum = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_DOUBLE_EQ(sum, 4.0);
+    EXPECT_DOUBLE_EQ(sum, 4.0);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -976,12 +976,12 @@ TEST_F(TestLessPredicate, DOUBLE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
     sum = 0;
     for (int i = 0; i < 2; ++i) {
         sum += *(double*)col_block.cell(_row_block->selection_vector()[i]).cell_ptr();
     }
-    ASSERT_DOUBLE_EQ(sum, 4.0);
+    EXPECT_DOUBLE_EQ(sum, 4.0);
 
     delete pred;
 }
@@ -1010,14 +1010,14 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
         (*(col_data + i)).fraction = i;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 5);
+    EXPECT_EQ(_vectorized_batch->size(), 5);
     uint16_t* sel = _vectorized_batch->selected();
     decimal12_t sum = {0, 0};
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_EQ(sum.integer, 10);
-    ASSERT_EQ(sum.fraction, 10);
+    EXPECT_EQ(sum.integer, 10);
+    EXPECT_EQ(sum.fraction, 10);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -1030,14 +1030,14 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
         reinterpret_cast<decimal12_t*>(col_block_view.data())->fraction = i;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 5);
+    EXPECT_EQ(select_size, 5);
     sum.integer = 0;
     sum.fraction = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_EQ(sum.integer, 10);
-    ASSERT_EQ(sum.fraction, 10);
+    EXPECT_EQ(sum.integer, 10);
+    EXPECT_EQ(sum.fraction, 10);
 
     // for VectorizedBatch has nulls
     col_vector->set_no_nulls(false);
@@ -1055,14 +1055,14 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 2);
+    EXPECT_EQ(_vectorized_batch->size(), 2);
     sum.integer = 0;
     sum.fraction = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_EQ(sum.integer, 4);
-    ASSERT_EQ(sum.fraction, 4);
+    EXPECT_EQ(sum.integer, 4);
+    EXPECT_EQ(sum.fraction, 4);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -1078,14 +1078,14 @@ TEST_F(TestLessPredicate, DECIMAL_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 2);
+    EXPECT_EQ(select_size, 2);
     sum.integer = 0;
     sum.fraction = 0;
     for (int i = 0; i < _vectorized_batch->size(); ++i) {
         sum += *(col_data + sel[i]);
     }
-    ASSERT_EQ(sum.integer, 4);
-    ASSERT_EQ(sum.fraction, 4);
+    EXPECT_EQ(sum.integer, 4);
+    EXPECT_EQ(sum.fraction, 4);
 
     delete pred;
 }
@@ -1123,9 +1123,9 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
         string_buffer += i + 1;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 3);
+    EXPECT_EQ(_vectorized_batch->size(), 3);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_TRUE(strncmp((*(col_data + sel[0])).ptr, "a", 1) == 0);
+    EXPECT_TRUE(strncmp((*(col_data + sel[0])).ptr, "a", 1) == 0);
 
     // for ColumnBlock no null
     init_row_block(&tablet_schema, size);
@@ -1144,8 +1144,8 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
         string_buffer += i + 1;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 3);
-    ASSERT_TRUE(
+    EXPECT_EQ(select_size, 3);
+    EXPECT_TRUE(
             strncmp((*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr())
                             .ptr,
                     "a", 1) == 0);
@@ -1171,9 +1171,9 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_TRUE(strncmp((*(col_data + sel[0])).ptr, "bb", 2) == 0);
+    EXPECT_TRUE(strncmp((*(col_data + sel[0])).ptr, "bb", 2) == 0);
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -1194,8 +1194,8 @@ TEST_F(TestLessPredicate, STRING_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_TRUE(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_TRUE(
             strncmp((*(StringValue*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr())
                             .ptr,
                     "bb", 2) == 0);
@@ -1233,9 +1233,9 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 3);
+    EXPECT_EQ(_vectorized_batch->size(), 3);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-07");
+    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-07");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -1248,8 +1248,8 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
         *reinterpret_cast<uint24_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 3);
-    ASSERT_EQ(datetime::to_date_string(
+    EXPECT_EQ(select_size, 3);
+    EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-07");
 
@@ -1269,9 +1269,9 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-08");
+    EXPECT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-08");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -1287,8 +1287,8 @@ TEST_F(TestLessPredicate, DATE_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_date_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_date_string(
                       *(uint24_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-08");
 
@@ -1328,9 +1328,9 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
         *(col_data + i) = timestamp;
     }
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 3);
+    EXPECT_EQ(_vectorized_batch->size(), 3);
     uint16_t* sel = _vectorized_batch->selected();
-    ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-07 00:00:00");
+    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-07 00:00:00");
 
     // for ColumnBlock no nulls
     init_row_block(&tablet_schema, size);
@@ -1343,8 +1343,8 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
         *reinterpret_cast<uint64_t*>(col_block_view.data()) = timestamp;
     }
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 3);
-    ASSERT_EQ(datetime::to_datetime_string(
+    EXPECT_EQ(select_size, 3);
+    EXPECT_EQ(datetime::to_datetime_string(
                       *(uint64_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-07 00:00:00");
 
@@ -1364,9 +1364,9 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     _vectorized_batch->set_size(size);
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
-    ASSERT_EQ(_vectorized_batch->size(), 1);
+    EXPECT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
-    ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-08 00:01:00");
+    EXPECT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-08 00:01:00");
 
     // for ColumnBlock has nulls
     col_block_view = ColumnBlockView(&col_block);
@@ -1382,8 +1382,8 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
     _row_block->clear();
     select_size = _row_block->selected_size();
     pred->evaluate(&col_block, _row_block->selection_vector(), &select_size);
-    ASSERT_EQ(select_size, 1);
-    ASSERT_EQ(datetime::to_datetime_string(
+    EXPECT_EQ(select_size, 1);
+    EXPECT_EQ(datetime::to_datetime_string(
                       *(uint64_t*)col_block.cell(_row_block->selection_vector()[0]).cell_ptr()),
               "2017-09-08 00:01:00");
 
@@ -1391,12 +1391,3 @@ TEST_F(TestLessPredicate, DATETIME_COLUMN) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    int ret = doris::OLAP_SUCCESS;
-    testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    ret = RUN_ALL_TESTS();
-    google::protobuf::ShutdownProtobufLibrary();
-    return ret;
-}

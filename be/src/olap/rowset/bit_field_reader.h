@@ -30,15 +30,15 @@ class BitFieldReader {
 public:
     BitFieldReader(ReadOnlyFileStream* input);
     ~BitFieldReader();
-    OLAPStatus init();
-    // 获取下一条数据, 如果没有更多的数据了, 返回OLAP_ERR_DATA_EOF
+    Status init();
+    // 获取下一条数据, 如果没有更多的数据了, 返回Status::OLAPInternalError(OLAP_ERR_DATA_EOF)
     // 返回的value只可能是0或1
-    OLAPStatus next(char* value);
-    OLAPStatus seek(PositionProvider* position);
-    OLAPStatus skip(uint64_t num_values);
+    Status next(char* value);
+    Status seek(PositionProvider* position);
+    Status skip(uint64_t num_values);
 
 private:
-    OLAPStatus _read_byte();
+    Status _read_byte();
 
     ReadOnlyFileStream* _input;
     RunLengthByteReader* _byte_reader;

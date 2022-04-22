@@ -61,7 +61,7 @@ TEST_F(BrokerReaderTest, normal) {
     std::string path = "hdfs://host:port/dir";
     BrokerReader reader(_env, _addresses, _properties, path, 0);
     auto st = reader.open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     uint8_t buf[128 * 1024];
     MonotonicStopWatch watch;
     watch.start();
@@ -70,22 +70,10 @@ TEST_F(BrokerReaderTest, normal) {
     while (!eof) {
         size_t buf_len = 128 * 1024;
         st = reader.read(buf, &buf_len, &eof);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         total_size += buf_len;
     }
     LOG(INFO) << "get from broker " << total_size << " bytes using " << watch.elapsed_time();
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    // doris::init_glog("be-test");
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

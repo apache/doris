@@ -89,6 +89,9 @@ import java.util.stream.Collectors;
 public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
+    // average compression ratio in doris storage engine
+    private final static int COMPRESSION_RATIO = 5;
+
     private List<TScanRangeLocations> result = new ArrayList<>();
     /*
      * When the field value is ON, the storage engine can return the data directly without pre-aggregation.
@@ -168,6 +171,8 @@ public class OlapScanNode extends ScanNode {
         setIsPreAggregation(false, reason);
         setCanTurnOnPreAggr(false);
     }
+
+    public long getTotalTabletsNum() { return totalTabletsNum; }
 
     public boolean getForceOpenPreAgg() {
         return forceOpenPreAgg;
@@ -376,7 +381,7 @@ public class OlapScanNode extends ScanNode {
     public void computeStats(Analyzer analyzer) {
         super.computeStats(analyzer);
         if (cardinality > 0) {
-            avgRowSize = totalBytes / (float) cardinality;
+            avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
         }
         // when node scan has no data, cardinality should be 0 instead of a invalid value after computeStats()
@@ -477,10 +482,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void addScanRangeLocations(Partition partition,
-                                       MaterializedIndex index,
                                        List<Tablet> tablets) throws UserException {
-        int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
-        String schemaHashStr = String.valueOf(schemaHash);
         long visibleVersion = partition.getVisibleVersion();
         String visibleVersionStr = String.valueOf(visibleVersion);
 
@@ -495,13 +497,13 @@ public class OlapScanNode extends ScanNode {
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
-            paloRange.setSchemaHash(schemaHashStr);
+            paloRange.setSchemaHash("");
             paloRange.setVersion(visibleVersionStr);
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
 
             // random shuffle List && only collect one copy
-            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion, schemaHash);
+            List<Replica> replicas = tablet.getQueryableReplicas(visibleVersion);
             if (replicas.isEmpty()) {
                 LOG.error("no queryable replica found in tablet {}. visible version {}",
                         tabletId, visibleVersion);
@@ -665,7 +667,7 @@ public class OlapScanNode extends ScanNode {
 
             totalTabletsNum += selectedTable.getTablets().size();
             selectedTabletsNum += tablets.size();
-            addScanRangeLocations(partition, selectedTable, tablets);
+            addScanRangeLocations(partition, tablets);
         }
     }
 

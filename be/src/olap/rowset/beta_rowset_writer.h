@@ -37,22 +37,22 @@ public:
 
     ~BetaRowsetWriter() override;
 
-    OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    OLAPStatus add_row(const RowCursor& row) override { return _add_row(row); }
+    Status add_row(const RowCursor& row) override { return _add_row(row); }
     // For Memtable::flush()
-    OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
+    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     // add rowset by create hard link
-    OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
+    Status add_rowset(RowsetSharedPtr rowset) override;
 
-    OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+    Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                    const SchemaMapping& schema_mapping) override;
 
-    OLAPStatus flush() override;
+    Status flush() override;
 
     // Return the file size flushed to disk in "flush_size"
-    OLAPStatus flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
+    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
 
     RowsetSharedPtr build() override;
 
@@ -66,11 +66,11 @@ public:
 
 private:
     template <typename RowType>
-    OLAPStatus _add_row(const RowType& row);
+    Status _add_row(const RowType& row);
 
-    OLAPStatus _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
-    OLAPStatus _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+    Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
 private:
     RowsetWriterContext _context;

@@ -71,6 +71,7 @@ Status MergeJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status MergeJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
 
     // build and probe exprs are evaluated in the context of the rows produced by our
     // right and left children, respectively
@@ -148,6 +149,7 @@ Status MergeJoinNode::close(RuntimeState* state) {
 
 Status MergeJoinNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(Expr::open(_left_expr_ctxs, state));
@@ -171,6 +173,7 @@ Status MergeJoinNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* e
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
     if (reached_limit() || _eos) {
         *eos = true;

@@ -42,12 +42,21 @@
 // tracker again in the short term, can consider manually clear_untracked_mems.
 // The query thread will automatically clear_untracked_mems when detach_task.
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, false)
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<false>(mem_tracker, false)
 #define SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
-    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker(mem_tracker, true);
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<false>(mem_tracker, true);
+#define SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker) \
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTracker<true>(mem_tracker, true)
+// After the non-query thread switches the mem tracker, if the thread will not switch the mem
+// tracker again in the short term, can consider manually clear_untracked_mems.
+// The query thread will automatically clear_untracked_mems when detach_task.
+#define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_END_CLEAR(mem_tracker) \
+    auto VARNAME_LINENUM(switch_tracker) = SwitchThreadMemTrackerEndClear(mem_tracker)
 #define SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(action_type, ...) \
     auto VARNAME_LINENUM(witch_tracker_cb) =                            \
             SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__)
+#define ADD_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
+    thread_local_ctx.get()->_thread_mem_tracker_mgr->add_tracker(mem_tracker)
 
 namespace doris {
 
@@ -67,10 +76,11 @@ public:
         UNKNOWN = 0,
         QUERY = 1,
         LOAD = 2,
-        COMPACTION = 3
+        COMPACTION = 3,
+        STORAGE = 4
         // to be added ...
     };
-    inline static const std::string TaskTypeStr[] = {"UNKNOWN", "QUERY", "LOAD", "COMPACTION"};
+    inline static const std::string TaskTypeStr[] = {"UNKNOWN", "QUERY", "LOAD", "COMPACTION", "STORAGE"};
 
 public:
     ThreadContext() : _thread_id(std::this_thread::get_id()), _type(TaskType::UNKNOWN) {
@@ -83,7 +93,9 @@ public:
     void attach(const TaskType& type, const std::string& task_id,
                 const TUniqueId& fragment_instance_id,
                 const std::shared_ptr<MemTracker>& mem_tracker) {
-        DCHECK(_type == TaskType::UNKNOWN && _task_id == "");
+        DCHECK(_type == TaskType::UNKNOWN && _task_id == "")
+                << ",old tracker label: " << mem_tracker->label()
+                << ",new tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
@@ -144,7 +156,7 @@ private:
 // The func provided by pthread and std::thread doesn't help either.
 //
 // So, kudu Class-scoped static thread local implementation was introduced. Solve the above problem by
-// Thread-scopedthread local + Class-scoped thread local.
+// Thread-scoped thread local + Class-scoped thread local.
 //
 // This may look very trick, but it's the best way I can find.
 //
@@ -177,13 +189,17 @@ public:
 
     explicit AttachTaskThread(const ThreadContext::TaskType& type,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(type, "", TUniqueId(), mem_tracker);
     }
 
     explicit AttachTaskThread(const TQueryType::type& query_type,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(query_type), "", TUniqueId(),
                                        mem_tracker);
     }
@@ -191,9 +207,11 @@ public:
     explicit AttachTaskThread(const TQueryType::type& query_type, const std::string& task_id,
                               const TUniqueId& fragment_instance_id,
                               const std::shared_ptr<MemTracker>& mem_tracker) {
+#ifndef BE_TEST
         DCHECK(task_id != "");
         DCHECK(fragment_instance_id != TUniqueId());
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(query_type), task_id,
                                        fragment_instance_id, mem_tracker);
     }
@@ -204,10 +222,10 @@ public:
         DCHECK(print_id(runtime_state->query_id()) != "");
         DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
         DCHECK(mem_tracker);
+#endif
         thread_local_ctx.get()->attach(query_to_task_type(runtime_state->query_type()),
                                        print_id(runtime_state->query_id()),
                                        runtime_state->fragment_instance_id(), mem_tracker);
-#endif
     }
 
     const ThreadContext::TaskType query_to_task_type(const TQueryType::type& query_type) {
@@ -223,10 +241,8 @@ public:
     }
 
     ~AttachTaskThread() {
-#ifndef BE_TEST
         thread_local_ctx.get()->detach();
         DorisMetrics::instance()->attach_task_thread_count->increment(1);
-#endif
     }
 };
 
@@ -241,33 +257,55 @@ public:
     }
 
 private:
-    bool _scope;
+    bool _scope = true;
 };
 
+template <bool Existed>
 class SwitchThreadMemTracker {
 public:
     explicit SwitchThreadMemTracker(const std::shared_ptr<MemTracker>& mem_tracker,
                                     bool in_task = true) {
+        if (config::memory_verbose_track) {
 #ifndef BE_TEST
-        DCHECK(mem_tracker);
-        // The thread tracker must be switched after the attach task, otherwise switching
-        // in the main thread will cause the cached tracker not be cleaned up in time.
-        DCHECK(in_task == false ||
-               thread_local_ctx.get()->_thread_mem_tracker_mgr->is_attach_task());
-        _old_tracker_id =
-                thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker(mem_tracker);
+            DCHECK(mem_tracker);
+            // The thread tracker must be switched after the attach task, otherwise switching
+            // in the main thread will cause the cached tracker not be cleaned up in time.
+            DCHECK(in_task == false ||
+                   thread_local_ctx.get()->_thread_mem_tracker_mgr->is_attach_task());
+            if (Existed) {
+                _old_tracker_id =
+                        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker<true>(
+                                mem_tracker);
+            } else {
+                _old_tracker_id =
+                        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker<false>(
+                                mem_tracker);
+            }
 #endif
+        }
     }
 
     ~SwitchThreadMemTracker() {
+        if (config::memory_verbose_track) {
 #ifndef BE_TEST
-        thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
-        DorisMetrics::instance()->switch_thread_mem_tracker_count->increment(1);
+            thread_local_ctx.get()->_thread_mem_tracker_mgr->update_tracker_id(_old_tracker_id);
+            DorisMetrics::instance()->switch_thread_mem_tracker_count->increment(1);
 #endif
+        }
     }
 
-private:
-    std::string _old_tracker_id;
+protected:
+    int64_t _old_tracker_id = 0;
+};
+
+class SwitchThreadMemTrackerEndClear : public SwitchThreadMemTracker<false> {
+public:
+    explicit SwitchThreadMemTrackerEndClear(const std::shared_ptr<MemTracker>& mem_tracker)
+            : SwitchThreadMemTracker<false>(mem_tracker, false) {}
+
+    ~SwitchThreadMemTrackerEndClear() {
+        thread_local_ctx.get()->_thread_mem_tracker_mgr->clear_untracked_mems();
+    }
 };
 
 class SwitchThreadMemTrackerErrCallBack {

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/hash-table.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
@@ -194,7 +197,7 @@ public:
     // just the build row addresses.
     std::string debug_string(bool skip_empty, const RowDescriptor* build_desc);
 
-    inline std::pair<int64_t, int64_t> minmax_node();
+    std::pair<int64_t, int64_t> minmax_node();
 
     // Load factor that will trigger growing the hash table on insert.  This is
     // defined as the number of non-empty buckets / total_buckets

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-internal.h
+// and modified by Doris
 
 #ifndef DORIS_BE_UDF_UDF_INTERNAL_H
 #define DORIS_BE_UDF_UDF_INTERNAL_H
@@ -33,7 +36,6 @@ class FreePool;
 class MemPool;
 class RuntimeState;
 struct ColumnPtrWrapper;
-class PFunctionContext;
 
 // This class actually implements the interface of FunctionContext. This is split to
 // hide the details from the external header.
@@ -107,9 +109,6 @@ public:
     std::string& string_result() { return _string_result; }
 
     const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
-
-    void serialize(PFunctionContext* pcontext) const;
-    void derialize(const PFunctionContext& pcontext);
 
 private:
     friend class doris_udf::FunctionContext;

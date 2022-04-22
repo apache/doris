@@ -40,7 +40,7 @@
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
-#include "test_util/array_utils.h"
+#include "testutil/array_utils.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/file_utils.h"
 #include "util/uid_util.h"
@@ -64,7 +64,7 @@ ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types
     return column;
 }
 
-const TypeInfo* get_type_info(const ColumnPB& column_pb) {
+TypeInfoPtr get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);
@@ -130,14 +130,14 @@ public:
 protected:
     void SetUp() override {
         if (FileUtils::check_exist(TEST_DIR)) {
-            ASSERT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
+            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
         }
-        ASSERT_TRUE(FileUtils::create_dir(TEST_DIR).ok());
+        EXPECT_TRUE(FileUtils::create_dir(TEST_DIR).ok());
     }
 
     void TearDown() override {
         if (FileUtils::check_exist(TEST_DIR)) {
-            ASSERT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
+            EXPECT_TRUE(FileUtils::remove_all(TEST_DIR).ok());
         }
     }
 
@@ -149,14 +149,14 @@ private:
         auto total_size = tuple_desc->byte_size() + array->get_byte_size(type_desc);
 
         auto src = allocate_tuple(total_size);
-        ASSERT_NE(src, nullptr);
+        EXPECT_NE(src, nullptr);
 
         RawValue::write(array, src, slot_desc, _mem_pool.get());
         auto src_cv = reinterpret_cast<CollectionValue*>(src->get_slot(slot_desc->tuple_offset()));
         validate(field, array, src_cv);
 
         auto dst = allocate_tuple(total_size);
-        ASSERT_NE(dst, nullptr);
+        EXPECT_NE(dst, nullptr);
 
         src->deep_copy(dst, *tuple_desc, _mem_pool.get());
         auto dst_cv = reinterpret_cast<CollectionValue*>(dst->get_slot(slot_desc->tuple_offset()));
@@ -208,33 +208,33 @@ private:
         Schema schema({tablet_column}, 0);
         {
             auto wblock = create_writable_block(path);
-            ASSERT_NE(wblock, nullptr);
+            EXPECT_NE(wblock, nullptr);
             auto writer = create_column_writer<array_encoding, item_encoding>(wblock.get(), meta,
                                                                               column_pb);
-            ASSERT_NE(writer, nullptr);
+            EXPECT_NE(writer, nullptr);
             Status st;
             for (auto array : arrays) {
                 st = writer->append(false, const_cast<CollectionValue*>(array));
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
             }
-            ASSERT_TRUE(writer->finish().ok());
-            ASSERT_TRUE(writer->write_data().ok());
-            ASSERT_TRUE(writer->write_ordinal_index().ok());
-            ASSERT_TRUE(writer->write_zone_map().ok());
+            EXPECT_TRUE(writer->finish().ok());
+            EXPECT_TRUE(writer->write_data().ok());
+            EXPECT_TRUE(writer->write_ordinal_index().ok());
+            EXPECT_TRUE(writer->write_zone_map().ok());
 
-            ASSERT_TRUE(wblock->close().ok());
+            EXPECT_TRUE(wblock->close().ok());
         }
         {
             auto reader = create_column_reader(path, meta, arrays.size());
-            ASSERT_NE(reader, nullptr);
+            EXPECT_NE(reader, nullptr);
             auto rblock = create_readable_block(path);
-            ASSERT_NE(rblock, nullptr);
+            EXPECT_NE(rblock, nullptr);
             OlapReaderStatistics stats;
             std::unique_ptr<segment_v2::ColumnIterator> iter(
                     new_iterator(rblock.get(), &stats, reader.get()));
-            ASSERT_NE(iter, nullptr);
+            EXPECT_NE(iter, nullptr);
             auto st = iter->seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
+            EXPECT_TRUE(st.ok()) << st.to_string();
 
             RowBlockV2 block(schema, 1024);
             auto col = block.column_block(0);
@@ -243,15 +243,15 @@ private:
             do {
                 ColumnBlockView dst(&col);
                 st = iter->next_batch(&rows_read, &dst);
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
                 for (int i = 0; i < rows_read; ++i) {
                     validate(field, arrays[index++],
                              reinterpret_cast<const CollectionValue*>(col.cell_ptr(i)));
                 }
-                ASSERT_TRUE(st.ok());
+                EXPECT_TRUE(st.ok());
             } while (rows_read >= 1024);
-
-            auto tuple_desc = get_tuple_descriptor(_object_pool, get_type_info(column_pb));
+            auto type_info = get_type_info(column_pb);
+            auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
             block.set_selected_size(rows_read);
             test_convert_to_vec_block(block, tuple_desc, field, arrays);
         }
@@ -347,7 +347,7 @@ private:
     template <segment_v2::EncodingTypePB array_encoding, segment_v2::EncodingTypePB item_encoding>
     void test_array(const ColumnPB& column_pb, const Field* field,
                     const TupleDescriptor* tuple_desc, const CollectionValue* array) {
-        ASSERT_NE(array, nullptr);
+        EXPECT_NE(array, nullptr);
         test_copy_array(tuple_desc, field, array);
         test_direct_copy_array(field, {array});
         test_write_and_read_column<array_encoding, item_encoding>(column_pb, field, {array});
@@ -383,10 +383,10 @@ const std::string ArrayTest::TEST_DIR = "./ut_dir/array_test";
 
 TEST_F(ArrayTest, TestSimpleIntArrays) {
     auto column_pb = create_column_pb("ARRAY", "INT");
-    const auto* type_info = get_type_info(column_pb);
+    auto type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
-    ASSERT_EQ(tuple_desc->slots().size(), 1);
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    EXPECT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
 
@@ -411,10 +411,10 @@ TEST_F(ArrayTest, TestSimpleIntArrays) {
 TEST_F(ArrayTest, TestNestedIntArrays) {
     // depth 2
     auto column_pb = create_column_pb("ARRAY", "ARRAY", "INT");
-    const auto* type_info = get_type_info(column_pb);
+    auto type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
-    ASSERT_EQ(tuple_desc->slots().size(), 1);
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    EXPECT_EQ(tuple_desc->slots().size(), 1);
     auto context = std::make_unique<FunctionContext>();
     ArrayUtils::prepare_context(*context, *_mem_pool, column_pb);
 
@@ -438,10 +438,10 @@ TEST_F(ArrayTest, TestNestedIntArrays) {
     column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "INT");
     type_info = get_type_info(column_pb);
     field = create_field(column_pb);
-    tuple_desc = get_tuple_descriptor(_object_pool, type_info);
-    ASSERT_EQ(tuple_desc->slots().size(), 1);
+    tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    EXPECT_EQ(tuple_desc->slots().size(), 1);
     arrays.clear();
-    ASSERT_EQ(arrays.size(), 0);
+    EXPECT_EQ(arrays.size(), 0);
     context.reset(new FunctionContext);
     ArrayUtils::prepare_context(*context, *_mem_pool, column_pb);
 
@@ -465,8 +465,8 @@ TEST_F(ArrayTest, TestSimpleStringArrays) {
     auto column_pb = create_column_pb("ARRAY", "VARCHAR");
     auto type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
-    ASSERT_EQ(tuple_desc->slots().size(), 1);
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    EXPECT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
 
@@ -491,10 +491,10 @@ TEST_F(ArrayTest, TestSimpleStringArrays) {
 
 TEST_F(ArrayTest, TestNestedStringArrays) {
     auto column_pb = create_column_pb("ARRAY", "ARRAY", "ARRAY", "VARCHAR");
-    const auto* type_info = get_type_info(column_pb);
+    auto type_info = get_type_info(column_pb);
     auto field = create_field(column_pb);
-    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info);
-    ASSERT_EQ(tuple_desc->slots().size(), 1);
+    auto tuple_desc = get_tuple_descriptor(_object_pool, type_info.get());
+    EXPECT_EQ(tuple_desc->slots().size(), 1);
     FunctionContext context;
     ArrayUtils::prepare_context(context, *_mem_pool, column_pb);
 
@@ -516,8 +516,3 @@ TEST_F(ArrayTest, TestNestedStringArrays) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

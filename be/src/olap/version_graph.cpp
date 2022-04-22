@@ -319,7 +319,7 @@ void TimestampedVersionTracker::add_stale_path_version(
 }
 
 // Capture consistent versions from graph.
-OLAPStatus TimestampedVersionTracker::capture_consistent_versions(
+Status TimestampedVersionTracker::capture_consistent_versions(
         const Version& spec_version, std::vector<Version>* version_path) const {
     return _version_graph.capture_consistent_versions(spec_version, version_path);
 }
@@ -509,7 +509,7 @@ void VersionGraph::add_version_to_graph(const Version& version) {
     _version_graph[end_vertex_index].edges.insert(start_vertex_it, start_vertex_index);
 }
 
-OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
+Status VersionGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_value = version.first;
     int64_t end_vertex_value = version.second + 1;
 
@@ -517,7 +517,7 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
         _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
         LOG(WARNING) << "vertex for version does not exists. "
                      << "version=" << version.first << "-" << version.second;
-        return OLAP_ERR_HEADER_DELETE_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_HEADER_DELETE_VERSION);
     }
 
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
@@ -544,7 +544,7 @@ OLAPStatus VersionGraph::delete_version_from_graph(const Version& version) {
 
     // Here we do not delete vertex in `_version_graph` even if its edges are empty.
     // the `_version_graph` will be rebuilt when doing trash sweep.
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
@@ -558,12 +558,12 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
 }
 
-OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version,
+Status VersionGraph::capture_consistent_versions(const Version& spec_version,
                                                      std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specified version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     int64_t cur_idx = -1;
@@ -577,7 +577,7 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
     if (cur_idx < 0) {
         LOG(WARNING) << "failed to find path in version_graph. "
                      << "spec_version: " << spec_version.first << "-" << spec_version.second;
-        return OLAP_ERR_VERSION_NOT_EXIST;
+        return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
     }
 
     int64_t end_value = spec_version.second + 1;
@@ -608,7 +608,7 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
         } else {
             VLOG_NOTICE << "fail to find path in version_graph. "
                         << "spec_version: " << spec_version.first << "-" << spec_version.second;
-            return OLAP_ERR_VERSION_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR);
         }
     }
 
@@ -621,7 +621,7 @@ OLAPStatus VersionGraph::capture_consistent_versions(const Version& spec_version
                    << ", path=" << shortest_path_for_debug.str();
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 double VersionGraph::get_orphan_vertex_ratio() {

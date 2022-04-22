@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/anyval-util.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 #define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
@@ -409,30 +412,30 @@ public:
 
     /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
+    static bool equals(const PrimitiveType& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const T& x, const T& y) {
+    static bool equals(const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     template <typename T>
-    static inline bool equals(const TypeDescriptor& type, const T& x, const T& y) {
+    static bool equals(const TypeDescriptor& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     template <typename T>
-    static inline bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
+    static bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
 private:
     /// Implementations of Equals().
     template <typename T>
-    static inline bool equals_internal(const T& x, const T& y);
+    static bool equals_internal(const T& x, const T& y);
 };
 
 template <typename T>

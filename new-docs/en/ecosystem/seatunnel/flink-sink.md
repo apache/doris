@@ -27,7 +27,7 @@ under the License.
 # Seatunnel
 The newest [Apache SeaTunnel (formerly waterdrop )](https://seatunnel.apache.org) already supports Doris's connector, SeaTunnel can use Spark engine and Flink engine to synchronize data to Doris.
 ## Flink Sink Doris(2.x)
-Seatunnel Flink Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connector-flink-doris)
+Seatunnel Flink Sink Doris [plugin code](https://github.com/apache/incubator-seatunnel/tree/dev/seatunnel-connectors/seatunnel-connectors-flink/seatunnel-connector-flink-doris)
 
 ### Options
 | name | type | required | default value | engine |
@@ -78,7 +78,7 @@ Number of retries after writing to Doris fails
 
 Import parameters for Stream load. For example: 'doris.column_separator' = ', ' etc.
 
-[More Stream Load parameter configuration](https://doris.apache.org/administrator-guide/load-data/stream-load-manual.html)
+[More Stream Load parameter configuration](../../data-operate/import/import-way/stream-load-manual.html)
 
 ### Examples
 Socket To Doris

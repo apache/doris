@@ -20,8 +20,8 @@
 
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_min_max.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"
@@ -62,7 +62,7 @@ TEST_P(AggMinMaxTest, min_max_test) {
     // Check result.
     ColumnInt32 ans;
     agg_function->insert_result_into(place, ans);
-    ASSERT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
+    EXPECT_EQ(min_max_type == "min" ? 0 : agg_test_batch_size - 1, ans.get_element(0));
     agg_function->destroy(place);
 }
 
@@ -94,7 +94,7 @@ TEST_P(AggMinMaxTest, min_max_string_test) {
     // Check result.
     ColumnString ans;
     agg_function->insert_result_into(place, ans);
-    ASSERT_EQ(min_max_type == "min" ? StringRef("") : StringRef("zzz"), ans.get_data_at(0));
+    EXPECT_EQ(min_max_type == "min" ? StringRef("") : StringRef("zzz"), ans.get_data_at(0));
     agg_function->destroy(place);
 }
 
@@ -102,8 +102,3 @@ INSTANTIATE_TEST_SUITE_P(Params, AggMinMaxTest,
                          ::testing::ValuesIn(std::vector<std::string> {"min", "max"}));
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

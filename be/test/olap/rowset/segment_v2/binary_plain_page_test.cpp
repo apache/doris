@@ -53,22 +53,22 @@ public:
 
         Slice* ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t*>(ptr), &count);
-        ASSERT_TRUE(ret.ok());
+        EXPECT_TRUE(ret.ok());
 
         OwnedSlice owned_slice = page_builder.finish();
 
         //check first value and last value
         Slice first_value;
         page_builder.get_first_value(&first_value);
-        ASSERT_EQ(slices[0], first_value);
+        EXPECT_EQ(slices[0], first_value);
         Slice last_value;
         page_builder.get_last_value(&last_value);
-        ASSERT_EQ(slices[count - 1], last_value);
+        EXPECT_EQ(slices[count - 1], last_value);
 
         PageDecoderOptions decoder_options;
         PageDecoderType page_decoder(owned_slice.slice(), decoder_options);
         Status status = page_decoder.init();
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         //test1
         auto tracker = std::make_shared<MemTracker>();
@@ -82,13 +82,13 @@ public:
 
         status = page_decoder.next_batch(&size, &column_block_view);
         Slice* values = reinterpret_cast<Slice*>(block.data());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         Slice* value = reinterpret_cast<Slice*>(values);
-        ASSERT_EQ(3, size);
-        ASSERT_EQ("Hello", value[0].to_string());
-        ASSERT_EQ(",", value[1].to_string());
-        ASSERT_EQ("Doris", value[2].to_string());
+        EXPECT_EQ(3, size);
+        EXPECT_EQ("Hello", value[0].to_string());
+        EXPECT_EQ(",", value[1].to_string());
+        EXPECT_EQ("Doris", value[2].to_string());
 
         std::unique_ptr<ColumnVectorBatch> cvb2;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), nullptr,
@@ -100,10 +100,10 @@ public:
         page_decoder.seek_to_position_in_page(2);
         status = page_decoder.next_batch(&fetch_num, &column_block_view2);
         Slice* values2 = reinterpret_cast<Slice*>(block2.data());
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         Slice* value2 = reinterpret_cast<Slice*>(values2);
-        ASSERT_EQ(1, fetch_num);
-        ASSERT_EQ("Doris", value2[0].to_string());
+        EXPECT_EQ(1, fetch_num);
+        EXPECT_EQ("Doris", value2[0].to_string());
     }
 };
 
@@ -113,8 +113,3 @@ TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
 
 } // namespace segment_v2
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

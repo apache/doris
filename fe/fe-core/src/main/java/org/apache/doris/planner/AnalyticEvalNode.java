@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticEvalNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -96,9 +99,6 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
-    public boolean isBlockingNode() {
-        return true;
-    }
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }

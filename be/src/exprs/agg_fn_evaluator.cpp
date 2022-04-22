@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn-evaluator.cc
+// and modified by Doris
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -346,7 +349,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
 
 inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescriptor* dst_slot_desc,
                                             Tuple* dst) {
-    if (src->is_null) {
+    if (src->is_null && dst_slot_desc->is_nullable()) {
         dst->set_null(dst_slot_desc->null_indicator_offset());
         return;
     }

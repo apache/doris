@@ -56,7 +56,7 @@ Server current time zone, set it at session level or global level.
     This command can set the session level time zone, which will fail after disconnection.
 
 3. `SET global time_zone = 'Asia/Shanghai'`
-    
+   
     This command can set time zone parameters at the global level. The FE will persist the parameters and will not fail when the connection is disconnected.
 
 ### Impact of time zone
@@ -94,5 +94,3 @@ Time zone values can be given in several formats, case-insensitive:
 ## Time zone format list
 
 [List of TZ database time zones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)
-
-[Edit on GitHub](https://github.com/apache/incubator-doris/blob/master/docs/documentation/en/administrator-guide/time-zone_EN.md)

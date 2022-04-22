@@ -14,10 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/runtime/initial-reservations.cc
+// and modified by Doris
 
 #include "runtime/initial_reservations.h"
-
-#include <gflags/gflags.h>
 
 #include <limits>
 #include <mutex>

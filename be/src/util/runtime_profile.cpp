@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/runtime-profile.cc
+// and modified by Doris
 
 #include "util/runtime_profile.h"
 
@@ -26,7 +29,6 @@
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
 #include "util/pretty_printer.h"
 #include "util/thrift_util.h"
 #include "util/url_coding.h"

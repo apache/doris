@@ -18,7 +18,6 @@
 
 package org.apache.doris.rewrite;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -256,62 +255,55 @@ public class ExtractCommonFactorsRuleFunctionTest {
         // tinyint
         String sql = "select * from tb3 where k1 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k1` AS CHARACTER) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("`k1` LIKE '%4%'");
 
         // smallint
         sql = "select * from tb3 where k2 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k2` AS CHARACTER) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("`k2` LIKE '%4%'");
 
         // int
         sql = "select * from tb3 where k3 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k3` AS CHARACTER) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("`k3` LIKE '%4%'");
 
         // bigint
         sql = "select * from tb3 where k4 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k4` AS CHARACTER) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("`k4` LIKE '%4%'");
 
         // largeint
         sql = "select * from tb3 where k5 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainContains("CAST(`k5` AS CHARACTER) LIKE '%4%'");
+        dorisAssert.query(sql).explainContains("`k5` LIKE '%4%'");
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testRewriteLikePredicateDate() throws Exception {
         // date
         String sql = "select * from tb3 where k6 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
-        Assert.fail("No exception throws.");
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testRewriteLikePredicateDateTime() throws Exception {
         // datetime
         String sql = "select * from tb3 where k7 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
         dorisAssert.query(sql).explainQuery();
-        Assert.fail("No exception throws.");
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testRewriteLikePredicateFloat() throws Exception {
         // date
         String sql = "select * from tb3 where k8 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
-        Assert.fail("No exception throws.");
     }
 
-    @Test(expected = AnalysisException.class)
+    @Test
     public void testRewriteLikePredicateDouble() throws Exception {
         // date
         String sql = "select * from tb3 where k9 like '%4%';";
         LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
-        dorisAssert.query(sql).explainQuery();
-        Assert.fail("No exception throws.");
     }
 }

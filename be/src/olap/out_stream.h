@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
+#pragma once
 
 #include "olap/byte_buffer.h"
 #include "olap/compress.h"
@@ -47,23 +46,23 @@ public:
     ~OutStream();
 
     // Output a byte to the stream
-    inline OLAPStatus write(char byte) {
-        OLAPStatus res = OLAP_SUCCESS;
+    Status write(char byte) {
+        Status res = Status::OK();
         if (_current == nullptr) {
             res = _create_new_input_buffer();
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 return res;
             }
         }
         if (_current->remaining() < 1) {
             res = _spill();
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 OLAP_LOG_WARNING("fail to spill current buffer.");
                 return res;
             }
             if (_current == nullptr) {
                 res = _create_new_input_buffer();
-                if (res != OLAP_SUCCESS) {
+                if (!res.ok()) {
                     return res;
                 }
             }
@@ -72,7 +71,7 @@ public:
     }
 
     // Output a piece of data to the stream
-    OLAPStatus write(const char* buffer, uint64_t length);
+    Status write(const char* buffer, uint64_t length);
 
     // Record the current position of the stream in the index entry
     void get_position(PositionEntryWriter* index_entry) const;
@@ -84,12 +83,12 @@ public:
     uint64_t get_total_buffer_size() const;
 
     // Output the cached data stream to a file
-    OLAPStatus write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const;
+    Status write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const;
 
     bool is_suppressed() const { return _is_suppressed; }
     void suppress() { _is_suppressed = true; }
     // Output data to output_buffers
-    OLAPStatus flush();
+    Status flush();
     // Calculate the crc32 value of the output data
     uint32_t crc32(uint32_t checksum) const;
     const std::vector<StorageByteBuffer*>& output_buffers() { return _output_buffers; }
@@ -105,15 +104,15 @@ public:
     }
 
 private:
-    OLAPStatus _create_new_input_buffer();
-    OLAPStatus _write_head(StorageByteBuffer* buf, uint64_t position, StreamHead::StreamType type,
+    Status _create_new_input_buffer();
+    Status _write_head(StorageByteBuffer* buf, uint64_t position, StreamHead::StreamType type,
                            uint32_t length);
-    OLAPStatus _spill();
-    OLAPStatus _compress(StorageByteBuffer* input, StorageByteBuffer* output,
+    Status _spill();
+    Status _compress(StorageByteBuffer* input, StorageByteBuffer* output,
                          StorageByteBuffer* overflow, bool* smaller);
     void _output_uncompress();
     void _output_compressed();
-    OLAPStatus _make_sure_output_buffer();
+    Status _make_sure_output_buffer();
 
     uint32_t _buffer_size;                           // Compressed block size
     Compressor _compressor;                          // Compression function, if NULL means no compression
@@ -169,4 +168,4 @@ protected:
 */
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_OUT_STREAM_H
+

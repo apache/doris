@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/runtime/plan-fragment-executor.cc
+// and modified by Doris
 
 #include "runtime/plan_fragment_executor.h"
 
@@ -21,7 +24,6 @@
 
 #include <unordered_map>
 
-#include "common/object_pool.h"
 #include "exec/data_sink.h"
 #include "exec/exchange_node.h"
 #include "exec/exec_node.h"
@@ -36,7 +38,6 @@
 #include "runtime/row_batch.h"
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
-#include "util/cpu_info.h"
 #include "util/logging.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"

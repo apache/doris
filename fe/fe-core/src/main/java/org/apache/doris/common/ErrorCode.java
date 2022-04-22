@@ -112,7 +112,7 @@ public enum ErrorCode {
     ERR_BLOB_USED_AS_KEY(1073, new byte[]{'4', '2', '0', '0', '0'}, "BLOB column '%s' can't be used in key " +
             "specification with the used table type"),
     ERR_TOO_BIG_FIELDLENGTH(1074, new byte[]{'4', '2', '0', '0', '0'}, "Column length too big for column '%s' (max = " +
-            "%lu); use BLOB or TEXT instead"),
+            "%d); use BLOB or TEXT instead"),
     ERR_WRONG_AUTO_KEY(1075, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect table definition; there can be only one " +
             "auto column and it must be defined as a key"),
     ERR_READY(1076, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: ready for connections. Version: '%s' socket: '%s' port:" +
@@ -120,7 +120,7 @@ public enum ErrorCode {
     ERR_NORMAL_SHUTDOWN(1077, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Normal shutdown"),
     ERR_GOT_SIGNAL(1078, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Got signal %d. Aborting!"),
     ERR_SHUTDOWN_COMPLETE(1079, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: Shutdown complete"),
-    ERR_FORCING_CLOSE(1080, new byte[]{'0', '8', 'S', '0', '1'}, "%s: Forcing close of thread %ld user: '%s'"),
+    ERR_FORCING_CLOSE(1080, new byte[]{'0', '8', 'S', '0', '1'}, "%s: Forcing close of thread %d user: '%s'"),
     ERR_IPSOCK_ERROR(1081, new byte[]{'0', '8', 'S', '0', '1'}, "Can't create IP socket"),
     ERR_NO_SUCH_INDEX(1082, new byte[]{'4', '2', 'S', '1', '2'}, "Table '%s' has no index like the one used in CREATE" +
             " INDEX; recreate the table"),
@@ -131,8 +131,8 @@ public enum ErrorCode {
     ERR_TEXTFILE_NOT_READABLE(1085, new byte[]{'H', 'Y', '0', '0', '0'}, "The file '%s' must be in the database " +
             "directory or be readable by all"),
     ERR_FILE_EXISTS_ERROR(1086, new byte[]{'H', 'Y', '0', '0', '0'}, "File '%s' already exists"),
-    ERR_LOAD_INF(1087, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %ld Deleted: %ld Skipped: %ld Warnings: %ld"),
-    ERR_ALTER_INF(1088, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %ld Duplicates: %ld"),
+    ERR_LOAD_INF(1087, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Deleted: %d Skipped: %d Warnings: %d"),
+    ERR_ALTER_INF(1088, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Duplicates: %d"),
     ERR_WRONG_SUB_KEY(1089, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect prefix key; the used key part isn't a " +
             "string, the used length is longer than the key part, or the storage engine doesn't support unique prefix" +
             " keys"),
@@ -140,11 +140,11 @@ public enum ErrorCode {
             "TABLE; use DROP TABLE instead"),
     ERR_CANT_DROP_FIELD_OR_KEY(1091, new byte[]{'4', '2', '0', '0', '0'}, "Can't DROP '%s'; check that column/key " +
             "exists"),
-    ERR_INSERT_INF(1092, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %ld Duplicates: %ld Warnings: %ld"),
+    ERR_INSERT_INF(1092, new byte[]{'H', 'Y', '0', '0', '0'}, "Records: %d Duplicates: %d Warnings: %d"),
     ERR_UPDATE_TABLE_USED(1093, new byte[]{'H', 'Y', '0', '0', '0'}, "You can't specify target table '%s' for update " +
             "in FROM clause"),
-    ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %lu"),
-    ERR_KILL_DENIED_ERROR(1095, new byte[]{'H', 'Y', '0', '0', '0'}, "You are not owner of thread %lu"),
+    ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %d"),
+    ERR_KILL_DENIED_ERROR(1095, new byte[]{'H', 'Y', '0', '0', '0'}, "You are not owner of thread %d"),
     ERR_NO_TABLES_USED(1096, new byte[]{'H', 'Y', '0', '0', '0'}, "No tables used"),
     ERR_TOO_BIG_SET(1097, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many strings for column %s and SET"),
     ERR_NO_UNIQUE_LOGFILE(1098, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't generate a unique log-filename %s.(1-999)"),
@@ -174,8 +174,8 @@ public enum ErrorCode {
             "in a join"),
     ERR_TOO_MANY_FIELDS(1117, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many columns"),
     ERR_TOO_BIG_ROWSIZE(1118, new byte[]{'4', '2', '0', '0', '0'}, "Row size too large. The maximum row size for the " +
-            "used table type, not counting BLOBs, is %ld. You have to change some columns to TEXT or BLOBs"),
-    ERR_STACK_OVERRUN(1119, new byte[]{'H', 'Y', '0', '0', '0'}, "Thread stack overrun: Used: %ld of a %ld stack. Use" +
+            "used table type, not counting BLOBs, is %d. You have to change some columns to TEXT or BLOBs"),
+    ERR_STACK_OVERRUN(1119, new byte[]{'H', 'Y', '0', '0', '0'}, "Thread stack overrun: Used: %d of a %d stack. Use" +
             " 'mysqld --thread_stack=#' to specify a bigger stack if needed"),
     ERR_WRONG_OUTER_JOIN(1120, new byte[]{'4', '2', '0', '0', '0'}, "Cross dependency found in OUTER JOIN; examine " +
             "your ON conditions"),
@@ -197,11 +197,11 @@ public enum ErrorCode {
     ERR_PASSWORD_NOT_ALLOWED(1132, new byte[]{'4', '2', '0', '0', '0'}, "You must have privileges to update tables in" +
             " the mysql database to be able to change passwords for others"),
     ERR_PASSWORD_NO_MATCH(1133, new byte[]{'4', '2', '0', '0', '0'}, "Can't find any matching row in the user table"),
-    ERR_UPDATE_INF(1134, new byte[]{'H', 'Y', '0', '0', '0'}, "Rows matched: %ld Changed: %ld Warnings: %ld"),
+    ERR_UPDATE_INF(1134, new byte[]{'H', 'Y', '0', '0', '0'}, "Rows matched: %d Changed: %d Warnings: %d"),
     ERR_CANT_CREATE_THREAD(1135, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create a new thread (Errno %d); if you " +
             "are not out of available memory, you can consult the manual for a possible OS-dependent bug"),
     ERR_WRONG_VALUE_COUNT_ON_ROW(1136, new byte[]{'2', '1', 'S', '0', '1'}, "Column count doesn't match value count " +
-            "at row %ld"),
+            "at row %d"),
     ERR_CANT_REOPEN_TABLE(1137, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't reopen table: '%s'"),
     ERR_INVALID_USE_OF_NULL(1138, new byte[]{'2', '2', '0', '0', '4'}, "Invalid use of NULL value"),
     ERR_REGEXP_ERROR(1139, new byte[]{'4', '2', '0', '0', '0'}, "Got error '%s' from regexp"),
@@ -227,7 +227,7 @@ public enum ErrorCode {
     ERR_DELAYED_CANT_CHANGE_LOCK(1150, new byte[]{'H', 'Y', '0', '0', '0'}, "Delayed insert thread couldn't get " +
             "requested lock for table %s"),
     ERR_TOO_MANY_DELAYED_THREADS(1151, new byte[]{'H', 'Y', '0', '0', '0'}, "Too many delayed threads in use"),
-    ERR_ABORTING_CONNECTION(1152, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %ld to db: '%s' user: '%s'" +
+    ERR_ABORTING_CONNECTION(1152, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %d to db: '%s' user: '%s'" +
             " (%s)"),
     ERR_NET_PACKET_TOO_LARGE(1153, new byte[]{'0', '8', 'S', '0', '1'}, "Got a packet bigger than " +
             "'max_allowed_packet' bytes"),
@@ -274,7 +274,7 @@ public enum ErrorCode {
     ERR_ERROR_DURING_ROLLBACK(1181, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during ROLLBACK"),
     ERR_ERROR_DURING_FLUSH_LOGS(1182, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during FLUSH_LOGS"),
     ERR_ERROR_DURING_CHECKPOINT(1183, new byte[]{'H', 'Y', '0', '0', '0'}, "Got error %d during CHECKPOINT"),
-    ERR_NEW_ABORTING_CONNECTION(1184, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %ld to db: '%s' user: " +
+    ERR_NEW_ABORTING_CONNECTION(1184, new byte[]{'0', '8', 'S', '0', '1'}, "Aborted connection %d to db: '%s' user: " +
             "'%s' host: '%s' (%s)"),
     ERR_UNUSED_10(1185, new byte[]{}, "You should never see it"),
     ERR_FLUSH_MASTER_BINLOG_CLOSED(1186, new byte[]{'H', 'Y', '0', '0', '0'}, "Binlog closed, cannot RESET MASTER"),
@@ -344,7 +344,7 @@ public enum ErrorCode {
             "tables is disabled"),
     ERR_DUP_ARGUMENT(1225, new byte[]{'H', 'Y', '0', '0', '0'}, "Option '%s' used twice in statement"),
     ERR_USER_LIMIT_REACHED(1226, new byte[]{'4', '2', '0', '0', '0'}, "User '%s' has exceeded the '%s' resource " +
-            "(current value: %ld)"),
+            "(current value: %d)"),
     ERR_SPECIFIC_ACCESS_DENIED_ERROR(1227, new byte[]{'4', '2', '0', '0', '0'}, "Access denied; you need (at least " +
             "one of) the %s privilege(s) for this operation"),
     ERR_LOCAL_VARIABLE(1228, new byte[]{'H', 'Y', '0', '0', '0'}, "Variable '%s' is a SESSION variable and can't be " +
@@ -395,14 +395,14 @@ public enum ErrorCode {
             "(probably, length of uncompressed data was corrupted)"),
     ERR_ZLIB_Z_DATA_ERROR(1259, new byte[]{'H', 'Y', '0', '0', '0'}, "ZLIB: Input data corrupted"),
     ERR_CUT_VALUE_GROUP_CONCAT(1260, new byte[]{'H', 'Y', '0', '0', '0'}, "Row %u was cut by GROUP_CONCAT()"),
-    ERR_WARN_TOO_FEW_RECORDS(1261, new byte[]{'0', '1', '0', '0', '0'}, "Row %ld doesn't contain data for all columns"),
-    ERR_WARN_TOO_MANY_RECORDS(1262, new byte[]{'0', '1', '0', '0', '0'}, "Row %ld was truncated; it contained more " +
+    ERR_WARN_TOO_FEW_RECORDS(1261, new byte[]{'0', '1', '0', '0', '0'}, "Row %d doesn't contain data for all columns"),
+    ERR_WARN_TOO_MANY_RECORDS(1262, new byte[]{'0', '1', '0', '0', '0'}, "Row %d was truncated; it contained more " +
             "data than there were input columns"),
     ERR_WARN_NULL_TO_NOTNULL(1263, new byte[]{'2', '2', '0', '0', '4'}, "Column set to default value; NULL supplied " +
-            "to NOT NULL column '%s' at row %ld"),
+            "to NOT NULL column '%s' at row %d"),
     ERR_WARN_DATA_OUT_OF_RANGE(1264, new byte[]{'2', '2', '0', '0', '3'}, "Out of range value for column '%s' at row " +
-            "%ld"),
-    WARN_DATA_TRUNCATED(1265, new byte[]{'0', '1', '0', '0', '0'}, "Data truncated for column '%s' at row %ld"),
+            "%d"),
+    WARN_DATA_TRUNCATED(1265, new byte[]{'0', '1', '0', '0', '0'}, "Data truncated for column '%s' at row %d"),
     ERR_WARN_USING_OTHER_HANDLER(1266, new byte[]{'H', 'Y', '0', '0', '0'}, "Using storage engine %s for table '%s'"),
     ERR_CANT_AGGREGATE_2COLLATIONS(1267, new byte[]{'H', 'Y', '0', '0', '0'}, "Illegal mix of collations (%s,%s) and " +
             "(%s,%s) for operation '%s'"),
@@ -434,8 +434,8 @@ public enum ErrorCode {
             "options are ignored"),
     ERR_WRONG_NAME_FOR_INDEX(1280, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect index name '%s'"),
     ERR_WRONG_NAME_FOR_CATALOG(1281, new byte[]{'4', '2', '0', '0', '0'}, "Incorrect catalog name '%s'"),
-    ERR_WARN_QC_RESIZE(1282, new byte[]{'H', 'Y', '0', '0', '0'}, "Query cache failed to set size %lu; new query " +
-            "cache size is %lu"),
+    ERR_WARN_QC_RESIZE(1282, new byte[]{'H', 'Y', '0', '0', '0'}, "Query cache failed to set size %d; new query " +
+            "cache size is %d"),
     ERR_BAD_FT_COLUMN(1283, new byte[]{'H', 'Y', '0', '0', '0'}, "Column '%s' cannot be part of FULLTEXT index"),
     ERR_UNKNOWN_KEY_CACHE(1284, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown key cache '%s'"),
     ERR_WARN_HOSTNAME_WONT_WORK(1285, new byte[]{'H', 'Y', '0', '0', '0'}, "MariaDB is started in --skip-name-resolve" +
@@ -461,10 +461,10 @@ public enum ErrorCode {
     ERR_GET_TEMPORARY_ERRMSG(1297, new byte[]{'H', 'Y', '0', '0', '0'}, "Got temporary error %d '%s' from %s"),
     ERR_UNKNOWN_TIME_ZONE(1298, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown or incorrect time zone: '%s'"),
     ERR_WARN_INVALID_TIMESTAMP(1299, new byte[]{'H', 'Y', '0', '0', '0'}, "Invalid TIMESTAMP value in column '%s' at " +
-            "row %ld"),
+            "row %d"),
     ERR_INVALID_CHARACTER_STRING(1300, new byte[]{'H', 'Y', '0', '0', '0'}, "Invalid %s character string: '%s'"),
     ERR_WARN_ALLOWED_PACKET_OVERFLOWED(1301, new byte[]{'H', 'Y', '0', '0', '0'}, "Result of %s() was larger than " +
-            "max_allowed_packet (%ld) - truncated"),
+            "max_allowed_packet (%d) - truncated"),
     ERR_CONFLICTING_DECLARATIONS(1302, new byte[]{'H', 'Y', '0', '0', '0'}, "Conflicting declarations: '%s%s' and " +
             "'%s%s'"),
     ERR_SP_NO_RECURSIVE_CREATE(1303, new byte[]{'2', 'F', '0', '0', '3'}, "Can't create a %s from within another " +
@@ -558,7 +558,7 @@ public enum ErrorCode {
     ERR_NO_DEFAULT_FOR_FIELD(1364, new byte[]{'H', 'Y', '0', '0', '0'}, "Field '%s' doesn't have a default value"),
     ERR_DIVISION_BY_ZER(1365, new byte[]{'2', '2', '0', '1', '2'}, "Division by 0"),
     ERR_TRUNCATED_WRONG_VALUE_FOR_FIELD(1366, new byte[]{'H', 'Y', '0', '0', '0'}, "Incorrect %s value: '%s' for " +
-            "column '%s' at row %ld"),
+            "column '%s' at row %d"),
     ERR_ILLEGAL_VALUE_FOR_TYPE(1367, new byte[]{'2', '2', '0', '0', '7'}, "Illegal %s '%s' value found during parsing"),
     ERR_VIEW_NONUPD_CHECK(1368, new byte[]{'H', 'Y', '0', '0', '0'}, "CHECK OPTION on non-updatable view '%s.%s'"),
     ERR_VIEW_CHECK_FAILED(1369, new byte[]{'H', 'Y', '0', '0', '0'}, "CHECK OPTION failed '%s.%s'"),
@@ -612,7 +612,7 @@ public enum ErrorCode {
             "privileges"),
     ERR_PROC_AUTO_REVOKE_FAIL(1405, new byte[]{'H', 'Y', '0', '0', '0'}, "Failed to revoke all privileges to dropped " +
             "routine"),
-    ERR_DATA_TOO_LONG(1406, new byte[]{'2', '2', '0', '0', '1'}, "Data too long for column '%s' at row %ld"),
+    ERR_DATA_TOO_LONG(1406, new byte[]{'2', '2', '0', '0', '1'}, "Data too long for column '%s' at row %d"),
     ERR_SP_BAD_SQLSTATE(1407, new byte[]{'4', '2', '0', '0', '0'}, "Bad SQLSTATE: '%s'"),
     ERR_STARTUP(1408, new byte[]{'H', 'Y', '0', '0', '0'}, "%s: ready for connections. Version: '%s' socket: '%s' " +
             "port: %d %s"),
@@ -643,7 +643,7 @@ public enum ErrorCode {
             "variable)"),
     ERR_EXEC_STMT_WITH_OPEN_CURSOR(1420, new byte[]{'H', 'Y', '0', '0', '0'}, "You can't execute a prepared statement" +
             " which has an open cursor associated with it. Reset the statement to re-execute it."),
-    ERR_STMT_HAS_NO_OPEN_CURSOR(1421, new byte[]{'H', 'Y', '0', '0', '0'}, "The statement (%lu) has no open cursor."),
+    ERR_STMT_HAS_NO_OPEN_CURSOR(1421, new byte[]{'H', 'Y', '0', '0', '0'}, "The statement (%d) has no open cursor."),
     ERR_COMMIT_NOT_ALLOWED_IN_SF_OR_TRG(1422, new byte[]{'H', 'Y', '0', '0', '0'}, "Explicit or implicit commit is " +
             "not allowed in stored function or trigger."),
     ERR_NO_DEFAULT_FOR_VIEW_FIELD(1423, new byte[]{'H', 'Y', '0', '0', '0'}, "Field of view '%s.%s' underlying table " +
@@ -651,9 +651,9 @@ public enum ErrorCode {
     ERR_SP_NO_RECURSION(1424, new byte[]{'H', 'Y', '0', '0', '0'}, "Recursive stored functions and triggers are not " +
             "allowed."),
     ERR_TOO_BIG_SCALE(1425, new byte[]{'4', '2', '0', '0', '0'}, "Too big scale %d specified for column '%s'. Maximum" +
-            " is %lu."),
+            " is %d."),
     ERR_TOO_BIG_PRECISION(1426, new byte[]{'4', '2', '0', '0', '0'}, "Too big precision %d specified for column '%s'." +
-            " Maximum is %lu."),
+            " Maximum is %d."),
     ERR_M_BIGGER_THAN_D(1427, new byte[]{'4', '2', '0', '0', '0'}, "For float(M,D, double(M,D or decimal(M,D, M must " +
             "be >= D (column '%s')."),
     ERR_WRONG_LOCK_OF_SYSTEM_TABLE(1428, new byte[]{'H', 'Y', '0', '0', '0'}, "You can't combine write-locking of " +
@@ -671,12 +671,12 @@ public enum ErrorCode {
     ERR_CANT_CREATE_FEDERATED_TABLE(1434, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't create federated table. Foreign" +
             " data src error: %s"),
     ERR_TRG_IN_WRONG_SCHEMA(1435, new byte[]{'H', 'Y', '0', '0', '0'}, "Trigger in wrong schema"),
-    ERR_STACK_OVERRUN_NEED_MORE(1436, new byte[]{'H', 'Y', '0', '0', '0'}, "Thread stack overrun: %ld bytes used of a" +
-            " %ld byte stack, and %ld bytes needed. Use 'mysqld --thread_stack=#' to specify a bigger stack."),
+    ERR_STACK_OVERRUN_NEED_MORE(1436, new byte[]{'H', 'Y', '0', '0', '0'}, "Thread stack overrun: %d bytes used of a" +
+            " %d byte stack, and %d bytes needed. Use 'mysqld --thread_stack=#' to specify a bigger stack."),
     ERR_TOO_LONG_BODY(1437, new byte[]{'4', '2', '0', '0', '0'}, "Routine body for '%s' is too long"),
     ERR_WARN_CANT_DROP_DEFAULT_KEYCACHE(1438, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot drop default keycache"),
     ERR_TOO_BIG_DISPLAYWIDTH(1439, new byte[]{'4', '2', '0', '0', '0'}, "Display width out of range for column '%s' " +
-            "(max = %lu)"),
+            "(max = %d)"),
     ERR_XAER_DUPID(1440, new byte[]{'X', 'A', 'E', '0', '8'}, "XAER_DUPID: The XID already exists"),
     ERR_DATETIME_FUNCTION_OVERFLOW(1441, new byte[]{'2', '2', '0', '0', '8'}, "Datetime function: %s field overflow"),
     ERR_CANT_UPDATE_USED_TABLE_IN_SF_OR_TRG(1442, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't update table '%s' in " +
@@ -720,7 +720,7 @@ public enum ErrorCode {
             "TABLE `%s`\" or dump/reload to fix it!"),
     ERR_SP_NO_AGGREGATE(1460, new byte[]{'4', '2', '0', '0', '0'}, "AGGREGATE is not supported for stored functions"),
     ERR_MAX_PREPARED_STMT_COUNT_REACHED(1461, new byte[]{'4', '2', '0', '0', '0'}, "Can't create more than " +
-            "max_prepared_stmt_count statements (current value: %lu)"),
+            "max_prepared_stmt_count statements (current value: %d)"),
     ERR_VIEW_RECURSIVE(1462, new byte[]{'H', 'Y', '0', '0', '0'}, "`%s`.`%s` contains view recursion"),
     ERR_NON_GROUPING_FIELD_USED(1463, new byte[]{'4', '2', '0', '0', '0'}, "Non-grouping field '%s' is used in %s " +
             "clause"),
@@ -1004,9 +1004,9 @@ public enum ErrorCode {
     ERR_EXCEPTIONS_WRITE_ERROR(1627, new byte[]{'H', 'Y', '0', '0', '0'}, "Write to exceptions table failed. Message:" +
             " %s"),
     ERR_TOO_LONG_TABLE_COMMENT(1628, new byte[]{'H', 'Y', '0', '0', '0'}, "Comment for table '%s' is too long (max = " +
-            "%lu)"),
+            "%d)"),
     ERR_TOO_LONG_FIELD_COMMENT(1629, new byte[]{'H', 'Y', '0', '0', '0'}, "Comment for field '%s' is too long (max = " +
-            "%lu)"),
+            "%d)"),
     ERR_FUNC_INEXISTENT_NAME_COLLISION(1630, new byte[]{'4', '2', '0', '0', '0'}, "FUNCTION %s does not exist. Check " +
             "the 'Function Name Parsing and Resolution' section in the Reference Manual"),
     ERR_DATABASE_NAME(1631, new byte[]{'H', 'Y', '0', '0', '0'}, "Database"),
@@ -1117,7 +1117,7 @@ public enum ErrorCode {
     ERR_SPATIAL_MUST_HAVE_GEOM_COL(1687, new byte[]{'4', '2', '0', '0', '0'}, "A SPATIAL index may only contain a " +
             "geometrical type column"),
     ERR_TOO_LONG_INDEX_COMMENT(1688, new byte[]{'H', 'Y', '0', '0', '0'}, "Comment for index '%s' is too long (max = " +
-            "%lu)"),
+            "%d)"),
     ERR_LOCK_ABORTED(1689, new byte[]{'H', 'Y', '0', '0', '0'}, "Wait on a lock was aborted due to a pending " +
             "exclusive lock"),
     ERR_DATA_OUT_OF_RANGE(1690, new byte[]{'2', '2', '0', '0', '3'}, "%s value is out of range in '%s'"),
@@ -1160,7 +1160,7 @@ public enum ErrorCode {
     WARN_OPTION_BELOW_LIMIT(1708, new byte[]{'H', 'Y', '0', '0', '0'}, "The value of '%s' should be no less than the " +
             "value of '%s'"),
     ERR_INDEX_COLUMN_TOO_LONG(1709, new byte[]{'H', 'Y', '0', '0', '0'}, "Index column size too large. The maximum " +
-            "column size is %lu bytes."),
+            "column size is %d bytes."),
     ERR_ERROR_IN_TRIGGER_BODY(1710, new byte[]{'H', 'Y', '0', '0', '0'}, "Trigger '%s' has an error in its body: '%s'"),
     ERR_ERROR_IN_UNKNOWN_TRIGGER_BODY(1711, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown trigger has an error in its" +
             " body: '%s'"),
@@ -1229,8 +1229,8 @@ public enum ErrorCode {
     ERR_TABLES_DIFFERENT_METADATA(1736, new byte[]{'H', 'Y', '0', '0', '0'}, "Tables have different definitions"),
     ERR_ROW_DOES_NOT_MATCH_PARTITION(1737, new byte[]{'H', 'Y', '0', '0', '0'}, "Found a row that does not match the " +
             "partition"),
-    ERR_BINLOG_CACHE_SIZE_GREATER_THAN_MAX(1738, new byte[]{'H', 'Y', '0', '0', '0'}, "Option binlog_cache_size (%lu)" +
-            " is greater than max_binlog_cache_size (%lu); setting binlog_cache_size equal to max_binlog_cache_size."),
+    ERR_BINLOG_CACHE_SIZE_GREATER_THAN_MAX(1738, new byte[]{'H', 'Y', '0', '0', '0'}, "Option binlog_cache_size (%d)" +
+            " is greater than max_binlog_cache_size (%d); setting binlog_cache_size equal to max_binlog_cache_size."),
     ERR_WARN_INDEX_NOT_APPLICABLE(1739, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot use %s access on index '%s' due " +
             "to type or collation conversion on field '%s'"),
     ERR_PARTITION_EXCHANGE_FOREIGN_KEY(1740, new byte[]{'H', 'Y', '0', '0', '0'}, "Table to exchange with partition " +
@@ -1242,7 +1242,7 @@ public enum ErrorCode {
     ERR_BINLOG_READ_EVENT_CHECKSUM_FAILURE(1744, new byte[]{'H', 'Y', '0', '0', '0'}, "Replication event checksum " +
             "verification failed while reading from a log file."),
     ERR_BINLOG_STMT_CACHE_SIZE_GREATER_THAN_MAX(1745, new byte[]{'H', 'Y', '0', '0', '0'}, "Option " +
-            "binlog_stmt_cache_size (%lu) is greater than max_binlog_stmt_cache_size (%lu); setting " +
+            "binlog_stmt_cache_size (%d) is greater than max_binlog_stmt_cache_size (%d); setting " +
             "binlog_stmt_cache_size " +
             "equal to max_binlog_stmt_cache_size."),
     ERR_CANT_UPDATE_TABLE_IN_CREATE_TABLE_SELECT(1746, new byte[]{'H', 'Y', '0', '0', '0'}, "Can't update table '%s' " +
@@ -1354,7 +1354,7 @@ public enum ErrorCode {
     ERR_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION(1792, new byte[]{'2', '5', '0', '0', '6'}, "Cannot execute statement in" +
             " a READ ONLY transaction."),
     ERR_TOO_LONG_TABLE_PARTITION_COMMENT(1793, new byte[]{'H', 'Y', '0', '0', '0'}, "Comment for table partition '%s'" +
-            " is too long (max = %lu"),
+            " is too long (max = %d"),
     ERR_SLAVE_CONFIGURATION(1794, new byte[]{'H', 'Y', '0', '0', '0'}, "Slave is not configured or failed to " +
             "initialize properly. You must at least set --server-id to enable either a master or a slave. Additional " +
             "error " +
@@ -1387,17 +1387,17 @@ public enum ErrorCode {
             " table '%s'. Cannot discard the table."),
     ERR_TABLE_SCHEMA_MISMATCH(1808, new byte[]{'H', 'Y', '0', '0', '0'}, "Schema mismatch (%s"),
     ERR_TABLE_IN_SYSTEM_TABLESPACE(1809, new byte[]{'H', 'Y', '0', '0', '0'}, "Table '%s' in system tablespace"),
-    ERR_IO_READ_ERROR(1810, new byte[]{'H', 'Y', '0', '0', '0'}, "IO Read error: (%lu, %s) %s"),
-    ERR_IO_WRITE_ERROR(1811, new byte[]{'H', 'Y', '0', '0', '0'}, "IO Write error: (%lu, %s) %s"),
+    ERR_IO_READ_ERROR(1810, new byte[]{'H', 'Y', '0', '0', '0'}, "IO Read error: (%d, %s) %s"),
+    ERR_IO_WRITE_ERROR(1811, new byte[]{'H', 'Y', '0', '0', '0'}, "IO Write error: (%d, %s) %s"),
     ERR_TABLESPACE_MISSING(1812, new byte[]{'H', 'Y', '0', '0', '0'}, "Tablespace is missing for table '%s'"),
     ERR_TABLESPACE_EXISTS(1813, new byte[]{'H', 'Y', '0', '0', '0'}, "Tablespace for table '%s' exists. Please " +
             "DISCARD the tablespace before IMPORT."),
     ERR_TABLESPACE_DISCARDED(1814, new byte[]{'H', 'Y', '0', '0', '0'}, "Tablespace has been discarded for table '%s'"),
     ERR_INTERNAL_ERROR(1815, new byte[]{'H', 'Y', '0', '0', '0'}, "Internal error: %s"),
     ERR_INNODB_IMPORT_ERROR(1816, new byte[]{'H', 'Y', '0', '0', '0'}, "ALTER TABLE '%s' IMPORT TABLESPACE failed " +
-            "with error %lu : '%s'"),
+            "with error %d : '%s'"),
     ERR_INNODB_INDEX_CORRUPT(1817, new byte[]{'H', 'Y', '0', '0', '0'}, "Index corrupt: %s"),
-    ERR_INVALID_YEAR_COLUMN_LENGTH(1818, new byte[]{'H', 'Y', '0', '0', '0'}, "YEAR(%lu) column type is deprecated. " +
+    ERR_INVALID_YEAR_COLUMN_LENGTH(1818, new byte[]{'H', 'Y', '0', '0', '0'}, "YEAR(%d) column type is deprecated. " +
             "Creating YEAR(4) column instead."),
     ERR_NOT_VALID_PASSWORD(1819, new byte[]{'H', 'Y', '0', '0', '0'}, "Your password does not satisfy the current " +
             "policy requirements"),
@@ -1491,7 +1491,7 @@ public enum ErrorCode {
             "you must change it using a client that supports expired passwords."),
     ERR_ROW_IN_WRONG_PARTITION(1863, new byte[]{'H', 'Y', '0', '0', '0'}, "Found a row in wrong partition %s"),
     ERR_MTS_EVENT_BIGGER_PENDING_JOBS_SIZE_MAX(1864, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot schedule event %s, " +
-            "relay-log name %s, position %s to Worker thread because its size %lu exceeds %lu of " +
+            "relay-log name %s, position %s to Worker thread because its size %d exceeds %d of " +
             "slave_pending_jobs_size_max" +
             "."),
     ERR_INNODB_NO_FT_USES_PARSER(1865, new byte[]{'H', 'Y', '0', '0', '0'}, "Cannot CREATE FULLTEXT INDEX WITH PARSER" +

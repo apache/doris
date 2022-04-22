@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
@@ -42,8 +43,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import com.google.gson.annotations.SerializedName;
@@ -69,14 +72,16 @@ public class ResourceMgr implements Writable {
     }
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
-        if (stmt.getResourceType() != ResourceType.SPARK && stmt.getResourceType() != ResourceType.ODBC_CATALOG) {
-            throw new DdlException("Only support SPARK and ODBC_CATALOG resource.");
+        if (stmt.getResourceType() != ResourceType.SPARK
+                && stmt.getResourceType() != ResourceType.ODBC_CATALOG
+                && stmt.getResourceType() != ResourceType.S3) {
+            throw new DdlException("Only support SPARK, ODBC_CATALOG and REMOTE_STORAGE resource.");
         }
         Resource resource = Resource.fromStmt(stmt);
         createResource(resource);
         // log add
         Catalog.getCurrentCatalog().getEditLog().logCreateResource(resource);
-        LOG.info("create resource success. resource: {}", resource);
+        LOG.info("Create resource success. Resource: {}", resource);
     }
 
     public void createResource(Resource resource) throws DdlException {
@@ -91,14 +96,46 @@ public class ResourceMgr implements Writable {
     }
 
     public void dropResource(DropResourceStmt stmt) throws DdlException {
-        String name = stmt.getResourceName();
-        if (nameToResource.remove(name) == null) {
-            throw new DdlException("Resource(" + name + ") does not exist");
+        String resourceName = stmt.getResourceName();
+        if (!nameToResource.containsKey(resourceName)) {
+            throw new DdlException("Resource(" + resourceName + ") does not exist");
         }
-
+        // Check whether the resource is in use before deleting it, except spark resource
+        List<String> usedTables = new ArrayList<>();
+        List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
+        for (Long dbId : dbIds) {
+            Optional<Database> database = Catalog.getCurrentCatalog().getDb(dbId);
+            database.ifPresent(db -> {
+                List<Table> tables = db.getTablesOnIdOrder();
+                for (Table table : tables) {
+                    if (table instanceof OdbcTable) {
+                        // odbc resource
+                        if (resourceName.equals(((OdbcTable) table).getOdbcCatalogResourceName())) {
+                            usedTables.add(db.getFullName() + "." + table.getName());
+                        }
+                    } else if (table instanceof OlapTable) {
+                        // remote resource, such as s3 resource
+                        PartitionInfo partitionInfo = ((OlapTable) table).getPartitionInfo();
+                        List<Long> partitionIds = ((OlapTable) table).getPartitionIds();
+                        for (Long partitionId : partitionIds) {
+                            DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+                            if (resourceName.equals(dataProperty.getRemoteStorageResourceName())) {
+                                usedTables.add(db.getFullName() + "." + table.getName());
+                                break;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        if (usedTables.size() > 0) {
+            LOG.warn("Can not drop resource, since it's used in tables {}", usedTables);
+            throw new DdlException("Can not drop resource, since it's used in tables " + usedTables);
+        }
+        nameToResource.remove(resourceName);
         // log drop
-        Catalog.getCurrentCatalog().getEditLog().logDropResource(new DropResourceOperationLog(name));
-        LOG.info("drop resource success. resource name: {}", name);
+        Catalog.getCurrentCatalog().getEditLog().logDropResource(new DropResourceOperationLog(resourceName));
+        LOG.info("Drop resource success. Resource resourceName: {}", resourceName);
     }
 
     // Drop resource whether successful or not
@@ -112,6 +149,26 @@ public class ResourceMgr implements Writable {
 
     public void replayDropResource(DropResourceOperationLog operationLog) {
         nameToResource.remove(operationLog.getName());
+    }
+
+    public void alterResource(AlterResourceStmt stmt) throws DdlException {
+        String resourceName = stmt.getResourceName();
+        Map<String, String> properties = stmt.getProperties();
+
+        if (!nameToResource.containsKey(resourceName)) {
+            throw new DdlException("Resource(" + resourceName + ") dose not exist.");
+        }
+
+        Resource resource = nameToResource.get(resourceName);
+        resource.modifyProperties(properties);
+
+        // log alter
+        Catalog.getCurrentCatalog().getEditLog().logAlterResource(resource);
+        LOG.info("Alter resource success. Resource: {}", resource);
+    }
+
+    public void replayAlterResource(Resource resource) {
+        nameToResource.put(resource.getName(), resource);
     }
 
     public boolean containsResource(String name) {

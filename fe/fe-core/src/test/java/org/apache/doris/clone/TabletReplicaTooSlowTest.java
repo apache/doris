@@ -29,6 +29,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
@@ -132,7 +133,9 @@ public class TabletReplicaTooSlowTest {
     private static void updateReplicaVersionCount() {
         Table<Long, Long, Replica> replicaMetaTable = Catalog.getCurrentInvertedIndex().getReplicaMetaTable();
         int versionCount = 1;
+        long tabletId = -1;
         for (Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+            tabletId = cell.getRowKey();
             long beId = cell.getColumnKey();
             Backend be = Catalog.getCurrentSystemInfo().getBackend(beId);
             List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash).collect(Collectors.toList());
@@ -145,6 +148,10 @@ public class TabletReplicaTooSlowTest {
 
             replica.setPathHash(pathHashes.get(0));
         }
+
+        List<List<String>> result = Diagnoser.diagnoseTablet(tabletId);
+        Assert.assertEquals(12, result.size());
+        Assert.assertTrue(result.get(11).get(1).contains("version count is too high"));
     }
 
     @Test
@@ -158,6 +165,7 @@ public class TabletReplicaTooSlowTest {
                 "    \"replication_num\" = \"3\"\n" +
                 ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
+
         int maxLoop = 300;
         boolean delete = false;
         while (maxLoop-- > 0) {

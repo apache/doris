@@ -222,8 +222,3 @@ TEST(function_bitmap_test, function_bitmap_has_all) {
 }
 
 } // namespace doris::vectorized
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

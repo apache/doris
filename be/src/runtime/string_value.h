@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/string-value.h
+// and modified by Doris
 
 #ifndef DORIS_BE_RUNTIME_STRING_VALUE_H
 #define DORIS_BE_RUNTIME_STRING_VALUE_H
@@ -105,7 +108,7 @@ struct StringValue {
     // this < other: -1
     // this == other: 0
     // this > other: 1
-    inline int compare(const StringValue& other) const {
+    int compare(const StringValue& other) const {
         int l = std::min(len, other.len);
 
         if (l == 0) {
@@ -123,7 +126,7 @@ struct StringValue {
     }
 
     // ==
-    inline bool eq(const StringValue& other) const {
+    bool eq(const StringValue& other) const {
         if (this->len != other.len) {
             return false;
         }

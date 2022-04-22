@@ -4,32 +4,80 @@
 
 #include "common/status.h"
 
-#include "gutil/strings/fastmem.h" // for memcpy_inlined
+#include <boost/stacktrace.hpp>
+#include <glog/logging.h>
 
+#include "gutil/strings/fastmem.h" // for memcpy_inlined
 namespace doris {
+
+constexpr int MAX_ERROR_NUM = 65536;
+struct ErrorCodeState {
+    int16_t error_code = 0;
+    bool stacktrace = true;
+    std::string description;
+    size_t count = 0;   // Used for count the number of error happens
+    std::mutex mutex;   // lock guard for count state
+};
+ErrorCodeState error_states[MAX_ERROR_NUM];
+class Initializer {
+public:
+    Initializer() {
+    #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) error_states[abs(ERRORCODE)].stacktrace = STACKTRACEENABLED;
+        APPLY_FOR_ERROR_CODES(M)
+    #undef M
+    // Currently, most of description is empty, so that we use NAME as description
+    #define M(NAME, ERRORCODE, DESC, STACKTRACEENABLED) error_states[abs(ERRORCODE)].description = #NAME;
+        APPLY_FOR_ERROR_CODES(M)
+    #undef M
+    }
+};
+Initializer init; // Used to init the error_states array
 
 Status::Status(const TStatus& s) {
     if (s.status_code != TStatusCode::OK) {
+        // It is ok to set precise code == 1 here, because we do not know the precise code
+        // just from thrift's TStatus
         if (s.error_msgs.empty()) {
             assemble_state(s.status_code, Slice(), 1, Slice());
         } else {
             assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
         }
     } else {
-        set_ok();
+        _length = 0;
     }
 }
 
+// TODO yiguolei, maybe should init PStatus's precise code because OLAPInternal Error may 
+// tranfer precise code during BRPC
 Status::Status(const PStatus& s) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
+        // It is ok to set precise code == 1 here, because we do not know the precise code
+        // just from thrift's TStatus
         if (s.error_msgs_size() == 0) {
             assemble_state(code, Slice(), 1, Slice());
         } else {
             assemble_state(code, s.error_msgs(0), 1, Slice());
         }
     } else {
-        set_ok();
+        _length = 0;
+    }
+}
+
+// Implement it here to remove the boost header file from status.h to reduce precompile time
+Status Status::ConstructErrorStatus(int16_t precise_code, const Slice& msg) {
+    // This will print all error status's stack, it maybe too many, but it is just used for debug
+    #ifdef PRINT_ALL_ERR_STATUS_STACKTRACE
+    LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
+                    << "\n caused by:" << boost::stacktrace::stacktrace();
+    #endif
+    if (error_states[abs(precise_code)].stacktrace) {
+        // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
+        // the error message and the stacktrace
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, 
+                      boost::stacktrace::to_string(boost::stacktrace::stacktrace()));
+    } else {
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, Slice());
     }
 }
 
@@ -152,7 +200,7 @@ Slice Status::message() const {
         return Slice();
     }
 
-    return Slice(_state + HEADER_LEN, _length);
+    return Slice(_state + HEADER_LEN, _length - HEADER_LEN);
 }
 
 Status Status::clone_and_prepend(const Slice& msg) const {
