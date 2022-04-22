@@ -23,7 +23,7 @@
 
 namespace doris::vectorized {
 
-// We can use std::basic_fixed_string with c++20 in future
+// We can use std::basic_fixed_string with c++20 in the future
 template <const char* Name, typename ReturnType = DataTypeInt32>
 struct FakeFunctionBaseImpl {
     static constexpr auto name = Name;
