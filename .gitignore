@@ -77,3 +77,4 @@ be/src/gen_cpp/opcode
 be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
+be/build_DEBUG

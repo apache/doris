@@ -8,6 +8,7 @@
 #include <glog/logging.h>
 
 #include "gutil/strings/fastmem.h" // for memcpy_inlined
+#include "common/config.h"
 namespace doris {
 
 constexpr int MAX_ERROR_NUM = 65536;
@@ -71,7 +72,14 @@ Status Status::ConstructErrorStatus(int16_t precise_code, const Slice& msg) {
     LOG(WARNING) << "Error occurred, error code = " << precise_code << ", with message: " << msg
                     << "\n caused by:" << boost::stacktrace::stacktrace();
     #endif
-    return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, Slice());
+    if (config::enable_print_stack && error_states[abs(precise_code)].stacktrace) {
+        // Add stacktrace as part of message, could use LOG(WARN) << "" << status will print both
+        // the error message and the stacktrace
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, 
+                      boost::stacktrace::to_string(boost::stacktrace::stacktrace()));
+    } else {
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, Slice());
+    }
 }
 
 void Status::to_thrift(TStatus* s) const {
