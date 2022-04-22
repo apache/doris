@@ -60,16 +60,7 @@ Lateral View:
 
 ```
 mysql> select k1, e1 from example1 lateral view explode_bitmap(bitmap_empty()) tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    4 | NULL |
-|    5 | NULL |
-|    6 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_bitmap(bitmap_from_string("1")) tmp1 as e1 order by k1, e1;
 +------+------+
