@@ -142,12 +142,13 @@ using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinO
 
 class VExprContext;
 class SharedHashTableContext;
-struct SharedStructure;
+class SharedStructure;
 
 using shared_hash_table_operator = std::function<bool(bool, std::shared_ptr<vectorized::SharedStructure>&)>;
 using shared_hash_table_barrier = std::function<bool()>;
 
-struct SharedStructure {
+class SharedStructure {
+public:
     HashTableVariants _hash_table_variants;
     std::vector<Block> _build_blocks;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
@@ -158,16 +159,17 @@ struct SharedStructure {
 
 class SharedHashTableContext {
 public:
-    SharedHashTableContext() = default; 
+    SharedHashTableContext() = default;
     ~SharedHashTableContext() = default;
 
     bool _use_shared_hash_table = false;
-    bool _is_leader = false;
+    bool _is_shared_hash_table_leader = false;
     int _shared_hash_table_id = -1;
     shared_hash_table_operator _hash_table_operator;
     shared_hash_table_barrier _hash_table_barrier;
 
     std::shared_ptr<SharedStructure> _shared_structure;
+    void registerCallBack(shared_hash_table_operator hash_table_accessor, shared_hash_table_barrier hash_table_barrier);
 };
 
 class HashJoinNode : public ::doris::ExecNode {

@@ -29,29 +29,41 @@
 #include "util/uid_util.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
 class SharedHashTableVal;
 class Arena;
-
+namespace vectorized {
+class SharedHashTableContext;
+class SharedStructure;
+}
 class SharedHashTableMgr {
 public:
     SharedHashTableMgr() = default;
     ~SharedHashTableMgr() = default;
     void set_shared_hash_table_params(TSharedHashTableParams shared_hash_table_params) {
         contain_shared_hash_table = shared_hash_table_params.contain_shared_hash_table;
-        is_leader = shared_hash_table_params.is_leader;
+        is_shared_hash_table_leader = shared_hash_table_params.is_shared_hash_table_leader;
+        is_runtime_filter_leader = shared_hash_table_params.is_runtime_filter_leader;
+        instacnces_count_in_same_process = shared_hash_table_params.instacnces_count_in_same_process;
     }
     bool get_contain_shared_hash_table() {
         return contain_shared_hash_table;
     }
-    bool get_is_leader() {
-        return is_leader;
+    bool get_is_shared_hash_table_leader() {
+        return is_shared_hash_table_leader;
+    }
+    bool get_is_runtime_filter_leader() {
+        return is_runtime_filter_leader;
+    }
+    int get_instacnces_count_in_same_process() {
+        return instacnces_count_in_same_process;
     }
 private:
     bool contain_shared_hash_table = false;
-    bool is_leader = false;
+    bool is_shared_hash_table_leader = false;
+    bool is_runtime_filter_leader = false;
+    int instacnces_count_in_same_process = 0;
 };
 
 class SharedHashTableVal {
@@ -68,8 +80,7 @@ public:
     int  get_sharers_count() {return _sharers_count;}
     bool shared_hash_table_operate(bool is_leader, std::shared_ptr<vectorized::SharedStructure>& shared_structure);
     bool shared_hash_table_barrier();
-    void get_callback(vectorized::shared_hash_table_operator* hash_table_operator,
-                      vectorized::shared_hash_table_barrier* hash_table_barrier);
+    void get_callback(vectorized::SharedHashTableContext* sharedHashTableContext);
 };
 // controller -> <query-id, entity>
 // SharedHashTableControlEntity is the context used by runtimefilter for merging

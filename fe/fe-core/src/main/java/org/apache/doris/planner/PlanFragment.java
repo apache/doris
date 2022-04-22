@@ -19,7 +19,7 @@
 // and modified by Doris
 
 package org.apache.doris.planner;
-
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -43,6 +43,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Map;
 
 /**
  * PlanFragments form a tree structure via their ExchangeNodes. A tree of fragments
@@ -119,7 +120,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
-    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics correctly when query contains limit, it is necessary to send query
     // statistics with every batch, or only in close.
     private boolean transferQueryStatisticsWithEveryBatch;
 
@@ -143,6 +144,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private List<HashTableId> sharedHashTableIds = Lists.newArrayList();
 
     private boolean sendToSharedHashTableFragment = false;
+
+    public Map<RuntimeFilterId, HashTableId> runtimeFilterIdToSharedHashTableId = Maps.newHashMap();
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
      */
@@ -183,6 +186,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         if (ConnectContext.get() != null) {
             parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
+    }
+
+    public void addRuntimeFilterIdToSharedHashTableId(RuntimeFilterId filterId, HashTableId hashTableId) {
+        runtimeFilterIdToSharedHashTableId.put(filterId, hashTableId);
+    }
+
+    public Map<RuntimeFilterId, HashTableId> getRuntimeFilterIdToSharedHashTableId() {
+        return runtimeFilterIdToSharedHashTableId;
     }
 
     // Manually set parallel exec number
@@ -237,7 +248,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public boolean hasSendToSharedHashTableFragment() {
         return sendToSharedHashTableFragment;
     }
-    
+
     /**
      * Finalize plan tree and create stream sink, if needed.
      */

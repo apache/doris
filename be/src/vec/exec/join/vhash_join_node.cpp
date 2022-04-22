@@ -656,11 +656,6 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     _runtime_filter_descs = tnode.runtime_filters;
     _shared_hash_table_ctx._shared_hash_table_id = tnode.hash_join_node.shared_hash_table_id;
     init_join_op();
-
-    // avoid vector expand change block address.
-    // one block can store 4g data, _build_blocks can store 128*4g data.
-    // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
-    _build_blocks.reserve(128);
 }
 
 HashJoinNode::~HashJoinNode() = default;
@@ -726,6 +721,19 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _have_other_join_conjunct = true;
     }
 
+    if (state->shared_hash_table_mgr()->get_contain_shared_hash_table() && _shared_hash_table_ctx._shared_hash_table_id != -1) {
+        // Don't not use shared hash table, when there is only one instance.
+        if (state->shared_hash_table_mgr()->get_instacnces_count_in_same_process() > 1) {
+            _shared_hash_table_ctx._use_shared_hash_table = true;
+            _shared_hash_table_ctx._is_shared_hash_table_leader = state->shared_hash_table_mgr()->get_is_shared_hash_table_leader();
+        }
+
+        // leader build runtimefilter,follower not.
+        if (!state->shared_hash_table_mgr()->get_is_runtime_filter_leader()) {
+            _runtime_filter_descs.clear();
+        }
+    }
+
     for (const auto& filter_desc : _runtime_filter_descs) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->regist_filter(RuntimeFilterRole::PRODUCER,
                                                                    filter_desc, state->query_options()));
@@ -747,10 +755,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
     };
     init_output_slots_flags(child(0)->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(child(1)->row_desc().tuple_descriptors(), _right_output_slot_flags);
-    if (state->shared_hash_table_mgr()->get_contain_shared_hash_table() && _shared_hash_table_ctx._shared_hash_table_id != -1) {
-        _shared_hash_table_ctx._use_shared_hash_table = true;
-        _shared_hash_table_ctx._is_leader = state->shared_hash_table_mgr()->get_is_leader();
-    }
 
     return Status::OK();
 }
@@ -971,8 +975,8 @@ Status HashJoinNode::open(RuntimeState* state) {
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     // follower waits for leader to build shared hash table.
-    if (_shared_hash_table_ctx._use_shared_hash_table && !_shared_hash_table_ctx._is_leader) {
-        while (!_shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_leader, _shared_hash_table_ctx._shared_structure)) {
+    if (_shared_hash_table_ctx._use_shared_hash_table && !_shared_hash_table_ctx._is_shared_hash_table_leader) {
+        while (!_shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_shared_hash_table_leader, _shared_hash_table_ctx._shared_structure)) {
             RETURN_IF_CANCELLED(state);
         }
         LOG(INFO) << "HashJoinNode::open: follow get hash table";
@@ -1006,7 +1010,6 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(_process_build_block(state, _shared_hash_table_ctx._shared_structure->_build_blocks[index], index));
-            RETURN_IF_LIMIT_EXCEEDED(state, "Hash join, while constructing the hash table.");
 
             mutable_block = MutableBlock();
             ++index;
@@ -1018,9 +1021,9 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(_process_build_block(state, _shared_hash_table_ctx._shared_structure->_build_blocks[index], index));
 
     // Leader set shared hash table.
-    if (_shared_hash_table_ctx._use_shared_hash_table && _shared_hash_table_ctx._is_leader) {
+    if (_shared_hash_table_ctx._use_shared_hash_table && _shared_hash_table_ctx._is_shared_hash_table_leader) {
         LOG(INFO) << "HashJoinNode::open: leader have build hash table";
-        _shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_leader, _shared_hash_table_ctx._shared_structure);
+        _shared_hash_table_ctx._hash_table_operator(_shared_hash_table_ctx._is_shared_hash_table_leader, _shared_hash_table_ctx._shared_structure);
     }
     return Status::OK();
 }
@@ -1183,14 +1186,18 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
 Status HashJoinNode::_hash_table_init(RuntimeState* state) {
     if (_shared_hash_table_ctx._use_shared_hash_table) {
         RETURN_IF_ERROR(state->exec_env()->fragment_mgr()->get_shared_hash_table_callback(
-                                            state->query_id(), _shared_hash_table_ctx._shared_hash_table_id,
-                                            &_shared_hash_table_ctx._hash_table_operator, &_shared_hash_table_ctx._hash_table_barrier));
+                                            state->query_id(), &_shared_hash_table_ctx));
         // follower not need initialize hash table.
-        if (!_shared_hash_table_ctx._is_leader) {
+        if (!_shared_hash_table_ctx._is_shared_hash_table_leader) {
             return Status::OK();
         }
     }
     _shared_hash_table_ctx._shared_structure.reset(new SharedStructure);
+
+    // avoid vector expand change block address.
+    // one block can store 4g data, _build_blocks can store 128*4g data.
+    // if probe data bigger than 512g, runtime filter maybe will core dump when insert data.
+    _shared_hash_table_ctx._shared_structure->_build_blocks.reserve(128);
     if (_build_expr_ctxs.size() == 1 && !_build_not_ignore_null[0]) {
         // Single column optimization
         switch (_build_expr_ctxs[0]->root()->result_type()) {
@@ -1272,6 +1279,11 @@ Status HashJoinNode::_hash_table_init(RuntimeState* state) {
         _shared_hash_table_ctx._shared_structure->_hash_table_variants.emplace<SerializedHashTableContext>();
     }
     return Status::OK();
+}
+
+void SharedHashTableContext::registerCallBack(shared_hash_table_operator hash_table_operator, shared_hash_table_barrier hash_table_barrier) {
+    _hash_table_operator = hash_table_operator;
+    _hash_table_barrier = hash_table_barrier;
 }
 
 } // namespace doris::vectorized

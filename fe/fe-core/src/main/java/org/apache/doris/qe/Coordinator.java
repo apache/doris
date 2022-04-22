@@ -892,11 +892,11 @@ public class Coordinator {
             }
         }
 
-        // assign runtime filter merge addr and target addr
-        assignRuntimeFilterAddr();
-
         // find the instance in the same process and set params.
         assignSharedHashTable();
+
+        // assign runtime filter merge addr and target addr
+        assignRuntimeFilterAddr();
 
         // compute destinations and # senders per exchange node
         // (the root fragment doesn't have a destination)
@@ -1260,8 +1260,26 @@ public class Coordinator {
                 }
             }
 
-            for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
-                ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+            if (fragment.getSharedHashTableIds().isEmpty()) {
+                for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
+                    ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+                }
+            } else {
+                // When use shared hash table,choose one from the shared hash table leaders to be the runtimefilter leader.
+                for (final FInstanceExecParam instance : params.instanceExecParams) {
+                    if (instance.isSharedHashTableLeader) {
+                        instance.isRuntimeFilterLeader = true;
+                        break;
+                    }
+                }
+                // For multiple runtimefilters in the same fragment, only the runtimefiler using the shared hash table needs to reset the number of instances。
+                for (RuntimeFilterId rid : fragment.getBuilderRuntimeFilterIds()) {
+                    if (fragment.getRuntimeFilterIdToSharedHashTableId().get(rid).asInt() != -1) {
+                        ridToBuilderNum.merge(rid, 1, Integer::sum);
+                    } else {
+                        ridToBuilderNum.merge(rid, params.instanceExecParams.size(), Integer::sum);
+                    }
+                }
             }
         }
         // Use the uppermost fragment as a merged node, the uppermost fragment has one and only one instance
@@ -2175,15 +2193,16 @@ public class Coordinator {
                 params.params.setSendQueryStatisticsWithEveryBatch(
                         fragment.isTransferQueryStatisticsWithEveryBatch());
                 // Set shared hash table params.
-                if (instanceExecParam.instanceCountInSameProcess > 1) {
+                if (instanceExecParam.instanceCountInSameProcess > 0) {
                     params.params.setSharedHashTableParams(new TSharedHashTableParams());
-                    // If the count of instances in the same process is less than 2, needn't use shared hash table.
+                    // If the count of instances in the same process is less than 2, be will not use shared hash table.
                     params.params.shared_hash_table_params.setContainSharedHashTable(true);
                     for (HashTableId hashTableId : fragment.getSharedHashTableIds()) {
                         params.params.shared_hash_table_params.addToSharedHashTableIds(hashTableId.asInt());
                     }
                     params.params.shared_hash_table_params.setInstacncesCountInSameProcess(instanceExecParam.instanceCountInSameProcess);
-                    params.params.shared_hash_table_params.setIsLeader(instanceExecParam.isSharedHashTableLeader);
+                    params.params.shared_hash_table_params.setIsSharedHashTableLeader(instanceExecParam.isSharedHashTableLeader);
+                    params.params.shared_hash_table_params.setIsRuntimeFilterLeader(instanceExecParam.isRuntimeFilterLeader);
                 }
                 params.params.setRuntimeFilterParams(new TRuntimeFilterParams());
                 params.params.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
@@ -2291,11 +2310,12 @@ public class Coordinator {
         Set<Integer> bucketSeqSet = Sets.newHashSet();
 
         FragmentExecParams fragmentExecParams;
-        
+
         // The count of instances which use shared hash table in the same process.
         // When it is less than 2, will not activate shared hash table.
         public int instanceCountInSameProcess = 0;
         public boolean isSharedHashTableLeader = false;
+        public boolean isRuntimeFilterLeader = false;
 
         public void addBucketSeq(int bucketSeq) {
             this.bucketSeqSet.add(bucketSeq);

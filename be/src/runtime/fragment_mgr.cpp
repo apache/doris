@@ -883,14 +883,12 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request, const char*
 }
 
 Status FragmentMgr::get_shared_hash_table_callback(const TUniqueId& query_id,
-                                                        int shared_hash_table_id,
-                                                        vectorized::shared_hash_table_operator* hash_table_operator,
-                                                        vectorized::shared_hash_table_barrier* hash_table_releaser){
+                                                   vectorized::SharedHashTableContext* sharedHashTableContext){
     std::shared_ptr<SharedHashTableControlEntity> shared_hash_table_entity;
     RETURN_IF_ERROR(_shared_hash_table_controller.acquire(query_id, &shared_hash_table_entity));
     SharedHashTableVal* shared_hash_table_val = nullptr;
-    RETURN_IF_ERROR(shared_hash_table_entity->find_hash_table_val(shared_hash_table_id, shared_hash_table_val));
-    shared_hash_table_val->get_callback(hash_table_operator, hash_table_releaser);
+    RETURN_IF_ERROR(shared_hash_table_entity->find_hash_table_val(sharedHashTableContext->_shared_hash_table_id, shared_hash_table_val));
+    shared_hash_table_val->get_callback(sharedHashTableContext);
     return Status::OK();
 }
 

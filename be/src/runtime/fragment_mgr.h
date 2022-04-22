@@ -50,8 +50,10 @@ class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
 class StreamLoadPipe;
-class SharedHashTableController;
-class HashTableVariants;
+namespace vectorized {
+    class SharedHashTableContext;
+}
+
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -95,10 +97,8 @@ public:
 
     std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
-    Status get_shared_hash_table_callback(const TUniqueId& query_id, 
-                                            int shared_hash_table_id, 
-                                            vectorized::shared_hash_table_operator* hash_table_operator,
-                                            vectorized::shared_hash_table_barrier* hash_table_releaser);
+    Status get_shared_hash_table_callback(const TUniqueId& query_id,
+                                          vectorized::SharedHashTableContext* sharedHashTableContext);
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 

@@ -431,6 +431,7 @@ public final class RuntimeFilter {
     public void assignToPlanNodes() {
         Preconditions.checkState(hasTargets());
         builderNode.addRuntimeFilter(this);
+        builderNode.fragment_.addRuntimeFilterIdToSharedHashTableId(this.id, builderNode.getSharedHashTableId());
         builderNode.fragment_.setBuilderRuntimeFilterIds(getFilterId());
         for (RuntimeFilterTarget target: targets) {
             target.node.addRuntimeFilter(this);

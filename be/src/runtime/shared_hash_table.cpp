@@ -23,14 +23,13 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/plan_fragment_executor.h"
 #include "util/time.h"
+#include "vec/exec/join/vhash_join_node.h"
 
 namespace doris {
-void SharedHashTableVal::get_callback(vectorized::shared_hash_table_operator* hash_table_accessor,
-                                        vectorized::shared_hash_table_barrier* hash_table_barrier) {
-    *hash_table_accessor = std::bind(&SharedHashTableVal::shared_hash_table_operate,
-                                     this, std::placeholders::_1, std::placeholders::_2);
-
-    *hash_table_barrier = std::bind(&SharedHashTableVal::shared_hash_table_barrier, this);
+void SharedHashTableVal::get_callback(vectorized::SharedHashTableContext* sharedHashTableContext) {
+    sharedHashTableContext->registerCallBack(std::bind(&SharedHashTableVal::shared_hash_table_operate,
+                                                        this, std::placeholders::_1, std::placeholders::_2),
+                                             std::bind(&SharedHashTableVal::shared_hash_table_barrier, this));
 }
 
 bool SharedHashTableVal::shared_hash_table_operate(bool is_leader, std::shared_ptr<vectorized::SharedStructure>& shared_structure) {
@@ -82,7 +81,7 @@ Status SharedHashTableControlEntity::init(UniqueId query_id,
 }
 
 Status SharedHashTableControlEntity::find_hash_table_val(int hash_table_id, SharedHashTableVal* &val) {
-    std::lock_guard<std::mutex> guard(_shared_hash_table_mutex); 
+    std::lock_guard<std::mutex> guard(_shared_hash_table_mutex);
     auto iter = _shared_hash_table_map.find(hash_table_id);
     if (iter == _shared_hash_table_map.end()) {
         LOG(WARNING) << "not found entity, shared-hash-table-id:" << hash_table_id;
@@ -112,7 +111,7 @@ Status SharedHashTableController::add_entity(
         *handle = std::shared_ptr<SharedHashTableControlEntity>(
                 new SharedHashTableControlEntity(), entity_closer);
         _hash_table_controller_map[query_id_str] = *handle;
-        RETURN_IF_ERROR(handle->get()->init(query_id, params.params.shared_hash_table_params.instacnces_count_in_same_process, 
+        RETURN_IF_ERROR(handle->get()->init(query_id, params.params.shared_hash_table_params.instacnces_count_in_same_process,
                                             params.params.shared_hash_table_params.shared_hash_table_ids));
     } else {
         *handle = _hash_table_controller_map[query_id_str].lock();

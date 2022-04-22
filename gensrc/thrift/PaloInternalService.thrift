@@ -151,7 +151,7 @@ struct TQueryOptions {
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
 
-  // whether enable vectorized engine 
+  // whether enable vectorized engine
   41: optional bool enable_vectorized_engine = false
 
   // the resource limitation of this query
@@ -161,7 +161,7 @@ struct TQueryOptions {
   // output corrupted character
   43: optional bool return_object_data_as_binary = false
 }
-    
+
 
 // A scan range plus the parameters needed to execute that scan.
 struct TScanRangeParams {
@@ -202,9 +202,10 @@ struct TRuntimeFilterParams {
 
 struct TSharedHashTableParams {
   1: required bool contain_shared_hash_table = false
-  2: required bool is_leader = false
-  3: optional i32 instacnces_count_in_same_process = 0
-  4: optional list<i32> shared_hash_table_ids
+  2: required bool is_shared_hash_table_leader = false
+  3: required bool is_runtime_filter_leader = false
+  4: optional i32 instacnces_count_in_same_process = 0
+  5: optional list<i32> shared_hash_table_ids
 }
 
 // Parameters for a single execution instance of a particular TPlanFragment
@@ -251,7 +252,7 @@ struct TQueryGlobals {
   1: required string now_string
 
   // To support timezone in Doris. timestamp_ms is the millisecond uinix timestamp for
-  // this query to calculate time zone relative function 
+  // this query to calculate time zone relative function
   2: optional i64 timestamp_ms
 
   // time_zone is the timezone this query used.
