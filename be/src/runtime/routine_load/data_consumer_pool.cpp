@@ -67,12 +67,18 @@ Status DataConsumerPool::get_consumer_grp(StreamLoadContext* ctx,
                 "PAUSE: Currently only support consumer group for Kafka data source");
     }
     DCHECK(ctx->kafka_info);
+    DCHECK(ctx->kafka_info->begin_offset.size() > 0);
 
     std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
 
     // one data consumer group contains at least one data consumers.
     int max_consumer_num = config::max_consumer_num_per_group;
     size_t consumer_num = std::min((size_t)max_consumer_num, ctx->kafka_info->begin_offset.size());
+    if (consumer_num < 1) {
+        return Status::InternalError(
+                "one data consumer group contains at least one data consumers.");
+    }
+
     for (int i = 0; i < consumer_num; ++i) {
         std::shared_ptr<DataConsumer> consumer;
         RETURN_IF_ERROR(get_consumer(ctx, &consumer));
