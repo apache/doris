@@ -341,7 +341,7 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& full_path, const std::vector<RowsetSharedPtr>& consistent_rowsets) const {
     Status status = Status::OK();
     for (const auto& rs : consistent_rowsets) {
-        status = rs->copy_files_to(full_path);
+        status = rs->copy_files_to(full_path, rs->rowset_id());
         if (!status.ok()) {
             Status ret = FileUtils::remove_all(full_path);
             if (!ret.ok()) {

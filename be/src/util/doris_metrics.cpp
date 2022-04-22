@@ -64,6 +64,8 @@ DEFINE_ENGINE_COUNTER_METRIC(schema_change_requests_failed, schema_change, faile
 DEFINE_ENGINE_COUNTER_METRIC(create_rollup_requests_total, create_rollup, total);
 DEFINE_ENGINE_COUNTER_METRIC(create_rollup_requests_failed, create_rollup, failed);
 DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_requests_total, storage_migrate, total);
+DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_v2_requests_total, storage_migrate_v2, total);
+DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_v2_requests_failed, storage_migrate_v2, failed);
 DEFINE_ENGINE_COUNTER_METRIC(delete_requests_total, delete, total);
 DEFINE_ENGINE_COUNTER_METRIC(delete_requests_failed, delete, failed);
 DEFINE_ENGINE_COUNTER_METRIC(clone_requests_total, clone, total);
@@ -208,6 +210,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_v2_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_v2_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clone_requests_total);

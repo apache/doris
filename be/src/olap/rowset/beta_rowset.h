@@ -50,9 +50,10 @@ public:
 
     Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
-    Status copy_files_to(const std::string& dir) override;
+    Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    Status upload_files_to(const FilePathDesc& dir_desc) override;
+    Status upload_files_to(const FilePathDesc& dir_desc,
+                           const RowsetId& new_rowset_id, bool delete_src = false) override;
 
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {
