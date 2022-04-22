@@ -196,9 +196,10 @@ public:
     virtual Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) = 0;
 
     // copy all files to `dir`
-    virtual Status copy_files_to(const std::string& dir) = 0;
+    virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status upload_files_to(const FilePathDesc& dir_desc) { return Status::OK(); }
+    virtual Status upload_files_to(const FilePathDesc& dir_desc,
+                const RowsetId&, bool delete_src = false) { return Status::OK(); }
 
     virtual Status remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
@@ -215,6 +216,10 @@ public:
     void set_need_delete_file() { _need_delete_file = true; }
 
     bool contains_version(Version version) { return rowset_meta()->version().contains(version); }
+
+    FilePathDesc rowset_path_desc() {
+        return _rowset_path_desc;
+    }
 
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();

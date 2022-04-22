@@ -133,6 +133,11 @@ Status AlphaRowsetWriter::add_rowset_for_linked_schema_change(
     return Status::OK();
 }
 
+Status AlphaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
+    LOG(WARNING) << "alpha_rowset_writer doesn't support add_rowset_for_migration";
+    return Status::NotSupported("alpha_rowset_writer doesn't support add_rowset_for_migration");
+}
+
 Status AlphaRowsetWriter::flush() {
     if (_writer_state == WRITER_FLUSHED) {
         return Status::OK();
