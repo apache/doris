@@ -132,9 +132,9 @@ Status BetaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_rows
     return Status::OK();
 }
 
-Status BetaRowset::copy_files_to(const std::string& dir) {
+Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir, rowset_id(), i);
+        FilePathDesc dst_path_desc = segment_file_path(dir, new_rowset_id, i);
         Status status = Env::Default()->path_exists(dst_path_desc.filepath);
         if (status.ok()) {
             LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
@@ -154,7 +154,8 @@ Status BetaRowset::copy_files_to(const std::string& dir) {
     return Status::OK();
 }
 
-Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
+Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc,
+        const RowsetId& new_rowset_id, bool delete_src) {
     std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
             get_storage_backend(dir_desc.storage_name);
     if (storage_backend == nullptr) {
@@ -162,13 +163,12 @@ Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
     for (int i = 0; i < num_segments(); ++i) {
-        FilePathDesc dst_path_desc = segment_file_path(dir_desc, rowset_id(), i);
+        FilePathDesc dst_path_desc = segment_file_path(dir_desc, new_rowset_id, i);
         Status status = storage_backend->exist(dst_path_desc.remote_path);
         if (status.ok()) {
             LOG(WARNING) << "file already exist: " << dst_path_desc.remote_path;
             return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
-        }
-        if (!status.is_not_found()) {
+        } else if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
@@ -177,6 +177,10 @@ Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc) {
         if (!storage_backend->upload(src_path_desc.filepath, dst_path_desc.remote_path).ok()) {
             LOG(WARNING) << "fail to upload file. from=" << src_path_desc.filepath << ", to="
                          << dst_path_desc.remote_path << ", errno=" << Errno::no();
+            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
+        }
+        if (delete_src && !Env::Default()->delete_file(src_path_desc.filepath).ok()) {
+            LOG(WARNING) << "fail to delete local file: " << src_path_desc.filepath << ", errno=" << Errno::no();
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         LOG(INFO) << "succeed to upload file. from " << src_path_desc.filepath << " to "

@@ -28,6 +28,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 
 #include "env/env.h"
 #include "env/env_util.h"
@@ -220,6 +223,20 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request,
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
 
+    if (FilePathDesc::is_remote(request.storage_medium)) {
+        FilePathDesc path_desc;
+        path_desc.storage_medium = request.storage_medium;
+        path_desc.storage_name = request.storage_param.storage_name;
+        StorageParamPB storage_param;
+        Status st = StorageBackendMgr::instance()->get_storage_param(request.storage_param.storage_name, &storage_param);
+        if (!st.ok() || storage_param.DebugString() != fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
+            LOG(INFO) << "remote storage need to change, create it. storage_name: " << request.storage_param.storage_name;
+            RETURN_NOT_OK_STATUS_WITH_WARN(StorageBackendMgr::instance()->create_remote_storage(
+                    fs::fs_util::get_storage_param_pb(request.storage_param)),
+                            "remote storage create failed. storage_name: " + request.storage_param.storage_name);
+        }
+    }
+
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     TRACE("got tablets shard lock");
     // Make create_tablet operation to be idempotent:
@@ -250,8 +267,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request,
         // If we are doing schema-change, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        stores.clear();
-        stores.push_back(base_tablet->data_dir());
+        if (request.storage_medium == base_tablet->data_dir()->path_desc().storage_medium
+                || (FilePathDesc::is_remote(request.storage_medium) && base_tablet->data_dir()->is_remote())) {
+            stores.clear();
+            stores.push_back(base_tablet->data_dir());
+        }
     }
 
     // set alter type to schema-change. it is useless
@@ -1014,8 +1034,49 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     if (Env::Default()->path_exists(schema_hash_path).ok()) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
         FilePathDesc segment_desc(schema_hash_path);
+        string remote_file_param_path = schema_hash_path + REMOTE_FILE_PARAM;
+        if (data_dir->is_remote() && FileUtils::check_exist(remote_file_param_path)) {
+            // it means you must remove remote file for this segment first
+            string json_buf;
+            Status s = env_util::read_file_to_string(Env::Default(), remote_file_param_path, &json_buf);
+            if (!s.ok()) {
+                LOG(WARNING) << "delete unused file error when read remote_file_param_path: "
+                             << remote_file_param_path;
+                return;
+            }
+            // json_buf format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
+            std::string storage_name = nullptr;
+            std::string tablet_uid = nullptr;
+            rapidjson::Document dom;
+            if (!dom.Parse(json_buf.c_str()).HasParseError()) {
+                if (dom.HasMember(TABLET_UID.c_str()) && dom[TABLET_UID.c_str()].IsString()
+                    && dom.HasMember(STORAGE_NAME.c_str()) && dom[STORAGE_NAME.c_str()].IsString()) {
+                    storage_name = dom[STORAGE_NAME.c_str()].GetString();
+                    tablet_uid = dom[TABLET_UID.c_str()].GetString();
+                }
+            }
+            if (!tablet_uid.empty() && !storage_name.empty()) {
+                segment_desc.storage_name = storage_name;
+                StorageParamPB storage_param;
+                if (StorageBackendMgr::instance()->get_storage_param(storage_name, &storage_param) != OLAP_SUCCESS) {
+                    LOG(WARNING) << "storage_name is invalid: " << storage_name;
+                    return;
+                }
+
+                // remote file may be exist, check and mv it to trash
+                std::filesystem::path local_segment_path(schema_hash_path);
+                std::stringstream remote_file_stream;
+                remote_file_stream << data_dir->path_desc().remote_path << DATA_PREFIX
+                                   << "/" << local_segment_path.parent_path().parent_path().filename().string()  // shard
+                                   << "/" << local_segment_path.parent_path().filename().string()                // tablet_path
+                                   << "/" << local_segment_path.filename().string()                             // segment_path
+                                   << "/" << tablet_uid;
+                segment_desc.storage_medium = fs::fs_util::get_t_storage_medium(storage_param.storage_medium());
+                segment_desc.remote_path = remote_file_stream.str();
+            }
+        }
         Status rm_st = data_dir->move_to_trash(segment_desc);
-        if (rm_st != Status::OK()) {
+        if (!rm_st.ok()) {
             LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
         } else {
             LOG(INFO) << "move path " << schema_hash_path << " to trash successfully";
