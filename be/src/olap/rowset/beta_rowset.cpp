@@ -137,12 +137,8 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
         FilePathDesc dst_path_desc = segment_file_path(dir, new_rowset_id, i);
         Status status = Env::Default()->path_exists(dst_path_desc.filepath);
         if (status.ok()) {
-            LOG(WARNING) << "file already exist, delete it: " << dst_path_desc.filepath;
-            status = Env::Default()->delete_file(dst_path_desc.filepath);
-            if (!status.ok()) {
-                LOG(WARNING) << "file delete failed: " << dst_path_desc.filepath;
-                return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
-            }
+            LOG(WARNING) << "file already exist: " << dst_path_desc.filepath;
+            return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
         }
         if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.filepath;
@@ -170,12 +166,8 @@ Status BetaRowset::upload_files_to(const FilePathDesc& dir_desc,
         FilePathDesc dst_path_desc = segment_file_path(dir_desc, new_rowset_id, i);
         Status status = storage_backend->exist(dst_path_desc.remote_path);
         if (status.ok()) {
-            LOG(WARNING) << "file already exist, delete it: " << dst_path_desc.remote_path;
-            status = storage_backend->rm(dst_path_desc.remote_path);
-            if (!status.ok()) {
-                LOG(WARNING) << "file delete failed: " << dst_path_desc.remote_path;
-                return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
-            }
+            LOG(WARNING) << "file already exist: " << dst_path_desc.remote_path;
+            return Status::OLAPInternalError(OLAP_ERR_FILE_ALREADY_EXIST);
         } else if (!status.is_not_found()) {
             LOG(WARNING) << "file check exist error: " << dst_path_desc.remote_path;
             return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
