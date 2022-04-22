@@ -58,7 +58,10 @@ using STRING = std::string;
 using DOUBLE = double;
 using FLOAT = float;
 
-inline auto DECIMAL = Decimal<Int128>::double_to_decimal;
+inline auto DECIMAL = Decimal128::double_to_decimal;
+inline auto DECIMALFIELD = [](double v) {
+    return DecimalField<Decimal128>(Decimal128::double_to_decimal(v), 9);
+};
 
 using DATETIME = std::string;
 
