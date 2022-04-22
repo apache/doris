@@ -82,6 +82,7 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bo
         SCOPED_TIMER(_materialize_timer);
         RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
         *fill_tuple = _success;
+        free_expr_local_allocations();
         break; // break always
     }
     if (_scanner_eof) {
