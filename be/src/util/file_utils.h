@@ -53,8 +53,6 @@ public:
     static Status create_dir(const std::string& dir_path, Env* env);
 
     // Delete file recursively.
-    static Status remove_all(const std::string& dir_path, TStorageMedium::type store);
-
     static Status remove_all(const std::string& dir_path);
 
     static Status remove(const std::string& path);
