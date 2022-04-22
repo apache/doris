@@ -29,7 +29,10 @@
 #include <immintrin.h>
 #endif
 
+#include "common/status.h"
 #include "gutil/macros.h"
+#include "runtime/memory/chunk.h"
+#include "runtime/memory/chunk_allocator.h"
 
 namespace doris {
 
@@ -101,8 +104,8 @@ public:
         }
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL: {
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+            ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT,&_registers);
+            memcpy(_registers.data, other._registers.data, HLL_REGISTERS_COUNT);
             break;
         }
         default:
@@ -123,7 +126,7 @@ public:
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL: {
             this->_registers = other._registers;
-            other._registers = nullptr;
+            other._registers.data = nullptr;
             other._type = HLL_DATA_EMPTY;
             break;
         }
@@ -134,9 +137,9 @@ public:
 
     HyperLogLog& operator=(HyperLogLog&& other) {
         if (this != &other) {
-            if (_registers != nullptr) {
-                delete[] _registers;
-                _registers = nullptr;
+            if (_registers.data != nullptr) {
+                ChunkAllocator::instance()->free(_registers);
+                _registers.data = nullptr;
             }
 
             this->_type = other._type;
@@ -151,7 +154,7 @@ public:
             case HLL_DATA_SPARSE:
             case HLL_DATA_FULL: {
                 this->_registers = other._registers;
-                other._registers = nullptr;
+                other._registers.data = nullptr;
                 other._type = HLL_DATA_EMPTY;
                 break;
             }
@@ -164,9 +167,9 @@ public:
 
     HyperLogLog& operator=(const HyperLogLog& other) {
         if (this != &other) {
-            if (_registers != nullptr) {
-                delete[] _registers;
-                _registers = nullptr;
+            if (_registers.data != nullptr) {
+                ChunkAllocator::instance()->free(_registers);
+                _registers.data = nullptr;
             }
 
             this->_type = other._type;
@@ -179,8 +182,8 @@ public:
             }
             case HLL_DATA_SPARSE:
             case HLL_DATA_FULL: {
-                _registers = new uint8_t[HLL_REGISTERS_COUNT];
-                memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+                ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+                memcpy(_registers.data, other._registers.data, HLL_REGISTERS_COUNT);
                 break;
             }
             default:
@@ -194,8 +197,11 @@ public:
     void clear() {
         _type = HLL_DATA_EMPTY;
         _hash_set.clear();
-        delete[] _registers;
-        _registers = nullptr;
+        if (_registers.data != nullptr) {
+            DCHECK_EQ(_registers.size, HLL_REGISTERS_COUNT);
+            ChunkAllocator::instance()->free(_registers);
+            _registers.data = nullptr;
+        }
     }
 
     typedef uint8_t SetTypeValueType;
@@ -272,7 +278,7 @@ private:
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
-    uint8_t* _registers = nullptr;
+    Chunk _registers;
 
 private:
 
@@ -287,14 +293,14 @@ private:
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
         uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
-        _registers[idx] = (_registers[idx] < first_one_bit ? first_one_bit : _registers[idx]);
+        _registers.data[idx] = (_registers.data[idx] < first_one_bit ? first_one_bit : _registers.data[idx]);
     }
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other_registers) {
 #ifdef __AVX2__
         int loop = HLL_REGISTERS_COUNT / 32; // 32 = 256/8
-        uint8_t* dst = _registers;
+        uint8_t* dst = _registers.data;
         const uint8_t* src = other_registers;
         for (int i = 0; i < loop; i++) {
             __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
@@ -305,8 +311,8 @@ private:
         }
 #else
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] =
-                    (_registers[i] < other_registers[i] ? other_registers[i] : _registers[i]);
+            _registers.data[i] =
+                    (_registers.data[i] < other_registers[i] ? other_registers[i] : _registers.data[i]);
         }
 #endif
     }

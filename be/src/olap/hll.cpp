@@ -43,8 +43,8 @@ HyperLogLog::HyperLogLog(const Slice& src) {
 void HyperLogLog::_convert_explicit_to_register() {
     DCHECK(_type == HLL_DATA_EXPLICIT)
             << "_type(" << _type << ") should be explicit(" << HLL_DATA_EXPLICIT << ")";
-    _registers = new uint8_t[HLL_REGISTERS_COUNT];
-    memset(_registers, 0, HLL_REGISTERS_COUNT);
+    ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+    memset(_registers.data, 0, HLL_REGISTERS_COUNT);
     for (auto value : _hash_set) {
         _update_registers(value);
     }
@@ -90,8 +90,8 @@ void HyperLogLog::merge(const HyperLogLog& other) {
             break;
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL:
-            _registers = new uint8_t[HLL_REGISTERS_COUNT];
-            memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+            ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+            memcpy(_registers.data, other._registers.data, HLL_REGISTERS_COUNT);
             break;
         default:
             break;
@@ -112,7 +112,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL:
             _convert_explicit_to_register();
-            _merge_registers(other._registers);
+            _merge_registers(other._registers.data);
             _type = HLL_DATA_FULL;
             break;
         default:
@@ -130,7 +130,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
             break;
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL:
-            _merge_registers(other._registers);
+            _merge_registers(other._registers.data);
             break;
         default:
             break;
@@ -179,7 +179,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
     case HLL_DATA_FULL: {
         uint32_t num_non_zero_registers = 0;
         for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            num_non_zero_registers += (_registers[i] != 0);
+            num_non_zero_registers += (_registers.data[i] != 0);
         }
 
         // each register in sparse format will occupy 3bytes, 2 for index and
@@ -187,7 +187,7 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
         // 4K we use full encode format.
         if (num_non_zero_registers > HLL_SPARSE_THRESHOLD) {
             *ptr++ = HLL_DATA_FULL;
-            memcpy(ptr, _registers, HLL_REGISTERS_COUNT);
+            memcpy(ptr, _registers.data, HLL_REGISTERS_COUNT);
             ptr += HLL_REGISTERS_COUNT;
         } else {
             *ptr++ = HLL_DATA_SPARSE;
@@ -196,14 +196,14 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
             ptr += 4;
 
             for (uint32_t i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-                if (_registers[i] == 0) {
+                if (_registers.data[i] == 0) {
                     continue;
                 }
                 // 2 bytes: register index
                 // 1 byte: register value
                 encode_fixed16_le(ptr, i);
                 ptr += 2;
-                *ptr++ = _registers[i];
+                *ptr++ = _registers.data[i];
             }
         }
         break;
@@ -285,8 +285,8 @@ bool HyperLogLog::deserialize(const Slice& slice) {
         break;
     }
     case HLL_DATA_SPARSE: {
-        _registers = new uint8_t[HLL_REGISTERS_COUNT];
-        memset(_registers, 0, HLL_REGISTERS_COUNT);
+        ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
+        memset(_registers.data, 0, HLL_REGISTERS_COUNT);
         // 2-5(4 byte): number of registers
         uint32_t num_registers = decode_fixed32_le(ptr);
         ptr += 4;
@@ -295,14 +295,14 @@ bool HyperLogLog::deserialize(const Slice& slice) {
             // 1 byte: register value
             uint16_t register_idx = decode_fixed16_le(ptr);
             ptr += 2;
-            _registers[register_idx] = *ptr++;
+            _registers.data[register_idx] = *ptr++;
         }
         break;
     }
     case HLL_DATA_FULL: {
-        _registers = new uint8_t[HLL_REGISTERS_COUNT];
+        ChunkAllocator::instance()->allocate(HLL_REGISTERS_COUNT, &_registers);
         // 2+ : hll register value
-        memcpy(_registers, ptr, HLL_REGISTERS_COUNT);
+        memcpy(_registers.data, ptr, HLL_REGISTERS_COUNT);
         break;
     }
     default:
@@ -339,11 +339,9 @@ int64_t HyperLogLog::estimate_cardinality() const {
     int num_zero_registers = 0;
 
     for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-        harmonic_mean += powf(2.0f, -_registers[i]);
+        harmonic_mean += powf(2.0f, -_registers.data[i]);
 
-        if (_registers[i] == 0) {
-            ++num_zero_registers;
-        }
+        num_zero_registers += (_registers.data[i] == 0);
     }
 
     harmonic_mean = 1.0f / harmonic_mean;
