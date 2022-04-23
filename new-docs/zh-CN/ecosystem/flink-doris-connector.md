@@ -118,7 +118,7 @@ sh build.sh --flink 1.14.3 --scala 2.12
 **备注**
 
 1. Doris FE 要在配置中配置启用 http v2
-2. Scala 版本目前只支持 2.12.x 版本
+2. Scala 版本目前支持2.12和2.11
 
 conf/fe.conf
 
@@ -215,7 +215,8 @@ Flink 1.14.* 版本
 
 **备注**
 
-请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
+1.请根据不同的 Flink 和 Scala 版本替换对应的 Connector 和 Flink 依赖版本。
+2.目前maven中仅提供了scala2.12版本的包，2.11版本的包需要自行编译，参考上面编译安装小节。
 
 ## 使用方法
 
@@ -523,4 +524,4 @@ Flink Doris Connector写入频率主要是通过sink.batch.size，sink.batch.int
 
 1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
 
-因为Doris有个隐藏列，需要手动添加一列`__DORIS_DELETE_SIGN__`  类型：TINYINT
+因为Doris有个隐藏列，需要在Flink Schema中手动添加一列`__DORIS_DELETE_SIGN__`  类型：TINYINT
