@@ -205,6 +205,10 @@ private:
         Status convert_to_olap() override;
     };
 
+    // For compatibility with decimalv2.
+    // Convert the decimal32/decimal64/decimal128 of the computing
+    // layer to decimal12_t of the storage layer.
+    template <typename T>
     class OlapColumnDataConvertorDecimal
             : public OlapColumnDataConvertorPaddedPODArray<decimal12_t> {
     public:
@@ -246,7 +250,7 @@ private:
             return Status::OK();
         }
 
-    private:
+    protected:
         const T* _values = nullptr;
     };
 
@@ -338,6 +342,33 @@ private:
     private:
         const uint32_t* values_ = nullptr;
         bool from_date_to_date_v2_;
+    };
+
+    // decimalv3 don't need to do any convert
+    template <typename T>
+    class OlapColumnDataConvertorDecimalV3
+            : public OlapColumnDataConvertorSimple<typename T::NativeType> {
+    public:
+        using FieldType = typename T::NativeType;
+        OlapColumnDataConvertorDecimalV3() = default;
+        ~OlapColumnDataConvertorDecimalV3() override = default;
+
+        Status convert_to_olap() override {
+            const vectorized::ColumnDecimal<T>* column_data = nullptr;
+            if (this->_nullmap) {
+                auto nullable_column = assert_cast<const vectorized::ColumnNullable*>(
+                        this->_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        nullable_column->get_nested_column_ptr().get());
+            } else {
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        this->_typed_column.column.get());
+            }
+
+            assert(column_data);
+            this->_values = (const FieldType*)(column_data->get_data().data()) + this->_row_pos;
+            return Status::OK();
+        }
     };
 
     class OlapColumnDataConvertorArray

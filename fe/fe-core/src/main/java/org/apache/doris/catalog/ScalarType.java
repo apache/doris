@@ -75,6 +75,11 @@ public class ScalarType extends Type {
 
     // Hive, mysql, sql server standard.
     public static final int MAX_PRECISION = 38;
+    public static final int MAX_DECIMAL32_PRECISION = 9;
+    public static final int MAX_DECIMAL64_PRECISION = 18;
+    public static final int MAX_DECIMAL128_PRECISION = 38;
+
+    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
 
     private static final Logger LOG = LogManager.getLogger(ScalarType.class);
     @SerializedName(value = "type")
@@ -336,6 +341,22 @@ public class ScalarType extends Type {
         ScalarType type = new ScalarType(PrimitiveType.TIMEV2);
         type.precision = DATETIME_PRECISION;
         type.scale = 0;
+        return type;
+    }
+
+    /**
+     * create a wider decimal type.
+     */
+    public static ScalarType createWiderDecimalV2Type(int precision, int scale) {
+        ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
+        if (precision <= MAX_DECIMAL32_PRECISION) {
+            type.precision = MAX_DECIMAL32_PRECISION;
+        } else if (precision <= MAX_DECIMAL64_PRECISION) {
+            type.precision = MAX_DECIMAL64_PRECISION;
+        } else {
+            type.precision = MAX_DECIMAL128_PRECISION;
+        }
+        type.scale = scale;
         return type;
     }
 

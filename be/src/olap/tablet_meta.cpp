@@ -19,6 +19,7 @@
 
 #include <sstream>
 
+#include "common/consts.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -205,12 +206,24 @@ void TabletMeta::_init_column_from_tcolumn(uint32_t unique_id, const TColumn& tc
     EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
     column->set_type(data_type);
 
+    uint32_t length = TabletColumn::get_field_length_by_type(tcolumn.column_type.type,
+                                                             tcolumn.column_type.len);
     if (tcolumn.column_type.type == TPrimitiveType::DECIMALV2) {
         column->set_precision(tcolumn.column_type.precision);
         column->set_frac(tcolumn.column_type.scale);
+        if (config::enable_storage_decimalv3) {
+            if (tcolumn.column_type.precision <= BeConsts::MAX_DECIMAL32_PRECISION) {
+                length = sizeof(int32_t);
+                column->set_type("DECIMAL32");
+            } else if (tcolumn.column_type.precision <= BeConsts::MAX_DECIMAL64_PRECISION) {
+                length = sizeof(int64_t);
+                column->set_type("DECIMAL64");
+            } else {
+                length = sizeof(__int128);
+                column->set_type("DECIMAL128");
+            }
+        }
     }
-    uint32_t length = TabletColumn::get_field_length_by_type(tcolumn.column_type.type,
-                                                             tcolumn.column_type.len);
     column->set_length(length);
     column->set_index_length(length);
     if (tcolumn.column_type.type == TPrimitiveType::VARCHAR ||

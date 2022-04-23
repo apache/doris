@@ -1654,6 +1654,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_catalog = false; // 1 min
 
+    /*
+     * If set to TRUE, the precision of decimal will be broaden to [1, 38].
+     * Decimalv3 of storage layer needs to be enabled first.
+     */
+    @ConfField
+    public static boolean relax_decimal_precision_limit = false;
+
     /**
      * If set to TRUE, FE will:
      * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;

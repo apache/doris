@@ -99,7 +99,7 @@ struct BaseData {
     int64_t count;
 };
 
-template <bool is_stddev>
+template <typename T, bool is_stddev>
 struct BaseDatadecimal {
     BaseDatadecimal() : mean(0), m2(0), count(0) {}
     virtual ~BaseDatadecimal() = default;
@@ -162,9 +162,18 @@ struct BaseDatadecimal {
     }
 
     void add(const IColumn* column, size_t row_num) {
-        DecimalV2Value source_data = DecimalV2Value();
-        const auto& sources = static_cast<const ColumnDecimal<Decimal128>&>(*column);
-        source_data = (DecimalV2Value)sources.get_data()[row_num];
+        const auto& sources = static_cast<const ColumnDecimal<T>&>(*column);
+        Field field = sources[row_num];
+        auto decimal_field = field.template get<DecimalField<T>>();
+        int128_t value;
+        if (decimal_field.get_scale() > DecimalV2Value::SCALE) {
+            value = static_cast<int128_t>(decimal_field.get_value()) /
+                    (decimal_field.get_scale_multiplier() / DecimalV2Value::ONE_BILLION);
+        } else {
+            value = static_cast<int128_t>(decimal_field.get_value()) *
+                    (DecimalV2Value::ONE_BILLION / decimal_field.get_scale_multiplier());
+        }
+        DecimalV2Value source_data = DecimalV2Value(value);
 
         DecimalV2Value new_count = DecimalV2Value();
         new_count.assign_from_double(count);

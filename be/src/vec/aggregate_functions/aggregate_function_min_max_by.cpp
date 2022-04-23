@@ -51,8 +51,16 @@ static IAggregateFunction* create_aggregate_function_min_max_by_impl(
         return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<UInt32>>, false>(
                 value_arg_type, key_arg_type);
     }
+    if (which.idx == TypeIndex::Decimal32) {
+        return new AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal32>>, false>(
+                value_arg_type, key_arg_type);
+    }
+    if (which.idx == TypeIndex::Decimal64) {
+        return new AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal64>>, false>(
+                value_arg_type, key_arg_type);
+    }
     if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Data<VT, SingleValueDataFixed<DecimalV2Value>>, false>(
+        return new AggregateFunctionTemplate<Data<VT, SingleValueDataDecimal<Decimal128>>, false>(
                 value_arg_type, key_arg_type);
     }
     return nullptr;

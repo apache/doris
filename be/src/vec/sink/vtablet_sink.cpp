@@ -555,6 +555,12 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
             break;
         }
         case TYPE_DECIMALV2: {
+            if (config::enable_execution_decimalv3) {
+                // when enable_execution_decimalv3 is true, the data is
+                // also obtained according to the actual precision and scale.
+                // so no nedd validate it here.
+                break;
+            }
             auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                     assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                             real_column_ptr.get()));

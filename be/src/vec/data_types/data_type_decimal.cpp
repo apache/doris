@@ -55,6 +55,16 @@ template <typename T>
 void DataTypeDecimal<T>::to_string(const IColumn& column, size_t row_num,
                                    BufferWritable& ostr) const {
     // TODO: Reduce the copy in std::string mem to ostr, like DataTypeNumber
+    if (config::enable_execution_decimalv3) {
+        T value = assert_cast<const ColumnType&>(*column.convert_to_full_column_if_const().get())
+                          .get_data()[row_num];
+        std::ostringstream buf;
+        write_text(value, scale, buf);
+        std::string str = buf.str();
+        ostr.write(str.data(), str.size());
+        return;
+    }
+
     DecimalV2Value value = (DecimalV2Value)assert_cast<const ColumnType&>(
                                    *column.convert_to_full_column_if_const().get())
                                    .get_data()[row_num];
@@ -66,7 +76,7 @@ template <typename T>
 Status DataTypeDecimal<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto& column_data = static_cast<ColumnType&>(*column).get_data();
     T val = 0;
-    if (!read_decimal_text_impl<T>(val, rb)) {
+    if (!read_decimal_text_impl<T>(val, rb, precision, scale)) {
         return Status::InvalidArgument("parse decimal fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -128,6 +138,17 @@ DataTypePtr DataTypeDecimal<T>::promote_numeric_type() const {
 template <typename T>
 MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     return ColumnType::create(0, scale);
+}
+
+template <typename T>
+T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
+                                                        &result);
+    if (result != StringParser::PARSE_SUCCESS) {
+        LOG(FATAL) << "Failed to parse string of decimal";
+    }
+    return value;
 }
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {

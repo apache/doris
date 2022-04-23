@@ -285,6 +285,10 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.INT);
     }
 
+    public boolean isBigIntType() {
+        return isScalarType(PrimitiveType.BIGINT);
+    }
+
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);
     }
