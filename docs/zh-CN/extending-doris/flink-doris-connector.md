@@ -62,21 +62,20 @@ Flink Doris Connector 可以支持通过 Flink 操作（读取、插入、修改
 #export MVN_BIN=
 #export JAVA_HOME=
 
-##修改如下
-export THRIFT_BIN=./thirdparty/installed/bin
+##修改如下,MacOS为例
+export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 #export MVN_BIN=
 #export JAVA_HOME=
 
 安装 `thrift` 0.13.0 版本(注意：`Doris` 0.15 和最新的版本基于 `thrift` 0.13.0 构建, 之前的版本依然使用`thrift` 0.9.3 构建)
  Windows: 
-    1. 下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-    2. 拷贝：将文件拷贝至 `./thirdparty/installed/bin`
+    1.下载：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`(下载目录自己指定)
+    2.修改thrift-0.13.0.exe 为 thrift
  
  MacOS: 
     1. 下载：`brew install thrift@0.13.0`
-    2. 建立软链接： 
-       `mkdir -p ./thirdparty/installed/bin`
-       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+    2. 默认下载地址：/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
+    
  
  注：MacOS执行 `brew install thrift@0.13.0` 可能会报找不到版本的错误，解决方法如下，在终端执行：
     1. `brew tap-new $USER/local-tap`
@@ -93,7 +92,7 @@ export THRIFT_BIN=./thirdparty/installed/bin
     6.`make`
     7.`make install`
    安装完成后查看版本：thrift --version  
- 
+   注：如果编译过Doris，则不需要安装thrift,可以直接使用 $DORIS_HOME/thirdparty/installed/bin/thrift
 ```
 
 在源码目录下执行：
