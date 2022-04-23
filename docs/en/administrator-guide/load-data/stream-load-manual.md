@@ -133,7 +133,7 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
 
 	``` dpp.abnorm.ALL``` denotes the number of rows whose data quality is not up to standard. Such as type mismatch, column mismatch, length mismatch and so on.
 
-	``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the ``SHOW LOAD` command.
+	``` dpp.norm.ALL ``` refers to the number of correct data in the import process. The correct amount of data for the import task can be queried by the `SHOW LOAD` command.
 
 The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 

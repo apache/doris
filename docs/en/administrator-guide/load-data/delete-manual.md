@@ -161,7 +161,7 @@ In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. Th
   
 * `query_timeout`
   
-    Because delete itself is an SQL command, the deletion statement is also limited by the session variables, and the timeout is also affected by the session value `query'timeout`. You can increase the value by `set query'timeout = xxx`.
+    Because delete itself is an SQL command, the deletion statement is also limited by the session variables, and the timeout is also affected by the session value `query_timeout`. You can increase the value by `set query_timeout = xxx`.
 
 **InPredicate configuration**
 
