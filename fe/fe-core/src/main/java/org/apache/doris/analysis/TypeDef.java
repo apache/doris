@@ -159,15 +159,28 @@ public class TypeDef implements ParseNode {
             case DECIMALV2: {
                 int precision = scalarType.decimalPrecision();
                 int scale = scalarType.decimalScale();
-                // precision: [1, 27]
-                if (precision < 1 || precision > 27) {
-                    throw new AnalysisException("Precision of decimal must between 1 and 27."
-                            + " Precision was set to: " + precision + ".");
-                }
-                // scale: [0, 9]
-                if (scale < 0 || scale > 9) {
-                    throw new AnalysisException("Scale of decimal must between 0 and 9."
-                            + " Scale was set to: " + scale + ".");
+                if (Config.relax_decimal_precision_limit) {
+                    // precision: [1, 38]
+                    if (precision < 1 || precision > ScalarType.MAX_DECIMAL128_PRECISION) {
+                        throw new AnalysisException("Precision of decimal must between 1 and 38."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale >= 0
+                    if (scale < 0) {
+                        throw new AnalysisException("Scale of decimal must not be less than 0."
+                                + " Scale was set to: " + scale + ".");
+                    }
+                } else {
+                    // precision: [1, 27]
+                    if (precision < 1 || precision > 27) {
+                        throw new AnalysisException("Precision of decimal must between 1 and 27."
+                                + " Precision was set to: " + precision + ".");
+                    }
+                    // scale: [0, 9]
+                    if (scale < 0 || scale > 9) {
+                        throw new AnalysisException("Scale of decimal must between 0 and 9."
+                                + " Scale was set to: " + scale + ".");
+                    }
                 }
                 // scale < precision
                 if (scale >= precision) {

@@ -24,6 +24,7 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -148,6 +149,44 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             }
             buf_ret = _buffer.push_string("]", 1);
             _buffer.close_dynamic_mode();
+            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+        }
+    } else if (type == TYPE_DECIMALV2) {
+        WhichDataType which(nested_type_ptr);
+        for (int i = 0; i < row_size; ++i) {
+            if (0 != buf_ret) {
+                return Status::InternalError("pack mysql buffer failed.");
+            }
+            _buffer.reset();
+
+            if constexpr (is_nullable) {
+                if (column_ptr->is_null_at(i)) {
+                    buf_ret = _buffer.push_null();
+                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+                    continue;
+                }
+            }
+            std::string decimal_str;
+            if (config::enable_execution_decimalv3) {
+                if (which.is_decimal32()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                } else if (which.is_decimal64()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                } else if (which.is_decimal128()) {
+                    decimal_str =
+                            assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
+                                    ->to_string(*column, i);
+                }
+            } else {
+                DecimalV2Value decimal_val(
+                        assert_cast<const ColumnDecimal<Decimal128>&>(*column).get_element(i));
+                decimal_str = decimal_val.to_string();
+            }
+            buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else {
@@ -296,11 +335,13 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datetime.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
-    } else if (which.is_decimal128()) {
-        auto& column_data =
-                static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
-        DecimalV2Value decimal_val(column_data[row_idx]);
-        auto decimal_str = decimal_val.to_string();
+    } else if (which.is_decimal32()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal32>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
         return buffer.push_string(decimal_str.c_str(), decimal_str.length());
     } else if (which.is_date_v2()) {
         auto& column_vector = assert_cast<const ColumnVector<UInt32>&>(*column);
@@ -310,6 +351,30 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         char buf[64];
         char* pos = datev2.to_string(buf);
         return buffer.push_string(buf, pos - buf - 1);
+    } else if (which.is_decimal64()) {
+        DataTypePtr nested_type = type;
+        if (type->is_nullable()) {
+            nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+        }
+        auto decimal_str = assert_cast<const DataTypeDecimal<Decimal64>*>(nested_type.get())
+                                   ->to_string(*column, row_idx);
+        return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+    } else if (which.is_decimal128()) {
+        if (config::enable_execution_decimalv3) {
+            DataTypePtr nested_type = type;
+            if (type->is_nullable()) {
+                nested_type = assert_cast<const DataTypeNullable&>(*type).get_nested_type();
+            }
+            auto decimal_str = assert_cast<const DataTypeDecimal<Decimal128>*>(nested_type.get())
+                                       ->to_string(*column, row_idx);
+            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+        } else {
+            auto& column_data =
+                    static_cast<const ColumnDecimal<vectorized::Decimal128>&>(*column).get_data();
+            DecimalV2Value decimal_val(column_data[row_idx]);
+            auto decimal_str = decimal_val.to_string();
+            return buffer.push_string(decimal_str.c_str(), decimal_str.length());
+        }
     } else if (which.is_array()) {
         auto& column_array = assert_cast<const ColumnArray&>(*column);
         auto& offsets = column_array.get_offsets();
@@ -459,9 +524,13 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         }
         case TYPE_DECIMALV2: {
             if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result);
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result,
+                                                                              nested_type);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result);
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result,
+                                                                               type_ptr);
             }
             break;
         }

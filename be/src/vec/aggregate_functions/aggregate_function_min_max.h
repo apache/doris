@@ -124,25 +124,25 @@ public:
     }
 };
 
-/// For numeric values.
-template <>
-struct SingleValueDataFixed<DecimalV2Value> {
+/// For decimal values.
+template <typename T>
+struct SingleValueDataDecimal {
 private:
-    using Self = SingleValueDataFixed;
+    using Self = SingleValueDataDecimal;
+    using Type = typename NativeType<T>::Type;
 
     bool has_value =
             false; /// We need to remember if at least one value has been passed. This is necessary for AggregateFunctionIf.
-    int128_t value;
+    Type value;
 
 public:
     bool has() const { return has_value; }
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            DecimalV2Value decimal(value);
-            assert_cast<ColumnDecimal<Decimal128>&>(to).insert_data((const char*)&decimal, 0);
+            assert_cast<ColumnDecimal<T>&>(to).insert_data((const char*)&value, 0);
         } else {
-            assert_cast<ColumnDecimal<Decimal128>&>(to).insert_default();
+            assert_cast<ColumnDecimal<T>&>(to).insert_default();
         }
     }
 
@@ -168,7 +168,7 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num];
     }
 
     /// Assuming to.has()
@@ -178,8 +178,7 @@ public:
     }
 
     bool change_if_less(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() ||
-            assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num] < value) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] < value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -197,8 +196,7 @@ public:
     }
 
     bool change_if_greater(const IColumn& column, size_t row_num, Arena* arena) {
-        if (!has() ||
-            assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num] > value) {
+        if (!has() || assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] > value) {
             change(column, row_num, arena);
             return true;
         } else {
@@ -218,8 +216,7 @@ public:
     bool is_equal_to(const Self& to) const { return has() && to.value == value; }
 
     bool is_equal_to(const IColumn& column, size_t row_num) const {
-        return has() &&
-               assert_cast<const ColumnDecimal<Decimal128>&>(column).get_data()[row_num] == value;
+        return has() && assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num] == value;
     }
 };
 
