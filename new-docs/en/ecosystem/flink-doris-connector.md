@@ -116,7 +116,7 @@ After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SN
 **Remarks:** 
 
 1. Doris FE should be configured to enable http v2 in the configuration
-2. Scala version currently only supports 2.12.x version
+2. Scala version currently supports 2.12 and 2.11
 
 conf/fe.conf
 
@@ -138,7 +138,8 @@ enable_http_server_v2 = true
 
 **Notes**
 
-Please replace the Connector version according to the different Flink and Scala versions.
+1.Please replace the Connector version according to the different Flink and Scala versions.
+2.At present, only the scala2.12 version of the package is provided in maven. The 2.11 version of the package needs to be compiled by itself. Please refer to the compilation and installation section above.
 
 ## How to use
 
@@ -446,4 +447,4 @@ Then suppose a row of data is 500B, and the user wants every 100MB or 10 seconds
 
 1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
 
-Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` Type: TINYINT
+Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` in Flink Schema Type: TINYINT
