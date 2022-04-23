@@ -134,8 +134,8 @@ When defining columns, you can refer to the following suggestions:
 
 1. The Key column must precede all Value columns.
 2. Try to choose the type of integer. Because integer type calculations and lookups are much more efficient than strings.
-3. For the selection principle of integer types of different lengths, follow ** enough to **.
-4. For lengths of type VARCHAR and STRING, follow ** is sufficient.
+3. For the selection principle of integer types of different lengths, follow **enough to**.
+4. For lengths of type VARCHAR and STRING, follow **is sufficient**.
 5. The total byte length of all columns (including Key and Value) cannot exceed 100KB.
 
 ### Partitioning and binning
@@ -275,68 +275,68 @@ Doris supports specifying multiple columns as partition columns, examples are as
 
 ##### Range Partition
 
-    ```
+```
     PARTITION BY RANGE(`date`, `id`)
     (
         PARTITION `p201701_1000` VALUES LESS THAN ("2017-02-01", "1000"),
         PARTITION `p201702_2000` VALUES LESS THAN ("2017-03-01", "2000"),
         PARTITION `p201703_all` VALUES LESS THAN ("2017-04-01")
     )
-    ```
+```
 
-    In the above example, we specify `date` (DATE type) and `id` (INT type) as partition columns. The resulting partitions in the above example are as follows:
+ In the above example, we specify `date`(DATE type) and `id`(INT type) as partition columns. The resulting partitions in the above example are as follows:
 
-    ```
-    *p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
-    *p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
-    *p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
-    ```
+```
+p201701_1000: [(MIN_VALUE, MIN_VALUE), ("2017-02-01", "1000") )
+p201702_2000: [("2017-02-01", "1000"), ("2017-03-01", "2000") )
+p201703_all: [("2017-03-01", "2000"), ("2017-04-01", MIN_VALUE))
+```
 
-    Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
+Note that the last partition user defaults only the partition value of the `date` column, so the partition value of the `id` column will be filled with `MIN_VALUE` by default. When the user inserts data, the partition column values ​​are compared in order, and the corresponding partition is finally obtained. Examples are as follows:
 
-    ```
-    * Data --> Partition
-    * 2017-01-01, 200   --> p201701_1000
-    * 2017-01-01, 2000  --> p201701_1000
-    * 2017-02-01, 100   --> p201701_1000
-    * 2017-02-01, 2000  --> p201702_2000
-    * 2017-02-15, 5000  --> p201702_2000
-    * 2017-03-01, 2000  --> p201703_all
-    * 2017-03-10, 1     --> p201703_all
-    * 2017-04-01, 1000  --> Unable to import
-    * 2017-05-01, 1000  --> Unable to import
-    ```
+```
+ Data --> Partition
+ 2017-01-01, 200   --> p201701_1000
+ 2017-01-01, 2000  --> p201701_1000
+ 2017-02-01, 100   --> p201701_1000
+ 2017-02-01, 2000  --> p201702_2000
+ 2017-02-15, 5000  --> p201702_2000
+ 2017-03-01, 2000  --> p201703_all
+ 2017-03-10, 1     --> p201703_all
+ 2017-04-01, 1000  --> Unable to import
+ 2017-05-01, 1000  --> Unable to import
+```
 
 ##### List Partition
 
-    ```
+```
     PARTITION BY LIST(`id`, `city`)
     (
         PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
         PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
         PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
     )
-    ```
+```
 
-    In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
+In the above example, we specify `id`(INT type) and `city`(VARCHAR type) as partition columns. The above example ends up with the following partitions.
 
-    ```
-    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
-    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
-    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
-    ```
+```
+ p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+ p2_city: [("2", "Beijing"), ("2", "Shanghai")]
+ p3_city: [("3", "Beijing"), ("3", "Shanghai")]
+```
 
-    When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
+When the user inserts data, the partition column values will be compared sequentially in order to finally get the corresponding partition. An example is as follows.
 
-    ```
-    * Data ---> Partition
-    * 1, Beijing  ---> p1_city
-    * 1, Shanghai ---> p1_city
-    * 2, Shanghai ---> p2_city
-    * 3, Beijing  ---> p3_city
-    * 1, Tianjin  ---> Unable to import
-    * 4, Beijing  ---> Unable to import
-    ```
+```  
+Data ---> Partition
+1, Beijing  ---> p1_city
+1, Shanghai ---> p1_city
+2, Shanghai ---> p2_city
+3, Beijing  ---> p3_city
+1, Tianjin  ---> Unable to import
+4, Beijing  ---> Unable to import
+```      
 
 ### PROPERTIES
 
@@ -344,10 +344,10 @@ In the last PROPERTIES of the table statement, you can specify the following two
 
 Replication_num
 
-    * The number of copies per tablet. The default is 3, it is recommended to keep the default. In the build statement, the number of Tablet copies in all Partitions is uniformly specified. When you add a new partition, you can individually specify the number of copies of the tablet in the new partition.
-    * The number of copies can be modified at runtime. It is strongly recommended to keep odd numbers.
-    * The maximum number of copies depends on the number of independent IPs in the cluster (note that it is not the number of BEs). The principle of replica distribution in Doris is that the copies of the same Tablet are not allowed to be distributed on the same physical machine, and the physical machine is identified as IP. Therefore, even if 3 or more BE instances are deployed on the same physical machine, if the BEs have the same IP, you can only set the number of copies to 1.
-    * For some small, and infrequently updated dimension tables, consider setting more copies. In this way, when joining queries, there is a greater probability of local data join.
+  * The number of copies per tablet. The default is 3, it is recommended to keep the default. In the build statement, the number of Tablet copies in all Partitions is uniformly specified. When you add a new partition, you can individually specify the number of copies of the tablet in the new partition.
+  * The number of copies can be modified at runtime. It is strongly recommended to keep odd numbers.
+  * The maximum number of copies depends on the number of independent IPs in the cluster (note that it is not the number of BEs). The principle of replica distribution in Doris is that the copies of the same Tablet are not allowed to be distributed on the same physical machine, and the physical machine is identified as IP. Therefore, even if 3 or more BE instances are deployed on the same physical machine, if the BEs have the same IP, you can only set the number of copies to 1.
+  * For some small, and infrequently updated dimension tables, consider setting more copies. In this way, when joining queries, there is a greater probability of local data join.
 
 2. storage_medium & storage\_cooldown\_time
 
