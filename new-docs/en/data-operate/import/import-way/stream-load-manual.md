@@ -68,7 +68,7 @@ The final result of the import is returned to the user by Coordinator BE.
 Currently Stream Load supports two data formats: CSV (text) and JSON
 
 ## Basic operations
-### Create a Load
+### Create Load
 
 Stream load submits and transfers data through HTTP protocol. Here, the `curl` command shows how to submit an import.
 
@@ -88,13 +88,13 @@ curl --location-trusted -u root -T date -H "label:123" http://abc.com:8030/api/t
 ```
 The detailed syntax for creating imports helps to execute ``HELP STREAM LOAD`` view. The following section focuses on the significance of creating some parameters of Stream load.
 
-#### Signature parameters
+**Signature parameters**
 
 + user/passwd
 
 	Stream load uses the HTTP protocol to create the imported protocol and signs it through the Basic Access authentication. The Doris system verifies user identity and import permissions based on signatures.
 
-#### Load Parameters
+**Load Parameters**
 
 Stream load uses HTTP protocol, so all parameters related to import tasks are set in the header. The significance of some parameters of the import task parameters of Stream load is mainly introduced below.
 
@@ -312,7 +312,7 @@ Timeout = 1000s -31561;. 20110G / 10M /s
 ```
 
 ### Complete examples
-Data situation: In the local disk path / home / store_sales of the sending and importing requester, the imported data is about 15G, and it is hoped to be imported into the table store\_sales of the database bj_sales.
+Data situation: In the local disk path /home/store_sales of the sending and importing requester, the imported data is about 15G, and it is hoped to be imported into the table store\_sales of the database bj_sales.
 
 Cluster situation: The concurrency of Stream load is not affected by cluster size.
 
@@ -367,8 +367,10 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 	        <groupId>org.apache.httpcomponents</groupId>
 	        <artifactId>httpclient</artifactId>
 	        <version>4.5.13</version>
-	      </dependency>
+	      </dependency>  
 	  ```
 	
-	  
 
+## More Help
+
+For more detailed syntax used by **Stream Load**,  you can enter `HELP STREAM LOAD` on the Mysql client command line for more help.

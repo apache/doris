@@ -484,3 +484,7 @@ This problem can be solved by creating a materialized view with k3 as the first 
 1. DATA_QUALITY_ERR: "The data quality does not satisfy, please check your data"
 Materialized view creation failed due to data quality issues.
 Note: The bitmap type only supports positive integers. If there are negative Numbers in the original data, the materialized view will fail to be created
+
+## More Help
+
+For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED- VIEW.html) and [DROP MATERIALIZED VIEW](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.

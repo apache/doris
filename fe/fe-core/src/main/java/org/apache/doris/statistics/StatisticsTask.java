@@ -24,6 +24,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * The StatisticsTask belongs to one StatisticsJob.
@@ -36,7 +37,7 @@ import java.util.concurrent.Callable;
  * For example: the task is responsible for collecting min, max, ndv of t1.c1 in partition p1.
  * @granularityDesc: StatsGranularity=partition
  */
-public class StatisticsTask implements Callable<StatisticsTaskResult> {
+public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     protected static final Logger LOG = LogManager.getLogger(StatisticsTask.class);
 
     public enum TaskState {
@@ -46,7 +47,9 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         FAILED
     }
 
-    protected long id = Catalog.getCurrentCatalog().getNextId();;
+    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    protected long id = Catalog.getCurrentCatalog().getNextId();
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
     protected StatsCategoryDesc categoryDesc;
@@ -65,6 +68,22 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         this.granularityDesc = granularityDesc;
         this.categoryDesc = categoryDesc;
         this.statsTypeList = statsTypeList;
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    protected void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    protected void writeUnlock() {
+        lock.writeLock().unlock();
     }
 
     public long getId() {
@@ -103,42 +122,62 @@ public class StatisticsTask implements Callable<StatisticsTaskResult> {
         return this.startTime;
     }
 
-    public void setStartTime(long startTime) {
-        this.startTime = startTime;
-    }
-
     public long getFinishTime() {
         return this.finishTime;
     }
 
-    public void setFinishTime(long finishTime) {
-        this.finishTime = finishTime;
-    }
-
+    /**
+     * Different statistics implement different collection methods.
+     *
+     * @return true if this task is finished, false otherwise
+     * @throws Exception
+     */
     @Override
-    public StatisticsTaskResult call() throws Exception {
-        LOG.warn("execute invalid statistics task.");
-        return null;
-    }
+    public abstract StatisticsTaskResult call() throws Exception;
 
-    public synchronized void updateTaskState(StatisticsTask.TaskState taskState) {
-        // PENDING -> RUNNING/FAILED
-        if (this.taskState == TaskState.PENDING) {
+    public void updateTaskState(TaskState newState) throws IllegalStateException{
+        LOG.info("To change statistics task(id={}) state from {} to {}", id, taskState, newState);
+        writeLock();
+
+        try {
+            // PENDING -> RUNNING/FAILED
+            if (taskState == TaskState.PENDING) {
+                if (newState == TaskState.RUNNING) {
+                    taskState = newState;
+                    // task start running, set start time
+                    startTime = System.currentTimeMillis();
+                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
+                } else if (newState == TaskState.FAILED) {
+                    taskState = newState;
+                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
+                } else {
+                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
+                    throw new IllegalStateException("Invalid task state transition from PENDING to " + newState);
+                }
+                return;
+            }
+
+            // RUNNING -> FINISHED/FAILED
             if (taskState == TaskState.RUNNING) {
-                this.taskState = TaskState.RUNNING;
-            } else if (taskState == TaskState.FAILED) {
-                this.taskState = TaskState.FAILED;
+                if (newState == TaskState.FINISHED) {
+                    // set finish time
+                    finishTime = System.currentTimeMillis();
+                    taskState = newState;
+                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
+                } else if (newState == TaskState.FAILED) {
+                    taskState = newState;
+                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
+                } else {
+                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
+                    throw new IllegalStateException("Invalid task state transition from RUNNING to " + newState);
+                }
             }
-            return;
-        }
 
-        // RUNNING -> FINISHED/FAILED
-        if (this.taskState == TaskState.RUNNING) {
-            if (taskState == TaskState.FINISHED) {
-                this.taskState = TaskState.FINISHED;
-            } else if (taskState == TaskState.FAILED) {
-                this.taskState = TaskState.FAILED;
-            }
+            LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
+            throw new IllegalStateException("Invalid task state transition from " + taskState + " to " + newState);
+        } finally {
+            writeUnlock();
+            LOG.info("Statistics task(id={}) current state is {}", id, taskState);
         }
     }
 }

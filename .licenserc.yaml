@@ -32,6 +32,7 @@ header:
     - '**/*.md5'
     - '**/*.patch'
     - '**/*.log'
+    - '**/*.sql'
     - 'tsan_suppressions'
     - 'docs/.markdownlintignore'
     - 'fe/fe-core/src/test/resources/data/net_snmp_normal'
@@ -52,8 +53,6 @@ header:
     - 'be/src/util/sse2neon.h'
     - 'be/src/util/utf8_check.cpp'
     - 'build-support/run_clang_format.py'
-    - 'regression-test/common'
-    - 'regression-test/suites'
     - 'regression-test/data'
 
   comment: on-failure

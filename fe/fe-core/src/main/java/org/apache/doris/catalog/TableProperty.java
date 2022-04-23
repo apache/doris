@@ -72,6 +72,9 @@ public class TableProperty implements Writable {
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
+    // remote storage resource, for cold data
+    private String remoteStorageResource;
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
     }
@@ -98,6 +101,18 @@ public class TableProperty implements Writable {
                 break;
             default:
                 break;
+        }
+        return this;
+    }
+
+    /**
+     * Reset properties to correct values.
+     * @return this for chained
+     */
+    public TableProperty resetPropertiesForRestore() {
+        if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
+            properties.put(DynamicPartitionProperty.ENABLE, "false");
+            executeBuildDynamicProperty();
         }
         return this;
     }
@@ -147,6 +162,11 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildRemoteStorageResource() {
+        remoteStorageResource = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, "");
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
         removeDuplicateReplicaNumProperty();
@@ -162,6 +182,12 @@ public class TableProperty implements Writable {
         // set it to "properties" so that this info can be persisted
         properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
                 replicaAlloc.toCreateStmt());
+    }
+
+    public void setRemoteStorageResource(String resourceName) {
+        this.remoteStorageResource = resourceName;
+        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE,
+                resourceName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -202,6 +228,10 @@ public class TableProperty implements Writable {
         return dataSortInfo;
     }
 
+    public String getRemoteStorageResource() {
+        return remoteStorageResource;
+    }
+
     public void buildReplicaAllocation() {
         try {
             // Must copy the properties because "analyzeReplicaAllocation" with remove the property
@@ -225,7 +255,8 @@ public class TableProperty implements Writable {
                 .executeBuildDynamicProperty()
                 .buildInMemory()
                 .buildStorageFormat()
-                .buildDataSortInfo();
+                .buildDataSortInfo()
+                .buildRemoteStorageResource();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

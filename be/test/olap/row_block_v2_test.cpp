@@ -131,43 +131,37 @@ TEST_F(TestRowBlockV2, test_convert) {
     RowCursor helper;
     helper.init(tablet_schema);
     auto st = input_block.convert_to_row_block(&helper, &output_block);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(5, output_block.limit());
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(5, output_block.limit());
     for (int i = 0; i < 5; ++i) {
         char* field1 = output_block.field_ptr(i, 0);
         char* field2 = output_block.field_ptr(i, 1);
         char* field3 = output_block.field_ptr(i, 2);
         char* field4 = output_block.field_ptr(i, 3);
         // test null bit
-        ASSERT_FALSE(*reinterpret_cast<bool*>(field1));
-        ASSERT_FALSE(*reinterpret_cast<bool*>(field2));
-        ASSERT_FALSE(*reinterpret_cast<bool*>(field3));
-        ASSERT_FALSE(*reinterpret_cast<bool*>(field4));
+        EXPECT_FALSE(*reinterpret_cast<bool*>(field1));
+        EXPECT_FALSE(*reinterpret_cast<bool*>(field2));
+        EXPECT_FALSE(*reinterpret_cast<bool*>(field3));
+        EXPECT_FALSE(*reinterpret_cast<bool*>(field4));
 
         uint64_t k1 = *reinterpret_cast<uint64_t*>(field1 + 1);
-        ASSERT_EQ((i + 1) * 10, k1);
+        EXPECT_EQ((i + 1) * 10, k1);
 
         Slice k2 = *reinterpret_cast<Slice*>(field2 + 1);
         char buf[10];
         memset(buf, 'a' + ((i + 1) * 10) % 10, 10);
         Slice k2_v(buf, 10);
-        ASSERT_EQ(k2_v, k2);
+        EXPECT_EQ(k2_v, k2);
 
         Slice k3 = *reinterpret_cast<Slice*>(field3 + 1);
         char buf2[10];
         memset(buf2, 'A' + ((i + 1) * 10) % 10, 10);
         Slice k3_v(buf2, 10);
-        ASSERT_EQ(k3_v, k3);
+        EXPECT_EQ(k3_v, k3);
 
         uint32_t v1 = *reinterpret_cast<uint32_t*>(field4 + 1);
-        ASSERT_EQ((i + 1) * 10 * 10, v1);
+        EXPECT_EQ((i + 1) * 10 * 10, v1);
     }
 }
 
 } // namespace doris
-
-// @brief Test Stub
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

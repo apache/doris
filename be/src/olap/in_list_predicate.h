@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
-#define DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H
+#pragma once
 
 #include <parallel_hashmap/phmap.h>
 #include <stdint.h>
@@ -107,5 +106,3 @@ IN_LIST_PRED_CLASS_DEFINE(InListPredicate, IN_LIST)
 IN_LIST_PRED_CLASS_DEFINE(NotInListPredicate, NO_IN_LIST)
 
 } //namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_IN_LIST_PREDICATE_H

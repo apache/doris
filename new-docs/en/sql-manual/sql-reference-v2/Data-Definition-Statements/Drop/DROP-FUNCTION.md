@@ -26,13 +26,36 @@ under the License.
 
 ## DROP-FUNCTION
 
+### Name
+
+DROP FUNCTION
+
 ### Description
+
+Delete a custom function. Function names and parameter types are exactly the same to be deleted.
+
+grammar:
+
+```sql
+DROP FUNCTION function_name
+     (arg_type [, ...])
+````
+
+Parameter Description:
+
+- `function_name`: the name of the function to delete
+- `arg_type`: the argument list of the function to delete
 
 ### Example
 
+1. Delete a function
+
+    ```sql
+    DROP FUNCTION my_add(INT, INT)
+    ````
+
 ### Keywords
 
-    DROP, FUNCTION
+     DROP, FUNCTION
 
 ### Best Practice
-

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
+#pragma once
 
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
@@ -70,27 +69,27 @@ public:
     // The old interface is still preserved, maybe it will be used?
     static StorageByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
 
-    inline uint64_t capacity() const { return _capacity; }
+    uint64_t capacity() const { return _capacity; }
 
-    inline uint64_t position() const { return _position; }
+    uint64_t position() const { return _position; }
     // Set the position of the internal pointer
-    // If the new position is greater than or equal to limit, return OLAP_ERR_INPUT_PARAMETER_ERROR
-    OLAPStatus set_position(uint64_t new_position) {
+    // If the new position is greater than or equal to limit, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+    Status set_position(uint64_t new_position) {
         if (new_position <= _limit) {
             _position = new_position;
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
     }
 
-    inline uint64_t limit() const { return _limit; }
+    uint64_t limit() const { return _limit; }
     //set new limit
-    //If limit is greater than capacity, return OLAP_ERR_INPUT_PARAMETER_ERROR
+    //If limit is greater than capacity, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
     //If position is greater than the new limit, set position equal to limit
-    OLAPStatus set_limit(uint64_t new_limit) {
+    Status set_limit(uint64_t new_limit) {
         if (new_limit > _capacity) {
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         _limit = new_limit;
@@ -99,10 +98,10 @@ public:
             _position = _limit;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    inline uint64_t remaining() const { return _limit - _position; }
+    uint64_t remaining() const { return _limit - _position; }
 
     // Set limit to current position
     // set position to 0
@@ -116,62 +115,62 @@ public:
     // The following three read functions are inline optimized
 
     // Read one byte of data, increase position after completion
-    inline OLAPStatus get(char* result) {
+    Status get(char* result) {
         if (OLAP_LIKELY(_position < _limit)) {
             *result = _array[_position++];
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
     }
 
     // Read one byte of data at the specified location
-    inline OLAPStatus get(uint64_t index, char* result) {
+    Status get(uint64_t index, char* result) {
         if (OLAP_LIKELY(index < _limit)) {
             *result = _array[index];
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
     }
 
     // Read a piece of data of length length to dst, and increase the position after completion
-    inline OLAPStatus get(char* dst, uint64_t dst_size, uint64_t length) {
+    Status get(char* dst, uint64_t dst_size, uint64_t length) {
         // Not enough data to read
         if (OLAP_UNLIKELY(length > remaining())) {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
 
         // dst is not big enough
         if (OLAP_UNLIKELY(length > dst_size)) {
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
 
         memory_copy(dst, &_array[_position], length);
         _position += length;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // Read dst_size long data to dst
-    inline OLAPStatus get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
+    Status get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
 
     // Write a byte, increment position when done
-    // If position >= limit before writing, return OLAP_ERR_BUFFER_OVERFLOW
-    OLAPStatus put(char src);
+    // If position >= limit before writing, return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW)
+    Status put(char src);
 
     // Write data at the index position without changing the position
     // Returns:
-    //   OLAP_ERR_BUFFER_OVERFLOW : index >= limit
-    OLAPStatus put(uint64_t index, char src);
+    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) : index >= limit
+    Status put(uint64_t index, char src);
 
     // Read length bytes from &src[offset], write to buffer, and increase position after completion
     // Returns:
-    //   OLAP_ERR_BUFFER_OVERFLOW: remaining() < length
-    //   OLAP_ERR_OUT_OF_BOUND: offset + length > src_size
-    OLAPStatus put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
+    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW): remaining() < length
+    //   Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND): offset + length > src_size
+    Status put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
 
     // write a set of data
-    OLAPStatus put(const char* src, uint64_t src_size) { return put(src, src_size, 0, src_size); }
+    Status put(const char* src, uint64_t src_size) { return put(src, src_size, 0, src_size); }
 
     // Returns the char array inside the ByteBuffer
     const char* array() const { return _array; }
@@ -209,4 +208,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
+

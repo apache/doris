@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AggregateInfo.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -452,10 +455,17 @@ public final class AggregateInfo extends AggregateInfoBase {
         for (int i = 0; i < getAggregateExprs().size(); ++i) {
             FunctionCallExpr inputExpr = getAggregateExprs().get(i);
             Preconditions.checkState(inputExpr.isAggregateFunction());
-            Expr aggExprParam =
-                    new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
+            List<Expr> paramExprs = new ArrayList<>();
+            // TODO(zhannngchen), change intermediate argument to a list, and remove this
+            // ad-hoc logic
+            if (inputExpr.fn.functionName().equals("max_by") ||
+                    inputExpr.fn.functionName().equals("min_by")) {
+                paramExprs.addAll(inputExpr.getFnParams().exprs());
+            } else {
+                paramExprs.add(new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size())));
+            }
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam));
+                    inputExpr, paramExprs);
             aggExpr.analyzeNoThrow(analyzer);
             aggExprs.add(aggExpr);
         }

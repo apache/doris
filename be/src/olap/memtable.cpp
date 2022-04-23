@@ -31,13 +31,14 @@ namespace doris {
 
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-                   KeysType keys_type, RowsetWriter* rowset_writer)
+                   KeysType keys_type, RowsetWriter* rowset_writer,
+                   const std::shared_ptr<MemTracker>& parent_tracker)
         : _tablet_id(tablet_id),
           _schema(schema),
           _tablet_schema(tablet_schema),
           _slot_descs(slot_descs),
           _keys_type(keys_type),
-          _mem_tracker(MemTracker::create_tracker(-1, "MemTable")),
+          _mem_tracker(MemTracker::create_tracker(-1, "MemTable", parent_tracker)),
           _buffer_mem_pool(new MemPool(_mem_tracker.get())),
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
@@ -123,14 +124,14 @@ void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_
     }
 }
 
-OLAPStatus MemTable::flush() {
+Status MemTable::flush() {
     VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
-        OLAPStatus st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
+        Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
+        if (st == Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED)) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list);
@@ -149,10 +150,10 @@ OLAPStatus MemTable::flush() {
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
     VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
                   << ", flushsize: " << _flush_size;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus MemTable::close() {
+Status MemTable::close() {
     return flush();
 }
 

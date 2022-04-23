@@ -193,17 +193,7 @@ message PFunction {
 }
 
 message PFunctionContext {
-    optional string version = 1 [default = "V2_0"];
-    repeated PValue staging_input_vals = 2;
-    repeated PValue constant_args = 3;
-    optional string error_msg = 4;
-    optional PUniqueId query_id = 5;
-    optional bytes thread_local_fn_state = 6;
-    optional bytes fragment_local_fn_state = 7;
-    optional string string_result = 8;
-    optional int64 num_updates = 9;
-    optional int64 num_removes = 10;
-    optional int64 num_warnings = 11;
+    optional bytes data = 1;
 }
 
 message PHandShakeRequest {

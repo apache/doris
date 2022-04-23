@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROW_BLOCK_H
-#define DORIS_BE_SRC_OLAP_ROW_BLOCK_H
+#pragma once
 
 #include <exception>
 #include <iterator>
@@ -67,19 +66,19 @@ public:
     // 目前只考虑定长，因此在函数可以分配内存资源。
     void init(const RowBlockInfo& block_info);
 
-    inline void get_row(uint32_t row_index, RowCursor* cursor) const {
+    void get_row(uint32_t row_index, RowCursor* cursor) const {
         cursor->attach(_mem_buf + row_index * _mem_row_bytes);
     }
 
     // TODO(yingchun): why not use _pos directly?
 
     template <typename RowType>
-    inline void set_row(uint32_t row_index, const RowType& row) const {
+    void set_row(uint32_t row_index, const RowType& row) const {
         memcpy(_mem_buf + row_index * _mem_row_bytes, row.row_ptr(), _mem_row_bytes);
     }
 
     // called when finished fill this row_block
-    OLAPStatus finalize(uint32_t row_num);
+    Status finalize(uint32_t row_num);
 
     const uint32_t row_num() const { return _info.row_num; }
     const RowBlockInfo& row_block_info() const { return _info; }
@@ -88,7 +87,7 @@ public:
 
     // Return field pointer, this pointer point to the nullbyte before the field
     // layout is nullbyte|Field
-    inline char* field_ptr(size_t row, size_t col) const {
+    char* field_ptr(size_t row, size_t col) const {
         return _mem_buf + _mem_row_bytes * row + _field_offset_in_memory[col];
     }
 
@@ -142,4 +141,3 @@ private:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROW_BLOCK_H

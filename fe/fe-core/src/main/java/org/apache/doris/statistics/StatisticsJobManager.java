@@ -28,13 +28,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -141,38 +139,6 @@ public class StatisticsJobManager {
         if (unfinishedJobs > Config.cbo_max_statistics_job_num) {
             throw new AnalysisException("The unfinished statistics job could not more than cbo_max_statistics_job_num: " +
                     Config.cbo_max_statistics_job_num);
-        }
-    }
-
-    public void alterStatisticsJobInfo(Long jobId, Long taskId, String errorMsg)  {
-        StatisticsJob statisticsJob = this.idToStatisticsJob.get(jobId);
-        if (statisticsJob == null) {
-            return;
-        }
-        writeLock();
-        try {
-            List<StatisticsTask> tasks = statisticsJob.getTasks();
-            for (StatisticsTask task : tasks) {
-                if (taskId == task.getId()) {
-                    if (Strings.isNullOrEmpty(errorMsg)) {
-                        int progress = statisticsJob.getProgress() + 1;
-                        statisticsJob.setProgress(progress);
-                        if (progress == statisticsJob.getTasks().size()) {
-                            statisticsJob.setFinishTime(System.currentTimeMillis());
-                            statisticsJob.updateJobState(StatisticsJob.JobState.FINISHED);
-                        }
-                        task.setFinishTime(System.currentTimeMillis());
-                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
-                    } else {
-                        statisticsJob.getErrorMsgs().add(errorMsg);
-                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
-                        statisticsJob.updateJobState(StatisticsJob.JobState.FAILED);
-                    }
-                    return;
-                }
-            }
-        } finally {
-            writeUnlock();
         }
     }
 }

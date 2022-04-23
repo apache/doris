@@ -234,10 +234,7 @@ public class Column implements Writable {
     public PrimitiveType getDataType() { return type.getPrimitiveType(); }
 
     public Type getType() {
-        if (type.isArrayType() || type.isMapType() || type.isStructType()) {
-            return type;
-        }
-	    return ScalarType.createType(type.getPrimitiveType());
+        return type;
     }
 
     public void setType(Type type) {

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
+#pragma once
 
 #include <vector>
 
@@ -35,7 +34,7 @@ public:
     ~BloomFilterIndexReader();
 
     // Init BloomFilterIndexReader with given bloom filter index buffer
-    OLAPStatus init(char* buffer, size_t buffer_size, bool is_using_cache,
+    Status init(char* buffer, size_t buffer_size, bool is_using_cache,
                     uint32_t hash_function_num, uint32_t bit_num);
 
     // Get specified bloom filter entry
@@ -65,4 +64,4 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_READER_H
+

@@ -37,6 +37,7 @@
 #include "olap/tablet.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
+#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -59,7 +60,8 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
-OLAPStatus EngineBatchLoadTask::execute() {
+Status EngineBatchLoadTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {
@@ -78,17 +80,16 @@ OLAPStatus EngineBatchLoadTask::execute() {
             }
         }
     } else if (_push_req.push_type == TPushType::DELETE) {
-        OLAPStatus delete_data_status = _delete_data(_push_req, _tablet_infos);
-        if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld", delete_data_status,
-                             _signature);
-            status = Status::InternalError("Delete data failed");
+        Status delete_data_status = _delete_data(_push_req, _tablet_infos);
+        if (delete_data_status != Status::OK()) {
+            LOG(WARNING) << "delete data failed. status:" << delete_data_status << " signature:" << _signature;
+            status = delete_data_status;
         }
     } else {
         status = Status::InvalidArgument("Not support task type");
     }
     *_res_status = status;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 Status EngineBatchLoadTask::_init() {
@@ -255,13 +256,13 @@ Status EngineBatchLoadTask::_process() {
     if (status.ok()) {
         // Load delta file
         time_t push_begin = time(nullptr);
-        OLAPStatus push_status = _push(_push_req, _tablet_infos);
+        Status push_status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
-        if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        if (push_status == Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
             status = Status::OK();
-        } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
-            status = Status::InternalError("Unknown");
+        } else if (push_status != Status::OK()) {
+            status = push_status;
         }
     }
 
@@ -275,9 +276,9 @@ Status EngineBatchLoadTask::_process() {
     return status;
 }
 
-OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
+Status EngineBatchLoadTask::_push(const TPushReq& request,
                                       std::vector<TTabletInfo>* tablet_info_vec) {
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     LOG(INFO) << "begin to process push. "
               << " transaction_id=" << request.transaction_id << " tablet_id=" << request.tablet_id
               << ", version=" << request.version;
@@ -285,7 +286,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     if (tablet_info_vec == nullptr) {
         LOG(WARNING) << "invalid output parameter which is nullptr pointer.";
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
@@ -294,7 +295,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     PushType type = PUSH_NORMAL;
@@ -314,11 +315,11 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     } else {
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+            res = Status::OLAPInternalError(OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED);
         }
     }
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to push delta, "
                      << "transaction_id=" << request.transaction_id
                      << " tablet=" << tablet->full_name()
@@ -337,16 +338,16 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     return res;
 }
 
-OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
+Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                              std::vector<TTabletInfo>* tablet_info_vec) {
     VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
 
     if (tablet_info_vec == nullptr) {
         LOG(WARNING) << "invalid tablet info parameter which is nullptr pointer.";
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     // 1. Get all tablets with same tablet_id
@@ -355,7 +356,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // 2. Process delete data by push interface
@@ -364,14 +365,12 @@ OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
         res = push_handler.process_streaming_ingestion(tablet, request, PUSH_FOR_DELETE,
                                                        tablet_info_vec);
     } else {
-        res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+        res = Status::OLAPInternalError(OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED);
     }
 
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING(
-                "fail to push empty version for delete data. "
-                "[res=%d tablet='%s']",
-                res, tablet->full_name().c_str());
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to push empty version for delete data. "
+                    << "res=" << res << "tablet=" << tablet->full_name();
         DorisMetrics::instance()->delete_requests_failed->increment(1);
         return res;
     }

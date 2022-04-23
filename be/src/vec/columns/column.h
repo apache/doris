@@ -66,7 +66,7 @@ public:
 
     /// If column isn't ColumnDictionary, return itself.
     /// If column is ColumnDictionary, transforms is to predicate column.
-    virtual Ptr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
+    virtual MutablePtr convert_to_predicate_column_if_dictionary() { return get_ptr(); }
 
     /// If column is ColumnDictionary, and is a range comparison predicate, convert dict encoding
     virtual void convert_dict_codes_if_necessary() {}

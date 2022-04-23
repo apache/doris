@@ -392,6 +392,10 @@ public class AggregateFunction extends Function {
             this.removeFnSymbol = symbol;
             return this;
         }
+        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
+            this.binaryType = binaryType;
+            return this;
+        }
 
         public AggregateFunction build() {
             AggregateFunction fn = new AggregateFunction(name, argTypes, retType, hasVarArgs, intermediateType,
@@ -442,8 +446,8 @@ public class AggregateFunction extends Function {
         }
 
         sb.append(" PROPERTIES (")
-                .append("\n  \"INIT_FN\"=\"" + getUpdateFnSymbol() + "\"")
-                .append(",\n  \"UPDATE_FN\"=\"" + getInitFnSymbol() + "\"")
+                .append("\n  \"INIT_FN\"=\"" + getInitFnSymbol() + "\"")
+                .append(",\n  \"UPDATE_FN\"=\"" + getUpdateFnSymbol() + "\"")
                 .append(",\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\"");
         if (getSerializeFnSymbol() != null) {
             sb.append(",\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\"");

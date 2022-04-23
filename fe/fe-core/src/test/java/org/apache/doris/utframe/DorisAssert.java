@@ -191,6 +191,8 @@ public class DorisAssert {
 
         private String internalExecute(String sql) throws Exception {
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+            connectContext.setExecutor(stmtExecutor);
+            ConnectContext.get().setExecutor(stmtExecutor);
             stmtExecutor.execute();
             QueryState queryState = connectContext.getState();
             if (queryState.getStateType() == QueryState.MysqlStateType.ERR) {

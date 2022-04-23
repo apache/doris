@@ -57,23 +57,38 @@ public:
 
     // read next range into [*from, *to) whose size <= max_range_size.
     // return false when there is no more range.
-    bool next_range(uint32_t max_range_size, uint32_t* from, uint32_t* to) {
+    bool next_range(const uint32_t max_range_size, uint32_t* from, uint32_t* to) {
         if (_eof) {
             return false;
         }
+
         *from = _buf[_buf_pos];
-        uint32_t range_size = 0, last_val;
-        do {
-            last_val = _buf[_buf_pos];
-            _buf_pos++;
-            range_size++;
-            if (UNLIKELY(_buf_pos == _buf_size)) { // read next batch
-                _read_next_batch();
-                if (_eof) {
-                    break;
-                }
-            }
-        } while (range_size < max_range_size && _buf[_buf_pos] == last_val + 1);
+        uint32_t range_size = 0;
+        uint32_t expect_val = _buf[_buf_pos]; // this initial value just make first batch valid
+
+        // if array is contiguous sequence then the following conditions need to be met :
+        // a_0: x
+        // a_1: x+1
+        // a_2: x+2
+        // ...
+        // a_p: x+p
+        // so we can just use (a_p-a_0)-p to check conditions
+        // and should notice the previous batch needs to be continuous with the current batch
+        while (!_eof && range_size + _buf_size - _buf_pos <= max_range_size &&
+               expect_val == _buf[_buf_pos] &&
+               _buf[_buf_size - 1] - _buf[_buf_pos] == _buf_size - 1 - _buf_pos) {
+            range_size += _buf_size - _buf_pos;
+            expect_val = _buf[_buf_size - 1] + 1;
+            _read_next_batch();
+        }
+
+        // promise remain range not will reach next batch
+        if (!_eof && range_size < max_range_size && expect_val == _buf[_buf_pos]) {
+            do {
+                _buf_pos++;
+                range_size++;
+            } while (range_size < max_range_size && _buf[_buf_pos] == _buf[_buf_pos - 1] + 1);
+        }
         *to = *from + range_size;
         return true;
     }
@@ -647,8 +662,10 @@ void SegmentIterator::_vec_init_lazy_materialization() {
                     // todo(wb) make a cost-based lazy-materialization framework
                     // check non-pred column type to decide whether using lazy-materialization
                     FieldType type = _schema.column(cid)->type();
-                    if (_is_all_column_basic_type && (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT 
-                            || type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_STRING)) {
+                    if (_is_all_column_basic_type &&
+                        (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+                         type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
+                         type == OLAP_FIELD_TYPE_STRING)) {
                         _is_all_column_basic_type = false;
                     }
                 }
@@ -732,17 +749,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
 
 void SegmentIterator::_init_current_block(
         vectorized::Block* block, std::vector<vectorized::MutableColumnPtr>& current_columns) {
-    bool is_block_mem_reuse = block->mem_reuse();
-    if (is_block_mem_reuse) {
-        block->clear_column_data(_schema.num_column_ids());
-    } else { // pre fill output block here
-        for (size_t i = 0; i < _schema.num_column_ids(); i++) {
-            auto cid = _schema.column_id(i);
-            auto column_desc = _schema.column(cid);
-            auto data_type = Schema::get_data_type_ptr(*column_desc);
-            block->insert({nullptr, std::move(data_type), column_desc->name()});
-        }
-    }
+    block->clear_column_data(_schema.num_column_ids());
 
     for (size_t i = 0; i < _schema.num_column_ids(); i++) {
         auto cid = _schema.column_id(i);
@@ -751,12 +758,8 @@ void SegmentIterator::_init_current_block(
         if (_is_pred_column[cid]) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
-            if (is_block_mem_reuse) {
-                current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-            } else {
-                auto data_type = Schema::get_data_type_ptr(*column_desc);
-                current_columns[cid] = data_type->create_column();
-            }
+            current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
@@ -767,7 +770,7 @@ void SegmentIterator::_init_current_block(
     }
 }
 
-void SegmentIterator::_output_non_pred_columns(vectorized::Block* block, bool is_block_mem_reuse) {
+void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
     for (auto cid : _non_predicate_columns) {
         block->replace_by_position(_schema_block_id_map[cid],
@@ -892,6 +895,8 @@ void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column
 
 Status SegmentIterator::next_batch(vectorized::Block* block) {
     bool is_mem_reuse = block->mem_reuse();
+    DCHECK(is_mem_reuse);
+
     SCOPED_RAW_TIMER(&_opts.stats->block_load_ns);
     if (UNLIKELY(!_inited)) {
         RETURN_IF_ERROR(_init(true));
@@ -926,24 +931,15 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             // todo(wb) abstract make column where
             if (!_is_pred_column[cid]) { // non-predicate
                 block->replace_by_position(i, std::move(_current_return_columns[cid]));
-            } else { // predicate
-                if (!is_mem_reuse) {
-                    auto column_desc = _schema.column(cid);
-                    auto data_type = Schema::get_data_type_ptr(*column_desc);
-                    block->replace_by_position(i, data_type->create_column());
-                }
             }
         }
-        // not sure whether block is clear before enter segmentIter, so clear it here.
-        if (is_mem_reuse) {
-            block->clear_column_data();
-        }
+        block->clear_column_data();
         return Status::EndOfFile("no more data in segment");
     }
 
     // when no predicate(include delete condition) is provided, output column directly
     if (_vec_pred_column_ids.empty() && _short_cir_pred_column_ids.empty()) {
-        _output_non_pred_columns(block, is_mem_reuse);
+        _output_non_pred_columns(block);
     } else { // need predicate evaluation
         uint16_t selected_size = nrows_read;
         uint16_t sel_rowid_idx[selected_size];
@@ -955,7 +951,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // So output block directly after vectorization evaluation
         if (_is_all_column_basic_type) {
             RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                      selected_size, is_mem_reuse));
+                                                      selected_size));
         } else {
             // step 2: evaluate short ciruit predicate
             // todo(wb) research whether need to read short predicate after vectorization evaluation
@@ -971,7 +967,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
             // step4: output columns
             // 4.1 output non-predicate column
-            _output_non_pred_columns(block, is_mem_reuse);
+            _output_non_pred_columns(block);
 
             // 4.2 get union of short_cir_pred and vec_pred
             std::set<ColumnId> pred_column_ids;
@@ -981,7 +977,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
             // 4.3 output short circuit and predicate column
             RETURN_IF_ERROR(_output_column_by_sel_idx(block, pred_column_ids, sel_rowid_idx,
-                                                      selected_size, is_mem_reuse));
+                                                      selected_size));
         }
     }
 

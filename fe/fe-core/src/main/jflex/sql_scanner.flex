@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/fe/src/main/jflex/sql-scanner.flex
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -164,6 +167,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("delete", new Integer(SqlParserSymbols.KW_DELETE));
         keywordMap.put("desc", new Integer(SqlParserSymbols.KW_DESC));
         keywordMap.put("describe", new Integer(SqlParserSymbols.KW_DESCRIBE));
+        keywordMap.put("diagnose", new Integer(SqlParserSymbols.KW_DIAGNOSE));
         keywordMap.put("distinct", new Integer(SqlParserSymbols.KW_DISTINCT));
         keywordMap.put("distinctpc", new Integer(SqlParserSymbols.KW_DISTINCTPC));
         keywordMap.put("distinctpc", new Integer(SqlParserSymbols.KW_DISTINCTPC));

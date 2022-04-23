@@ -19,6 +19,7 @@
 
 #include "olap/schema_change.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -34,13 +35,14 @@ EngineAlterTabletTask::EngineAlterTabletTask(const TAlterTabletReqV2& request)
             StorageEngine::instance()->schema_change_mem_tracker(), MemTrackerLevel::TASK);
 }
 
-OLAPStatus EngineAlterTabletTask::execute() {
+Status EngineAlterTabletTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
     DorisMetrics::instance()->create_rollup_requests_total->increment(1);
 
     auto schema_change_handler = SchemaChangeHandler::instance();
-    OLAPStatus res = schema_change_handler->process_alter_tablet_v2(_alter_tablet_req);
+    Status res = schema_change_handler->process_alter_tablet_v2(_alter_tablet_req);
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "failed to do alter task. res=" << res
                      << " base_tablet_id=" << _alter_tablet_req.base_tablet_id
                      << ", base_schema_hash=" << _alter_tablet_req.base_schema_hash

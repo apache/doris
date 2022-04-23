@@ -30,19 +30,14 @@ public:
 TEST_F(Md5Test, empty) {
     Md5Digest digest;
     digest.digest();
-    ASSERT_STREQ("d41d8cd98f00b204e9800998ecf8427e", digest.hex().c_str());
+    EXPECT_STREQ("d41d8cd98f00b204e9800998ecf8427e", digest.hex().c_str());
 }
 
 TEST_F(Md5Test, normal) {
     Md5Digest digest;
     digest.update("abcdefg", 7);
     digest.digest();
-    ASSERT_STREQ("7ac66c0f148de9519b8bd264312c4d64", digest.hex().c_str());
+    EXPECT_STREQ("7ac66c0f148de9519b8bd264312c4d64", digest.hex().c_str());
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

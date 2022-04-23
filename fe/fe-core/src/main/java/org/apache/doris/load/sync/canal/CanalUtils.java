@@ -116,7 +116,7 @@ public class CanalUtils {
 
     public static void printRow(CanalEntry.RowChange rowChange, CanalEntry.Header header) {
         long executeTime = header.getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.EventType eventType = rowChange.getEventType();
         logger.info(row_format, header.getLogfileName(),
@@ -187,7 +187,7 @@ public class CanalUtils {
 
     public static void transactionBegin(CanalEntry.Entry entry) {
         long executeTime = entry.getHeader().getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.TransactionBegin begin = null;
         try {
@@ -206,7 +206,7 @@ public class CanalUtils {
 
     public static void transactionEnd(CanalEntry.Entry entry) {
         long executeTime = entry.getHeader().getExecuteTime();
-        long delayTime = new Date().getTime() - executeTime;
+        long delayTime = System.currentTimeMillis() - executeTime;
         Date date = new Date(executeTime);
         CanalEntry.TransactionEnd end = null;
         try {

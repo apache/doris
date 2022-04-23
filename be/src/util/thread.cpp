@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.cc
+// and modified by Doris
 
 #include "thread.h"
 
@@ -37,7 +40,6 @@
 #include "olap/olap_define.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/easy_json.h"
-#include "util/mutex.h"
 #include "util/os_util.h"
 #include "util/scoped_cleanup.h"
 #include "util/url_coding.h"
@@ -65,7 +67,7 @@ public:
     ThreadMgr() : _threads_started_metric(0), _threads_running_metric(0) {}
 
     ~ThreadMgr() {
-        MutexLock lock(&_lock);
+        std::unique_lock<std::mutex> lock(_lock);
         _thread_categories.clear();
     }
 
@@ -112,7 +114,7 @@ private:
     typedef std::map<std::string, ThreadCategory> ThreadCategoryMap;
 
     // Protects _thread_categories and thread metrics.
-    mutable Mutex _lock;
+    mutable std::mutex _lock;
 
     // All thread categories that ever contained a thread, even if empty
     ThreadCategoryMap _thread_categories;
@@ -152,7 +154,7 @@ void ThreadMgr::add_thread(const pthread_t& pthread_id, const std::string& name,
     ANNOTATE_IGNORE_SYNC_BEGIN();
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
-        MutexLock l(&_lock);
+        std::unique_lock<std::mutex> l(_lock);
         _thread_categories[category][pthread_id] = ThreadDescriptor(category, name, tid);
         _threads_running_metric++;
         _threads_started_metric++;
@@ -164,7 +166,7 @@ void ThreadMgr::remove_thread(const pthread_t& pthread_id, const std::string& ca
     ANNOTATE_IGNORE_SYNC_BEGIN();
     debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
     {
-        MutexLock l(&_lock);
+        std::unique_lock<std::mutex> l(_lock);
         auto category_it = _thread_categories.find(category);
         DCHECK(category_it != _thread_categories.end());
         category_it->second.erase(pthread_id);
@@ -186,7 +188,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         // imposed on new threads that acquire the lock in write mode.
         std::vector<ThreadDescriptor> descriptors_to_print;
         if (!requested_all) {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             const auto* category = FindOrNull(_thread_categories, *category_name);
             if (!category) {
                 return;
@@ -195,7 +197,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
                 descriptors_to_print.emplace_back(elem.second);
             }
         } else {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             for (const auto& category : _thread_categories) {
                 for (const auto& elem : category.second) {
                     descriptors_to_print.emplace_back(elem.second);
@@ -213,7 +215,7 @@ void ThreadMgr::display_thread_callback(const WebPageHandler::ArgumentMap& args,
         std::vector<pair<string, uint64_t>> thread_categories_info;
         uint64_t running;
         {
-            MutexLock l(&_lock);
+            std::unique_lock<std::mutex> l(_lock);
             running = _threads_running_metric;
             thread_categories_info.reserve(_thread_categories.size());
             for (const auto& category : _thread_categories) {
@@ -483,7 +485,7 @@ Status ThreadJoiner::join() {
 
         int wait_for = std::min(remaining_before_giveup, remaining_before_next_warn);
 
-        if (_thread->_done.wait_for(MonoDelta::FromMilliseconds(wait_for))) {
+        if (_thread->_done.wait_for(std::chrono::milliseconds(wait_for))) {
             // Unconditionally join before returning, to guarantee that any TLS
             // has been destroyed (pthread_key_create() destructors only run
             // after a pthread's user method has returned).

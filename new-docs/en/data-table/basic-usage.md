@@ -29,56 +29,75 @@ under the License.
 
 Doris uses MySQL protocol to communicate. Users can connect to Doris cluster through MySQL client or MySQL JDBC. When selecting the MySQL client version, it is recommended to use the version after 5.1, because user names of more than 16 characters cannot be supported before 5.1. This paper takes MySQL client as an example to show users the basic usage of Doris through a complete process.
 
-## 1 Create Users
+## Create Users
 
-### 1.1 Root User Logon and Password Modification
+### Root User Logon and Password Modification
 
 Doris has built-in root and admin users, and the password is empty by default. After starting the Doris program, you can connect to the Doris cluster through root or admin users.
 Use the following command to log in to Doris:
 
-```
-mysql -h FE_HOST -P9030 -uroot
+```sql
+[root@doris ~]# mysql  -h FE_HOST -P9030 -uroot
+Welcome to the MySQL monitor.  Commands end with ; or \g.
+Your MySQL connection id is 41
+Server version: 5.1.0 Doris version 1.0.0-preview2-b48ee2734
+
+Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+
+Oracle is a registered trademark of Oracle Corporation and/or its
+affiliates. Other names may be trademarks of their respective
+owners.
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+mysql> 
 ```
 
->` fe_host` is the IP address of any FE node. ` 9030 ` is the query_port configuration in fe.conf.
+>` FE_HOST` is the IP address of any FE node. ` 9030 ` is the query_port configuration in fe.conf.
 
 After login, you can modify the root password by following commands
 
-```
-SET PASSWORD FOR 'root' = PASSWORD('your_password');
+```sql
+mysql> SET PASSWORD FOR 'root' = PASSWORD('your_password');
+Query OK, 0 rows affected (0.00 sec)
 ```
 
-### 1.3 Creating New Users
+> `your_password` is a new password for the `root` user, which can be set at will. It is recommended to set a strong password to increase security, and use the new password to log in the next time you log in.
 
-Create an ordinary user with the following command.
+### Creating New Users
 
-```
-CREATE USER 'test' IDENTIFIED BY 'test_passwd';
+We can create a regular user `test` with the following command:
+
+```sql
+mysql> CREATE USER 'test' IDENTIFIED BY 'test_passwd';
+Query OK, 0 rows affected (0.00 sec)
 ```
 
 Follow-up login can be done through the following connection commands.
 
-```
-mysql -h FE_HOST -P9030 -utest -ptest_passwd
+```sql
+[root@doris ~]# mysql -h FE_HOST -P9030 -utest -ptest_passwd
 ```
 
 > By default, the newly created common user does not have any permissions. Permission grants can be referred to later permission grants.
 
-## 2 Data Table Creation and Data Import
+## Data Table Creation and Data Import
 
-### 2.1 Create a database
+### Create a database
 
 Initially, a database can be created through root or admin users:
 
-`CREATE DATABASE example_db;`
+```sql
+CREATE DATABASE example_db;
+```
 
-> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`
-
+> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`.You can also refer to the official website [SHOW CREATE DATABASE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-CREATE-DATABASE.html) command manual.
+>
 > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
-After the database is created, you can view the database information through `SHOW DATABASES'.
+After the database is created, you can view the database information through [SHOW DATABASES](../sql-manual/sql-reference-v2/Show-Statements/SHOW-DATABASES.html#show-databases).
 
-```
+```sql
 MySQL> SHOW DATABASES;
 +--------------------+
 | Database           |
@@ -89,41 +108,29 @@ MySQL> SHOW DATABASES;
 2 rows in set (0.00 sec)
 ```
 
-Information_schema exists to be compatible with MySQL protocol. In practice, information may not be very accurate. Therefore, information about specific databases is suggested to be obtained by directly querying the corresponding databases.
+> Information_schema exists to be compatible with MySQL protocol. In practice, information may not be very accurate. Therefore, information about specific databases is suggested to be obtained by directly querying the corresponding databases.
 
-### 2.2 Account Authorization
+### Account Authorization
 
 After the example_db is created, the read and write permissions of example_db can be authorized to ordinary accounts, such as test, through the root/admin account. After authorization, the example_db database can be operated by logging in with the test account.
 
-`GRANT ALL ON example_db TO test;`
+```sql
+mysql> GRANT ALL ON example_db TO test;
+Query OK, 0 rows affected (0.01 sec)
+```
 
-### 2.3 Formulation
+### Formulation
 
-Create a table using the `CREATE TABLE` command. More detailed parameters can be seen:
+Create a table using the [CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) command. More detailed parameters can be seen:`HELP CREATE TABLE;`
 
-`HELP CREATE TABLE;`
+First, we need to switch databases using the [USE](../sql-manual/sql-reference-v2/Utility-Statements/USE.html) command:
 
-First switch the database:
+```sql
+mysql> USE example_db;
+Database changed
+```
 
-`USE example_db;`
-
-Doris supports single partition and composite partition.
-
-In the composite partition:
-
-* The first level is called Partition, or partition. Users can specify a dimension column as a partition column (currently only integer and time type columns are supported), and specify the range of values for each partition.
-
-* The second stage is called Distribution, or bucket division. Users can specify one or more dimension columns and the number of buckets for HASH distribution of data.
-
-Composite partitioning is recommended for the following scenarios
-
-* There are time dimensions or similar dimensions with ordered values, which can be used as partition columns. The partition granularity can be evaluated according to the frequency of importation and the amount of partition data.
-* Historic data deletion requirements: If there is a need to delete historical data (for example, only the last N days of data are retained). Using composite partitions, you can achieve this by deleting historical partitions. Data can also be deleted by sending a DELETE statement within a specified partition.
-* Solve the data skew problem: Each partition can specify the number of buckets separately. If dividing by day, when the amount of data varies greatly every day, we can divide the data of different partitions reasonably by the number of buckets in the specified partition. Bucket columns recommend choosing columns with high degree of differentiation.
-
-Users can also use no composite partitions, even single partitions. Then the data are only distributed by HASH.
-
-Taking the aggregation model as an example, the following two partitions are illustrated separately.
+Doris supports [composite partition and single partition](data-partition.html#composite partition and single partition)  two table building methods. The following takes the aggregation model as an example to demonstrate how to create two partitioned data tables.
 
 #### Single partition
 
@@ -137,7 +144,7 @@ The schema of this table is as follows:
 * pv: Type is BIGINT (8 bytes), default value is 0; this is an index column, Doris will aggregate the index column internally, the aggregation method of this column is SUM.
 
 The TABLE statement is as follows:
-```
+```sql
 CREATE TABLE table1
 (
     siteid INT DEFAULT '10',
@@ -173,7 +180,7 @@ We use the event_day column as the partition column to create three partitions: 
 Each partition uses siteid to hash buckets, with a bucket count of 10
 
 The TABLE statement is as follows:
-```
+```sql
 CREATE TABLE table2
 (
     event_day DATE,
@@ -195,7 +202,7 @@ PROPERTIES("replication_num" = "1");
 
 After the table is built, you can view the information of the table in example_db:
 
-```
+```sql
 MySQL> SHOW TABLES;
 +----------------------+
 | Tables_in_example_db |
@@ -233,14 +240,14 @@ MySQL> DESC table2;
 >
 > 1. By setting replication_num, the above tables are all single-copy tables. Doris recommends that users adopt the default three-copy settings to ensure high availability.
 > 2. Composite partition tables can be added or deleted dynamically. See the Partition section in `HELP ALTER TABLE`.
-> 3. Data import can import the specified Partition. See `HELP LOAD'.
-> 4. Schema of table can be dynamically modified.
+> 3. Data import can import the specified Partition. See `HELP LOAD;`.
+> 4. Schema of table can be dynamically modified, See `HELP ALTER TABLE;`.
 > 5. Rollup can be added to Table to improve query performance. This section can be referred to the description of Rollup in Advanced Usage Guide.
 > 6. The default value of Null property for column is true, which may result in poor scan performance.
 
-### 2.4 Import data
+### Import data
 
-Doris supports a variety of data import methods. Specifically, you can refer to the data import document. Here we use streaming import and Broker import as examples.
+Doris supports a variety of data import methods. Specifically, you can refer to the [data import](../data-operate/import/load-manual.html) document. Here we use streaming import and Broker import as examples.
 
 #### Flow-in
 
@@ -248,7 +255,7 @@ Streaming import transfers data to Doris via HTTP protocol. It can import local 
 
 Example 1: With "table1_20170707" as Label, import table1 tables using the local file table1_data.
 
-```
+```bash
 curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "column_separator:," -T table1_data http://FE_HOST:8030/api/example_db/table1/_stream_load
 ```
 
@@ -257,7 +264,7 @@ curl --location-trusted -u test:test_passwd -H "label:table1_20170707" -H "colum
 
 The local file `table1_data` takes `,` as the separation between data, and the specific contents are as follows:
 
-```
+```text
 1,1,Jim,2
 2,1,grace,2
 3,2,tom,2
@@ -267,7 +274,7 @@ The local file `table1_data` takes `,` as the separation between data, and the s
 
 Example 2: With "table2_20170707" as Label, import table2 tables using the local file table2_data.
 
-```
+```bash
 curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
@@ -293,7 +300,7 @@ Broker imports import data from external storage through deployed Broker process
 
 Example: Import files on HDFS into table1 table with "table1_20170708" as Label
 
-```
+```sql
 LOAD LABEL table1_20170708
 (
     DATA INFILE("hdfs://your.namenode.host:port/dir/table1_data")
@@ -313,23 +320,27 @@ PROPERTIES
 
 Broker imports are asynchronous commands. Successful execution of the above commands only indicates successful submission of tasks. Successful imports need to be checked through `SHOW LOAD;' Such as:
 
-`SHOW LOAD WHERE LABLE = "table1_20170708";`
+```sql
+SHOW LOAD WHERE LABEL = "table1_20170708";
+```
 
-In the return result, FINISHED in the `State` field indicates that the import was successful.
+In the return result, `FINISHED` in the `State` field indicates that the import was successful.
 
 For more instructions on `SHOW LOAD`, see` HELP SHOW LOAD; `
 
 Asynchronous import tasks can be cancelled before the end:
 
-`CANCEL LOAD WHERE LABEL = "table1_20170708";`
-
-## 3 Data query
-
-### 3.1 Simple Query
-
-Examples:
-
+```sql
+CANCEL LOAD WHERE LABEL = "table1_20170708";
 ```
+
+## Data query
+
+### Simple Query
+
+Query example::
+
+```sql
 MySQL> SELECT * FROM table1 LIMIT 3;
 +--------+----------+----------+------+
 | siteid | citycode | username | pv   |
@@ -353,11 +364,11 @@ MySQL> SELECT * FROM table1 ORDER BY citycode;
 5 rows in set (0.01 sec)
 ```
 
-### 3.3 Join Query
+###  Join Query
 
-Examples:
+Query example::
 
-```
+```sql
 MySQL> SELECT SUM(table1.pv) FROM table1 JOIN table2 WHERE table1.siteid = table2.siteid;
 +--------------------+
 | sum(`table1`.`pv`) |
@@ -367,11 +378,11 @@ MySQL> SELECT SUM(table1.pv) FROM table1 JOIN table2 WHERE table1.siteid = table
 1 row in set (0.20 sec)
 ```
 
-### 3.4 Subquery
+### Subquery
 
-Examples:
+Query example::
 
-```
+```sql
 MySQL> SELECT SUM(pv) FROM table2 WHERE siteid IN (SELECT siteid FROM table1 WHERE siteid > 2);
 +-----------+
 | sum(`pv`) |

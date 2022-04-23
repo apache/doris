@@ -96,7 +96,8 @@ enum TStorageBackendType {
     BROKER,
     S3,
     HDFS,
-    LOCAL
+    LOCAL,
+    OFS
 }
 
 struct TScalarType {
@@ -186,7 +187,8 @@ enum TTaskType {
     ALTER,
     INSTALL_PLUGIN,
     UNINSTALL_PLUGIN,
-    COMPACTION
+    COMPACTION,
+    STORAGE_MEDIUM_MIGRATE_V2
 }
 
 enum TStmtType {
@@ -350,7 +352,7 @@ struct TJavaUdfExecutorCtorParams {
   // call the Java executor with a buffer for all the inputs.
   // input_byte_offsets[0] is the byte offset in the buffer for the first
   // argument; input_byte_offsets[1] is the second, etc.
-  3: optional i64 input_byte_offsets
+  3: optional i64 input_offsets_ptrs
 
   // Native input buffer ptr (cast as i64) for the inputs. The input arguments
   // are written to this buffer directly and read from java with no copies
@@ -365,8 +367,10 @@ struct TJavaUdfExecutorCtorParams {
   // NULL.
   6: optional i64 output_null_ptr
   7: optional i64 output_buffer_ptr
+  8: optional i64 output_offsets_ptr
+  9: optional i64 output_intermediate_state_ptr
 
-  8: optional i64 batch_size_ptr
+  10: optional i64 batch_size_ptr
 }
 
 // Contains all interesting statistics from a single 'memory pool' in the JVM.

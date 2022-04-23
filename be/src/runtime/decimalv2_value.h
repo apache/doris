@@ -77,8 +77,8 @@ public:
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
     DecimalV2Value() = default;
-    inline const int128_t& value() const { return _value; }
-    inline int128_t& value() { return _value; }
+    const int128_t& value() const { return _value; }
+    int128_t& value() { return _value; }
 
     DecimalV2Value(const std::string& decimal_str) {
         parse_from_str(decimal_str.c_str(), decimal_str.size());
@@ -92,7 +92,7 @@ public:
         from_olap_decimal(int_value, frac_value);
     }
 
-    inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
+    bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
         bool success = true;
         bool is_negative = (int_value < 0 || frac_value < 0);
         if (is_negative) {

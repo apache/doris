@@ -267,10 +267,8 @@ public:
         LOG(FATAL) << "should not call the method in column nullable";
     }
 
-    ColumnPtr convert_to_predicate_column_if_dictionary() override {
-        IColumn* nested_ptr = get_nested_column_ptr().get();
-        nested_ptr = (*(std::move(nested_ptr->convert_to_predicate_column_if_dictionary()
-                                  ))).assume_mutable();
+    MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
+        nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
     }
 

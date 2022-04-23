@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/partitioned-aggregation-node.cc
+// and modified by Doris
 
 #include "exec/partitioned_aggregation_node.h"
 
@@ -171,10 +174,10 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
         SlotDescriptor* intermediate_slot_desc = intermediate_tuple_desc_->slots()[j];
         SlotDescriptor* output_slot_desc = output_tuple_desc_->slots()[j];
         AggFn* agg_fn;
-        RETURN_IF_ERROR(AggFn::Create(tnode.agg_node.aggregate_functions[i], row_desc,
+        RETURN_IF_ERROR(AggFn::create(tnode.agg_node.aggregate_functions[i], row_desc,
                                       *intermediate_slot_desc, *output_slot_desc, state, &agg_fn));
         agg_fns_.push_back(agg_fn);
-        needs_serialize_ |= agg_fn->SupportsSerialize();
+        needs_serialize_ |= agg_fn->supports_serialize();
     }
     return Status::OK();
 }
@@ -183,6 +186,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     state_ = state;
 
     mem_pool_.reset(new MemPool(mem_tracker().get()));
@@ -244,6 +248,7 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
 
 Status PartitionedAggregationNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // Open the child before consuming resources in this node.
     RETURN_IF_ERROR(child(0)->open(state));
     RETURN_IF_ERROR(ExecNode::open(state));
@@ -341,6 +346,7 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
 }
 
 Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     // 1. `!need_finalize` means this aggregation node not the level two aggregation node
     // 2. `grouping_exprs_.size() == 0 ` means is not group by
     // 3. `child(0)->rows_returned() == 0` mean not data from child
@@ -713,7 +719,7 @@ Status PartitionedAggregationNode::close(RuntimeState* state) {
     }
     Expr::close(grouping_exprs_);
     Expr::close(build_exprs_);
-    AggFn::Close(agg_fns_);
+    AggFn::close(agg_fns_);
     return ExecNode::close(state);
 }
 
@@ -1099,7 +1105,7 @@ void PartitionedAggregationNode::DebugString(int indentation_level, stringstream
          << "intermediate_tuple_id=" << intermediate_tuple_id_
          << " output_tuple_id=" << output_tuple_id_ << " needs_finalize=" << needs_finalize_
          << " grouping_exprs=" << Expr::debug_string(grouping_exprs_)
-         << " agg_exprs=" << AggFn::DebugString(agg_fns_);
+         << " agg_exprs=" << AggFn::debug_string(agg_fns_);
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
 }

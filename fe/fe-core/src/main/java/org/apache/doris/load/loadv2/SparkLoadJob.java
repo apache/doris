@@ -201,6 +201,13 @@ public class SparkLoadJob extends BulkLoadJob {
 
     @Override
     protected void unprotectedExecuteJob() throws LoadException {
+        try {
+            beginTxn();
+        } catch (UserException e) {
+            LOG.warn("failed to begin transaction for spark load job {}", id, e);
+            throw new LoadException(e.getMessage());
+        }
+
         // create pending task
         LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
                                                  sparkResource, brokerDesc);

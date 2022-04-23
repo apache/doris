@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
@@ -91,6 +92,33 @@ public class OdbcCatalogResource extends Resource {
             throw new DdlException("Missing " + propertiesKey + " in properties");
         }
 
+    }
+
+    @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        // modify properties
+        replaceIfEffectiveValue(this.configs, HOST, properties.get(HOST));
+        replaceIfEffectiveValue(this.configs, PORT, properties.get(PORT));
+        replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
+        replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
+        replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        // check properties
+        copiedProperties.remove(HOST);
+        copiedProperties.remove(PORT);
+        copiedProperties.remove(USER);
+        copiedProperties.remove(PASSWORD);
+        copiedProperties.remove(TYPE);
+        copiedProperties.remove(DRIVER);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown ODBC catalog resource properties: " + copiedProperties);
+        }
     }
 
     public String getProperties(String propertiesKey)  {

@@ -313,8 +313,8 @@ void RunLengthIntegerWriter::_prepare_patched_blob() {
     }
 }
 
-OLAPStatus RunLengthIntegerWriter::_write_short_repeat_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::_write_short_repeat_values() {
+    Status res = Status::OK();
     int64_t repeat_value;
 
     repeat_value = _is_signed ? ser::zig_zag_encode(_literals[0]) : _literals[0];
@@ -330,7 +330,7 @@ OLAPStatus RunLengthIntegerWriter::_write_short_repeat_values() {
     head.run_length = _fixed_run_length - MIN_REPEAT;
 
     res = _output->write((char*)&head, sizeof(head));
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         OLAP_LOG_WARNING("fail to write SHORT_REPEAT head.");
         return res;
     }
@@ -339,18 +339,18 @@ OLAPStatus RunLengthIntegerWriter::_write_short_repeat_values() {
     for (int32_t i = num_bytes_repeat_value - 1; i >= 0; i--) {
         char byte = (char)(((uint64_t)repeat_value >> (i * 8)) & 0xff);
 
-        if (OLAP_SUCCESS != (res = _output->write(byte))) {
+        if (!(res = _output->write(byte))) {
             OLAP_LOG_WARNING("fail to write SHORT_REPEAT data.");
             return res;
         }
     }
 
     _fixed_run_length = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RunLengthIntegerWriter::_write_direct_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::_write_direct_values() {
+    Status res = Status::OK();
     DirectHead head;
 
     head.type = DIRECT;
@@ -358,23 +358,23 @@ OLAPStatus RunLengthIntegerWriter::_write_direct_values() {
     head.set_length(_var_run_length - 1);
 
     res = _output->write((char*)&head, sizeof(head));
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         OLAP_LOG_WARNING("fail to write DIRECT head.");
         return res;
     }
 
     res = ser::write_ints(_output, _zig_zag_literals, _num_literals, _zz_bits_100p);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         OLAP_LOG_WARNING("fail to write DIRECT data.");
         return res;
     }
 
     _var_run_length = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::_write_patched_base_values() {
+    Status res = Status::OK();
     uint32_t bit_width = 0;
     PatchedBaseHead head;
 
@@ -409,8 +409,8 @@ OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
     // write header
     res = _output->write((char*)&head, sizeof(head));
 
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write data.res = " << res;
         return res;
     }
 
@@ -419,8 +419,8 @@ OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
         char byte = ((uint64_t)_min >> (i * 8)) & 0xff;
         res = _output->write(byte);
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to write data.res = " << res;
             return res;
         }
     }
@@ -429,8 +429,8 @@ OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
     bit_width = ser::get_closet_fixed_bits(_br_bits_95p);
     res = ser::write_ints(_output, _base_reduced_literals, _num_literals, bit_width);
 
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write data.res = " << res;
         return res;
     }
 
@@ -438,17 +438,17 @@ OLAPStatus RunLengthIntegerWriter::_write_patched_base_values() {
     bit_width = ser::get_closet_fixed_bits(_patch_gap_width + _patch_width);
     res = ser::write_ints(_output, _gap_vs_patch_list, _patch_length, bit_width);
 
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write data.res = " << res;
         return res;
     }
 
     _var_run_length = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RunLengthIntegerWriter::_write_delta_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::_write_delta_values() {
+    Status res = Status::OK();
     uint32_t len = 0;
     uint32_t bit_width = _bits_delta_max;
     uint32_t encoded_bit_width = 0;
@@ -486,8 +486,8 @@ OLAPStatus RunLengthIntegerWriter::_write_delta_values() {
     // write header
     res = _output->write((char*)&head, sizeof(head));
 
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write data.res = " << res;
         return res;
     }
 
@@ -498,8 +498,8 @@ OLAPStatus RunLengthIntegerWriter::_write_delta_values() {
         res = ser::write_var_unsigned(_output, _literals[0]);
     }
 
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to write data.res = " << res;
         return res;
     }
 
@@ -507,81 +507,81 @@ OLAPStatus RunLengthIntegerWriter::_write_delta_values() {
         // if delta is fixed then we don't need to store delta blob
         res = ser::write_var_signed(_output, _fixed_delta);
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to write data.res = " << res;
             return res;
         }
     } else {
         // store the first value as delta value using zigzag encoding
         res = ser::write_var_signed(_output, _adj_deltas[0]);
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to write data.res = " << res;
             return res;
         }
 
         // adjacent delta values are bit packed
         res = ser::write_ints(_output, &_adj_deltas[1], _num_literals - 2, bit_width);
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write data.[res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to write data.res = " << res;
             return res;
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RunLengthIntegerWriter::_write_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::_write_values() {
+    Status res = Status::OK();
 
     if (_num_literals > 0) {
         switch (_encoding) {
         case SHORT_REPEAT:
-            if (OLAP_SUCCESS != (res = _write_short_repeat_values())) {
-                OLAP_LOG_WARNING("fail to write short repeat value.[res=%d]", res);
+            if (!(res = _write_short_repeat_values())) {
+                LOG(WARNING) << "fail to write short repeat value.res = " << res;
                 return res;
             }
 
             break;
 
         case DIRECT:
-            if (OLAP_SUCCESS != (res = _write_direct_values())) {
-                OLAP_LOG_WARNING("fail to write direct value.[res=%d]", res);
+            if (!(res = _write_direct_values())) {
+                LOG(WARNING) << "fail to write direct value.res = " << res;
                 return res;
             }
 
             break;
 
         case PATCHED_BASE:
-            if (OLAP_SUCCESS != (res = _write_patched_base_values())) {
-                OLAP_LOG_WARNING("fail to write patched base value.[res=%d]", res);
+            if (!(res = _write_patched_base_values())) {
+                LOG(WARNING) << "fail to write patched base value.res = " << res;
                 return res;
             }
 
             break;
 
         case DELTA:
-            if (OLAP_SUCCESS != (res = _write_delta_values())) {
-                OLAP_LOG_WARNING("fail to write delta value.[res=%d]", res);
+            if (!(res = _write_delta_values())) {
+                LOG(WARNING) << "fail to write delta value.res = " << res;
                 return res;
             }
 
             break;
 
         default:
-            OLAP_LOG_WARNING("Unknown encoding [encoding=%d]", _encoding);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            LOG(WARNING) << "Unknown encoding encoding=" << _encoding;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         _clear();
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::write(int64_t value) {
+    Status res = Status::OK();
 
     if (_num_literals == 0) {
         _init_literals(value);
@@ -622,7 +622,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
                 uint32_t tail_pos = _num_literals;
                 _determined_encoding();
 
-                if (OLAP_SUCCESS != (res = _write_values())) {
+                if (!(res = _write_values())) {
                     OLAP_LOG_WARNING("fail to write values.");
                     return res;
                 }
@@ -636,7 +636,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
             if (_fixed_run_length == MAX_SCOPE) {
                 _determined_encoding();
 
-                if (OLAP_SUCCESS != (res = _write_values())) {
+                if (!(res = _write_values())) {
                     OLAP_LOG_WARNING("fail to write values.");
                     return res;
                 }
@@ -655,7 +655,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
                     _is_fixed_delta = true;
                 }
 
-                if (OLAP_SUCCESS != (res = _write_values())) {
+                if (!(res = _write_values())) {
                     OLAP_LOG_WARNING("fail to write values.");
                     return res;
                 }
@@ -678,7 +678,7 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
                 if (_var_run_length == MAX_SCOPE) {
                     _determined_encoding();
 
-                    if (OLAP_SUCCESS != (res = _write_values())) {
+                    if (!(res = _write_values())) {
                         OLAP_LOG_WARNING("fail to write values.");
                         return res;
                     }
@@ -690,8 +690,8 @@ OLAPStatus RunLengthIntegerWriter::write(int64_t value) {
     return res;
 }
 
-OLAPStatus RunLengthIntegerWriter::flush() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthIntegerWriter::flush() {
+    Status res = Status::OK();
 
     if (_num_literals != 0) {
         if (_var_run_length != 0) {
@@ -709,7 +709,7 @@ OLAPStatus RunLengthIntegerWriter::flush() {
             }
         }
 
-        if (OLAP_SUCCESS != (res = _write_values())) {
+        if (!(res = _write_values())) {
             OLAP_LOG_WARNING("fail to write values.");
             return res;
         }

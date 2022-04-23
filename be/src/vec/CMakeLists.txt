@@ -26,6 +26,7 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_distinct.cpp
   aggregate_functions/aggregate_function_sum.cpp
   aggregate_functions/aggregate_function_min_max.cpp
+  aggregate_functions/aggregate_function_min_max_by.cpp
   aggregate_functions/aggregate_function_null.cpp
   aggregate_functions/aggregate_function_uniq.cpp
   aggregate_functions/aggregate_function_hll_union_agg.cpp
@@ -49,6 +50,7 @@ set(VEC_FILES
   columns/columns_common.cpp
   common/demangle.cpp
   common/exception.cpp
+  common/mremap.cpp
   common/pod_array.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp
@@ -110,8 +112,10 @@ set(VEC_FILES
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp
   exprs/vinfo_func.cpp
+  exprs/table_function/vexplode.cpp
   exprs/table_function/vexplode_split.cpp
   exprs/table_function/vexplode_numbers.cpp
+  exprs/table_function/vexplode_bitmap.cpp
   functions/array/function_array_index.cpp
   functions/array/function_array_element.cpp
   functions/array/function_array_register.cpp

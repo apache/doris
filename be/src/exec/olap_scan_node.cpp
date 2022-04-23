@@ -34,7 +34,6 @@
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
@@ -177,6 +176,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 Status OlapScanNode::prepare(RuntimeState* state) {
     init_scan_profile();
     RETURN_IF_ERROR(ScanNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
@@ -223,6 +223,7 @@ Status OlapScanNode::prepare(RuntimeState* state) {
 Status OlapScanNode::open(RuntimeState* state) {
     VLOG_CRITICAL << "OlapScanNode::Open";
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
 
@@ -266,6 +267,7 @@ Status OlapScanNode::open(RuntimeState* state) {
 Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
     // check if Canceled.
     if (state->is_cancelled()) {
@@ -701,11 +703,11 @@ static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
         }
         SCOPED_TIMER(show_hints_timer);
 
-        OLAPStatus res = OLAP_SUCCESS;
+        Status res = Status::OK();
         std::vector<OlapTuple> range;
         res = table->split_range(key_range->begin_scan_range, key_range->end_scan_range,
                                  block_row_count, &range);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -715,7 +717,7 @@ static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
     if (!have_valid_range) {
         std::vector<OlapTuple> range;
         auto res = table->split_range({}, {}, block_row_count, &range);
-        if (res != OLAP_SUCCESS) {
+        if (!res.ok()) {
             return Status::InternalError("fail to show hints");
         }
         ranges.emplace_back(std::move(range));
@@ -775,8 +777,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         auto tablet_id = scan_range->tablet_id;
         int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
         std::string err;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_id, schema_hash, true, &err);
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
@@ -1211,7 +1212,7 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 std::string is_null_str;
                 // 1. dispose the where pred "A is null" and "A is not null"
                 if (root_expr->is_null_scalar_function(is_null_str) &&
-                    normalize_is_null_predicate(root_expr, slot, is_null_str, range)) {
+                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str, range)) {
                     // if column is key column should push down conjunct storage engine
                     if (is_key_column(slot->col_name())) {
                         filter_conjuncts_index.emplace_back(conj_idx);
@@ -1522,6 +1523,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
+    ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);

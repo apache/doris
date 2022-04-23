@@ -21,14 +21,17 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /***
  * Used to store statistics job info,
@@ -46,7 +49,9 @@ public class StatisticsJob {
         CANCELLED
     }
 
-    private long id = Catalog.getCurrentCatalog().getNextId();
+    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    private final long id = Catalog.getCurrentCatalog().getNextId();
 
     /**
      * to be collected database stats.
@@ -63,15 +68,12 @@ public class StatisticsJob {
      */
     private final Map<Long, List<String>> tableIdToColumnName;
 
-    /**
-     * timeout of a statistics task
-     */
-    private long taskTimeout;
+    private final Map<String, String> properties;
 
     /**
      * to be executed tasks.
      */
-    private List<StatisticsTask> tasks = Lists.newArrayList();
+    private final List<StatisticsTask> tasks = Lists.newArrayList();
 
     private JobState jobState = JobState.PENDING;
     private final List<String> errorMsgs = Lists.newArrayList();
@@ -83,18 +85,32 @@ public class StatisticsJob {
 
     public StatisticsJob(Long dbId,
                          Set<Long> tblIds,
-                         Map<Long, List<String>> tableIdToColumnName) {
+                         Map<Long, List<String>> tableIdToColumnName,
+                         Map<String, String> properties) {
         this.dbId = dbId;
         this.tblIds = tblIds;
         this.tableIdToColumnName = tableIdToColumnName;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
     }
 
     public long getId() {
         return this.id;
-    }
-
-    public void setId(long id) {
-        this.id = id;
     }
 
     public long getDbId() {
@@ -109,20 +125,16 @@ public class StatisticsJob {
         return this.tableIdToColumnName;
     }
 
-    public long getTaskTimeout() {
-        return taskTimeout;
+    public Map<String, String> getProperties() {
+        return this.properties;
     }
 
     public List<StatisticsTask> getTasks() {
         return this.tasks;
     }
 
-    public void setTasks(List<StatisticsTask> tasks) {
-        this.tasks = tasks;
-    }
-
     public List<String> getErrorMsgs() {
-        return errorMsgs;
+        return this.errorMsgs;
     }
 
     public JobState getJobState() {
@@ -137,66 +149,108 @@ public class StatisticsJob {
         return this.startTime;
     }
 
-    public void setStartTime(long startTime) {
-        this.startTime = startTime;
-    }
-
     public long getFinishTime() {
         return this.finishTime;
-    }
-
-    public void setFinishTime(long finishTime) {
-        this.finishTime = finishTime;
     }
 
     public int getProgress() {
         return this.progress;
     }
 
-    public void setProgress(int progress) {
-        this.progress = progress;
-    }
+    public void updateJobState(JobState newState) throws IllegalStateException {
+        LOG.info("To change statistics job(id={}) state from {} to {}", id, jobState, newState);
+        writeLock();
 
-    private void setOptional(AnalyzeStmt stmt) {
-        if (stmt.getTaskTimeout() != -1) {
-            this.taskTimeout = stmt.getTaskTimeout();
-        }
-    }
+        try {
+            // PENDING -> SCHEDULING/FAILED/CANCELLED
+            if (jobState == JobState.PENDING) {
+                if (newState == JobState.SCHEDULING) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from PENDING to " + newState);
+                }
+                return;
+            }
 
-    public synchronized void updateJobState(JobState jobState) {
-        // PENDING -> SCHEDULING/FAILED/CANCELLED
-        if (this.jobState == JobState.PENDING) {
+            // SCHEDULING -> RUNNING/FAILED/CANCELLED
             if (jobState == JobState.SCHEDULING) {
-                this.jobState = JobState.SCHEDULING;
-            } else if (jobState == JobState.FAILED) {
-                this.jobState = JobState.FAILED;
-            } else if (jobState == JobState.CANCELLED) {
-                this.jobState = JobState.CANCELLED;
+                if (newState == JobState.RUNNING) {
+                    this.jobState = newState;
+                    // job start running, set start time
+                    this.startTime = System.currentTimeMillis();
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from SCHEDULING to " + newState);
+                }
+                return;
             }
-            return;
-        }
 
-        // SCHEDULING -> RUNNING/FAILED/CANCELLED
-        if (this.jobState == JobState.SCHEDULING) {
+            // RUNNING -> FINISHED/FAILED/CANCELLED
             if (jobState == JobState.RUNNING) {
-                this.jobState = JobState.RUNNING;
-            } else if (jobState == JobState.FAILED) {
-                this.jobState = JobState.FAILED;
-            } else if (jobState == JobState.CANCELLED) {
-                this.jobState = JobState.CANCELLED;
+                if (newState == JobState.FINISHED) {
+                    // set finish time
+                    this.finishTime = System.currentTimeMillis();
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from RUNNING to " + newState);
+                }
+                return;
             }
-            return;
-        }
 
-        // RUNNING -> FINISHED/FAILED/CANCELLED
-        if (this.jobState == JobState.RUNNING) {
-            if (jobState == JobState.FINISHED) {
-                this.jobState = JobState.FINISHED;
-            } else if (jobState == JobState.FAILED) {
-                this.jobState = JobState.FAILED;
-            } else if (jobState == JobState.CANCELLED) {
-                this.jobState = JobState.CANCELLED;
+            // unsupported transition
+            LOG.info("Invalid job(id={}) state transition from {} to {}", id, jobState, newState);
+            throw new IllegalStateException("Invalid job state transition from " + jobState + " to " + newState);
+        } finally {
+            writeUnlock();
+            LOG.info("Statistics job(id={}) current state is {} ", id, jobState);
+        }
+    }
+
+    public void updateJobInfoByTaskId(Long taskId, String errorMsg) {
+        writeLock();
+
+        try {
+            for (StatisticsTask task : this.tasks) {
+                if (taskId == task.getId()) {
+                    if (Strings.isNullOrEmpty(errorMsg)) {
+                        this.progress += 1;
+                        if (this.progress == this.tasks.size()) {
+                            updateJobState(StatisticsJob.JobState.FINISHED);
+                        }
+                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
+                    } else {
+                        this.errorMsgs.add(errorMsg);
+                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
+                        updateJobState(StatisticsJob.JobState.FAILED);
+                    }
+                    return;
+                }
             }
+        } finally {
+            writeUnlock();
         }
     }
 
@@ -210,8 +264,7 @@ public class StatisticsJob {
         long dbId = analyzeStmt.getDbId();
         Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
         Set<Long> tblIds = analyzeStmt.getTblIds();
-        StatisticsJob statisticsJob = new StatisticsJob(dbId, tblIds, tableIdToColumnName);
-        statisticsJob.setOptional(analyzeStmt);
-        return statisticsJob;
+        Map<String, String> properties = analyzeStmt.getProperties();
+        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
     }
 }

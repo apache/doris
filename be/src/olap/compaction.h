@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COMPACTION_H
-#define DORIS_BE_SRC_OLAP_COMPACTION_H
+#pragma once
 
 #include <vector>
 
@@ -48,29 +47,29 @@ public:
     virtual ~Compaction();
 
     // This is only for http CompactionAction
-    OLAPStatus compact();
+    Status compact();
 
-    virtual OLAPStatus prepare_compact() = 0;
-    OLAPStatus execute_compact();
-    virtual OLAPStatus execute_compact_impl() = 0;
+    virtual Status prepare_compact() = 0;
+    Status execute_compact();
+    virtual Status execute_compact_impl() = 0;
 
 protected:
-    virtual OLAPStatus pick_rowsets_to_compact() = 0;
+    virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction(int64_t permits);
-    OLAPStatus do_compaction_impl(int64_t permits);
+    Status do_compaction(int64_t permits);
+    Status do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
     void gc_output_rowset();
 
-    OLAPStatus construct_output_rowset_writer();
-    OLAPStatus construct_input_rowset_readers();
+    Status construct_output_rowset_writer();
+    Status construct_input_rowset_readers();
 
-    OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    OLAPStatus check_correctness(const Merger::Statistics& stats);
-    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+    Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
+    Status check_correctness(const Merger::Statistics& stats);
+    Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
                                                 std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
@@ -103,4 +102,3 @@ protected:
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_COMPACTION_H

@@ -51,7 +51,7 @@ class DorisMiniLoadClient(object):
     def get_label(self):
         """
         获取label前缀
-        :return: lable
+        :return: label
         """
 
         return '_'.join([self.table, os.path.basename(self.file_name)])

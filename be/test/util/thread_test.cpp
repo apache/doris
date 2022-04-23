@@ -31,9 +31,9 @@
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/runtime_profile.h"
+#include "util/time.h"
 
 using std::string;
-
 namespace doris {
 
 class ThreadTest : public ::testing::Test {
@@ -46,20 +46,18 @@ public:
 // This has to be manually verified.
 TEST_F(ThreadTest, TestJoinAndWarn) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
-    ASSERT_TRUE(status.ok());
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
+    EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).warn_after_ms(10).warn_every_ms(100).join();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(ThreadTest, TestFailedJoin) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
-    ASSERT_TRUE(status.ok());
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 1000, &holder);
+    EXPECT_TRUE(status.ok());
     status = ThreadJoiner(holder.get()).give_up_after_ms(50).join();
-    ASSERT_TRUE(status.is_aborted());
+    EXPECT_TRUE(status.is_aborted());
 }
 
 static void TryJoinOnSelf() {
@@ -71,21 +69,20 @@ static void TryJoinOnSelf() {
 // Try to join on the thread that is currently running.
 TEST_F(ThreadTest, TestJoinOnSelf) {
     scoped_refptr<Thread> holder;
-    ASSERT_TRUE(Thread::create("test", "test", TryJoinOnSelf, &holder).ok());
+    EXPECT_TRUE(Thread::create("test", "test", TryJoinOnSelf, &holder).ok());
     holder->join();
     // Actual assertion is done by the thread spawned above.
 }
 
 TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
     scoped_refptr<Thread> holder;
-    Status status =
-            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(0), &holder);
-    ASSERT_TRUE(status.ok());
+    Status status = Thread::create("test", "sleeper thread", SleepForMs, 0, &holder);
+    EXPECT_TRUE(status.ok());
     ThreadJoiner joiner(holder.get());
     status = joiner.join();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = joiner.join();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 }
 
 TEST_F(ThreadTest, ThreadStartBenchmark) {
@@ -95,12 +92,11 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
         {
             SCOPED_RAW_TIMER(&thread_creation_ns);
             for (auto& t : threads) {
-                Status status = Thread::create("test", "TestCallOnExit", SleepFor,
-                                            MonoDelta::FromSeconds(0), &t);
-                ASSERT_TRUE(status.ok());
+                Status status = Thread::create("test", "TestCallOnExit", SleepForMs, 0, &t);
+                EXPECT_TRUE(status.ok());
             }
         }
-        std::cout << "create 1000 threads use:" << thread_creation_ns << "ns" << std::endl;
+        LOG(INFO) << "create 1000 threads use:" << thread_creation_ns << "ns";
     }
     {
         int64_t thread_publish_tid_ns = 0;
@@ -110,7 +106,7 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
                 t->tid();
             }
         }
-        std::cout << "1000 threads publish TIDS use:" << thread_publish_tid_ns << "ns" << std::endl;
+        LOG(INFO) << "1000 threads publish TIDS use:" << thread_publish_tid_ns << "ns";
     }
 
     for (auto& t : threads) {
@@ -119,8 +115,3 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

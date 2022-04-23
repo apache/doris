@@ -37,25 +37,25 @@ public:
     ColumnDataWriter(SegmentGroup* segment_group, bool is_push_write, CompressKind compress_kind,
                      double bloom_filter_fpp);
     ~ColumnDataWriter();
-    OLAPStatus init();
+    Status init();
 
     template <typename RowType>
-    OLAPStatus write(const RowType& row);
+    Status write(const RowType& row);
 
     template <typename RowType>
     void next(const RowType& row);
 
-    OLAPStatus finalize();
+    Status finalize();
     uint64_t written_bytes();
     MemPool* mem_pool();
     CompressKind compress_kind();
 
 private:
-    OLAPStatus _add_segment();
-    OLAPStatus _flush_segment_with_verification();
-    OLAPStatus _finalize_segment();
-    OLAPStatus _flush_row_block(bool finalize);
-    OLAPStatus _init_segment();
+    Status _add_segment();
+    Status _flush_segment_with_verification();
+    Status _finalize_segment();
+    Status _flush_row_block(bool finalize);
+    Status _init_segment();
 
 private:
     SegmentGroup* _segment_group;
