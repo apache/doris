@@ -1630,6 +1630,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int cbo_max_statistics_job_num = 20;
     /*
+     * the max unfinished statistics task number
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int cbo_max_statistics_task_num = 512;
+    /*
      * the max timeout of a statistics task
      */
     @ConfField(mutable = true, masterOnly = true)

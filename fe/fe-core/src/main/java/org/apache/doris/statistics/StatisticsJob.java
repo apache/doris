@@ -21,15 +21,17 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /***
  * Used to store statistics job info,
@@ -46,6 +48,8 @@ public class StatisticsJob {
         FAILED,
         CANCELLED
     }
+
+    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private final long id = Catalog.getCurrentCatalog().getNextId();
 
@@ -87,6 +91,22 @@ public class StatisticsJob {
         this.tblIds = tblIds;
         this.tableIdToColumnName = tableIdToColumnName;
         this.properties = properties == null ? Maps.newHashMap() : properties;
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
     }
 
     public long getId() {
@@ -135,6 +155,103 @@ public class StatisticsJob {
 
     public int getProgress() {
         return this.progress;
+    }
+
+    public void updateJobState(JobState newState) throws IllegalStateException {
+        LOG.info("To change statistics job(id={}) state from {} to {}", id, jobState, newState);
+        writeLock();
+
+        try {
+            // PENDING -> SCHEDULING/FAILED/CANCELLED
+            if (jobState == JobState.PENDING) {
+                if (newState == JobState.SCHEDULING) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from PENDING to " + newState);
+                }
+                return;
+            }
+
+            // SCHEDULING -> RUNNING/FAILED/CANCELLED
+            if (jobState == JobState.SCHEDULING) {
+                if (newState == JobState.RUNNING) {
+                    this.jobState = newState;
+                    // job start running, set start time
+                    this.startTime = System.currentTimeMillis();
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from SCHEDULING to " + newState);
+                }
+                return;
+            }
+
+            // RUNNING -> FINISHED/FAILED/CANCELLED
+            if (jobState == JobState.RUNNING) {
+                if (newState == JobState.FINISHED) {
+                    // set finish time
+                    this.finishTime = System.currentTimeMillis();
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from RUNNING to " + newState);
+                }
+                return;
+            }
+
+            // unsupported transition
+            LOG.info("Invalid job(id={}) state transition from {} to {}", id, jobState, newState);
+            throw new IllegalStateException("Invalid job state transition from " + jobState + " to " + newState);
+        } finally {
+            writeUnlock();
+            LOG.info("Statistics job(id={}) current state is {} ", id, jobState);
+        }
+    }
+
+    public void updateJobInfoByTaskId(Long taskId, String errorMsg) {
+        writeLock();
+
+        try {
+            for (StatisticsTask task : this.tasks) {
+                if (taskId == task.getId()) {
+                    if (Strings.isNullOrEmpty(errorMsg)) {
+                        this.progress += 1;
+                        if (this.progress == this.tasks.size()) {
+                            updateJobState(StatisticsJob.JobState.FINISHED);
+                        }
+                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
+                    } else {
+                        this.errorMsgs.add(errorMsg);
+                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
+                        updateJobState(StatisticsJob.JobState.FAILED);
+                    }
+                    return;
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**
