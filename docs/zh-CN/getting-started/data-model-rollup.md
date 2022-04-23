@@ -331,9 +331,9 @@ DUPLICATE KEY(`timestamp`, `type`)
 ```
 
 这种数据模型区别于 Aggregate 和 Unique 模型。数据完全按照导入文件中的数据进行存储，不会有任何聚合。即使两行数据完全相同，也都会保留。
-而在建表语句中指定的 DUPLICATE KEY，只是用来指明底层数据按照那些列进行排序。（更贴切的名称应该为 “Sorted Column”，这里取名 “DUPLICATE KEY” 只是用以明确表示所用的数据模型。关于 “Sorted Column”的更多解释，可以参阅**前缀索引**小节）。在 DUPLICATE KEY 的选择上，我们建议适当的选择前 2-4 列就可以。
+而在建表语句中指定的 DUPLICATE KEY，只是用来指明底层数据按照那些列进行排序。（更贴切的名称应该为 “Sorted Column”，这里取名 “DUPLICATE KEY” 只是用以明确表示所用的数据模型。关于 “Sorted Column”的更多解释，可以参阅 [前綴索引](https://doris.apache.org/zh-CN/getting-started/data-model-rollup.html#%E5%89%8D%E7%BC%80%E7%B4%A2%E5%BC%95) 小节。在 DUPLICATE KEY 的选择上，我们建议适当的选择前 2-4 列就可以。
 
-这种数据模型适用于既没有聚合需求，又没有主键唯一性约束的原始数据的存储。更多使用场景，可参阅**聚合模型的局限性**小节。
+这种数据模型适用于既没有聚合需求，又没有主键唯一性约束的原始数据的存储。更多使用场景，可参阅 [聚合模型的局限性](https://doris.apache.org/zh-CN/getting-started/data-model-rollup.html#%E8%81%9A%E5%90%88%E6%A8%A1%E5%9E%8B%E7%9A%84%E5%B1%80%E9%99%90%E6%80%A7) 小节。
 
 ## ROLLUP
 

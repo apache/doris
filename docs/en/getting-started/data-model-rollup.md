@@ -136,12 +136,12 @@ As you can see, there is only one line of aggregated data left for 10,000 users.
 
 The first five columns remain unchanged, starting with column 6 `last_visit_date':
 
-*`2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00'.
+* `2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00'.
 > Note: For data in the same import batch, the order of replacement is not guaranteed for the aggregation of REPLACE. For example, in this case, it may be `2017-10-01 06:00'. For data from different imported batches, it can be guaranteed that the data from the latter batch will replace the former batch.
 
-*`35`: Because the aggregation type of the `cost'column is SUM, 35 is accumulated from 20 + 15.
-*`10`: Because the aggregation type of the`max_dwell_time'column is MAX, 10 and 2 take the maximum and get 10.
-*`2`: Because the aggregation type of `min_dwell_time'column is MIN, 10 and 2 take the minimum value and get 2.
+* `35`: Because the aggregation type of the `cost'column is SUM, 35 is accumulated from 20 + 15.
+* `10`: Because the aggregation type of the`max_dwell_time'column is MAX, 10 and 2 take the maximum and get 10.
+* `2`: Because the aggregation type of `min_dwell_time'column is MIN, 10 and 2 take the minimum value and get 2.
 
 After aggregation, Doris ultimately only stores aggregated data. In other words, detailed data will be lost and users can no longer query the detailed data before aggregation.
 
@@ -329,9 +329,9 @@ DUPLICATE KEY(`timestamp`, `type`)
 ```
 
 This data model is different from Aggregate and Unique models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
-The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section ** Prefix Index **. On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
+The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section [Prefix Index](https://doris.apache.org/getting-started/data-model-rollup.html#prefix-index). On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
 
-This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the ** Limitations of the Aggregation Model ** section.
+This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the [Limitations of the Aggregation Model](https://doris.apache.org/getting-started/data-model-rollup.html#limitations-of-aggregation-model) section.
 
 ## ROLLUP
 
@@ -427,7 +427,7 @@ After the creation, the data stored in the ROLLUP is as follows:
 
 When we do the following queries:
 
-* Select City, Age, Sum (Cost), Max (Max dwell time), min (min dwell time) from table group by City, age;*
+* `SELECT city, age, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city, age;`
 * `SELECT city, sum(cost), max(max_dwell_time), min(min_dwell_time) FROM table GROUP BY city;`
 * `SELECT city, age, sum(cost), min(min_dwell_time) FROM table GROUP BY city, age;`
 
@@ -470,15 +470,15 @@ We use the prefix index of **36 bytes** of a row of data as the prefix index of 
 |max\_dwell\_time|DATETIME|
 |min\_dwell\_time|DATETIME|
 
-When our query condition is the prefix of ** prefix index **, it can greatly speed up the query speed. For example, in the first example, we execute the following queries:
+When our query condition is the prefix of **prefix index**, it can greatly speed up the query speed. For example, in the first example, we execute the following queries:
 
 `SELECT * FROM table WHERE user_id=1829239 and age=20;`
 
-The efficiency of this query is much higher than that of ** the following queries:
+The efficiency of this query is **much higher than that of** the following queries:
 
 `SELECT * FROM table WHERE age=20;`
 
-Therefore, when constructing tables, ** correctly choosing column order can greatly improve query efficiency **.
+Therefore, when constructing tables, **correctly choosing column order can greatly improve query efficiency**.
 
 #### ROLLUP adjusts prefix index
 
@@ -517,8 +517,8 @@ The ROLLUP table is preferred because the prefix index of ROLLUP matches better.
 * ROLLUP data is stored in separate physical storage. Therefore, the more ROLLUP you create, the more disk space you occupy. It also has an impact on the speed of import (the ETL phase of import automatically generates all ROLLUP data), but it does not reduce query efficiency (only better).
 * Data updates for ROLLUP are fully synchronized with Base representations. Users need not care about this problem.
 * Columns in ROLLUP are aggregated in exactly the same way as Base tables. There is no need to specify or modify ROLLUP when creating it.
-* A necessary (inadequate) condition for a query to hit ROLLUP is that all columns ** (including the query condition columns in select list and where) involved in the query exist in the column of the ROLLUP. Otherwise, the query can only hit the Base table.
-* Certain types of queries (such as count (*)) cannot hit ROLLUP under any conditions. See the next section **Limitations of the aggregation model**.
+* A necessary (inadequate) condition for a query to hit ROLLUP is that **all columns** (including the query condition columns in select list and where) involved in the query exist in the column of the ROLLUP. Otherwise, the query can only hit the Base table.
+* Certain types of queries (such as count(*)) cannot hit ROLLUP under any conditions. See the next section **Limitations of the aggregation model**.
 * The query execution plan can be obtained by `EXPLAIN your_sql;` command, and in the execution plan, whether ROLLUP has been hit or not can be checked.
 * Base tables and all created ROLLUP can be displayed by `DESC tbl_name ALL;` statement.
 
@@ -574,11 +574,11 @@ The result is 5, not 1.
 
 At the same time, this consistency guarantee will greatly reduce the query efficiency in some queries.
 
-Let's take the most basic count (*) query as an example:
+Let's take the most basic count(*) query as an example:
 
 `SELECT COUNT(*) FROM table;`
 
-In other databases, such queries return results quickly. Because in the implementation, we can get the query result by counting rows at the time of import and saving count statistics information, or by scanning only a column of data to get count value at the time of query, with very little overhead. But in Doris's aggregation model, the overhead of this query ** is very large **.
+In other databases, such queries return results quickly. Because in the implementation, we can get the query result by counting rows at the time of import and saving count statistics information, or by scanning only a column of data to get count value at the time of query, with very little overhead. But in Doris's aggregation model, the overhead of this query **is very large**.
 
 Let's take the data as an example.
 
@@ -606,11 +606,11 @@ Because the final aggregation result is:
 |10002|2017-11-21|39|
 |10003|2017-11-22|22|
 
-So `select count (*) from table;` The correct result should be **4**. But if we only scan the `user_id'column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
+So `select count(*) from table;` The correct result should be **4**. But if we only scan the `user_id`column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
 
-In order to get the correct result, we must read the data of `user_id` and `date`, and **together with aggregate** when querying, to return the correct result of **4**. That is to say, in the count (*) query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date`) and aggregate them to get the semantically correct results. When aggregated columns are large, count (*) queries need to scan a large amount of data.
+In order to get the correct result, we must read the data of `user_id` and `date`, and **together with aggregate** when querying, to return the correct result of **4**. That is to say, in the `count(*)` query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date`) and aggregate them to get the semantically correct results. When aggregated columns are large, `count(*)` queries need to scan a large amount of data.
 
-Therefore, when there are frequent count (*) queries in the business, we recommend that users simulate count (*) by adding a column with a value of 1 and aggregation type of SUM. As the table structure in the previous example, we modify it as follows:
+Therefore, when there are frequent `count(*)` queries in the business, we recommend that users simulate `count(*)` by adding a column with a value of 1 and aggregation type of SUM. As the table structure in the previous example, we modify it as follows:
 
 |ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
@@ -619,18 +619,18 @@ Therefore, when there are frequent count (*) queries in the business, we recomme
 | Cost | BIGINT | SUM | Total User Consumption|
 | count | BIGINT | SUM | for counting|
 
-Add a count column and import the data with the column value **equal to 1**. The result of `select count (*) from table;`is equivalent to `select sum (count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table;`can only express the number of rows originally imported, not the semantics of `select count (*) from table;`
+Add a count column and import the data with the column value **equal to 1**. The result of `select count(*) from table;`is equivalent to `select sum(count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum(count) from table;`can only express the number of rows originally imported, not the semantics of `select count(*) from table;`
 
-Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
+Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum(count) from table;` and `select count(*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
 ### Duplicate Model
 
-Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
+Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count(*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
 
 ## Suggestions for Choosing Data Model
 
-Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
+Because the data model was established when the table was built, and **could not be modified**. Therefore, it is **very important** to select an appropriate data model.
 
-1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
+1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count(*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
 2. Unique model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).
 3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).
