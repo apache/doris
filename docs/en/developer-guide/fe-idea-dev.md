@@ -93,7 +93,7 @@ is generate codes in Linux and copy them back. Using Docker should also be an op
 
 ## 3. Custom FE configuration
 
-Copy below content into `conf/fe.conf` and tune it to fit your environment.
+Copy below content into `conf/fe.conf` and tune it to fit your environment(Note: If developed using`Mac`, since`docker for Mac`does not support`Host`mode,`be`needs to be exposed using`-p` and `fe.conf` `priority_networks` configured to be accessible within the container, such as WIFI Ip).
 
 ```
 # Licensed to the Apache Software Foundation (ASF) under one
