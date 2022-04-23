@@ -36,7 +36,7 @@ under the License.
 ## 原理
 通过增加一个隐藏列`__DORIS_DELETE_SIGN__`实现，因为我们只是在unique 模型上做批量删除，因此只需要增加一个 类型为bool 聚合函数为replace 的隐藏列即可。在be 各种聚合写入流程都和正常列一样，读取方案有两个：
 
-在fe遇到 * 等扩展时去去掉`__DORIS_DELETE_SIGN__`，并且默认加上 `__DORIS_DELETE_SIGN__ != true` 的条件
+在fe遇到 * 等扩展时去掉`__DORIS_DELETE_SIGN__`，并且默认加上 `__DORIS_DELETE_SIGN__ != true` 的条件
 be 读取时都会加上一列进行判断，通过条件确定是否删除。
 
 ### 导入

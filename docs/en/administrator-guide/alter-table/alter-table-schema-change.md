@@ -101,11 +101,11 @@ TransactionId: 10023
 * SchemaVersion: Displayed in M: N format. M is the version of this Schema Change, and N is the corresponding hash value. With each Schema Change, the version is incremented.
 * TransactionId: the watershed transaction ID of the conversion history data.
 * State: The phase of the operation.
-    * PENDING: The job is waiting in the queue to be scheduled.
-    * WAITING_TXN: Wait for the import task before the watershed transaction ID to complete.
-    * RUNNING: Historical data conversion.
-    * FINISHED: The operation was successful.
-    * CANCELLED: The job failed.
+  * PENDING: The job is waiting in the queue to be scheduled.
+  * WAITING_TXN: Wait for the import task before the watershed transaction ID to complete.
+  * RUNNING: Historical data conversion.
+  * FINISHED: The operation was successful.
+  * CANCELLED: The job failed.
 * Msg: If the job fails, a failure message is displayed here.
 * Progress: operation progress. Progress is displayed only in the RUNNING state. Progress is displayed in M ​​/ N. Where N is the total number of copies involved in the Schema Change. M is the number of copies of historical data conversion completed.
 * Timeout: Job timeout time. Unit of second.
@@ -190,7 +190,7 @@ At the same time, columns that already exist in the Base table are not allowed t
 
      If you modify the column `k1 INT SUM NULL DEFAULT" 1 "` as type BIGINT, you need to execute the following command:
     
-    ```ALTER TABLE tbl1 MODIFY COLUMN `k1` BIGINT SUM NULL DEFAULT "1"; ```
+```ALTER TABLE tbl1 MODIFY COLUMN `k1` BIGINT SUM NULL DEFAULT "1";```
     
    Note that in addition to the new column types, such as the aggregation mode, Nullable attributes, and default values must be completed according to the original information.
     
