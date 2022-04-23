@@ -22,6 +22,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -42,6 +43,11 @@ public class SqlCache extends Cache {
 
     public String getSqlWithViewStmt() {
         return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+    }
+
+    // only used for UT
+    public Types.PUniqueId getSqlKey() {
+        return CacheProxy.getMd5(getSqlWithViewStmt());
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
