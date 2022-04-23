@@ -60,22 +60,19 @@ Ready to work
 #export MVN_BIN=
 #export JAVA_HOME=
 
-##amend as below
-export THRIFT_BIN=./thirdparty/installed/bin（thrift installation directory）
+##amend as below,MacOS as an example
+export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 #export MVN_BIN=
 #export JAVA_HOME=
 
 Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
 Windows:
   1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Copy: Copy the file to `./thirdparty/installed/bin` 
-  
+  2. Modify thrift-0.13.0.exe to thrift 
  
 MacOS:
   1. Download: `brew install thrift@0.13.0`
-  2. Create a soft link:
-       `mkdir -p ./thirdparty/installed/bin`
-       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 
 Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
     1. `brew tap-new $USER/local-tap`
@@ -92,6 +89,7 @@ Linux:
     6.`make`
     7.`make install`
    Check the version after installation is complete：thrift --version
+   Note: If you have compiled Doris, you do not need to install thrift, you can directly use $DORIS_HOME/thirdparty/installed/bin/thrift
 ```
 
 Execute following command in source dir:
