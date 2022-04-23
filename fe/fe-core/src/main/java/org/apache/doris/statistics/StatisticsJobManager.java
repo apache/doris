@@ -116,7 +116,6 @@ public class StatisticsJobManager {
             db.readUnlock();
         }
 
-
         int unfinishedJobs = 0;
 
         // check table unfinished job
