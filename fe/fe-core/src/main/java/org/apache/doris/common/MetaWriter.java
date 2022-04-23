@@ -94,14 +94,15 @@ public class MetaWriter {
 
     public static void write(File imageFile, Catalog catalog) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
-        LOG.info("start save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
-
+        LOG.info("start to save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
+        FileOutputStream imageFileOut = new FileOutputStream(imageFile);
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
+        // MetaHeader should use output stream in the future.
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
         try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(
-                new FileOutputStream(imageFile, true)), startPosition)) {
+                imageFileOut), startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = catalog.getReplayedJournalId();
             checksum.setRef(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
@@ -129,6 +130,7 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
         }
+        imageFileOut.getFD().sync();
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
