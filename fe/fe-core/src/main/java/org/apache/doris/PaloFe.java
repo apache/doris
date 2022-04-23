@@ -22,6 +22,7 @@ import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
+import org.apache.doris.common.MetaReader;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.JdkUtils;
@@ -180,6 +181,8 @@ public class PaloFe {
      *      Print the version of Palo Frontend
      * -h --helper
      *      Specify the helper node when joining a bdb je replication group
+     * -i --image
+     *      Check if the specified image is valid
      * -b --bdb
      *      Run bdbje debug tools
      *
@@ -203,6 +206,7 @@ public class PaloFe {
         Options options = new Options();
         options.addOption("v", "version", false, "Print the version of Palo Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
+        options.addOption("i", "image", true, "Check if the specified image is valid");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
         options.addOption("l", "listdb", false, "List databases in bdbje");
         options.addOption("d", "db", true, "Specify a database in bdbje");
@@ -222,7 +226,7 @@ public class PaloFe {
 
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
-            return new CommandLineOptions(true, "", null);
+            return new CommandLineOptions(true, "", null, "");
         }
         // helper
         if (cmd.hasOption('h') || cmd.hasOption("helper")) {
@@ -231,14 +235,23 @@ public class PaloFe {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, helperNode, null);
+            return new CommandLineOptions(false, helperNode, null, "");
         }
-
+        // image
+        if (cmd.hasOption('i') || cmd.hasOption("image")) {
+            // get image path
+            String imagePath = cmd.getOptionValue("image");
+            if (Strings.isNullOrEmpty(imagePath)) {
+                System.err.println("imagePath is not set");
+                System.exit(-1);
+            }
+            return new CommandLineOptions(false, "", null, imagePath);
+        }
         if (cmd.hasOption('b') || cmd.hasOption("bdb")) {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts);
+                return new CommandLineOptions(false, "", bdbOpts, "");
             }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
@@ -249,7 +262,7 @@ public class PaloFe {
                 }
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts);
+                    return new CommandLineOptions(false, "", bdbOpts, "");
                 }
                 String fromKey = "";
                 String endKey = "";
@@ -278,7 +291,7 @@ public class PaloFe {
                 }
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                return new CommandLineOptions(false, "", bdbOpts);
+                return new CommandLineOptions(false, "", bdbOpts, "");
 
             } else {
                 System.err.println("Invalid options when running bdb je tools");
@@ -287,7 +300,7 @@ public class PaloFe {
         }
 
         // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null);
+        return new CommandLineOptions(false, null, null, "");
     }
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
@@ -304,6 +317,23 @@ public class PaloFe {
                 System.exit(0);
             } else {
                 System.exit(-1);
+            }
+        } else if (cmdLineOpts.runImageTool()) {
+            File imageFile = new File(cmdLineOpts.getImagePath());
+            if (!imageFile.exists()) {
+                System.out.println("image does not exist: " + imageFile.getAbsolutePath() + " . Please put an absolute path instead");
+                System.exit(-1);
+            } else {
+                System.out.println("Start to load image: ");
+                try {
+                    MetaReader.read(imageFile, Catalog.getCurrentCatalog());
+                    System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                } catch (Exception e) {
+                    System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
+                    e.printStackTrace();
+                } finally {
+                    System.exit(0);
+                }
             }
         }
 
