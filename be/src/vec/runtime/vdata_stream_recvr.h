@@ -73,6 +73,7 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
+    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
     void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);

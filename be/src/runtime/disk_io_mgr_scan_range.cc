@@ -14,11 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr-scan-range.cc
+// and modified by Doris
 
 #include "runtime/disk_io_mgr.h"
 #include "runtime/disk_io_mgr_internal.h"
 #include "util/error_util.h"
-// #include "util/hdfs-util.h"
 
 using std::string;
 using std::stringstream;

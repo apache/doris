@@ -113,14 +113,14 @@ public class CreateTableAsSelectStmtTest {
     }
     
     @Test
-    public void testErrorType() throws Exception {
+    public void testErrorType() {
         String selectFromDecimal = "create table `test`.`select_decimal_table` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`decimal_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Unsupported type",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromDecimal, connectContext));
     }
     
     @Test
-    public void testErrorColumn() throws Exception {
+    public void testErrorColumn() {
         String selectFromColumn = "create table `test`.`select_column_table`(test_error) PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Number of columns don't equal number of SELECT statement's select list",
                 () -> UtFrameUtils.parseAndAnalyzeStmt(selectFromColumn, connectContext));
@@ -132,8 +132,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromDecimal);
         ShowResultSet showResultSet = showCreateTable("select_varchar");
         Assert.assertEquals("CREATE TABLE `select_varchar` (\n" +
-                "  `userId` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -150,7 +150,6 @@ public class CreateTableAsSelectStmtTest {
         String selectFromFunction1 = "create table `test`.`select_function_1` PROPERTIES(\"replication_num\" = \"1\") as select count(*) from `test`.`varchar_table`";
         createTableAsSelect(selectFromFunction1);
         ShowResultSet showResultSet1 = showCreateTable("select_function_1");
-        System.out.println(showResultSet1.getResultRows().get(0).get(1));
         Assert.assertEquals("CREATE TABLE `select_function_1` (\n" +
                 "  `_col0` bigint(20) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
@@ -203,8 +202,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
         Assert.assertEquals("CREATE TABLE `select_alias_2` (\n" +
-                "  `alias_name` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\"\n" +
+                "  `alias_name` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`alias_name`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -223,8 +222,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTable("select_join");
         Assert.assertEquals("CREATE TABLE `select_join` (\n" +
-                "  `userId` text NULL COMMENT \"\",\n" +
-                "  `username` text NULL COMMENT \"\",\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) NULL COMMENT \"\",\n" +
                 "  `status` int(11) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
@@ -244,8 +243,8 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_name");
         Assert.assertEquals("CREATE TABLE `select_name` (\n" +
-                "  `user` text NULL COMMENT \"\",\n" +
-                "  `testname` text NULL COMMENT \"\",\n" +
+                "  `user` varchar(255) NULL COMMENT \"\",\n" +
+                "  `testname` varchar(255) NULL COMMENT \"\",\n" +
                 "  `userstatus` int(11) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`user`)\n" +
@@ -265,7 +264,7 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_union");
         Assert.assertEquals("CREATE TABLE `select_union` (\n" +
-                "  `userId` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
@@ -284,7 +283,7 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_cte");
         Assert.assertEquals("CREATE TABLE `select_cte` (\n" +
-                "  `userId` text NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +

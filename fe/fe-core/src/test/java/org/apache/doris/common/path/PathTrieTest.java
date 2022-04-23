@@ -19,11 +19,6 @@ package org.apache.doris.common.path;
 
 import static com.google.common.collect.Maps.newHashMap;
 
-import org.apache.doris.http.ActionController;
-import org.apache.doris.http.rest.MultiStart;
-import org.apache.doris.http.rest.TableQueryPlanAction;
-import org.apache.doris.http.rest.TableRowCountAction;
-import org.apache.doris.http.rest.TableSchemaAction;
 import org.apache.doris.service.ExecuteEnv;
 
 import com.google.common.collect.Maps;
@@ -165,18 +160,4 @@ public class PathTrieTest {
         Assert.assertEquals(params.get("test"), "*");
     }
 
-    @Test
-    public void testInsert(@Injectable ActionController controller,
-                           @Injectable ExecuteEnv execEnv) {
-        PathTrie pathTrie = new PathTrie();
-        pathTrie.insert("/api/{db}/_multi_start", new MultiStart(controller, execEnv));
-        pathTrie.insert("/api/{db}/{table}/_count", new TableRowCountAction(controller));
-        pathTrie.insert("/api/{db}/{table}/_schema", new TableSchemaAction(controller));
-        pathTrie.insert("/api/{db}/{table}/_query_plan", new TableQueryPlanAction(controller));
-        Map<String, String> params = Maps.newHashMap();
-        pathTrie.retrieve("/api/test/_multi_start", params);
-        Assert.assertEquals("test", params.get("db"));
-
-
-    }
 }

@@ -44,28 +44,18 @@
 #include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
 #include "olap/task/engine_storage_migration_task.h"
+#include "olap/task/engine_storage_migration_task_v2.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
-#include "util/monotime.h"
 #include "util/random.h"
 #include "util/scoped_cleanup.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/trace.h"
-
-using std::deque;
-using std::list;
-using std::lock_guard;
-using std::map;
-using std::set;
-using std::string;
-using std::stringstream;
-using std::to_string;
-using std::vector;
 
 namespace doris {
 
@@ -75,8 +65,8 @@ const uint32_t TASK_FINISH_MAX_RETRY = 3;
 const uint32_t PUBLISH_VERSION_MAX_RETRY = 3;
 
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
-Mutex TaskWorkerPool::_s_task_signatures_lock;
-map<TTaskType::type, set<int64_t>> TaskWorkerPool::_s_task_signatures;
+std::mutex TaskWorkerPool::_s_task_signatures_lock;
+std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
 FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
@@ -85,7 +75,6 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
           _agent_utils(new AgentUtils()),
           _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
-          _worker_thread_condition_variable(&_worker_thread_lock),
           _stop_background_threads_latch(1),
           _is_work(false),
           _thread_model(thread_model),
@@ -104,7 +93,7 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* e
         if (_thread_model == ThreadModel::SINGLE_THREAD) {
             return _is_doing_work.load();
         } else {
-            lock_guard<Mutex> lock(_worker_thread_lock);
+            std::lock_guard<std::mutex> lock(_worker_thread_lock);
             return _tasks.size();
         }
     });
@@ -206,6 +195,11 @@ void TaskWorkerPool::start() {
         cb = std::bind<void>(&TaskWorkerPool::_submit_table_compaction_worker_thread_callback,
                              this);
         break;
+    case TaskWorkerType::STORAGE_MEDIUM_MIGRATE_V2:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_storage_medium_migrate_v2_worker_thread_callback,
+                             this);
+        break;
     default:
         // pass
         break;
@@ -227,7 +221,7 @@ void TaskWorkerPool::start() {
 
 void TaskWorkerPool::stop() {
     {
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
         _is_work = false;
         _worker_thread_condition_variable.notify_all();
     }
@@ -247,7 +241,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
         (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
         size_t task_count_in_queue = 0;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::lock_guard<std::mutex> worker_thread_lock(_worker_thread_lock);
             _tasks.push_back(task);
             task_count_in_queue = _tasks.size();
             _worker_thread_condition_variable.notify_one();
@@ -265,7 +259,7 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
+    lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
     set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
 }
@@ -273,7 +267,7 @@ bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_
 void TaskWorkerPool::_remove_task_info(const TTaskType::type task_type, int64_t signature) {
     size_t queue_size;
     {
-        lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
+        lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
         set<int64_t>& signature_set = _s_task_signatures[task_type];
         signature_set.erase(signature);
         queue_size = signature_set.size();
@@ -340,9 +334,9 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TCreateTabletReq create_tablet_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -369,17 +363,15 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
         TStatus task_status;
 
         std::vector<TTabletInfo> finish_tablet_infos;
-        OLAPStatus create_status = _env->storage_engine()->create_tablet(create_tablet_req);
-        if (create_status != OLAPStatus::OLAP_SUCCESS) {
+        Status create_status = _env->storage_engine()->create_tablet(create_tablet_req);
+        if (!create_status.ok()) {
             LOG(WARNING) << "create table failed. status: " << create_status
                          << ", signature: " << agent_task_req.signature;
-            // TODO liutao09 distinguish the OLAPStatus
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             ++_s_report_version;
             // get path hash of the created tablet
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(create_tablet_req.tablet_id);
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();
@@ -392,7 +384,6 @@ void TaskWorkerPool::_create_tablet_worker_thread_callback() {
             tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
             finish_tablet_infos.push_back(tablet_info);
         }
-        TRACE("StorageEngine create tablet finish, status: $0", create_status);
 
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
@@ -415,9 +406,9 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TDropTabletReq drop_tablet_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -433,11 +424,11 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         TStatus task_status;
         string err;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, false, &err);
+                drop_tablet_req.tablet_id, false, &err);
         if (dropped_tablet != nullptr) {
-            OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                    drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
-            if (drop_status != OLAP_SUCCESS) {
+            Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
+                    drop_tablet_req.tablet_id);
+            if (!drop_status.ok()) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
@@ -468,9 +459,9 @@ void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -537,9 +528,9 @@ void TaskWorkerPool::_alter_tablet(const TAgentTaskRequest& agent_task_req, int6
         new_tablet_id = agent_task_req.alter_tablet_req_v2.new_tablet_id;
         new_schema_hash = agent_task_req.alter_tablet_req_v2.new_schema_hash;
         EngineAlterTabletTask engine_task(agent_task_req.alter_tablet_req_v2);
-        OLAPStatus sc_status = _env->storage_engine()->execute_task(&engine_task);
-        if (sc_status != OLAP_SUCCESS) {
-            if (sc_status == OLAP_ERR_DATA_QUALITY_ERR) {
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
                 error_msgs.push_back("The data quality does not satisfy, please check your data. ");
             }
             status = Status::DataQualityError("The data quality does not satisfy");
@@ -593,7 +584,7 @@ void TaskWorkerPool::_push_worker_thread_callback() {
     int32_t push_worker_count_high_priority = config::push_worker_count_high_priority;
     static uint32_t s_worker_count = 0;
     {
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+        std::lock_guard<std::mutex> worker_thread_lock(_worker_thread_lock);
         if (s_worker_count < push_worker_count_high_priority) {
             ++s_worker_count;
             priority = TPriority::HIGH;
@@ -606,9 +597,9 @@ void TaskWorkerPool::_push_worker_thread_callback() {
         TPushReq push_req;
         int32_t index = 0;
         do {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -682,9 +673,9 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TPublishVersionRequest publish_version_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -698,39 +689,37 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         DorisMetrics::instance()->publish_task_request_total->increment(1);
         VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
-        Status st;
         std::vector<TTabletId> error_tablet_ids;
         uint32_t retry_time = 0;
-        OLAPStatus res = OLAP_SUCCESS;
+        Status res = Status::OK();
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
             EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids);
             res = _env->storage_engine()->execute_task(&engine_task);
-            if (res == OLAP_SUCCESS) {
+            if (res.ok()) {
                 break;
             } else {
                 LOG(WARNING) << "publish version error, retry. [transaction_id="
                              << publish_version_req.transaction_id
                              << ", error_tablets_size=" << error_tablet_ids.size() << "]";
                 ++retry_time;
-                SleepFor(MonoDelta::FromSeconds(1));
+                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
 
         TFinishTaskRequest finish_task_request;
-        if (res != OLAP_SUCCESS) {
+        if (!res) {
             DorisMetrics::instance()->publish_task_failed_total->increment(1);
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
             LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
                          << ", error_code=" << res;
-            st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
             LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
         }
 
-        st.to_thrift(&finish_task_request.task_status);
+        res.to_thrift(&finish_task_request.task_status);
         finish_task_request.__set_backend(_backend);
         finish_task_request.__set_task_type(agent_task_req.task_type);
         finish_task_request.__set_signature(agent_task_req.signature);
@@ -746,9 +735,9 @@ void TaskWorkerPool::_clear_transaction_task_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TClearTransactionTaskRequest clear_transaction_task_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -804,9 +793,9 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TUpdateTabletMetaInfoReq update_tablet_meta_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -824,14 +813,14 @@ void TaskWorkerPool::_update_tablet_meta_worker_thread_callback() {
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
+                    tablet_meta_info.tablet_id);
             if (tablet == nullptr) {
                 LOG(WARNING) << "could not find tablet when update partition id"
                              << " tablet_id=" << tablet_meta_info.tablet_id
                              << " schema_hash=" << tablet_meta_info.schema_hash;
                 continue;
             }
-            WriteLock wrlock(tablet->get_header_lock());
+            std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
             // update tablet meta
             if (!tablet_meta_info.__isset.meta_type) {
                 tablet->set_partition_id(tablet_meta_info.partition_id);
@@ -872,9 +861,9 @@ void TaskWorkerPool::_clone_worker_thread_callback() {
         TCloneReq clone_req;
 
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -925,9 +914,9 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TStorageMediumMigrateReq storage_medium_migrate_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -942,13 +931,12 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
         // check request and get info
         TabletSharedPtr tablet;
         DataDir* dest_store = nullptr;
-        if (_check_migrate_request(storage_medium_migrate_req, tablet, &dest_store) !=
-            OLAP_SUCCESS) {
+        if (!_check_migrate_request(storage_medium_migrate_req, tablet, &dest_store)) {
             status_code = TStatusCode::RUNTIME_ERROR;
         } else {
             EngineStorageMigrationTask engine_task(tablet, dest_store);
-            OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
-            if (res != OLAP_SUCCESS) {
+            Status res = _env->storage_engine()->execute_task(&engine_task);
+            if (!res.ok()) {
                 LOG(WARNING) << "storage media migrate failed. status: " << res
                              << ", signature: " << agent_task_req.signature;
                 status_code = TStatusCode::RUNTIME_ERROR;
@@ -974,15 +962,13 @@ void TaskWorkerPool::_storage_medium_migrate_worker_thread_callback() {
     }
 }
 
-OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
+Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& req,
                                                   TabletSharedPtr& tablet, DataDir** dest_store) {
     int64_t tablet_id = req.tablet_id;
-    int32_t schema_hash = req.schema_hash;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
-                     << " schema_hash=" << schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     if (req.__isset.data_dir) {
@@ -990,7 +976,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         *dest_store = StorageEngine::instance()->get_store(req.data_dir);
         if (*dest_store == nullptr) {
             LOG(WARNING) << "data dir not found: " << req.data_dir;
-            return OLAP_ERR_DIR_NOT_EXIST;
+            return Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
         }
     } else {
         // this is a storage medium
@@ -1001,7 +987,7 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         if (count <= 1) {
             LOG(INFO) << "available storage medium type count is less than 1, "
                       << "no need to migrate. count=" << count;
-            return OLAP_REQUEST_FAILED;
+            return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
         }
         // check current tablet storage medium
         TStorageMedium::type storage_medium = req.storage_medium;
@@ -1009,21 +995,21 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
         if (src_storage_medium == storage_medium) {
             LOG(INFO) << "tablet is already on specified storage medium. "
                       << "storage_medium=" << storage_medium;
-            return OLAP_REQUEST_FAILED;
+            return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
         }
         // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
         if (stores.empty()) {
             LOG(WARNING) << "fail to get root path for create tablet.";
-            return OLAP_ERR_INVALID_ROOT_PATH;
+            return Status::OLAPInternalError(OLAP_ERR_INVALID_ROOT_PATH);
         }
 
         *dest_store = stores[0];
     }
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
-            LOG(INFO) << "tablet is already on specified path. "
-                      << "path=" << tablet->data_dir()->path();
-            return OLAP_REQUEST_FAILED;
+        LOG(INFO) << "tablet is already on specified path. "
+                    << "path=" << tablet->data_dir()->path();
+        return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
     }
 
     // check disk capacity
@@ -1031,10 +1017,10 @@ OLAPStatus TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
                      << ", tablet size: " << tablet_size;
-        return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+        return Status::OLAPInternalError(OLAP_ERR_DISK_REACH_CAPACITY_LIMIT);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void TaskWorkerPool::_check_consistency_worker_thread_callback() {
@@ -1042,9 +1028,9 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TCheckConsistencyReq check_consistency_req;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1063,8 +1049,8 @@ void TaskWorkerPool::_check_consistency_worker_thread_callback() {
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
                                        check_consistency_req.schema_hash,
                                        check_consistency_req.version, &checksum);
-        OLAPStatus res = _env->storage_engine()->execute_task(&engine_task);
-        if (res != OLAP_SUCCESS) {
+        Status res = _env->storage_engine()->execute_task(&engine_task);
+        if (!res.ok()) {
             LOG(WARNING) << "check consistency failed. status: " << res
                          << ", signature: " << agent_task_req.signature;
             status_code = TStatusCode::RUNTIME_ERROR;
@@ -1097,8 +1083,9 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
     while (_is_work) {
         _is_doing_work = false;
         // wait at most report_task_interval_seconds, or being notified
+        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
         _worker_thread_condition_variable.wait_for(
-                MonoDelta::FromSeconds(config::report_task_interval_seconds));
+                worker_thread_lock, std::chrono::seconds(config::report_task_interval_seconds));
         if (!_is_work) {
             break;
         }
@@ -1115,7 +1102,7 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
         {
-            lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
+            lock_guard<std::mutex> task_signatures_lock(_s_task_signatures_lock);
             request.__set_tasks(_s_task_signatures);
         }
         _handle_report(request, ReportType::TASK);
@@ -1133,8 +1120,10 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
     while (_is_work) {
         _is_doing_work = false;
         // wait at most report_disk_state_interval_seconds, or being notified
+        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
         _worker_thread_condition_variable.wait_for(
-                MonoDelta::FromSeconds(config::report_disk_state_interval_seconds));
+                worker_thread_lock,
+                std::chrono::seconds(config::report_disk_state_interval_seconds));
         if (!_is_work) {
             break;
         }
@@ -1179,13 +1168,13 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     TReportRequest request;
     request.__set_backend(_backend);
     request.__isset.tablets = true;
-
     while (_is_work) {
         _is_doing_work = false;
 
         // wait at most report_tablet_interval_seconds, or being notified
+        std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
         _worker_thread_condition_variable.wait_for(
-                MonoDelta::FromSeconds(config::report_tablet_interval_seconds));
+                worker_thread_lock, std::chrono::seconds(config::report_tablet_interval_seconds));
         if (!_is_work) {
             break;
         }
@@ -1202,7 +1191,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _random_sleep(5);
         request.tablets.clear();
         uint64_t report_version = _s_report_version;
-        OLAPStatus build_all_report_tablets_info_status =
+        Status build_all_report_tablets_info_status =
                 StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                         &request.tablets);
         if (report_version < _s_report_version) {
@@ -1215,7 +1204,7 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
             DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
             continue;
         }
-        if (build_all_report_tablets_info_status != OLAP_SUCCESS) {
+        if (!build_all_report_tablets_info_status.ok()) {
             LOG(WARNING) << "build all report tablets info failed. status: "
                          << build_all_report_tablets_info_status;
             continue;
@@ -1235,9 +1224,9 @@ void TaskWorkerPool::_upload_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TUploadReq upload_request;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1297,9 +1286,9 @@ void TaskWorkerPool::_download_worker_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TDownloadReq download_request;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1361,9 +1350,9 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TSnapshotRequest snapshot_request;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1382,18 +1371,15 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
         string snapshot_path;
         bool allow_incremental_clone = false; // not used
         std::vector<string> snapshot_files;
-        OLAPStatus make_snapshot_status = SnapshotManager::instance()->make_snapshot(
+        Status make_snapshot_status = SnapshotManager::instance()->make_snapshot(
                 snapshot_request, &snapshot_path, &allow_incremental_clone);
-        if (make_snapshot_status != OLAP_SUCCESS) {
-            status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED
-                                  ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED
-                                  : TStatusCode::RUNTIME_ERROR;
+        if (!make_snapshot_status.ok()) {
+            status_code = make_snapshot_status.code();
             LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                          << ", schema_hash:" << snapshot_request.schema_hash
                          << ", version:" << snapshot_request.version
-                         << ", status: " << make_snapshot_status;
-            error_msgs.push_back("make_snapshot failed. status: " +
-                                 boost::lexical_cast<string>(make_snapshot_status));
+                         << ", status: " << make_snapshot_status.to_string();
+            error_msgs.push_back("make_snapshot failed. status: " + make_snapshot_status.get_error_msg());
         } else {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
@@ -1412,9 +1398,8 @@ void TaskWorkerPool::_make_snapshot_thread_callback() {
                     LOG(WARNING) << "make_snapshot failed. tablet_id:" << snapshot_request.tablet_id
                                  << ", schema_hash:" << snapshot_request.schema_hash
                                  << ", version:" << snapshot_request.version
-                                 << ",list file failed: " << st.get_error_msg();
-                    error_msgs.push_back("make_snapshot failed. list file failed: " +
-                                         st.get_error_msg());
+                                 << ",list file failed: " << st.to_string();
+                    error_msgs.push_back("make_snapshot failed. list file failed: " + st.get_error_msg());
                 }
             }
         }
@@ -1440,9 +1425,9 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TReleaseSnapshotRequest release_snapshot_request;
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1459,9 +1444,9 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
         TStatus task_status;
 
         string& snapshot_path = release_snapshot_request.snapshot_path;
-        OLAPStatus release_snapshot_status =
+        Status release_snapshot_status =
                 SnapshotManager::instance()->release_snapshot(snapshot_path);
-        if (release_snapshot_status != OLAP_SUCCESS) {
+        if (!release_snapshot_status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path
                          << ". status: " << release_snapshot_status;
@@ -1487,15 +1472,14 @@ void TaskWorkerPool::_release_snapshot_thread_callback() {
 }
 
 Status TaskWorkerPool::_get_tablet_info(const TTabletId tablet_id,
-                                             const TSchemaHash schema_hash, int64_t signature,
-                                             TTabletInfo* tablet_info) {
+                                        const TSchemaHash schema_hash, int64_t signature,
+                                        TTabletInfo* tablet_info) {
     Status status = Status::OK();
-
     tablet_info->__set_tablet_id(tablet_id);
     tablet_info->__set_schema_hash(schema_hash);
-    OLAPStatus olap_status =
+    Status olap_status =
             StorageEngine::instance()->tablet_manager()->report_tablet_info(tablet_info);
-    if (olap_status != OLAP_SUCCESS) {
+    if (!olap_status.ok()) {
         LOG(WARNING) << "get tablet info failed. status: " << olap_status
                      << ", signature: " << signature;
         status = Status::InternalError("Get tablet info failed");
@@ -1508,9 +1492,9 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         TAgentTaskRequest agent_task_req;
         TMoveDirReq move_dir_req;
         {
-            MutexLock worker_thread_lock(&(_worker_thread_lock));
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1523,8 +1507,7 @@ void TaskWorkerPool::_move_dir_thread_callback() {
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
                   << ", job id:" << move_dir_req.job_id;
         Status status =
-                _move_dir(move_dir_req.tablet_id, move_dir_req.schema_hash, move_dir_req.src,
-                          move_dir_req.job_id, true /* TODO */);
+                _move_dir(move_dir_req.tablet_id, move_dir_req.src, move_dir_req.job_id, true /* TODO */);
 
         if (!status.ok()) {
             LOG(WARNING) << "failed to move dir: " << move_dir_req.src
@@ -1549,13 +1532,11 @@ void TaskWorkerPool::_move_dir_thread_callback() {
     }
 }
 
-Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                      const std::string& src, int64_t job_id, bool overwrite) {
+Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite) {
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
-                  << ", schema hash:" << schema_hash;
+        LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id;
         return Status::InvalidArgument("Could not find tablet");
     }
 
@@ -1631,9 +1612,9 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
         TCompactionReq compaction_req;
 
         {
-            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
-                _worker_thread_condition_variable.wait();
+                _worker_thread_condition_variable.wait(worker_thread_lock);
             }
             if (!_is_work) {
                 return;
@@ -1673,6 +1654,128 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
             _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
         }
     }
+}
+
+void TaskWorkerPool::_storage_medium_migrate_v2_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+        int64_t signature = agent_task_req.signature;
+        LOG(INFO) << "get migration table v2 task, signature: " << agent_task_req.signature;
+        bool is_task_timeout = false;
+        if (agent_task_req.__isset.recv_time) {
+            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+            if (time_elapsed > config::report_task_interval_seconds * 20) {
+                LOG(INFO) << "task elapsed " << time_elapsed
+                          << " seconds since it is inserted to queue, it is timeout";
+                is_task_timeout = true;
+            }
+        }
+        if (!is_task_timeout) {
+            TFinishTaskRequest finish_task_request;
+            TTaskType::type task_type = agent_task_req.task_type;
+            switch (task_type) {
+                case TTaskType::STORAGE_MEDIUM_MIGRATE_V2:
+                    _storage_medium_migrate_v2(agent_task_req, signature, task_type, &finish_task_request);
+                    break;
+                default:
+                    // pass
+                    break;
+            }
+            _finish_task(finish_task_request);
+        }
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_storage_medium_migrate_v2(const TAgentTaskRequest& agent_task_req, int64_t signature,
+        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request) {
+    Status status = Status::OK();
+    TStatus task_status;
+    std::vector<string> error_msgs;
+
+    string process_name;
+    switch (task_type) {
+        case TTaskType::STORAGE_MEDIUM_MIGRATE_V2:
+            process_name = "StorageMediumMigrationV2";
+            break;
+        default:
+            std::string task_name;
+            EnumToString(TTaskType, task_type, task_name);
+            LOG(WARNING) << "Storage medium migration v2 type invalid. type: " << task_name
+                         << ", signature: " << signature;
+            status = Status::NotSupported("Storage medium migration v2 type invalid");
+            break;
+    }
+
+    // Check last storage medium migration v2 status, if failed delete tablet file
+    // Do not need to adjust delete success or not
+    // Because if delete failed task will failed
+    TTabletId new_tablet_id;
+    TSchemaHash new_schema_hash = 0;
+    if (status.ok()) {
+        new_tablet_id = agent_task_req.storage_migration_req_v2.new_tablet_id;
+        new_schema_hash = agent_task_req.storage_migration_req_v2.new_schema_hash;
+        EngineStorageMigrationTaskV2 engine_task(agent_task_req.storage_migration_req_v2);
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            if (sc_status == Status::OLAPInternalError(OLAP_ERR_DATA_QUALITY_ERR)) {
+                error_msgs.push_back("The data quality does not satisfy, please check your data. ");
+            }
+            status = Status::DataQualityError("The data quality does not satisfy");
+        } else {
+            status = Status::OK();
+        }
+    }
+
+    if (status.ok()) {
+        ++_s_report_version;
+        LOG(INFO) << process_name << " finished. signature: " << signature;
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_report_version(_s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    std::vector<TTabletInfo> finish_tablet_infos;
+    if (status.ok()) {
+        TTabletInfo tablet_info;
+        status = _get_tablet_info(new_tablet_id, new_schema_hash, signature, &tablet_info);
+
+        if (!status.ok()) {
+            LOG(WARNING) << process_name << " success, but get new tablet info failed."
+                         << "tablet_id: " << new_tablet_id << ", schema_hash: " << new_schema_hash
+                         << ", signature: " << signature;
+        } else {
+            finish_tablet_infos.push_back(tablet_info);
+        }
+    }
+
+    if (status.ok()) {
+        finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
+        LOG(INFO) << process_name << " success. signature: " << signature;
+        error_msgs.push_back(process_name + " success");
+    } else {
+        LOG(WARNING) << process_name << " failed. signature: " << signature;
+        error_msgs.push_back(process_name + " failed");
+        error_msgs.push_back("status: " + status.to_string());
+    }
+    task_status.__set_status_code(status.code());
+    task_status.__set_error_msgs(error_msgs);
+    finish_task_request->__set_task_status(task_status);
 }
 
 } // namespace doris

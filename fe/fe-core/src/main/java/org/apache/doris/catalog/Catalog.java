@@ -156,7 +156,7 @@ import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
-import org.apache.doris.http.meta.MetaBaseAction;
+import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
@@ -3116,8 +3116,7 @@ public class Catalog {
                 }
                 TypeDef typeDef;
                 Expr resultExpr = resultExprs.get(i);
-                // varchar/char transfer to string
-                if (resultExpr.getType().isStringType()) {
+                if (resultExpr.getType().isStringType() && resultExpr.getType().getLength() < 0) {
                     typeDef = new TypeDef(Type.STRING);
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
@@ -3723,6 +3722,10 @@ public class Catalog {
         boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
+        // set remote storage
+        String resourceName = PropertyAnalyzer.analyzeRemoteStorageResource(properties);
+        olapTable.setRemoteStorageResource(resourceName);
+
         TTabletType tabletType;
         try {
             tabletType = PropertyAnalyzer.analyzeTabletType(properties);
@@ -4246,6 +4249,13 @@ public class Catalog {
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
             sb.append(olapTable.getStorageFormat()).append("\"");
+
+            // remote storage resource
+            String remoteStorageResource = olapTable.getRemoteStorageResource();
+            if (!Strings.isNullOrEmpty(remoteStorageResource)) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
+                sb.append(remoteStorageResource).append("\"");
+            }
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -6097,7 +6107,7 @@ public class Catalog {
         idToDb.remove(infoSchemaDb.getId());
     }
 
-    public void replayDropCluster(ClusterInfo info) {
+    public void replayDropCluster(ClusterInfo info) throws DdlException {
         tryLock(true);
         try {
             unprotectDropCluster(info, true/* is replay */);

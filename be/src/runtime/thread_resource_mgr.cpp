@@ -17,7 +17,6 @@
 
 #include "runtime/thread_resource_mgr.h"
 
-#include <boost/algorithm/string.hpp>
 #include <vector>
 
 #include "common/config.h"

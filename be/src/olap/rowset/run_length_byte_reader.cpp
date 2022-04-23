@@ -25,14 +25,14 @@ namespace doris {
 RunLengthByteReader::RunLengthByteReader(ReadOnlyFileStream* input)
         : _input(input), _num_literals(0), _used(0), _repeat(false) {}
 
-OLAPStatus RunLengthByteReader::_read_values() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteReader::_read_values() {
+    Status res = Status::OK();
     _used = 0;
     char control_byte = 0;
 
     res = _input->read(&control_byte);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to read control byte.[res = %d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to read control byte.res = " << res;
         return res;
     }
 
@@ -41,8 +41,8 @@ OLAPStatus RunLengthByteReader::_read_values() {
         _num_literals = control_byte + RunLengthByteWriter::MIN_REPEAT_SIZE;
 
         res = _input->read(&_literals[0]);
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read value byte.[res = %d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read value byte.res = " << res;
             return res;
         }
     } else {
@@ -54,8 +54,8 @@ OLAPStatus RunLengthByteReader::_read_values() {
             uint64_t to_read = _num_literals - bytes;
 
             res = _input->read(&_literals[bytes], &to_read);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read value byte.[res = %d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to read value byte.res = " << res;
                 return res;
             }
 
@@ -70,13 +70,13 @@ bool RunLengthByteReader::has_next() const {
     return _used != _num_literals || !_input->eof();
 }
 
-OLAPStatus RunLengthByteReader::next(char* value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteReader::next(char* value) {
+    Status res = Status::OK();
 
     if (_used == _num_literals) {
         res = _read_values();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to read values.[res = %d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to read values.res = " << res;
             return res;
         }
     }
@@ -91,11 +91,11 @@ OLAPStatus RunLengthByteReader::next(char* value) {
     return res;
 }
 
-OLAPStatus RunLengthByteReader::seek(PositionProvider* position) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteReader::seek(PositionProvider* position) {
+    Status res = Status::OK();
 
     res = _input->seek(position);
-    if (OLAP_SUCCESS != res) {
+    if (!res.ok()) {
         VLOG_TRACE << "fail to ReadOnlyFileStream seek. res = " << res;
         return res;
     }
@@ -106,8 +106,8 @@ OLAPStatus RunLengthByteReader::seek(PositionProvider* position) {
         // a loop is required for cases where we break the run into two parts
         while (consumed > 0) {
             res = _read_values();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read values.[res = %d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to read values.res = " << res;
                 break;
             }
 
@@ -122,14 +122,14 @@ OLAPStatus RunLengthByteReader::seek(PositionProvider* position) {
     return res;
 }
 
-OLAPStatus RunLengthByteReader::skip(uint64_t num_values) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status RunLengthByteReader::skip(uint64_t num_values) {
+    Status res = Status::OK();
 
     while (num_values > 0) {
         if (_used == _num_literals) {
             res = _read_values();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to read values.[res = %d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to read values.res = " << res;
                 break;
             }
         }

@@ -22,7 +22,6 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/file_result_writer.h"
-#include "runtime/mysql_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -40,6 +39,9 @@ ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
     _is_top_sink = true;
 
     _name = "ResultFileSink";
+    //for impl csv_with_name and csv_with_names_and_types
+    _header_type = sink.header_type;
+    _header = sink.header;
 }
 
 ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
@@ -61,6 +63,9 @@ ResultFileSink::ResultFileSink(const RowDescriptor& row_desc,
     _channels.push_back(_channel_shared_ptrs.back().get());
 
     _name = "ResultFileSink";
+    //for impl csv_with_name and csv_with_names_and_types
+    _header_type = sink.header_type;
+    _header = sink.header;
 }
 
 ResultFileSink::~ResultFileSink() {
@@ -119,6 +124,7 @@ Status ResultFileSink::prepare(RuntimeState* state) {
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_expr_ctxs,
                 _profile, nullptr, _output_batch, state->return_object_data_as_binary()));
     }
+    _writer->set_header_info(_header_type, _header);
     RETURN_IF_ERROR(_writer->init(state));
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));

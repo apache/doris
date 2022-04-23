@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-mgr.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
@@ -129,7 +132,7 @@ private:
     // Remove receiver block for fragment_instance_id/node_id from the map.
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
-    inline uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
+    uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 
 } // namespace doris

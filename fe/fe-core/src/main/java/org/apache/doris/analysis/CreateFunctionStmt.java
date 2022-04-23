@@ -236,9 +236,6 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void analyzeUda() throws AnalysisException {
-        if (binaryType == TFunctionBinaryType.RPC) {
-            throw new AnalysisException("RPC UDAF is not supported.");
-        }
         AggregateFunction.AggregateFunctionBuilder builder = AggregateFunction.AggregateFunctionBuilder.createUdfBuilder();
 
         builder.name(functionName).argsType(argsDef.getArgTypes()).retType(returnType.getType()).
@@ -255,10 +252,31 @@ public class CreateFunctionStmt extends DdlStmt {
         if (mergeFnSymbol == null) {
             throw new AnalysisException("No 'merge_fn' in properties");
         }
+        String serializeFnSymbol = properties.get(SERIALIZE_KEY);
+        String finalizeFnSymbol = properties.get(FINALIZE_KEY);
+        String getValueFnSymbol = properties.get(GET_VALUE_KEY);
+        String removeFnSymbol = properties.get(REMOVE_KEY);
+        if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
+            checkRPCUdf(initFnSymbol);
+            checkRPCUdf(updateFnSymbol);
+            checkRPCUdf(mergeFnSymbol);
+            if (serializeFnSymbol != null) {
+                checkRPCUdf(serializeFnSymbol);
+            }
+            if (finalizeFnSymbol != null) {
+                checkRPCUdf(finalizeFnSymbol);
+            }
+            if (getValueFnSymbol != null) {
+                checkRPCUdf(getValueFnSymbol);
+            }
+            if (removeFnSymbol != null) {
+                checkRPCUdf(removeFnSymbol);
+            }
+        }
         function = builder.initFnSymbol(initFnSymbol)
                 .updateFnSymbol(updateFnSymbol).mergeFnSymbol(mergeFnSymbol)
-                .serializeFnSymbol(properties.get(SERIALIZE_KEY)).finalizeFnSymbol(properties.get(FINALIZE_KEY))
-                .getValueFnSymbol(properties.get(GET_VALUE_KEY)).removeFnSymbol(properties.get(REMOVE_KEY))
+                .serializeFnSymbol(serializeFnSymbol).finalizeFnSymbol(finalizeFnSymbol)
+                .getValueFnSymbol(getValueFnSymbol).removeFnSymbol(removeFnSymbol)
                 .build();
         function.setChecksum(checksum);
     }
@@ -274,33 +292,9 @@ public class CreateFunctionStmt extends DdlStmt {
         // the format for load balance can ref https://github.com/apache/incubator-brpc/blob/master/docs/en/client.md#connect-to-a-cluster
         if (binaryType == TFunctionBinaryType.RPC && !userFile.contains("://")) {
             if (StringUtils.isNotBlank(prepareFnSymbol) || StringUtils.isNotBlank(closeFnSymbol)) {
-                throw new AnalysisException(" prepare and close in RPC UDF are not supported.");
+                throw new AnalysisException("prepare and close in RPC UDF are not supported.");
             }
-            String[] url = userFile.split(":");
-            if (url.length != 2) {
-                throw new AnalysisException("function server address invalid.");
-            }
-            String host = url[0];
-            int port = Integer.valueOf(url[1]);
-            ManagedChannel channel = NettyChannelBuilder.forAddress(host, port)
-                    .flowControlWindow(Config.grpc_max_message_size_bytes)
-                    .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                    .enableRetry().maxRetryAttempts(3)
-                    .usePlaintext().build();
-            PFunctionServiceGrpc.PFunctionServiceBlockingStub stub = PFunctionServiceGrpc.newBlockingStub(channel);
-            FunctionService.PCheckFunctionRequest.Builder builder = FunctionService.PCheckFunctionRequest.newBuilder();
-            builder.getFunctionBuilder().setFunctionName(symbol);
-            for (Type arg : argsDef.getArgTypes()) {
-                builder.getFunctionBuilder().addInputs(convertToPParameterType(arg));
-            }
-            builder.getFunctionBuilder().setOutput(convertToPParameterType(returnType.getType()));
-            FunctionService.PCheckFunctionResponse response = stub.checkFn(builder.build());
-            if (response == null || !response.hasStatus()) {
-                throw new AnalysisException("cannot access function server");
-            }
-            if (response.getStatus().getStatusCode() != 0) {
-                throw new AnalysisException("check function [" + symbol + "] failed: " + response.getStatus());
-            }
+            checkRPCUdf(symbol);
         } else if (binaryType == TFunctionBinaryType.JAVA_UDF) {
             analyzeJavaUdf(symbol);
         }
@@ -375,6 +369,7 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
                     .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
                     .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
@@ -395,6 +390,36 @@ public class CreateFunctionStmt extends DdlStmt {
             throw new AnalysisException(
                     String.format("UDF class '%s' method '%s' %s[%s] type is not supported!",
                             clazz.getCanonicalName(), method.getName(), pname, pType.getCanonicalName()));
+        }
+    }
+
+    private void checkRPCUdf(String symbol) throws AnalysisException {
+        // TODO(yangzhg) support check function in FE when function service behind load balancer
+        // the format for load balance can ref https://github.com/apache/incubator-brpc/blob/master/docs/en/client.md#connect-to-a-cluster
+        String[] url = userFile.split(":");
+        if (url.length != 2) {
+            throw new AnalysisException("function server address invalid.");
+        }
+        String host = url[0];
+        int port = Integer.valueOf(url[1]);
+        ManagedChannel channel = NettyChannelBuilder.forAddress(host, port)
+                .flowControlWindow(Config.grpc_max_message_size_bytes)
+                .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
+                .enableRetry().maxRetryAttempts(3)
+                .usePlaintext().build();
+        PFunctionServiceGrpc.PFunctionServiceBlockingStub stub = PFunctionServiceGrpc.newBlockingStub(channel);
+        FunctionService.PCheckFunctionRequest.Builder builder = FunctionService.PCheckFunctionRequest.newBuilder();
+        builder.getFunctionBuilder().setFunctionName(symbol);
+        for (Type arg : argsDef.getArgTypes()) {
+            builder.getFunctionBuilder().addInputs(convertToPParameterType(arg));
+        }
+        builder.getFunctionBuilder().setOutput(convertToPParameterType(returnType.getType()));
+        FunctionService.PCheckFunctionResponse response = stub.checkFn(builder.build());
+        if (response == null || !response.hasStatus()) {
+            throw new AnalysisException("cannot access function server");
+        }
+        if (response.getStatus().getStatusCode() != 0) {
+            throw new AnalysisException("check function [" + symbol + "] failed: " + response.getStatus());
         }
     }
 

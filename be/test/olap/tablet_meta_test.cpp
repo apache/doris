@@ -28,7 +28,7 @@ TEST(TabletMetaTest, SaveAndParse) {
 
     TabletMeta old_tablet_meta(1, 2, 3, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
                                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "");
-    ASSERT_EQ(OLAP_SUCCESS, old_tablet_meta.save(meta_path));
+    EXPECT_EQ(Status::OK(), old_tablet_meta.save(meta_path));
 
     {
         // Just to make stack space dirty
@@ -38,12 +38,7 @@ TEST(TabletMetaTest, SaveAndParse) {
     TabletMeta new_tablet_meta;
     new_tablet_meta.create_from_file(meta_path);
 
-    ASSERT_EQ(old_tablet_meta, new_tablet_meta);
+    EXPECT_EQ(old_tablet_meta, new_tablet_meta);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

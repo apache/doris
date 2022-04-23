@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-This command is used to create a table. The subject of this document describes the syntax for creating Doris self-maintained tables. For external table syntax, please refer to the [CREATE-EXTERNAL-TABLE] document.
+This command is used to create a table. The subject of this document describes the syntax for creating Doris self-maintained tables. For external table syntax, please refer to the [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.html) document.
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
@@ -149,7 +149,7 @@ distribution_info
 
 * `engine_type`
 
-    Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE] (DORIS/SQL Manual/Syntax Help/DDL/CREATE-EXTERNAL-TABLE.md) document. Example:
+    Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.html) document. Example:
 
     `ENGINE=olap`
 
@@ -298,12 +298,12 @@ distribution_info
         * `dynamic_partition.reserved_history_periods`: Used to specify the range of reserved history periods.
 
     * Data Sort Info
-        
+      
         The relevant parameters of data sort info are as follows:
         
         * `data_sort.sort_type`: the method of data sorting, options: z-order/lexical, default is lexical
         * `data_sort.col_num`:  the first few columns to sort, col_num muster less than total key counts
-      
+    
 ### Example
 
 1. Create a detailed model table
@@ -499,34 +499,33 @@ distribution_info
     ```sql
     CREATE TABLE example_db.table_hash
     (
+      k1 TINYINT,
+    	k2 DECIMAL(10, 2) DEFAULT "10.5"
+    )
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES (
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+    );
+    
+    CREATE TABLE example_db.dynamic_partition
+    (
+    	k1 DATE,
+    	k2 INT,
+    	k3 SMALLINT,
+    	v1 VARCHAR(2048),
+    	v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+    )
+    PARTITION BY RANGE (k1) ()
+    DISTRIBUTED BY HASH(k2) BUCKETS 32
+    PROPERTIES(
+        "dynamic_partition.time_unit" = "DAY",
+        "dynamic_partition.start" = "-3",
+        "dynamic_partition.end" = "3",
+        "dynamic_partition.prefix" = "p",
+        "dynamic_partition.buckets" = "32",
+        "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
+     );
 
-   		k1 TINYINT,
-   		k2 DECIMAL(10, 2) DEFAULT "10.5"
-   	)
-   	DISTRIBUTED BY HASH(k1) BUCKETS 32
-   	PROPERTIES (
-   	    "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
-   	);
-   	
-   	CREATE TABLE example_db.dynamic_partition
-   	(
-   		k1 DATE,
-   		k2 INT,
-   		k3 SMALLINT,
-   		v1 VARCHAR(2048),
-   		v2 DATETIME DEFAULT "2014-02-04 15:36:00"
-   	)
-   	PARTITION BY RANGE (k1) ()
-   	DISTRIBUTED BY HASH(k2) BUCKETS 32
-   	PROPERTIES(
-   	    "dynamic_partition.time_unit" = "DAY",
-   	    "dynamic_partition.start" = "-3",
-   	    "dynamic_partition.end" = "3",
-   	    "dynamic_partition.prefix" = "p",
-   	    "dynamic_partition.buckets" = "32",
-   	    "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
-   	 );
-   	```
 ### Keywords
 
     CREATE, TABLE
@@ -535,7 +534,7 @@ distribution_info
 
 #### Partitioning and bucketing
 
-A table must specify the bucket column, but it does not need to specify the partition. For the specific introduction of partitioning and bucketing, please refer to the [Data Division] (DORIS/Getting Started/Relational Model and Data Division.md) document.
+A table must specify the bucket column, but it does not need to specify the partition. For the specific introduction of partitioning and bucketing, please refer to the [Data Division](../../../../data-table/data-partition.html) document.
 
 Tables in Doris can be divided into partitioned tables and non-partitioned tables. This attribute is determined when the table is created and cannot be changed afterwards. That is, for partitioned tables, you can add or delete partitions in the subsequent use process, and for non-partitioned tables, you can no longer perform operations such as adding partitions afterwards.
 
@@ -545,7 +544,7 @@ Therefore, it is recommended to confirm the usage method to build the table reas
 
 #### Dynamic Partition
 
-The dynamic partition function is mainly used to help users automatically manage partitions. By setting certain rules, the Doris system regularly adds new partitions or deletes historical partitions. Please refer to [Dynamic Partition] (DORIS/Operation Manual/Dynamic Partition.md) document for more help.
+The dynamic partition function is mainly used to help users automatically manage partitions. By setting certain rules, the Doris system regularly adds new partitions or deletes historical partitions. Please refer to [Dynamic Partition](../../../../advanced/partition/dynamic-partition.html) document for more help.
 
 #### Materialized View
 
@@ -555,7 +554,7 @@ If the materialized view is created when the table is created, all subsequent da
 
 If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views] (DORIS/Operation Manual/materialized views.md).
+For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.html).
 
 #### Index
 

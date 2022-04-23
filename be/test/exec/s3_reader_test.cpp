@@ -36,6 +36,9 @@ static const std::string SK = "";
 static const std::string ENDPOINT = "http://s3.bj.bcebos.com";
 static const std::string REGION = "bj";
 static const std::string BUCKET = "s3://yang-repo/";
+
+// remove DISABLED_ when need run this test
+#define S3ReaderTest DISABLED_S3ReaderTest
 class S3ReaderTest : public testing::Test {
 public:
     S3ReaderTest()
@@ -76,49 +79,41 @@ TEST_F(S3ReaderTest, normal) {
     std::string path = _s3_base_path + "/test_file";
     std::unique_ptr<S3Writer> writer(new S3Writer(_aws_properties, path, 0));
     auto st = writer->open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     size_t l = 0;
     st = writer->write(reinterpret_cast<const uint8_t*>(_content.c_str()), _content.length(), &l);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(_content.length(), l);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(_content.length(), l);
     st = writer->close();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     std::unique_ptr<S3Writer> writer1(new S3Writer(_aws_properties, path, 0));
     st = writer1->open();
-    ASSERT_TRUE(st.is_already_exist());
+    EXPECT_TRUE(st.is_already_exist());
     std::unique_ptr<S3Reader> reader(new S3Reader(_aws_properties, path, 0));
     st = reader->open();
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     std::unique_ptr<S3Reader> reader1(new S3Reader(_aws_properties, path + "xx", 0));
     st = reader1->open();
-    ASSERT_TRUE(st.is_not_found());
-    ASSERT_EQ(_content.length(), reader->size());
+    EXPECT_TRUE(st.is_not_found());
+    EXPECT_EQ(_content.length(), reader->size());
     std::string verification_contents;
     verification_contents.resize(_content.length());
     int64_t total_read = 0;
     bool eof = false;
     st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(_content, verification_contents);
-    ASSERT_EQ(_content.length(), total_read);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(_content, verification_contents);
+    EXPECT_EQ(_content.length(), total_read);
+    EXPECT_FALSE(eof);
     st = reader->read((uint8_t*)&verification_contents[0], _content.length(), &total_read, &eof);
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(eof);
     int64_t t = 0;
     st = reader->tell(&t);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(_content.length(), t);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(_content.length(), t);
     st = reader->readat(_content.length(), _content.length(), (int64_t*)(&total_read),
                         (uint8_t*)&verification_contents[0]);
     LOG(INFO) << total_read;
-    ASSERT_TRUE(total_read == 0);
+    EXPECT_TRUE(total_read == 0);
 }
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    int ret = 0;
-    // ak sk is secret
-    // ret = RUN_ALL_TESTS();
-    return ret;
-}

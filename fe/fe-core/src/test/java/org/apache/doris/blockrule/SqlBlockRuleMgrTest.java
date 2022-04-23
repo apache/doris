@@ -325,4 +325,58 @@ public class SqlBlockRuleMgrTest {
                 () -> Catalog.getCurrentCatalog().getAuth().updateUserProperty(setUserPropertyStmt));
 
     }
+
+    @Test
+    public void testAlterSqlBlock() throws Exception{
+        Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
+        SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
+
+        // create : sql
+        // alter : global
+        SqlBlockRule sqlBlockRule = new SqlBlockRule("test_rule", "select \\* from test_table", "NULL", 0L, 0L, 0L, true, true);
+        mgr.unprotectedAdd(sqlBlockRule);
+        Assert.assertEquals(true, mgr.existRule("test_rule"));
+
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CreateSqlBlockRuleStmt.GLOBAL_PROPERTY, "false");
+        AlterSqlBlockRuleStmt stmt = new AlterSqlBlockRuleStmt("test_rule", properties);
+        stmt.analyze(analyzer);
+        mgr.alterSqlBlockRule(stmt);
+
+        ShowSqlBlockRuleStmt showStmt = new ShowSqlBlockRuleStmt("test_rule");
+        SqlBlockRule alteredSqlBlockRule = mgr.getSqlBlockRule(showStmt).get(0);
+
+        Assert.assertEquals("select \\* from test_table", alteredSqlBlockRule.getSql());
+        Assert.assertEquals("NULL", alteredSqlBlockRule.getSqlHash());
+        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getPartitionNum());
+        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getTabletNum());
+        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getCardinality());
+        Assert.assertEquals(false, alteredSqlBlockRule.getGlobal());
+        Assert.assertEquals(true, alteredSqlBlockRule.getEnable());
+
+        // create : partitionNum
+        // alter : tabletNum
+        SqlBlockRule sqlBlockRule2 = new SqlBlockRule("test_rule2", "NULL", "NULL", 100L, 0L, 0L, true, true);
+        mgr.unprotectedAdd(sqlBlockRule2);
+        Assert.assertEquals(true, mgr.existRule("test_rule2"));
+
+        Map<String, String> properties2 = new HashMap<>();
+        properties2.put(CreateSqlBlockRuleStmt.SCANNED_TABLET_NUM, "500");
+        AlterSqlBlockRuleStmt stmt2 = new AlterSqlBlockRuleStmt("test_rule2", properties2);
+        stmt2.analyze(analyzer);
+        mgr.alterSqlBlockRule(stmt2);
+
+        ShowSqlBlockRuleStmt showStmt2 = new ShowSqlBlockRuleStmt("test_rule2");
+        SqlBlockRule alteredSqlBlockRule2 = mgr.getSqlBlockRule(showStmt2).get(0);
+
+        Assert.assertEquals("NULL", alteredSqlBlockRule2.getSql());
+        Assert.assertEquals("NULL", alteredSqlBlockRule2.getSqlHash());
+        Assert.assertEquals(100L, (long)alteredSqlBlockRule2.getPartitionNum());
+        Assert.assertEquals(500L, (long)alteredSqlBlockRule2.getTabletNum());
+        Assert.assertEquals(0L, (long)alteredSqlBlockRule2.getCardinality());
+        Assert.assertEquals(true, alteredSqlBlockRule2.getGlobal());
+        Assert.assertEquals(true, alteredSqlBlockRule2.getEnable());
+
+
+    }
 }

@@ -58,7 +58,7 @@ TEST_F(BooleanQueryBuilderTest, term_query) {
     term_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "term query" << actual_json;
-    ASSERT_STREQ("{\"term\":{\"content\":\"wyf\"}}", actual_json.c_str());
+    EXPECT_STREQ("{\"term\":{\"content\":\"wyf\"}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, range_query) {
@@ -80,7 +80,7 @@ TEST_F(BooleanQueryBuilderTest, range_query) {
     range_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "range query" << actual_json;
-    ASSERT_STREQ("{\"range\":{\"k\":{\"gte\":\"a\"}}}", actual_json.c_str());
+    EXPECT_STREQ("{\"range\":{\"k\":{\"gte\":\"a\"}}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, es_query) {
@@ -106,7 +106,7 @@ TEST_F(BooleanQueryBuilderTest, es_query) {
     es_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "es query" << actual_json;
-    ASSERT_STREQ("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}", actual_json.c_str());
+    EXPECT_STREQ("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, like_query) {
@@ -129,7 +129,7 @@ TEST_F(BooleanQueryBuilderTest, like_query) {
     like_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     // LOG(INFO) << "wildcard query" << actual_json;
-    ASSERT_STREQ("{\"wildcard\":{\"content\":\"a*e*g?\"}}", actual_json.c_str());
+    EXPECT_STREQ("{\"wildcard\":{\"content\":\"a*e*g?\"}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, terms_in_query) {
@@ -167,7 +167,7 @@ TEST_F(BooleanQueryBuilderTest, terms_in_query) {
     in_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "terms in sets query" << actual_json;
-    ASSERT_STREQ("{\"terms\":{\"dv\":[\"2.0\",\"4.0\",\"8.0\"]}}", actual_json.c_str());
+    EXPECT_STREQ("{\"terms\":{\"dv\":[\"2.0\",\"4.0\",\"8.0\"]}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, match_all_query) {
@@ -182,7 +182,7 @@ TEST_F(BooleanQueryBuilderTest, match_all_query) {
     match_all_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "match all query" << actual_json;
-    ASSERT_STREQ("{\"match_all\":{}}", actual_json.c_str());
+    EXPECT_STREQ("{\"match_all\":{}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, exists_query) {
@@ -202,7 +202,7 @@ TEST_F(BooleanQueryBuilderTest, exists_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     exists_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
-    ASSERT_STREQ("{\"exists\":{\"field\":\"k1\"}}", actual_json.c_str());
+    EXPECT_STREQ("{\"exists\":{\"field\":\"k1\"}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, bool_query) {
@@ -267,7 +267,7 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
             "not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"gte\":\"a\"}}},{\"term\":"
             "{\"content\":\"wyf\"}}]}}";
     //LOG(INFO) << "bool query" << actual_json;
-    ASSERT_STREQ(expected_json.c_str(), actual_json.c_str());
+    EXPECT_STREQ(expected_json.c_str(), actual_json.c_str());
 
     delete like_predicate;
     delete function_predicate;
@@ -371,7 +371,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
             "{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":"
             "[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
     //LOG(INFO) << "compound bool query" << actual_bool_json;
-    ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    EXPECT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
     delete bool_predicate_1;
     delete bool_predicate_2;
     delete bool_predicate_3;
@@ -393,7 +393,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction legal_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                es_query_values);
     auto st = BooleanQueryBuilder::check_es_query(legal_es_query);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     char empty_query[] = "{}";
     int empty_query_length = (int)strlen(empty_query);
     StringValue empty_query_value(empty_query, empty_query_length);
@@ -402,7 +402,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction empty_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                empty_query_values);
     st = BooleanQueryBuilder::check_es_query(empty_es_query);
-    ASSERT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
+    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
     //LOG(INFO) <<"error msg:" << st1.get_error_msg();
     char malformed_query[] = "{\"bool\": {\"must_not\": {\"exists\": {";
     int malformed_query_length = (int)strlen(malformed_query);
@@ -412,7 +412,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction malformed_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                    malformed_query_values);
     st = BooleanQueryBuilder::check_es_query(malformed_es_query);
-    ASSERT_STREQ(st.get_error_msg().c_str(), "malformed esquery json");
+    EXPECT_STREQ(st.get_error_msg().c_str(), "malformed esquery json");
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
     int illegal_query_length = (int)strlen(illegal_query);
     StringValue illegal_query_value(illegal_query, illegal_query_length);
@@ -421,7 +421,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction illegal_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                  illegal_query_values);
     st = BooleanQueryBuilder::check_es_query(illegal_es_query);
-    ASSERT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
+    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must only one root");
     char illegal_key_query[] = "[\"22\"]";
     int illegal_key_query_length = (int)strlen(illegal_key_query);
     StringValue illegal_key_query_value(illegal_key_query, illegal_key_query_length);
@@ -430,7 +430,7 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     ExtFunction illegal_key_es_query(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols,
                                      illegal_key_query_values);
     st = BooleanQueryBuilder::check_es_query(illegal_key_es_query);
-    ASSERT_STREQ(st.get_error_msg().c_str(), "esquery must be a object");
+    EXPECT_STREQ(st.get_error_msg().c_str(), "esquery must be a object");
 }
 
 TEST_F(BooleanQueryBuilderTest, validate_partial) {
@@ -513,7 +513,7 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result;
     BooleanQueryBuilder::validate(and_bool_predicates, &result);
     std::vector<bool> expected = {true, true, true};
-    ASSERT_EQ(result, expected);
+    EXPECT_EQ(result, expected);
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
     int illegal_query_length = (int)strlen(illegal_query);
     StringValue illegal_query_value(illegal_query, illegal_query_length);
@@ -529,7 +529,7 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result1;
     BooleanQueryBuilder::validate(and_bool_predicates_1, &result1);
     std::vector<bool> expected1 = {true, true, false};
-    ASSERT_EQ(result1, expected1);
+    EXPECT_EQ(result1, expected1);
 }
 
 // ( k >= "a" and (fv not in [8.0, 16.0]) or (content != "wyf") ) or content like "a%e%g_"
@@ -604,7 +604,7 @@ TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
     std::vector<bool> result1;
     BooleanQueryBuilder::validate(or_predicates, &result1);
     std::vector<bool> expected1 = {true};
-    ASSERT_TRUE(result1 == expected1);
+    EXPECT_TRUE(result1 == expected1);
 
     rapidjson::Document document;
     rapidjson::Value compound_and_value(rapidjson::kObjectType);
@@ -619,11 +619,6 @@ TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
             "\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{"
             "\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}},{\"bool\":{\"must_not\":[{\"terms\":"
             "{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}},{\"wildcard\":{\"content\":\"a*e*g?\"}}]}}]}}";
-    ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    EXPECT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
 }
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

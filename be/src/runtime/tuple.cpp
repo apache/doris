@@ -14,18 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/tuple.cpp
+// and modified by Doris
 
 #include "runtime/tuple.h"
 
 #include <functional>
-#include <iomanip>
 #include <iostream>
-#include <sstream>
-#include <string>
 #include <vector>
 
 #include "common/utils.h"
-#include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/collection_value.h"
 #include "runtime/descriptors.h"

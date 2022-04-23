@@ -48,20 +48,20 @@ using google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
-OLAPStatus DeleteConditionHandler::generate_delete_predicate(
+Status DeleteConditionHandler::generate_delete_predicate(
         const TabletSchema& schema, const std::vector<TCondition>& conditions,
         DeletePredicatePB* del_pred) {
     if (conditions.empty()) {
         LOG(WARNING) << "invalid parameters for store_cond."
                      << " condition_size=" << conditions.size();
-        return OLAP_ERR_DELETE_INVALID_PARAMETERS;
+        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
     }
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
-        if (check_condition_valid(schema, condition) != OLAP_SUCCESS) {
+        if (check_condition_valid(schema, condition) != Status::OK()) {
             LOG(WARNING) << "invalid condition. condition=" << ThriftDebugString(condition);
-            return OLAP_ERR_DELETE_INVALID_CONDITION;
+            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
         }
     }
 
@@ -86,7 +86,7 @@ OLAPStatus DeleteConditionHandler::generate_delete_predicate(
     }
     del_pred->set_version(-1);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 std::string DeleteConditionHandler::construct_sub_predicates(const TCondition& condition) {
@@ -155,13 +155,13 @@ bool DeleteConditionHandler::is_condition_value_valid(const TabletColumn& column
     return false;
 }
 
-OLAPStatus DeleteConditionHandler::check_condition_valid(const TabletSchema& schema,
+Status DeleteConditionHandler::check_condition_valid(const TabletSchema& schema,
                                                          const TCondition& cond) {
     // Check whether the column exists
     int32_t field_index = schema.field_index(cond.column_name);
     if (field_index < 0) {
         OLAP_LOG_WARNING("field is not existent. [field_index=%d]", field_index);
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
+        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
     }
 
     // Delete condition should only applied on key columns or duplicate key table, and
@@ -172,25 +172,25 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(const TabletSchema& sch
         column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
         LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type "
                         "is float or double.";
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
+        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
     }
 
     // Check operator and operands size are matched.
     if ("*=" != cond.condition_op && "!*=" != cond.condition_op &&
         cond.condition_values.size() != 1) {
         OLAP_LOG_WARNING("invalid condition value size. [size=%ld]", cond.condition_values.size());
-        return OLAP_ERR_DELETE_INVALID_CONDITION;
+        return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
     }
 
     // Check each operand is valid
     for (const auto& condition_value : cond.condition_values) {
         if (!is_condition_value_valid(column, cond.condition_op, condition_value)) {
             LOG(WARNING) << "invalid condition value. [value=" << condition_value << "]";
-            return OLAP_ERR_DELETE_INVALID_CONDITION;
+            return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool DeleteHandler::_parse_condition(const std::string& condition_str, TCondition* condition) {
@@ -229,7 +229,7 @@ bool DeleteHandler::_parse_condition(const std::string& condition_str, TConditio
     return true;
 }
 
-OLAPStatus DeleteHandler::init(const TabletSchema& schema,
+Status DeleteHandler::init(const TabletSchema& schema,
                                const DelPredicateArray& delete_conditions, int64_t version,
                                const TabletReader* reader) {
     DCHECK(!_is_inited) << "reinitialize delete handler.";
@@ -247,7 +247,7 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
 
         if (temp.del_cond == nullptr) {
             LOG(FATAL) << "fail to malloc Conditions. size=" << sizeof(Conditions);
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         temp.del_cond->set_tablet_schema(&schema);
@@ -255,12 +255,12 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             TCondition condition;
             if (!_parse_condition(sub_predicate, &condition)) {
                 OLAP_LOG_WARNING("fail to parse condition. [condition=%s]", sub_predicate.c_str());
-                return OLAP_ERR_DELETE_INVALID_PARAMETERS;
+                return Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS);
             }
 
-            OLAPStatus res = temp.del_cond->append_condition(condition);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
+            Status res = temp.del_cond->append_condition(condition);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to append condition.res = " << res;
                 return res;
             }
 
@@ -283,9 +283,9 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
             for (const auto& value : in_predicate.values()) {
                 condition.condition_values.push_back(value);
             }
-            OLAPStatus res = temp.del_cond->append_condition(condition);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to append condition.[res=%d]", res);
+            Status res = temp.del_cond->append_condition(condition);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to append condition.res = " << res;
                 return res;
             }
 
@@ -299,7 +299,7 @@ OLAPStatus DeleteHandler::init(const TabletSchema& schema,
 
     _is_inited = true;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool DeleteHandler::is_filter_data(const int64_t data_version, const RowCursor& row) const {

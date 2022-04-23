@@ -32,8 +32,6 @@ This document describes the implementation principles, usage, and best practices
 
 ## Glossary
 
-* FE: Frontend, the front-end node of Doris. Responsible for metadata management and request access.
-* BE: Backend, the backend node of Doris. Responsible for query execution and data storage.
 * RoutineLoadJob: A routine load job submitted by the user.
 * JobScheduler: A routine load job scheduler for scheduling and dividing a RoutineLoadJob into multiple Tasks.
 * Task: RoutineLoadJob is divided by JobScheduler according to the rules.
@@ -170,8 +168,7 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 * merge\_type
      The type of data merging supports three types: APPEND, DELETE, and MERGE. APPEND is the default value, which means that all this batch of data needs to be appended to the existing data. DELETE means to delete all rows with the same key as this batch of data. MERGE semantics Need to be used in conjunction with the delete condition, which means that the data that meets the delete condition is processed according to DELETE semantics and the rest is processed according to APPEND semantics
 
-
-#### strict mode and load relationship of source data
+**strict mode and load relationship of source data**
 
 Here is an example of a column type of TinyInt.
 
@@ -185,7 +182,7 @@ Here is an example of a column type of TinyInt.
 |not null    | 1                   | 1               | true or false      | correct data|
 
 Here the column type is Decimal(1,0)
- 
+
 > Note: When a column in a table allows a null value to be loaded
 
 |source data | source data example | string to int   | strict_mode        | result|
@@ -197,7 +194,7 @@ Here the column type is Decimal(1,0)
 
 > Note: 10 Although it is a value that is out of range, because its type meets the requirements of decimal, strict mode has no effect on it. 10 will eventually be filtered in other ETL processing flows. But it will not be filtered by strict mode.
 
-#### Accessing SSL-certified Kafka clusters
+**Accessing SSL-certified Kafka clusters**
 
 Accessing the SSL-certified Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If the Kafka cluster has both client authentication enabled, you will also need to provide the client's public key (client.pem), key file (client.key), and key password. The files needed here need to be uploaded to Doris via the `CREAE FILE` command, ** and the catalog name is `kafka`**. See `HELP CREATE FILE;` for specific help on the `CREATE FILE` command. Here is an example:
 
@@ -235,7 +232,7 @@ Accessing the SSL-certified Kafka cluster requires the user to provide a certifi
 
 ### Viewing the status of the load job
 
-Specific commands and examples for viewing the status of the ** job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
+Specific commands and examples for viewing the status of the **job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
 
 Specific commands and examples for viewing the **Task** status can be viewed with the `HELP SHOW ROUTINE LOAD TASK;` command.
 
@@ -243,7 +240,7 @@ You can only view tasks that are currently running, and tasks that have ended an
 
 ### Alter job
 
-Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../sql-reference/sql-statements/Data%20Manipulation/alter-routine-load.md).
+Users can modify jobs that have been created. Specific instructions can be viewed through the `HELP ALTER ROUTINE LOAD;` command. Or refer to [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html).
 
 ### Job Control
 
@@ -332,3 +329,8 @@ Some system configuration parameters can affect the use of routine loads.
 
 7. period\_of\_auto\_resume\_min
     FE configuration item, the default is 5 mins. Doris reschedules will only try at most 3 times in the 5 minute period. If all 3 times fail, the current task will be locked, and auto-scheduling will not be performed. However, manual intervention can be performed.
+
+## More Help
+
+For more detailed syntax used by **Routine load**,  you can enter `HELP ROUTINE LOAD` on the Mysql client command line for more help.
+

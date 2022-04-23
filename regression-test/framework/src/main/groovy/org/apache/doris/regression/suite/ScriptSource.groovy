@@ -17,6 +17,9 @@
 
 package org.apache.doris.regression.suite
 
+import groovy.util.logging.Slf4j
+import org.apache.doris.regression.util.SqlUtils
+
 interface ScriptSource {
     SuiteScript toScript(ScriptContext scriptContext, GroovyShell shell)
     File getFile()
@@ -42,6 +45,7 @@ class GroovyFileSource implements ScriptSource {
     }
 }
 
+@Slf4j
 class SqlFileSource implements ScriptSource {
     private File suiteRoot
     private File file
@@ -63,11 +67,23 @@ class SqlFileSource implements ScriptSource {
         String tag = suiteName
         String sql = file.text
 
+        List<String> sqls
+        try {
+            sqls = SqlUtils.splitAndGetNonEmptySql(sql)
+        } catch (Throwable t) {
+            sqls = [sql]
+            log.warn("Try to execute whole file text as one sql, because can not split sql:\n${sql}", t)
+        }
+
         SuiteScript script = new SuiteScript() {
             @Override
             Object run() {
                 suite(suiteName, groupName) {
-                    quickTest(tag, sql, order)
+                    for (int i = 0; i < sqls.size(); ++i) {
+                        String singleSql = sqls.get(i)
+                        String tagName = (i == 0) ? tag : "${tag}_${i + 1}"
+                        quickTest(tagName, singleSql, order)
+                    }
                 }
             }
         }

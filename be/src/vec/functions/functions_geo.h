@@ -41,8 +41,28 @@ public:
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) {
-        return Impl::execute(block, arguments, result);
+                        size_t result, size_t input_rows_count) override {
+        if constexpr (Impl::NEED_CONTEXT) {
+            return Impl::execute(context, block, arguments, result);
+        } else {
+            return Impl::execute(block, arguments, result);
+        }
+    }
+
+    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if constexpr (Impl::NEED_CONTEXT) {
+            return Impl::prepare(context, scope);
+        } else {
+            return Status::OK();
+        }
+    }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if constexpr (Impl::NEED_CONTEXT) {
+            return Impl::close(context, scope);
+        } else {
+            return Status::OK();
+        }
     }
 };
 

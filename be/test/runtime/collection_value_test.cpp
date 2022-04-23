@@ -65,7 +65,7 @@ TEST(CollectionValueTest, set) {
         cv.set(0, TYPE_INT, &v0);
         for (int j = 1; j < cv.size(); ++j) {
             IntVal i(j + 10);
-            ASSERT_TRUE(cv.set(j, TYPE_INT, &i).ok());
+            EXPECT_TRUE(cv.set(j, TYPE_INT, &i).ok());
         }
     }
 
@@ -73,8 +73,8 @@ TEST(CollectionValueTest, set) {
         auto iter = cv.iterator(TYPE_INT);
         IntVal v0;
         iter.value(&v0);
-        ASSERT_TRUE(v0.is_null);
-        ASSERT_TRUE(iter.is_null());
+        EXPECT_TRUE(v0.is_null);
+        EXPECT_TRUE(iter.is_null());
         iter.next();
         for (int k = 1; k < cv.size(); ++k, iter.next()) {
             IntVal v;
@@ -86,12 +86,7 @@ TEST(CollectionValueTest, set) {
     // over size
     {
         IntVal intv(20);
-        ASSERT_FALSE(cv.set(10, TYPE_INT, &intv).ok());
+        EXPECT_FALSE(cv.set(10, TYPE_INT, &intv).ok());
     }
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

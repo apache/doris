@@ -33,6 +33,7 @@ import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.planner.DataPartition;
@@ -230,12 +231,12 @@ public class Coordinator {
         this.scanNodes = planner.getScanNodes();
         this.descTable = analyzer.getDescTbl().toThrift();
         this.returnedAllResults = false;
-        this.queryOptions = context.getSessionVariable().toThrift();
+        initQueryOptions(context);
 
         setFromUserProperty(analyzer);
 
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-        this.queryGlobals.setTimestampMs(new Date().getTime());
+        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setLoadZeroTolerance(false);
         if (context.getSessionVariable().getTimeZone().equals("CST")) {
             this.queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -263,7 +264,7 @@ public class Coordinator {
         this.scanNodes = scanNodes;
         this.queryOptions = new TQueryOptions();
         this.queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-        this.queryGlobals.setTimestampMs(new Date().getTime());
+        this.queryGlobals.setTimestampMs(System.currentTimeMillis());
         this.queryGlobals.setTimeZone(timezone);
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
         this.tResourceInfo = new TResourceInfo("", "");
@@ -298,6 +299,11 @@ public class Coordinator {
             // overwrite the load_mem_limit from session variable;
             this.queryOptions.setLoadMemLimit(memLimit);
         }
+    }
+
+    private void initQueryOptions(ConnectContext context) {
+        this.queryOptions = context.getSessionVariable().toThrift();
+        this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
     }
 
     public long getJobId() {
@@ -1787,7 +1793,9 @@ public class Coordinator {
         private void computeScanRangeAssignmentByBucket(
                 final OlapScanNode scanNode, ImmutableMap<Long, Backend> idToBackend, Map<TNetworkAddress, Long> addressToBackendID) throws Exception {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
-                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum());
+                // The bucket shuffle join only hit when the partition is one. so the totalTabletsNum is all tablet of
+                // one hit partition. can be the right bucket num in bucket shuffle join
+                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int)scanNode.getTotalTabletsNum());
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());

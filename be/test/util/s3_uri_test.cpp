@@ -34,59 +34,54 @@ public:
 TEST_F(S3URITest, LocationParsing) {
     std::string p1 = "s3://bucket/path/to/file";
     S3URI uri1(p1);
-    ASSERT_TRUE(uri1.parse());
-    ASSERT_EQ("bucket", uri1.get_bucket());
-    ASSERT_EQ("path/to/file", uri1.get_key());
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("bucket", uri1.get_bucket());
+    EXPECT_EQ("path/to/file", uri1.get_key());
 }
 
 TEST_F(S3URITest, PathLocationParsing) {
     std::string p1 = "s3://bucket/path/";
     S3URI uri1(p1);
-    ASSERT_TRUE(uri1.parse());
-    ASSERT_EQ("bucket", uri1.get_bucket());
-    ASSERT_EQ("path/", uri1.get_key());
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("bucket", uri1.get_bucket());
+    EXPECT_EQ("path/", uri1.get_key());
 }
 
 TEST_F(S3URITest, EncodedString) {
     std::string p1 = "s3://bucket/path%20to%20file";
     S3URI uri1(p1);
-    ASSERT_TRUE(uri1.parse());
-    ASSERT_EQ("bucket", uri1.get_bucket());
-    ASSERT_EQ("path%20to%20file", uri1.get_key());
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("bucket", uri1.get_bucket());
+    EXPECT_EQ("path%20to%20file", uri1.get_key());
 }
 
 TEST_F(S3URITest, MissingKey) {
     std::string p1 = "https://bucket/";
     S3URI uri1(p1);
-    ASSERT_FALSE(uri1.parse());
+    EXPECT_FALSE(uri1.parse());
     std::string p2 = "s3://bucket/";
     S3URI uri2(p2);
-    ASSERT_FALSE(uri2.parse());
+    EXPECT_FALSE(uri2.parse());
 }
 
 TEST_F(S3URITest, RelativePathing) {
     std::string p1 = "/path/to/file";
     S3URI uri1(p1);
-    ASSERT_FALSE(uri1.parse());
+    EXPECT_FALSE(uri1.parse());
 }
 
 TEST_F(S3URITest, InvalidScheme) {
     std::string p1 = "ftp://bucket/";
     S3URI uri1(p1);
-    ASSERT_FALSE(uri1.parse());
+    EXPECT_FALSE(uri1.parse());
 }
 
 TEST_F(S3URITest, QueryAndFragment) {
     std::string p1 = "s3://bucket/path/to/file?query=foo#bar";
     S3URI uri1(p1);
-    ASSERT_TRUE(uri1.parse());
-    ASSERT_EQ("bucket", uri1.get_bucket());
-    ASSERT_EQ("path/to/file", uri1.get_key());
+    EXPECT_TRUE(uri1.parse());
+    EXPECT_EQ("bucket", uri1.get_bucket());
+    EXPECT_EQ("path/to/file", uri1.get_key());
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

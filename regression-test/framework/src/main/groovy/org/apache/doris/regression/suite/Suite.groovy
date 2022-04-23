@@ -29,6 +29,7 @@ import org.apache.doris.regression.action.StreamLoadAction
 import org.apache.doris.regression.action.SuiteAction
 import org.apache.doris.regression.action.TestAction
 import org.apache.doris.regression.util.JdbcUtils
+import org.apache.doris.regression.util.Hdfs
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -40,6 +41,8 @@ import java.util.stream.Collectors
 import java.util.stream.LongStream
 
 import static org.apache.doris.regression.util.DataUtils.sortByToString
+
+import java.io.File
 
 class Suite implements GroovyInterceptable {
     final SuiteContext context
@@ -184,7 +187,7 @@ class Suite implements GroovyInterceptable {
 
     List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
-        def result = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
@@ -250,6 +253,71 @@ class Suite implements GroovyInterceptable {
         runAction(new TestAction(context), actionSupplier)
     }
 
+    String getBrokerName() {
+        String brokerName = context.config.otherConfigs.get("brokerName")
+        return brokerName
+    }
+
+    String getHdfsFs() {
+        String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+        return hdfsFs
+    }
+
+    String getHdfsUser() {
+        String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+        return hdfsUser
+    }
+
+    String getHdfsPasswd() {
+        String hdfsPasswd = context.config.otherConfigs.get("hdfsPasswd")
+        return hdfsPasswd
+    }
+
+    String getHdfsDataDir() {
+        String dataDir = context.config.dataPath + "/" + group + "/"
+        String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+        String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+        Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
+        return hdfs.genRemoteDataDir()
+    }
+
+    boolean enableHdfs() {
+        String enableHdfs =  context.config.otherConfigs.get("enableHdfs");
+        return enableHdfs.equals("true");
+    }
+
+    String uploadToHdfs(String localFile) {
+        String dataDir = context.config.dataPath + "/" + group + "/"
+        localFile = dataDir + localFile
+        String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+        String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+        Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
+        String remotePath = hdfs.upload(localFile)
+        return remotePath;
+    }
+
+    int getTotalLine(String filePath) {
+        def file = new File(filePath)
+        int lines = 0;
+        file.eachLine {
+            lines++;
+        }
+        return lines;
+    }
+
+    boolean deleteFile(String filePath) {
+        def file = new File(filePath)
+        file.delete()
+    }
+
+    List<String> downloadExportFromHdfs(String label) {
+        String dataDir = context.config.dataPath + "/" + group + "/"
+        String hdfsFs = context.config.otherConfigs.get("hdfsFs")
+        String hdfsUser = context.config.otherConfigs.get("hdfsUser")
+        Hdfs hdfs = new Hdfs(hdfsFs, hdfsUser, dataDir)
+        return hdfs.downLoad(label)
+    }
+
     void streamLoad(Closure actionSupplier) {
         runAction(new StreamLoadAction(context), actionSupplier)
     }
@@ -265,7 +333,7 @@ class Suite implements GroovyInterceptable {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
 
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
-            def result = JdbcUtils.executorToStringList(context.getConnection(), sql)
+            def (result, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 result = sortByToString(result)
             }
@@ -283,7 +351,8 @@ class Suite implements GroovyInterceptable {
             }
 
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
-            List<List<Object>> realResults = JdbcUtils.executorToStringList(context.getConnection(), sql)
+
+            def (realResults, meta) = JdbcUtils.executeToStringList(context.getConnection(), sql)
             if (isOrder) {
                 realResults = sortByToString(realResults)
             }
@@ -291,8 +360,8 @@ class Suite implements GroovyInterceptable {
             try {
                 errorMsg = OutputUtils.checkOutput(expectCsvResults, realResults.iterator(),
                     { row -> OutputUtils.toCsvString(row as List<Object>) },
-                    {row ->  OutputUtils.toCsvString(row) },
-                    "Check tag '${tag}' failed")
+                    { row ->  OutputUtils.toCsvString(row) },
+                    "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
                 throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
             }

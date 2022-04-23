@@ -30,6 +30,7 @@ public class SqlBlockUtil {
     public static final String STRING_DEFAULT = "NULL";
     public static final String LONG_DEFAULT = "0";
     public static final Long LONG_ZERO = 0L;
+    public static final Long LONG_MINUS_ONE = -1L;
 
 
     public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException{
@@ -73,23 +74,23 @@ public class SqlBlockUtil {
     }
 
     // alter operation not allowed to change other properties that not set
-    public static void checkAlterValidate(SqlBlockRule sqlBlockRule, SqlBlockRule originRule) throws AnalysisException {
+    public static void checkAlterValidate(SqlBlockRule sqlBlockRule) throws AnalysisException {
         if (!STRING_DEFAULT.equals(sqlBlockRule.getSql())) {
-            if (!STRING_DEFAULT.equals(originRule.getSqlHash()) && StringUtils.isNotEmpty(originRule.getSqlHash())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash()) && StringUtils.isNotEmpty(sqlBlockRule.getSqlHash())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())
-                    &&!isSqlBlockLimitationsNull(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    &&!isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         } else if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
-            if (!STRING_DEFAULT.equals(originRule.getSql()) && StringUtils.isNotEmpty(originRule.getSql())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) && StringUtils.isNotEmpty(sqlBlockRule.getSql())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())
-                    && !isSqlBlockLimitationsNull(originRule.getPartitionNum(), originRule.getTabletNum(), originRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
-            if (!STRING_DEFAULT.equals(originRule.getSql()) || !STRING_DEFAULT.equals(originRule.getSqlHash())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSql()) || !STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         }

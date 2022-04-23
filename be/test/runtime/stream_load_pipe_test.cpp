@@ -21,8 +21,6 @@
 
 #include <thread>
 
-#include "util/monotime.h"
-
 namespace doris {
 
 class StreamLoadPipeTest : public testing::Test {
@@ -56,16 +54,16 @@ TEST_F(StreamLoadPipeTest, append_buffer) {
     int64_t read_bytes = 0;
     bool eof = false;
     auto st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(128, read_bytes);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(128, read_bytes);
+    EXPECT_FALSE(eof);
     for (int i = 0; i < 128; ++i) {
-        ASSERT_EQ('0' + (i % 10), buf[i]);
+        EXPECT_EQ('0' + (i % 10), buf[i]);
     }
     st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(0, read_bytes);
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(0, read_bytes);
+    EXPECT_TRUE(eof);
 
     t1.join();
 }
@@ -87,16 +85,16 @@ TEST_F(StreamLoadPipeTest, append_bytes) {
     int64_t read_bytes = 0;
     bool eof = false;
     auto st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(128, read_bytes);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(128, read_bytes);
+    EXPECT_FALSE(eof);
     for (int i = 0; i < 128; ++i) {
-        ASSERT_EQ('0' + (i % 10), buf[i]);
+        EXPECT_EQ('0' + (i % 10), buf[i]);
     }
     st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(0, read_bytes);
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(0, read_bytes);
+    EXPECT_TRUE(eof);
 
     t1.join();
 }
@@ -118,25 +116,25 @@ TEST_F(StreamLoadPipeTest, append_bytes2) {
     int64_t read_bytes = 0;
     bool eof = false;
     auto st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(62, read_bytes);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(62, read_bytes);
+    EXPECT_FALSE(eof);
     for (int i = 0; i < 62; ++i) {
-        ASSERT_EQ('0' + (i % 10), buf[i]);
+        EXPECT_EQ('0' + (i % 10), buf[i]);
     }
     for (int i = 62; i < 128; ++i) {
         char ch;
         buf_len = 1;
         auto st = pipe.read((uint8_t*)&ch, buf_len, &read_bytes, &eof);
-        ASSERT_TRUE(st.ok());
-        ASSERT_EQ(1, read_bytes);
-        ASSERT_FALSE(eof);
-        ASSERT_EQ('0' + (i % 10), ch);
+        EXPECT_TRUE(st.ok());
+        EXPECT_EQ(1, read_bytes);
+        EXPECT_FALSE(eof);
+        EXPECT_EQ('0' + (i % 10), ch);
     }
     st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(0, read_bytes);
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(0, read_bytes);
+    EXPECT_TRUE(eof);
 
     t1.join();
 }
@@ -187,16 +185,16 @@ TEST_F(StreamLoadPipeTest, append_mix) {
     int64_t read_bytes = 0;
     bool eof = false;
     auto st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(128, read_bytes);
-    ASSERT_FALSE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(128, read_bytes);
+    EXPECT_FALSE(eof);
     for (int i = 0; i < 128; ++i) {
-        ASSERT_EQ('0' + (i % 10), buf[i]);
+        EXPECT_EQ('0' + (i % 10), buf[i]);
     }
     st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_EQ(0, read_bytes);
-    ASSERT_TRUE(eof);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(0, read_bytes);
+    EXPECT_TRUE(eof);
 
     t1.join();
 }
@@ -210,7 +208,7 @@ TEST_F(StreamLoadPipeTest, cancel) {
             char buf = '0' + (k++ % 10);
             pipe.append(&buf, 1);
         }
-        SleepFor(MonoDelta::FromMilliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
         pipe.cancel("test");
     };
     std::thread t1(appender);
@@ -220,7 +218,7 @@ TEST_F(StreamLoadPipeTest, cancel) {
     int64_t read_bytes = 0;
     bool eof = false;
     auto st = pipe.read((uint8_t*)buf, buf_len, &read_bytes, &eof);
-    ASSERT_FALSE(st.ok());
+    EXPECT_FALSE(st.ok());
     t1.join();
 }
 
@@ -248,12 +246,12 @@ TEST_F(StreamLoadPipeTest, close) {
             byte_buf->put_bytes(buf, 64);
             byte_buf->flip();
             auto st = pipe.append(byte_buf);
-            ASSERT_FALSE(st.ok());
+            EXPECT_FALSE(st.ok());
         }
     };
     std::thread t1(appender);
 
-    SleepFor(MonoDelta::FromMilliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     pipe.close();
 
@@ -261,8 +259,3 @@ TEST_F(StreamLoadPipeTest, close) {
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

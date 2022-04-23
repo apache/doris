@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
-#define DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
+#pragma once
 
 #include <stdint.h>
 
@@ -59,4 +58,3 @@ private:
 
 } //namespace doris
 
-#endif //DORIS_BE_SRC_OLAP_NULL_PREDICATE_H

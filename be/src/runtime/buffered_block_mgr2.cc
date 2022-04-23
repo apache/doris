@@ -14,12 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/buffered-block-mgr2.cc
+// and modified by Doris
 
 #include "runtime/buffered_block_mgr2.h"
 
 #include "exec/exec_node.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tmp_file_mgr.h"
@@ -27,7 +29,6 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
-#include "util/filesystem_util.h"
 #include "util/pretty_printer.h"
 #include "util/runtime_profile.h"
 #include "util/stack_util.h"

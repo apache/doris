@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/descriptors.cc
+// and modified by Doris
 
 #include "runtime/descriptors.h"
 
@@ -25,7 +28,6 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 
@@ -100,7 +102,8 @@ vectorized::DataTypePtr SlotDescriptor::get_data_type_ptr() const {
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
     out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
-        << " offset=" << _tuple_offset << " null=" << _null_indicator_offset.debug_string() << ")";
+        << ", colname=" << _col_name << " offset=" << _tuple_offset
+        << " null=" << _null_indicator_offset.debug_string() << ")";
     return out.str();
 }
 

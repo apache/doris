@@ -31,6 +31,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
 import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
@@ -302,6 +303,8 @@ public class DdlExecutor {
             catalog.getRefreshManager().handleRefreshDb((RefreshDbStmt) ddlStmt);
         } else if (ddlStmt instanceof AnalyzeStmt) {
             catalog.getStatisticsJobManager().createStatisticsJob((AnalyzeStmt) ddlStmt);
+        } else if (ddlStmt instanceof AlterResourceStmt) {
+            catalog.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

@@ -52,6 +52,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
@@ -252,8 +253,44 @@ public class ExportJob implements Writable {
         } catch (URISyntaxException e) {
             throw new DdlException("Invalid export path: " + getExportPath());
         }
-        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        String headerStr = genHeader(this.properties);
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc, headerStr);
         plan();
+    }
+
+    
+    private String genNames() {
+        String names = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            names = names + slot.getColumn().getName() + getColumnSeparator();
+        }
+        names = names.substring(0, names.length() - getColumnSeparator().length());
+        names = names + getLineDelimiter();
+        return names;
+    }
+
+    private String genTypes() {
+        String types = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            types = types + slot.getColumn().getType().toString() + getColumnSeparator();
+        }
+        types = types.substring(0, types.length() - getColumnSeparator().length());
+        types = types + getLineDelimiter();
+        return types;
+    }
+
+    private String genHeader(Map<String, String> properties) {
+        String header = "";
+        if (properties.containsKey("format")) {
+            String headerType = properties.get("format");
+            if (headerType.equals(FeConstants.csv_with_names)) {
+                header = genNames();
+            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
+                header = genNames();
+                header += genTypes();
+            }
+        }
+        return header;
     }
 
     private void registerToDesc() throws UserException {

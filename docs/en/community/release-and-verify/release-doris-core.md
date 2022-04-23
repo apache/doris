@@ -63,7 +63,7 @@ Only after the whole branch is stable, can you prepare to release the version.
 
 Please refer to the compilation documentation for compilation to ensure that the source code is compiled correctly.
 
-### Prepare Release Nodes
+### Prepare Release Notes
 
 ## Community Posting Voting Process
 

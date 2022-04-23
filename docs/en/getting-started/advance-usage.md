@@ -82,11 +82,11 @@ The following command can be used to cancel the job currently being executed:
 
 `CANCEL ALTER TABLE COLUMN FROM table1`
 
-For more help, see `HELP ALTER TABLE'.
+For more help, see `HELP ALTER TABLE`.
 
 ## 2 Rollup
 
-Rollup can be understood as a materialized index structure of Table. ** materialized ** because data is store as a concrete ("materialized") table independently, and ** indexing ** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
+Rollup can be understood as a materialized index structure of Table. **materialized** because data is store as a concrete ("materialized") table independently, and **indexing** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
 
 Examples are given below.
 
@@ -137,7 +137,7 @@ The following command can be used to cancel the job currently being executed:
 
 `CANCEL ALTER TABLE ROLLUP FROM table1;`
 
-After Rollup is established, the query does not need to specify Rollup to query. Or specify the original table for query. The program automatically determines whether Rollup should be used. Whether Rollup is hit or not can be viewed by the `EXPLAIN your_sql;'command.
+After Rollup is established, the query does not need to specify Rollup to query. Or specify the original table for query. The program automatically determines whether Rollup should be used. Whether Rollup is hit or not can be viewed by the `EXPLAIN your_sql;`.
 
 For more help, see `HELP ALTER TABLE`.
 
@@ -179,8 +179,8 @@ mysql> SHOW VARIABLES LIKE "%mem_limit%";
 1 row in set (0.00 sec)
 ```
 
->* The above modification is session level and is only valid within the current connection session. Disconnecting and reconnecting will change back to the default value.
->* If you need to modify the global variable, you can set it as follows: `SET GLOBAL exec_mem_limit = 8589934592;` When the setup is complete, disconnect the session and log in again, and the parameters will take effect permanently.
+> * The above modification is session level and is only valid within the current connection session. Disconnecting and reconnecting will change back to the default value.
+> * If you need to modify the global variable, you can set it as follows: `SET GLOBAL exec_mem_limit = 8589934592;` When the setup is complete, disconnect the session and log in again, and the parameters will take effect permanently.
 
 ### 2.2 Query timeout
 
@@ -202,18 +202,24 @@ Modify the timeout to 1 minute:
 
 `SET query timeout =60;`
 
->* The current timeout check interval is 5 seconds, so timeouts less than 5 seconds are not very accurate.
->* The above modifications are also session level. Global validity can be modified by `SET GLOBAL`.
+> * The current timeout check interval is 5 seconds, so timeouts less than 5 seconds are not very accurate.
+> * The above modifications are also session level. Global validity can be modified by `SET GLOBAL`.
 
 ### 2.3 Broadcast/Shuffle Join
 
-By default, the system implements Join by conditionally filtering small tables, broadcasting them to the nodes where the large tables are located, forming a memory Hash table, and then streaming out the data of the large tables Hash Join. However, if the amount of data filtered by small tables cannot be put into memory, Join will not be able to complete at this time. The usual error should be caused by memory overrun first.
+The system implements Join operator in two ways:
 
-If you encounter the above situation, it is recommended to use Shuffle Join explicitly, also known as Partitioned Join. That is, small and large tables are Hash according to Join's key, and then distributed Join. This memory consumption is allocated to all computing nodes in the cluster.
+Broadcast join: conditionally filtering right hand tables, broadcasting them to the nodes where the large tables are located, forming a memory Hash table, and then streaming out the data of the large tables Hash Join.
 
-Doris will try to use Broadcast Join first. If small tables are too large to broadcasting, Doris will switch to Shuffle Join automatically. Note that if you use Broadcast Join explicitly in this case, Doris will still switch to Shuffle Join automatically.
+Shuffle join: tables in both side are Hash according to Join's key, and then distributed Join. This memory consumption is allocated to all computing nodes in the cluster.
 
-Use Broadcast Join (default):
+Broadcast join is perfermance better when right hand table size is really small, vice versa.
+
+Doris will try to use Broadcast Join first. You can specify how each join operator is implemented explicitly. System provides configurable parameter `auto_broadcast_join_threshold` to configure the maximum percentage of execute memory could used for build hash table for broadcast join. The meaningful values range from `0` to `1`, and the default value is `0.8`. System will use shuffle join when broadcast join used memory more than it.
+
+You can turn off broadcast join by set `auto_broadcast_join_threshold` to negative or `0`.
+
+Choose join implementation automaticaly (default):
 
 ```
 mysql> select sum(table1.pv) from table1 join table2 where table1.siteid = 2;

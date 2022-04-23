@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_WRAPPER_FIELD_H
-#define DORIS_BE_SRC_OLAP_WRAPPER_FIELD_H
+#pragma once
 
 #include "olap/field.h"
 #include "olap/olap_define.h"
@@ -54,7 +53,7 @@ public:
     // Deserialize field value from incoming string.
     //
     // NOTE: the parameter must be a '\0' terminated string. It do not include the null flag.
-    OLAPStatus from_string(const std::string& value_string) {
+    Status from_string(const std::string& value_string) {
         if (_is_string_type) {
             if (value_string.size() > _var_length) {
                 Slice* slice = reinterpret_cast<Slice*>(cell_ptr());
@@ -117,4 +116,3 @@ private:
 
 } // namespace doris
 
-#endif

@@ -277,7 +277,7 @@ Users can load data into temporary partitions or specify temporary partitions fo
 
 1. Atomic overwrite
 
-    In some cases, the user wants to be able to rewrite the data of a certain partition, but if it is dropped first and then loaded, there will be a period of time when the data cannot be seen. At this moment, the user can first create a corresponding temporary partition, load new data into the temporary partition, and then replace the original partition atomically through the `REPLACE` operation to achieve the purpose. For atomic overwrite operations of non-partitioned tables, please refer to [Replace Table Document](./alter-table-replace-table.md)
+    In some cases, the user wants to be able to rewrite the data of a certain partition, but if it is dropped first and then loaded, there will be a period of time when the data cannot be seen. At this moment, the user can first create a corresponding temporary partition, load new data into the temporary partition, and then replace the original partition atomically through the `REPLACE` operation to achieve the purpose. For atomic overwrite operations of non-partitioned tables, please refer to [Replace Table Document](../../advanced/alter-table/replace-table.html)
     
 2. Modify the number of buckets
 

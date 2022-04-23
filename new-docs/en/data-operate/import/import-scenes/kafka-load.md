@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Kafka data subscription
+# Subscribe to Kafka logs
 
-Users can directly subscribe to the message data in Kafka by submitting a `Routine load` job to synchronize data in a near real-time manner.
+Users can directly subscribe to message data in Kafka by submitting routine import jobs to synchronize data in near real-time.
 
 Doris itself can ensure that messages in Kafka are subscribed without loss or weight, that is, `Exactly-Once` consumption semantics.
 
@@ -41,14 +41,14 @@ Please note the following usage restrictions:
 1. Support unauthenticated Kafka access and SSL-authenticated Kafka clusters.
 2. The supported message formats are as follows:
    - csv text format. Each message is a line, and the end of the line **does not contain** a newline.
-   - Json format, see [Import Json Format Data](https://doris.apache.org/en/data-operate/import/import-way/load-json-format.html).
+   - Json format, see [Import Json Format Data](../import-way/load-json-format.html).
 3. Only supports Kafka 0.10.0.0 (inclusive) and above.
 
 ### Accessing SSL-authenticated Kafka clusters
 
 The routine import feature supports unauthenticated Kafka clusters, as well as SSL-authenticated Kafka clusters.
 
-Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Plao through the `CREAE FILE` command, and the catalog name is `kafka`. For the specific help of the `CREATE FILE` command, please refer to the [CREATE FILE](https://doris.apache.org/en/sql-manual/sql-reference/Administration/CREATE FILE.html) command manual. Here is an example:
+Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Plao through the `CREAE FILE` command, and the catalog name is `kafka`. The specific help of the `CREATE FILE` command can be found in the [CREATE FILE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html) command manual . Here is an example:
 
 - upload files
 
@@ -58,16 +58,16 @@ Accessing an SSL-authenticated Kafka cluster requires the user to provide a cert
   CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
   ````
 
-After the upload is complete, you can view the uploaded files through the [SHOW FILES](https://doris.apache.org/en/sql-manual/sql-reference/Administration/SHOW%20FILE.html) command.
+After the upload is complete, you can view the uploaded files through the [SHOW FILES](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html) command.
 
 ### Create a routine import job
 
-For specific commands to create routine import tasks, please refer to [ROUTINE LOAD](https://doris.apache.org/en/sql-manual/sql-reference/Data%20Manipulation/SHOW%20CREATE%20ROUTINE%20LOAD. html#description) command manual. Here is an example:
+For specific commands to create routine import tasks, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html ) command manual. Here is an example:
 
 1. Access the Kafka cluster without authentication
 
    ```sql
-   CREATE ROUTINE LOAD example_db.my_first_job ON example_tbl
+   CREATE ROUTINE LOAD demo.my_first_routine_load_job ON test_1
    COLUMNS TERMINATED BY ","
    PROPERTIES
    (
@@ -90,7 +90,7 @@ For specific commands to create routine import tasks, please refer to [ROUTINE L
 2. Access an SSL-authenticated Kafka cluster
 
    ```sql
-   CREATE ROUTINE LOAD example_db.my_first_job ON example_tbl
+   CREATE ROUTINE LOAD demo.my_first_routine_load_job ON test_1
    COLUMNS TERMINATED BY ",",
    PROPERTIES
    (
@@ -112,22 +112,22 @@ For specific commands to create routine import tasks, please refer to [ROUTINE L
 
 ### View import job status
 
-Please refer to [SHOW ROUTINE LOAD](https://doris.apache.org/en/sql-manual/sql-reference/Data%20Manipulation/SHOW%20ROUTINE% for specific commands and examples for checking the status of **jobs** 20LOAD.html#description) command documentation.
+See [SHOW ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD.html) for specific commands and examples for checking the status of a **job** ) command documentation.
 
-Please refer to [SHOW ROUTINE LOAD TASK](https://doris.apache.org/en/sql-manual/sql-reference/Data% for specific commands and examples to view the running status of **task** of a job 20Manipulation/SHOW%20ROUTINE%20LOAD%20TASK.html) command documentation.
+See [SHOW ROUTINE LOAD TASK](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD-TASK.html) command documentation.
 
 Only the currently running tasks can be viewed, and the completed and unstarted tasks cannot be viewed.
 
 ### Modify job properties
 
-The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD](https://doris.apache.org/en/sql-manual/sql-reference/Data%20Manipulation/alter-routine-load.html#description) command manual.
+The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html) command manual.
 
 ### Job Control
 
 The user can control the stop, pause and restart of the job through the `STOP/PAUSE/RESUME` three commands.
 
-For specific commands, please refer to [STOP ROUTINE LOAD](https://doris.apache.org/zh/sql-manual/sql-reference/Data Manipulation/STOP ROUTINE LOAD.html), [PAUSE ROUTINE LOAD](https: //doris.apache.org/zh-CN/sql-manual/sql-reference/Data Manipulation/PAUSE ROUTINE LOAD.html), [RESUME ROUTINE LOAD](https://doris.apache.org/zh-CN/ sql-manual/sql-reference/Data Manipulation/RESUME ROUTINE LOAD.html) command documentation.
+For specific commands, please refer to [STOP ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD.html) , [PAUSE ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD.html), [RESUME ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD.html) command documentation.
 
 ## more help
 
-For more detailed syntax and best practices for ROUTINE LOAD, please refer to [ROUTINE LOAD](https://doris.apache.org/en/sql-manual/sql-reference/Data%20Manipulation/SHOW%20CREATE% 20ROUTINE%20LOAD.html#description) command manual.
+For more detailed syntax and best practices for ROUTINE LOAD, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) command manual.

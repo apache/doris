@@ -308,18 +308,24 @@ under the License.
        PROPERTIES (
            "storage_medium" = "[SSD|HDD]",
            ["storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
+           ["remote_storage_resource" = "xxx"],
+           ["remote_storage_cooldown_time" = "yyyy-MM-dd HH:mm:ss"],
            ["replication_num" = "3"]
            ["replication_allocation" = "xxx"]
            )
     ```
 
-       storage_medium：        用于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
-                               注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
-       storage_cooldown_time： 当设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
-                               默认存放 30 天。
-                               格式为："yyyy-MM-dd HH:mm:ss"
-       replication_num:        指定分区的副本数。默认为 3。
-       replication_allocation:     按照资源标签来指定副本分布。
+       storage_medium：                于指定该分区的初始存储介质，可选择 SSD 或 HDD。默认初始存储介质可通过fe的配置文件 `fe.conf` 中指定 `default_storage_medium=xxx`，如果没有指定，则默认为 HDD。
+                                       注意：当FE配置项 `enable_strict_storage_medium_check` 为 `True` 时，若集群中没有设置对应的存储介质时，建表语句会报错 `Failed to find enough host in all backends with storage medium is SSD|HDD`. 
+       storage_cooldown_time：         设置存储介质为 SSD 时，指定该分区在 SSD 上的存储到期时间。
+                                       默认存放 30 天。
+                                       格式为："yyyy-MM-dd HH:mm:ss"
+       remote_storage_resource:        远端存储资源名称，需要与 remote_storage_cooldown_time 参数搭配使用。
+       remote_storage_cooldown_time:   与 remote_storage_resource 搭配使用。表示该分区在本地存储的到期时间。
+                                       默认不过期。如果与 storage_cooldown_time 搭配使用必须晚于该时间。
+                                       格式为："yyyy-MM-dd HH:mm:ss"
+       replication_num:                指定分区的副本数。默认为 3。
+       replication_allocation:         按照资源标签来指定副本分布。
     
        当表为单分区表时，这些属性为表的属性。
            当表为两级分区时，这些属性为附属于每一个分区。
@@ -329,31 +335,31 @@ under the License.
            bloom filter 索引仅适用于查询条件为 in 和 equal 的情况，该列的值越分散效果越好
            目前只支持以下情况的列:除了 TINYINT FLOAT DOUBLE 类型以外的 key 列及聚合方法为 REPLACE 的 value 列
 
-```
+    ```
        PROPERTIES (
            "bloom_filter_columns"="k1,k2,k3"
            )
-```
+    ```
 
     3) 如果希望使用 Colocate Join 特性，需要在 properties 中指定
 
-```
-       PROPERTIES (
-           "colocate_with"="table1"
-           )
-```
+    ```
+        PROPERTIES (
+            "colocate_with"="table1"
+            )
+    ```
 
     4) 如果希望使用动态分区特性，需要在properties 中指定。注意：动态分区只支持 RANGE 分区
 
-```
-      PROPERTIES (
-          "dynamic_partition.enable" = "true|false",
-          "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
-          "dynamic_partition.start" = "${integer_value}",
-          "dynamic_partition.end" = "${integer_value}",
-          "dynamic_partition.prefix" = "${string_value}",
-          "dynamic_partition.buckets" = "${integer_value}
-```
+    ```
+        PROPERTIES (
+            "dynamic_partition.enable" = "true|false",
+            "dynamic_partition.time_unit" = "HOUR|DAY|WEEK|MONTH",
+            "dynamic_partition.start" = "${integer_value}",
+            "dynamic_partition.end" = "${integer_value}",
+            "dynamic_partition.prefix" = "${string_value}",
+            "dynamic_partition.buckets" = "${integer_value}
+    ```
     dynamic_partition.enable: 用于指定表级别的动态分区功能是否开启。默认为 true。
     dynamic_partition.time_unit: 用于指定动态添加分区的时间单位，可选择为HOUR（小时），DAY（天），WEEK(周)，MONTH（月）。
                                  注意：以小时为单位的分区列，数据类型不能为 DATE。
@@ -375,20 +381,20 @@ under the License.
     
     6) 如果希望使用 内存表 特性，需要在 properties 中指定
 
-```
+    ```
         PROPERTIES (
            "in_memory"="true"
         )   
-```
+    ```
     当 in_memory 属性为 true 时，Doris会尽可能将该表的数据和索引Cache到BE 内存中
     
     7) 创建UNIQUE_KEYS表时，可以指定一个sequence列，当KEY列相同时，将按照sequence列进行REPLACE(较大值替换较小值，否则无法替换)
 
-```
+    ```
         PROPERTIES (
             "function_column.sequence_type" = 'Date',
         );
-```
+    ```
     sequence_type用来指定sequence列的类型，可以为整型和时间类型
 ## example
 
@@ -428,8 +434,29 @@ under the License.
     "storage_cooldown_time" = "2015-06-04 00:00:00"
     );
    ```
+3. 创建一个 olap 表，使用 Hash 分桶，使用列存，相同key的记录进行覆盖，设置初始存储介质和冷却时间
+   设置远端存储和冷数据存储介质
 
-3. 创建一个 olap 表，使用 Range 分区，使用Hash分桶，默认使用列存，
+   ```
+    CREATE TABLE example_db.table_hash
+    (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048) REPLACE,
+    v2 SMALLINT SUM DEFAULT "10"
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
+    PROPERTIES(
+    "storage_medium" = "SSD",
+    "storage_cooldown_time" = "2015-06-04 00:00:00",
+    "remote_storage_resource" = "remote_s3",
+    "remote_storage_cooldown_time" = "2015-12-04 00:00:00"
+    );
+   ```
+
+4. 创建一个 olap 表，使用 Range 分区，使用Hash分桶，默认使用列存，
    相同key的记录同时存在，设置初始存储介质和冷却时间
 
     1）LESS THAN
@@ -492,7 +519,7 @@ under the License.
     );
     ```
 
-4. 创建一个 olap 表，使用 List 分区，使用Hash分桶，默认使用列存，
+5. 创建一个 olap 表，使用 List 分区，使用Hash分桶，默认使用列存，
    相同key的记录同时存在，设置初始存储介质和冷却时间
 
     1）单列分区
@@ -567,10 +594,10 @@ under the License.
 
     不在这些分区枚举值内的数据将视为非法数据被过滤
 
-5. 创建一个 mysql 表
+6. 创建一个 mysql 表
 
-   5.1 直接通过外表信息创建mysql表
-```
+   6.1 直接通过外表信息创建mysql表
+    ```
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
@@ -589,21 +616,19 @@ under the License.
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )
-```
+    ```
 
-   5.2 通过External Catalog Resource创建mysql表
-```
-   CREATE EXTERNAL RESOURCE "mysql_resource" 
-   PROPERTIES
-   (
-     "type" = "odbc_catalog",
-     "user" = "mysql_user",
-     "password" = "mysql_passwd",
-     "host" = "127.0.0.1",
-      "port" = "8239"			
-   );
-```
-```
+   6.2 通过External Catalog Resource创建mysql表
+    ```
+    CREATE EXTERNAL RESOURCE "mysql_resource" 
+    PROPERTIES
+    (
+      "type" = "odbc_catalog",
+      "user" = "mysql_user",
+      "password" = "mysql_passwd",
+      "host" = "127.0.0.1",
+       "port" = "8239"			
+    );
     CREATE EXTERNAL TABLE example_db.table_mysql
     (
     k1 DATE,
@@ -619,11 +644,11 @@ under the License.
     "database" = "mysql_db_test",
     "table" = "mysql_table_test"
     )
-```
+    ```
 
-6. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
+7. 创建一个数据文件存储在HDFS上的 broker 外部表, 数据使用 "|" 分割，"\n" 换行
 
-```
+    ```
     CREATE EXTERNAL TABLE example_db.table_broker (
     k1 DATE,
     k2 INT,
@@ -642,11 +667,11 @@ under the License.
     "username" = "hdfs_user",
     "password" = "hdfs_password"
     )
-```
+    ```
 
-7. 创建一张含有HLL列的表
+8. 创建一张含有HLL列的表
 
-```
+    ```
     CREATE TABLE example_db.example_table
     (
     k1 TINYINT,
@@ -657,11 +682,11 @@ under the License.
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
-```
+    ```
 
-8. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
+9. 创建一张含有BITMAP_UNION聚合类型的表（v1和v2列的原始数据类型必须是TINYINT,SMALLINT,INT）
 
-```
+    ```
     CREATE TABLE example_db.example_table
     (
     k1 TINYINT,
@@ -672,26 +697,26 @@ under the License.
     ENGINE=olap
     AGGREGATE KEY(k1, k2)
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
-```
+    ```
 
-1. 创建一张含有QUANTILE_UNION聚合类型的表（v1和v2列的原始数据类型必须是数值类型）
+10. 创建一张含有QUANTILE_UNION聚合类型的表（v1和v2列的原始数据类型必须是数值类型）
 
-```
-    CREATE TABLE example_db.example_table
-    (
-    k1 TINYINT,
-    k2 DECIMAL(10, 2) DEFAULT "10.5",
-    v1 QUANTILE_STATE QUANTILE_UNION,
-    v2 QUANTILE_STATE QUANTILE_UNION
-    )
-    ENGINE=olap
-    AGGREGATE KEY(k1, k2)
-    DISTRIBUTED BY HASH(k1) BUCKETS 32;
-```
+     ```
+     CREATE TABLE example_db.example_table
+     (
+     k1 TINYINT,
+     k2 DECIMAL(10, 2) DEFAULT "10.5",
+     v1 QUANTILE_STATE QUANTILE_UNION,
+     v2 QUANTILE_STATE QUANTILE_UNION
+     )
+     ENGINE=olap
+     AGGREGATE KEY(k1, k2)
+     DISTRIBUTED BY HASH(k1) BUCKETS 32;
+     ```
 
-10. 创建两张支持Colocate Join的表t1 和t2
+11. 创建两张支持Colocate Join的表t1 和t2
 
-```
+    ```
     CREATE TABLE `t1` (
     `id` int(11) COMMENT "",
     `value` varchar(8) COMMENT ""
@@ -711,11 +736,11 @@ under the License.
     PROPERTIES (
     "colocate_with" = "t1"
     );
-```
+    ```
 
-11. 创建一个数据文件存储在BOS上的 broker 外部表
+12. 创建一个数据文件存储在BOS上的 broker 外部表
 
-```
+    ```
     CREATE EXTERNAL TABLE example_db.table_broker (
     k1 DATE
     )
@@ -729,11 +754,11 @@ under the License.
       "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
       "bos_secret_accesskey"="yyyyyyyyyyyyyyyyyyyy"
     )
-```
+    ```
 
-12. 创建一个带有bitmap 索引的表
+13. 创建一个带有bitmap 索引的表
 
-```
+    ```
     CREATE TABLE example_db.table_hash
     (
     k1 TINYINT,
@@ -746,18 +771,18 @@ under the License.
     AGGREGATE KEY(k1, k2)
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32;
-```
+    ```
 
-13. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
+14. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
 
-```
-[types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
-[types: [DATE]; keys: [2020-01-09]; ‥types: [DATE]; keys: [2020-01-10]; )
-[types: [DATE]; keys: [2020-01-10]; ‥types: [DATE]; keys: [2020-01-11]; )
-[types: [DATE]; keys: [2020-01-11]; ‥types: [DATE]; keys: [2020-01-12]; )
-```
+    ```
+    [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
+    [types: [DATE]; keys: [2020-01-09]; ‥types: [DATE]; keys: [2020-01-10]; )
+    [types: [DATE]; keys: [2020-01-10]; ‥types: [DATE]; keys: [2020-01-11]; )
+    [types: [DATE]; keys: [2020-01-11]; ‥types: [DATE]; keys: [2020-01-12]; )
+    ```
 
-```
+    ```
     CREATE TABLE example_db.dynamic_partition
     (
     k1 DATE,
@@ -778,10 +803,10 @@ under the License.
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32"
      );
-```
+    ```
 
-14. 创建一个带有rollup索引的表
-```
+15. 创建一个带有rollup索引的表
+    ```
     CREATE TABLE example_db.rollup_index_table
     (
         event_day DATE,
@@ -798,10 +823,10 @@ under the License.
     r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
-```
-15. 创建一个内存表
+    ```
+16. 创建一个内存表
 
-```
+    ```
     CREATE TABLE example_db.table_hash
     (
     k1 TINYINT,
@@ -815,11 +840,11 @@ under the License.
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("in_memory"="true");
-```
+    ```
 
-16. 创建一个hive外部表
+17. 创建一个hive外部表
 
-```
+    ```
     CREATE TABLE example_db.table_hive
     (
       k1 TINYINT,
@@ -833,11 +858,11 @@ under the License.
       "table" = "hive_table_name",
       "hive.metastore.uris" = "thrift://127.0.0.1:9083"
     );
-```
+    ```
 
-17. 通过 replication_allocation 指定表的副本分布
+18. 通过 replication_allocation 指定表的副本分布
 
-```	
+    ```	
     CREATE TABLE example_db.table_hash
     (
     k1 TINYINT,
@@ -845,8 +870,8 @@ under the License.
     )
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES (
-		"replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
-	);
+        "replication_allocation"="tag.location.group_a:1, tag.location.group_b:2"
+    );
 
 
     CREATE TABLE example_db.dynamic_partition
@@ -867,11 +892,11 @@ under the License.
     "dynamic_partition.buckets" = "32",
     "dynamic_partition."replication_allocation" = "tag.location.group_a:3"
      );
-```
+    ```
 
-17. 创建一个 Iceberg 外表
+19. 创建一个 Iceberg 外表
 
-```
+    ```
     CREATE TABLE example_db.t_iceberg 
     ENGINE=ICEBERG
     PROPERTIES (
@@ -880,7 +905,7 @@ under the License.
     "iceberg.hive.metastore.uris"  =  "thrift://127.0.0.1:9083",
     "iceberg.catalog.type"  =  "HIVE_CATALOG"
     );
-```
+    ```
 
 ## keyword
 

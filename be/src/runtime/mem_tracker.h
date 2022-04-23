@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/mem-tracker.h
+// and modified by Doris
 
 #pragma once
 
@@ -95,7 +98,7 @@ public:
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
 
-    inline Status check_sys_mem_info(int64_t bytes) {
+    Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
             return Status::MemoryLimitExceeded(fmt::format(
                     "{}: TryConsume failed, bytes={} process whole consumption={}  mem limit={}",
@@ -402,7 +405,7 @@ public:
         return tracker == nullptr ? false : true;
     }
 
-    std::string id() { return _id; }
+    int64_t id() { return _id; }
 
     std::string debug_string() {
         std::stringstream msg;
@@ -467,7 +470,7 @@ private:
 
     std::string _label;
 
-    std::string _id;
+    int64_t _id;
 
     std::shared_ptr<MemTracker> _parent; // The parent of this tracker.
 

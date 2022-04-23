@@ -14,14 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include "runtime/fold_constant_executor.h"
 
 #include <map>
-#include <string>
 
 #include "runtime/tuple_row.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "runtime/mem_tracker.h"
 #include "exprs/expr_context.h"
 #include "exprs/expr.h"
@@ -52,6 +53,7 @@ Status FoldConstantExecutor::fold_constant_expr(
     if (UNLIKELY(!status.ok())) {
         return status;
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -106,9 +108,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(
     // init
     Status status = _init(query_globals);
     if (UNLIKELY(!status.ok())) {
-        LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
         return status;
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;

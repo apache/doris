@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleId;
@@ -30,6 +31,8 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
+
 public class ResultFileSink extends DataSink {
     private PlanNodeId exchNodeId;
     private TResultFileSinkOptions fileSinkOptions;
@@ -37,6 +40,8 @@ public class ResultFileSink extends DataSink {
     private StorageBackend.StorageType storageType;
     private DataPartition outputPartition;
     private TupleId outputTupleId;
+    private String header = "";
+    private String header_type = "";
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause) {
         this.exchNodeId = exchNodeId;
@@ -45,6 +50,26 @@ public class ResultFileSink extends DataSink {
                 outFileClause.getBrokerDesc().getName();
         this.storageType = outFileClause.getBrokerDesc() == null ? StorageBackend.StorageType.LOCAL :
                 outFileClause.getBrokerDesc().getStorageType();
+    }
+
+    //gen header names 
+    private String genNames(ArrayList<String> headerNames, String columnSeparator, String lineDelimiter) {
+        String names = "";
+        for (String name : headerNames) {
+            names += name + columnSeparator;
+        }
+        names = names.substring(0, names.length() - columnSeparator.length());
+        names += lineDelimiter;
+        return names;
+    }
+
+    public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
+        this(exchNodeId, outFileClause);
+        if (outFileClause.getHeaderType().equals(FeConstants.csv_with_names) ||
+                outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
+            header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
+        }
+        header_type = outFileClause.getHeaderType();
     }
 
     public String getBrokerName() {
@@ -93,6 +118,8 @@ public class ResultFileSink extends DataSink {
         tResultFileSink.setFileOptions(fileSinkOptions);
         tResultFileSink.setStorageBackendType(storageType.toThrift());
         tResultFileSink.setDestNodeId(exchNodeId.asInt());
+        tResultFileSink.setHeaderType(header_type);
+        tResultFileSink.setHeader(header);
         if (outputTupleId != null) {
             tResultFileSink.setOutputTupleId(outputTupleId.asInt());
         }

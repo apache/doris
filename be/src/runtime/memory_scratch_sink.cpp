@@ -22,19 +22,14 @@
 
 #include <sstream>
 
-#include "common/logging.h"
 #include "exprs/expr.h"
-#include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
 #include "util/arrow/row_batch.h"
-#include "util/date_func.h"
-#include "util/types.h"
 
 namespace doris {
 

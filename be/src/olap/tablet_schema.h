@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
-#define DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
+#pragma once
 
 #include <vector>
 
@@ -40,15 +39,15 @@ public:
     void to_schema_pb(ColumnPB* column);
     uint32_t mem_size() const;
 
-    inline int32_t unique_id() const { return _unique_id; }
-    inline std::string name() const { return _col_name; }
-    inline void set_name(std::string col_name) { _col_name = col_name; }
-    inline FieldType type() const { return _type; }
-    inline bool is_key() const { return _is_key; }
-    inline bool is_nullable() const { return _is_nullable; }
-    inline bool is_bf_column() const { return _is_bf_column; }
-    inline bool has_bitmap_index() const { return _has_bitmap_index; }
-    inline bool is_length_variable_type() const {
+    int32_t unique_id() const { return _unique_id; }
+    std::string name() const { return _col_name; }
+    void set_name(std::string col_name) { _col_name = col_name; }
+    FieldType type() const { return _type; }
+    bool is_key() const { return _is_key; }
+    bool is_nullable() const { return _is_nullable; }
+    bool is_bf_column() const { return _is_bf_column; }
+    bool has_bitmap_index() const { return _has_bitmap_index; }
+    bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
                _type == OLAP_FIELD_TYPE_OBJECT || _type == OLAP_FIELD_TYPE_QUANTILE_STATE;
@@ -60,11 +59,11 @@ public:
     std::string referenced_column() const { return _referenced_column; }
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
-    inline void set_index_length(size_t index_length) { _index_length = index_length; }
+    void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
-    inline bool visible() { return _visible; }
+    bool visible() { return _visible; }
     // Add a sub column.
     void add_sub_column(TabletColumn& sub_column);
 
@@ -129,23 +128,23 @@ public:
     int32_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
     const std::vector<TabletColumn>& columns() const;
-    inline size_t num_columns() const { return _num_columns; }
-    inline size_t num_key_columns() const { return _num_key_columns; }
-    inline size_t num_null_columns() const { return _num_null_columns; }
-    inline size_t num_short_key_columns() const { return _num_short_key_columns; }
-    inline size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
-    inline KeysType keys_type() const { return _keys_type; }
-    inline SortType sort_type() const { return _sort_type; }
-    inline size_t sort_col_num() const { return _sort_col_num; }
-    inline CompressKind compress_kind() const { return _compress_kind; }
-    inline size_t next_column_unique_id() const { return _next_column_unique_id; }
-    inline double bloom_filter_fpp() const { return _bf_fpp; }
-    inline bool is_in_memory() const { return _is_in_memory; }
-    inline void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
-    inline int32_t delete_sign_idx() const { return _delete_sign_idx; }
-    inline void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
-    inline bool has_sequence_col() const { return _sequence_col_idx != -1; }
-    inline int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    size_t num_columns() const { return _num_columns; }
+    size_t num_key_columns() const { return _num_key_columns; }
+    size_t num_null_columns() const { return _num_null_columns; }
+    size_t num_short_key_columns() const { return _num_short_key_columns; }
+    size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
+    KeysType keys_type() const { return _keys_type; }
+    SortType sort_type() const { return _sort_type; }
+    size_t sort_col_num() const { return _sort_col_num; }
+    CompressKind compress_kind() const { return _compress_kind; }
+    size_t next_column_unique_id() const { return _next_column_unique_id; }
+    double bloom_filter_fpp() const { return _bf_fpp; }
+    bool is_in_memory() const { return _is_in_memory; }
+    void set_is_in_memory(bool is_in_memory) { _is_in_memory = is_in_memory; }
+    int32_t delete_sign_idx() const { return _delete_sign_idx; }
+    void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
+    bool has_sequence_col() const { return _sequence_col_idx != -1; }
+    int32_t sequence_col_idx() const { return _sequence_col_idx; }
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
@@ -183,4 +182,3 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_TABLET_SCHEMA_H
