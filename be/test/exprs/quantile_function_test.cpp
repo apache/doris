@@ -64,7 +64,7 @@ TEST_F(QuantileStateFunctionsTest, to_quantile_state) {
     DoubleQuantileState state(compression);
     state.add_value(5000);
     StringVal expected = convert_quantile_state_to_string(ctx, state);
-    ASSERT_EQ(expected, result);
+    EXPECT_EQ(expected, result);
 }
 
 TEST_F(QuantileStateFunctionsTest, quantile_union) {
@@ -105,7 +105,7 @@ TEST_F(QuantileStateFunctionsTest, quantile_union) {
     StringVal result = QuantileStateFunctions::quantile_state_serialize(ctx, dst);
     StringVal expected = convert_quantile_state_to_string(ctx, expect);
 
-    ASSERT_EQ(result, expected);
+    EXPECT_EQ(result, expected);
 }
 
 TEST_F(QuantileStateFunctionsTest, quantile_percent) {
@@ -124,12 +124,7 @@ TEST_F(QuantileStateFunctionsTest, quantile_percent) {
     StringVal input = convert_quantile_state_to_string(ctx, state);
     DoubleVal result = QuantileStateFunctions::quantile_percent(ctx, input);
     DoubleVal expected(3);
-    ASSERT_EQ(result, expected);
+    EXPECT_EQ(result, expected);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

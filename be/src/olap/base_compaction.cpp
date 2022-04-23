@@ -19,7 +19,6 @@
 
 #include "util/doris_metrics.h"
 #include "util/trace.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -28,15 +27,15 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
 
 BaseCompaction::~BaseCompaction() {}
 
-OLAPStatus BaseCompaction::prepare_compact() {
+Status BaseCompaction::prepare_compact() {
     if (!_tablet->init_succeeded()) {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
-        return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
     TRACE("got base compaction lock");
 
@@ -46,14 +45,14 @@ OLAPStatus BaseCompaction::prepare_compact() {
     TRACE_COUNTER_INCREMENT("input_rowsets_count", _input_rowsets.size());
     _tablet->set_clone_occurred(false);
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BaseCompaction::execute_compact_impl() {
+Status BaseCompaction::execute_compact_impl() {
     std::unique_lock<std::mutex> lock(_tablet->get_base_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
-        return OLAP_ERR_BE_TRY_BE_LOCK_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_BE_TRY_BE_LOCK_ERROR);
     }
     TRACE("got base compaction lock");
 
@@ -61,7 +60,7 @@ OLAPStatus BaseCompaction::execute_compact_impl() {
     // for compaction may change. In this case, current compaction task should not be executed.
     if (_tablet->get_clone_occurred()) {
         _tablet->set_clone_occurred(false);
-        return OLAP_ERR_BE_CLONE_OCCURRED;
+        return Status::OLAPInternalError(OLAP_ERR_BE_CLONE_OCCURRED);
     }
 
     // 2. do base compaction, merge rowsets
@@ -77,14 +76,14 @@ OLAPStatus BaseCompaction::execute_compact_impl() {
     DorisMetrics::instance()->base_compaction_bytes_total->increment(_input_rowsets_size);
     TRACE("save base compaction metrics");
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
+Status BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candidate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {
-        return OLAP_ERR_BE_NO_SUITABLE_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
     }
 
     std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
@@ -94,7 +93,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do base compaction.
-        return OLAP_ERR_BE_NO_SUITABLE_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
     }
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
@@ -103,7 +102,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
                     << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                     << ", base_compaction_num_cumulative_rowsets="
                     << config::base_compaction_num_cumulative_deltas;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // 2. the ratio between base rowset and all input cumulative rowsets reaches the threshold
@@ -131,7 +130,7 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
                     << ", base_size=" << base_size
                     << ", cumulative_base_ratio=" << cumulative_base_ratio
                     << ", policy_ratio=" << base_cumulative_delta_ratio;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // 3. the interval since last base compaction reaches the threshold
@@ -142,27 +141,27 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
                     << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     VLOG_NOTICE << "don't satisfy the base compaction policy. tablet=" << _tablet->full_name()
                 << ", num_cumulative_rowsets=" << _input_rowsets.size() - 1
                 << ", cumulative_base_ratio=" << cumulative_base_ratio
                 << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction;
-    return OLAP_ERR_BE_NO_SUITABLE_VERSION;
+    return Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION);
 }
 
-OLAPStatus BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
+Status BaseCompaction::_check_rowset_overlapping(const std::vector<RowsetSharedPtr>& rowsets) {
     for (auto& rs : rowsets) {
         if (rs->rowset_meta()->is_segments_overlapping()) {
             LOG(WARNING) << "There is overlapping rowset before cumulative point, "
                          << "rowset version=" << rs->start_version() << "-" << rs->end_version()
                          << ", cumulative point=" << _tablet->cumulative_layer_point()
                          << ", tablet=" << _tablet->full_name();
-            return OLAP_ERR_BE_SEGMENTS_OVERLAPPING;
+            return Status::OLAPInternalError(OLAP_ERR_BE_SEGMENTS_OVERLAPPING);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

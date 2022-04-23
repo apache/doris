@@ -191,7 +191,7 @@ public:
     };
 
     template <bool forward_index>
-    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
+    Status next_batch(size_t* n, ColumnBlockView* dst) {
         DCHECK(_parsed);
 
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {

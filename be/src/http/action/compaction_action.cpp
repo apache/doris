@@ -19,6 +19,7 @@
 
 #include <sys/syscall.h>
 
+#include <future>
 #include <sstream>
 #include <string>
 
@@ -42,20 +43,17 @@ const static std::string HEADER_JSON = "application/json";
 bool CompactionAction::_is_compaction_running = false;
 std::mutex CompactionAction::_compaction_running_mutex;
 
-Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
-                                      uint32_t* schema_hash) {
+Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
-    std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
-    if (req_tablet_id == "" && req_schema_hash == "") {
+    if (req_tablet_id == "") {
         return Status::OK();
     }
 
     try {
         *tablet_id = std::stoull(req_tablet_id);
-        *schema_hash = std::stoul(req_schema_hash);
     } catch (const std::exception& e) {
         return Status::InternalError(
-            strings::Substitute("convert tablet_id and schema_hash failed, $0", e.what()));
+            strings::Substitute("convert tablet_id failed, $0", e.what()));
     }
 
     return Status::OK();
@@ -64,16 +62,14 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id,
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),
                                    "check param failed");
 
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::NotFound(
-            strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
-                                tablet_id, schema_hash));
+            strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
     }
 
     tablet->get_compaction_status(json_result);
@@ -82,10 +78,9 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
 
 Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* json_result) {
     // 1. param check
-    // check req_tablet_id and req_schema_hash is not empty
+    // check req_tablet_id is not empty
     uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),
                                    "check param failed");
 
     // check compaction_type equals 'base' or 'cumulative'
@@ -96,20 +91,19 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             strings::Substitute("The compaction type '$0' is not supported", compaction_type));
     }
 
-    // 2. fetch the tablet by tablet_id and schema_hash
+    // 2. fetch the tablet by tablet_id
     TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::NotFound(
-            strings::Substitute("Tablet not found. tablet_id=$0, schema_hash=$1",
-                                tablet_id, schema_hash));
+            strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
     }
 
     // 3. execute compaction task
-    std::packaged_task<OLAPStatus()> task([this, tablet, compaction_type]() {
+    std::packaged_task<Status()> task([this, tablet, compaction_type]() {
         return _execute_compaction_callback(tablet, compaction_type);
     });
-    std::future<OLAPStatus> future_obj = task.get_future();
+    std::future<Status> future_obj = task.get_future();
 
     {
         // 3.1 check is there compaction running
@@ -127,10 +121,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     std::future_status status = future_obj.wait_for(std::chrono::seconds(2));
     if (status == std::future_status::ready) {
         // fetch execute result
-        OLAPStatus olap_status = future_obj.get();
-        if (olap_status != OLAP_SUCCESS) {
-            return Status::InternalError(
-                    strings::Substitute("fail to execute compaction, error = $0", olap_status));
+        Status olap_status = future_obj.get();
+        if (!olap_status.ok()) {
+            return olap_status;
         }
     } else {
         LOG(INFO) << "Manual compaction task is timeout for waiting "
@@ -146,27 +139,21 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
 
 Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    uint32_t schema_hash = 0;
 
-    // check req_tablet_id and req_schema_hash is not empty
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &schema_hash),
-                                   "check param failed");
-
+    // check req_tablet_id is not empty
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),"check param failed");
 
     if (tablet_id == 0) {
         // overall compaction status
         RETURN_IF_ERROR(StorageEngine::instance()->get_compaction_status_json(json_result));
         return Status::OK();
     } else {
-        // fetch the tablet by tablet_id and schema_hash
-        TabletSharedPtr tablet =
-                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
-    
+        // fetch the tablet by tablet_id
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
-            LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id
-                         << ", schema_hash:" << schema_hash;
+            LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
             return Status::InternalError(
-                    strings::Substitute("fail to get $0, $1", tablet_id, schema_hash));
+                    strings::Substitute("fail to get $0", tablet_id));
         }
     
         std::string json_template = R"({
@@ -174,8 +161,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
             "run_status" : $0,
             "msg" : "$1",
             "tablet_id" : $2,
-            "schema_hash" : $3,
-            "compact_type" : "$4"
+            "compact_type" : "$3"
 })";
     
         std::string msg = "compaction task for this tablet is not running";
@@ -190,7 +176,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 compaction_type = "cumulative";
                 run_status = 1;
                 *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   schema_hash, compaction_type);
+                                                   compaction_type);
                 return Status::OK();
             }
         }
@@ -202,19 +188,17 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 msg = "compaction task for this tablet is running";
                 compaction_type = "base";
                 run_status = 1;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
-                                                   schema_hash, compaction_type);
+                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
                 return Status::OK();
             }
         }
         // not running any compaction
-        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, schema_hash,
-                                           compaction_type);
+        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
         return Status::OK();
     }
 }
 
-OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
+Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                                           const std::string& compaction_type) {
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             _create_cumulative_compaction_policy();
@@ -223,12 +207,12 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
 
-    OLAPStatus status = OLAP_SUCCESS;
+    Status res = Status::OK();
     if (compaction_type == PARAM_COMPACTION_BASE) {
         BaseCompaction base_compaction(tablet);
-        OLAPStatus res = base_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res == OLAP_ERR_BE_NO_SUITABLE_VERSION) {
+        res = base_compaction.compact();
+        if (!res) {
+            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init base compaction due to no suitable version, tablet="
                             << tablet->full_name();
@@ -238,12 +222,11 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
                              << ", tablet=" << tablet->full_name();
             }
         }
-        status = res;
     } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
         CumulativeCompaction cumulative_compaction(tablet);
-        OLAPStatus res = cumulative_compaction.compact();
-        if (res != OLAP_SUCCESS) {
-            if (res == OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION) {
+        res = cumulative_compaction.compact();
+        if (!res) {
+            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
@@ -253,14 +236,13 @@ OLAPStatus CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet
                              << ", table=" << tablet->full_name();
             }
         }
-        status = res;
     }
 
-    LOG(INFO) << "Manual compaction task finish, status = " << status;
+    LOG(INFO) << "Manual compaction task finish, status = " << res;
     std::lock_guard<std::mutex> lock(_compaction_running_mutex);
     _is_compaction_running = false;
 
-    return status;
+    return res;
 }
 
 void CompactionAction::handle(HttpRequest* req) {

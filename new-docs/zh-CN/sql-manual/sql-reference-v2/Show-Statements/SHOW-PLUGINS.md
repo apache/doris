@@ -26,9 +26,29 @@ under the License.
 
 ## SHOW-PLUGINS
 
+### Name
+
+SHOW PLUGINS
+
 ### Description
 
+该语句用于展示已安装的插件
+
+语法：
+
+```SQL
+SHOW PLUGINS
+```
+
+该命令会展示所有用户安装的和系统内置的插件
+
 ### Example
+
+1. 展示已安装的插件：
+
+    ```SQL
+    SHOW PLUGINS;
+    ```
 
 ### Keywords
 

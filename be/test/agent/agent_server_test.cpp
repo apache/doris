@@ -127,7 +127,7 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
 
     EXPECT_CALL(mock_command_executor, make_snapshot(_, _))
             .Times(1)
-            .WillOnce(DoAll(SetArgPointee<1>("snapshot path"), Return(OLAP_SUCCESS)));
+            .WillOnce(DoAll(SetArgPointee<1>("snapshot path"), Return(Status::OK())));
     agent_server.make_snapshot(return_value, snapshot_request);
 
     EXPECT_EQ(TStatusCode::OK, return_value.status.status_code);
@@ -136,7 +136,7 @@ TEST(MakeSnapshotTest, TestMakeSnapshot) {
     TAgentResult return_value2;
     EXPECT_CALL(mock_command_executor, make_snapshot(_, _))
             .Times(1)
-            .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
+            .WillOnce(Return(Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR)));
     agent_server.make_snapshot(return_value2, snapshot_request);
 
     EXPECT_EQ(TStatusCode::RUNTIME_ERROR, return_value2.status.status_code);
@@ -158,7 +158,7 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 
     EXPECT_CALL(mock_command_executor, release_snapshot(snapshot_path))
             .Times(1)
-            .WillOnce(Return(OLAP_SUCCESS));
+            .WillOnce(Return(Status::OK()));
     agent_server.release_snapshot(return_value, snapshot_path);
 
     EXPECT_EQ(TStatusCode::OK, return_value.status.status_code);
@@ -167,7 +167,7 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
     TAgentResult return_value2;
     EXPECT_CALL(mock_command_executor, release_snapshot(snapshot_path))
             .Times(1)
-            .WillOnce(Return(OLAP_ERR_VERSION_NOT_EXIST));
+            .WillOnce(Return(Status::OLAPInternalError(OLAP_ERR_WRITE_PROTOBUF_ERROR)));
     agent_server.release_snapshot(return_value2, snapshot_path);
 
     EXPECT_EQ(TStatusCode::RUNTIME_ERROR, return_value2.status.status_code);
@@ -177,14 +177,3 @@ TEST(ReleaseSnapshotTest, TestReleaseSnapshot) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

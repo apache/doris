@@ -19,8 +19,10 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.http.rest.RestBaseResult;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -32,6 +34,7 @@ import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -59,9 +62,14 @@ public class LoadAction extends RestBaseController {
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_load", method = RequestMethod.PUT)
     public Object load(HttpServletRequest request, HttpServletResponse response,
                        @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
-        this.isStreamLoad = false;
-        executeCheckPassword(request, response);
-        return executeWithoutPassword(request, response, db, table);
+        if(Config.disable_mini_load) {
+            ResponseEntity entity = ResponseEntityBuilder.notFound("The mini load operation has been disabled by default, if you need to add disable_mini_load=false in fe.conf.");
+            return entity;
+        } else {
+            this.isStreamLoad = false;
+            executeCheckPassword(request, response);
+            return executeWithoutPassword(request, response, db, table);
+        }
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load", method = RequestMethod.PUT)

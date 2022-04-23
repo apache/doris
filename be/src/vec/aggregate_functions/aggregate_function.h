@@ -159,6 +159,7 @@ public:
         }
     }
     //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
+    //stddev_pop/stddev_samp/variance_pop/variance_samp
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {

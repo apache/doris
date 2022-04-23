@@ -34,11 +34,11 @@ public:
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    OLAPStatus init(RowsetReaderContext* read_context) override;
+    Status init(RowsetReaderContext* read_context) override;
 
     // It's ok, because we only get ref here, the block's owner is this reader.
-    OLAPStatus next_block(RowBlock** block) override;
-    OLAPStatus next_block(vectorized::Block* block) override;
+    Status next_block(RowBlock** block) override;
+    Status next_block(vectorized::Block* block) override;
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 

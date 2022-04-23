@@ -15,17 +15,46 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
 
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 
+#include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
+
 namespace doris::vectorized {
+
+void check_array_offsets(const IColumn& arr, const std::vector<IColumn::Offset>& offs) {
+    auto arr_col = check_and_get_column<ColumnArray>(arr);
+    ASSERT_EQ(arr_col->size(), offs.size());
+    for (size_t i = 0; i < arr_col->size(); ++i) {
+        ASSERT_EQ(arr_col->get_offsets()[i], offs[i]);
+    }
+}
+template <typename T>
+void check_array_data(const IColumn& arr, const std::vector<T>& data) {
+    auto arr_col = check_and_get_column<ColumnArray>(arr);
+    auto data_col = arr_col->get_data_ptr();
+    ASSERT_EQ(data_col->size(), data.size());
+    for (size_t i = 0; i < data_col->size(); ++i) {
+        auto element = data_col->get_data_at(i);
+        ASSERT_EQ(*((T*)element.data), data[i]);
+    }
+}
+template <>
+void check_array_data(const IColumn& arr, const std::vector<std::string>& data) {
+    auto arr_col = check_and_get_column<ColumnArray>(arr);
+    auto data_col = arr_col->get_data_ptr();
+    ASSERT_EQ(data_col->size(), data.size());
+    for (size_t i = 0; i < data_col->size(); ++i) {
+        auto element = data_col->get_data_at(i);
+        ASSERT_EQ(std::string(element.data), data[i]);
+    }
+}
 
 TEST(ColumnArrayTest, IntArrayTest) {
     auto off_column = ColumnVector<IColumn::Offset>::create();
@@ -42,12 +71,12 @@ TEST(ColumnArrayTest, IntArrayTest) {
 
     // check column array result
     ColumnArray array_column(std::move(data_column), std::move(off_column));
-    ASSERT_EQ(array_column.size(), offs.size() - 1);
+    EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
         auto v = get<Array>(array_column[i]);
-        ASSERT_EQ(v.size(), offs[i + 1] - offs[i]);
+        EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            ASSERT_EQ(vals[offs[i] + j], get<int32_t>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], get<int32_t>(v[j]));
         }
     }
 }
@@ -67,19 +96,140 @@ TEST(ColumnArrayTest, StringArrayTest) {
 
     // check column array result
     ColumnArray array_column(std::move(data_column), std::move(off_column));
-    ASSERT_EQ(array_column.size(), offs.size() - 1);
+    EXPECT_EQ(array_column.size(), offs.size() - 1);
     for (size_t i = 0; i < array_column.size(); ++i) {
         auto v = get<Array>(array_column[i]);
-        ASSERT_EQ(v.size(), offs[i + 1] - offs[i]);
+        EXPECT_EQ(v.size(), offs[i + 1] - offs[i]);
         for (size_t j = 0; j < v.size(); ++j) {
-            ASSERT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
+            EXPECT_EQ(vals[offs[i] + j], get<std::string>(v[j]));
         }
     }
 }
 
-} // namespace doris::vectorized
+TEST(ColumnArrayTest, IntArrayPermuteTest) {
+    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto data_column = ColumnVector<int32_t>::create();
+    // init column array with [[1,2,3],[],[4],[5,6]]
+    std::vector<IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    ColumnArray array_column(std::move(data_column), std::move(off_column));
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    IColumn::Permutation perm = {3, 2, 1, 0};
+    // return array column: [[5,6],[4]];
+    auto res1 = array_column.permute(perm, 2);
+    check_array_offsets(*res1, {2, 3});
+    check_array_data<int32_t>(*res1, {5, 6, 4});
+
+    // return array column: [[5,6],[4],[],[1,2,3]]
+    auto res2 = array_column.permute(perm, 0);
+    check_array_offsets(*res2, {2, 3, 3, 6});
+    check_array_data<int32_t>(*res2, {5, 6, 4, 1, 2, 3});
 }
+
+TEST(ColumnArrayTest, StringArrayPermuteTest) {
+    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto data_column = ColumnString::create();
+    // init column array with [["abc","d"],["ef"],[], [""]];
+    std::vector<IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<std::string> vals = {"abc", "d", "ef", ""};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data(v.data(), v.size());
+    }
+    ColumnArray array_column(std::move(data_column), std::move(off_column));
+
+    IColumn::Permutation perm = {3, 2, 1, 0};
+    // return array column: [[""],[]];
+    auto res1 = array_column.permute(perm, 2);
+    check_array_offsets(*res1, {1, 1});
+    check_array_data<std::string>(*res1, {""});
+
+    // return array column: [[""],[],["ef"],["abc","d"]];
+    auto res2 = array_column.permute(perm, 0);
+    check_array_offsets(*res2, {1, 1, 2, 4});
+    check_array_data<std::string>(*res2, {"", "ef", "abc", "d"});
+}
+
+TEST(ColumnArrayTest, EmptyArrayPermuteTest) {
+    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto data_column = ColumnVector<int32_t>::create();
+    // init column array with [[],[],[],[]]
+    std::vector<IColumn::Offset> offs = {0, 0, 0, 0, 0};
+    std::vector<int32_t> vals = {};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    ColumnArray array_column(std::move(data_column), std::move(off_column));
+
+    IColumn::Permutation perm = {3, 2, 1, 0};
+    // return array column: [[],[]];
+    auto res1 = array_column.permute(perm, 2);
+    check_array_offsets(*res1, {0, 0});
+    check_array_data<int32_t>(*res1, {});
+
+    // return array column: [[],[],[],[]]
+    auto res2 = array_column.permute(perm, 0);
+    check_array_offsets(*res2, {0, 0, 0, 0});
+    check_array_data<int32_t>(*res2, {});
+}
+
+TEST(ColumnArrayTest, IntArrayReplicateTest) {
+    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto data_column = ColumnVector<int32_t>::create();
+    // init column array with [[1,2,3],[],[4],[5,6]]
+    std::vector<IColumn::Offset> offs = {0, 3, 3, 4, 6};
+    std::vector<int32_t> vals = {1, 2, 3, 4, 5, 6};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data((const char*)(&v), 0);
+    }
+    ColumnArray array_column(std::move(data_column), std::move(off_column));
+
+    uint32_t counts[] = {2, 1, 0, 3}; // size should be equal array_column.size()
+    size_t target_size = 6;           // sum(counts)
+
+    // return array column: [[1,2,3],[1,2,3],[],[5,6],[5,6],[5,6]];
+    auto res1 = array_column.clone_empty();
+    array_column.replicate(counts, target_size, *res1);
+    check_array_offsets(*res1, {3, 6, 6, 8, 10, 12});
+    check_array_data<int32_t>(*res1, {1, 2, 3, 1, 2, 3, 5, 6, 5, 6, 5, 6});
+}
+
+TEST(ColumnArrayTest, StringArrayReplicateTest) {
+    auto off_column = ColumnVector<IColumn::Offset>::create();
+    auto data_column = ColumnString::create();
+    // init column array with [["abc","d"],["ef"],[], [""]];
+    std::vector<IColumn::Offset> offs = {0, 2, 3, 3, 4};
+    std::vector<std::string> vals = {"abc", "d", "ef", ""};
+    for (size_t i = 1; i < offs.size(); ++i) {
+        off_column->insert_data((const char*)(&offs[i]), 0);
+    }
+    for (auto& v : vals) {
+        data_column->insert_data(v.data(), v.size());
+    }
+    ColumnArray array_column(std::move(data_column), std::move(off_column));
+
+    uint32_t counts[] = {2, 1, 0, 3}; // size should be equal array_column.size()
+    size_t target_size = 6;           // sum(counts)
+
+    // return array column: [["abc","d"],["abc","d"],["ef"],[""],[""],[""]];
+    auto res1 = array_column.clone_empty();
+    array_column.replicate(counts, target_size, *res1);
+    check_array_offsets(*res1, {2, 4, 5, 6, 7, 8});
+    check_array_data<std::string>(*res1, {"abc", "d", "abc", "d", "ef", "", "", ""});
+}
+
+} // namespace doris::vectorized

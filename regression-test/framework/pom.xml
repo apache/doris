@@ -74,6 +74,8 @@ under the License.
         <groovy.version>3.0.7</groovy.version>
         <groovy-eclipse-batch.version>3.0.7-01</groovy-eclipse-batch.version>
         <groovy-eclipse-compiler.version>3.7.0</groovy-eclipse-compiler.version>
+        <antlr.version>4.9.3</antlr.version>
+        <hadoop.version>2.8.0</hadoop.version>
     </properties>
     <build>
         <plugins>
@@ -147,6 +149,21 @@ under the License.
                             </excludes>
                         </filter>
                     </filters>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-maven-plugin</artifactId>
+                <version>${antlr.version}</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>antlr4</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <visitor>true</visitor>
                 </configuration>
             </plugin>
         </plugins>
@@ -237,6 +254,26 @@ under the License.
             <groupId>org.codehaus.janino</groupId>
             <artifactId>janino</artifactId>
             <version>3.1.6</version>
+        </dependency>
+        <dependency>
+            <groupId>org.antlr</groupId>
+            <artifactId>antlr4-runtime</artifactId>
+            <version>${antlr.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>${hadoop.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <version>${hadoop.version}</version>
         </dependency>
     </dependencies>
 </project>

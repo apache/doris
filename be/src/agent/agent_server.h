@@ -45,6 +45,7 @@ public:
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
+    // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
     // Multi-Load will still use the following 3 methods for now.
@@ -87,6 +88,8 @@ private:
     std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers;
 
     std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
+
+    std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_v2_workers;
 
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };

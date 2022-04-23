@@ -26,13 +26,32 @@ under the License.
 
 ## ALTER-TABLE-REPLACE
 
+### Name
+
+ALTER TABLE REPLACE
+
 ### Description
+
+This statement is used to modify the attributes of the schema of the existing table. The syntax is basically similar to [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html).
+
+```sql
+ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;
+```
 
 ### Example
 
+1. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+
+```sql
+ALTER TABLE example_db.my_table
+MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+```
+
 ### Keywords
 
-    ALTER, TABLE, REPLACE
+```text
+ALTER, TABLE, REPLACE
+```
 
 ### Best Practice
 

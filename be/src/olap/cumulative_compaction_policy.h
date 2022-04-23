@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef OLAP_CUMULATIVE_COMPACTION_POLICY_H
-#define OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#pragma once
 
 #include <string>
 
@@ -42,7 +41,7 @@ enum CompactionPolicy {
 const static std::string CUMULATIVE_NUM_BASED_POLICY = "NUM_BASED";
 const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
-/// It defines the policy to do cumulative compaction. It has different derived classes, which implements
+/// It defines the policy to do cumulative compaction. It has different derived classes, which implements
 /// concrete cumulative compaction algorithm. The policy is configured by conf::cumulative_compaction_policy.
 /// The policy functions is the main steps to do cumulative compaction. For example, how to pick candidate
 /// rowsets from tablet using current policy, how to calculate the cumulative point and how to calculate
@@ -261,4 +260,4 @@ private:
 };
 
 } // namespace doris
-#endif // OLAP_CUMULATIVE_COMPACTION_POLICY_H
+

@@ -189,6 +189,7 @@ CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
 // memory_limitation_per_thread_for_schema_change_bytes unit bytes
 CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
+CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");
@@ -613,6 +614,10 @@ CONF_mInt32(remote_storage_read_buffer_mb, "16");
 
 // Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
 CONF_Bool(track_new_delete, "true");
+
+// If true, switch TLS MemTracker to count more detailed memory,
+// including caches such as ExecNode operators and TabletManager.
+CONF_Bool(memory_verbose_track, "true");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:

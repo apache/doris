@@ -695,7 +695,7 @@ void FragmentMgr::cancel_worker() {
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout fragment "
                       << print_id(id);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
 

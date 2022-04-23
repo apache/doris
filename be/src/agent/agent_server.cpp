@@ -90,6 +90,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
+    CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -152,6 +153,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
+            HANDLE_TYPE(TTaskType::STORAGE_MEDIUM_MIGRATE_V2, _storage_medium_migrate_v2_workers, storage_migration_req_v2);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
@@ -208,17 +210,14 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
 
 void AgentServer::make_snapshot(TAgentResult& t_agent_result,
                                 const TSnapshotRequest& snapshot_request) {
-    Status ret_st;
     string snapshot_path;
     bool allow_incremental_clone = false;
-    OLAPStatus err_code =
+    Status err_code =
             SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path, &allow_incremental_clone);
-    if (err_code != OLAP_SUCCESS) {
+    if (!err_code) {
         LOG(WARNING) << "fail to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                      << ", schema_hash=" << snapshot_request.schema_hash
-                     << ", error_code=" << err_code;
-        ret_st = Status::RuntimeError(
-                strings::Substitute("fail to make_snapshot. err_code=$0", err_code));
+                     << ", error_code=" << err_code.to_string();
     } else {
         LOG(INFO) << "success to make_snapshot. tablet_id=" << snapshot_request.tablet_id
                   << ", schema_hash=" << snapshot_request.schema_hash
@@ -227,23 +226,19 @@ void AgentServer::make_snapshot(TAgentResult& t_agent_result,
         t_agent_result.__set_allow_incremental_clone(allow_incremental_clone);
     }
 
-    ret_st.to_thrift(&t_agent_result.status);
+    err_code.to_thrift(&t_agent_result.status);
     t_agent_result.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
 }
 
 void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::string& snapshot_path) {
-    Status ret_st;
-    OLAPStatus err_code = SnapshotManager::instance()->release_snapshot(snapshot_path);
-    if (err_code != OLAP_SUCCESS) {
+    Status err_code = SnapshotManager::instance()->release_snapshot(snapshot_path);
+    if (!err_code) {
         LOG(WARNING) << "failed to release_snapshot. snapshot_path: " << snapshot_path
-                     << ", err_code: " << err_code;
-        ret_st = Status::RuntimeError(
-                strings::Substitute("fail to release_snapshot. err_code=$0", err_code));
+                     << ", err_code: " << err_code.to_string();
     } else {
-        LOG(INFO) << "success to release_snapshot. snapshot_path=" << snapshot_path
-                  << ", err_code=" << err_code;
+        LOG(INFO) << "success to release_snapshot. snapshot_path=" << snapshot_path;
     }
-    ret_st.to_thrift(&t_agent_result.status);
+    err_code.to_thrift(&t_agent_result.status);
 }
 
 void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,

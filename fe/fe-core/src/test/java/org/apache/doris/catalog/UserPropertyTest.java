@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
+import mockit.Mocked;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -26,7 +29,9 @@ import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
@@ -38,6 +43,42 @@ import java.util.List;
 
 public class UserPropertyTest {
     private FakeCatalog fakeCatalog;
+    @Mocked
+    private Catalog catalog;
+    @Mocked
+    private SqlBlockRuleMgr sqlBlockRuleMgr;
+
+    @Before
+    public void setUp() {
+        new Expectations(catalog) {
+            {
+                catalog.getSqlBlockRuleMgr();
+                minTimes = 0;
+                result = sqlBlockRuleMgr;
+
+                sqlBlockRuleMgr.existRule("rule1");
+                minTimes = 0;
+                result = true;
+
+                sqlBlockRuleMgr.existRule("rule2");
+                minTimes = 0;
+                result = true;
+
+                sqlBlockRuleMgr.existRule("test1");
+                minTimes = 0;
+                result = true;
+
+                sqlBlockRuleMgr.existRule("test2");
+                minTimes = 0;
+                result = true;
+
+                sqlBlockRuleMgr.existRule("test3");
+                minTimes = 0;
+                result = true;
+            }
+        };
+    }
+
     @Test
     public void testNormal() throws IOException, DdlException {
         // mock catalog

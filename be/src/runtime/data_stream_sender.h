@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-sender.h
+// and modified by Doris
 
 #ifndef DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
 #define DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
@@ -159,7 +162,7 @@ protected:
 
         bool is_local() { return _is_local; }
 
-        inline Status _wait_last_brpc() {
+        Status _wait_last_brpc() {
             if (_closure == nullptr) return Status::OK();
             auto cntl = &_closure->cntl;
             brpc::Join(cntl->call_id());

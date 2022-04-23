@@ -30,9 +30,10 @@
 #include "util/doris_metrics.h"
 
 template <typename T>
-using SubMap = phmap::parallel_flat_hash_map<
+using StubMap = phmap::parallel_flat_hash_map<
         std::string, std::shared_ptr<T>, std::hash<std::string>, std::equal_to<std::string>,
         std::allocator<std::pair<const std::string, std::shared_ptr<T>>>, 8, std::mutex>;
+
 namespace doris {
 
 template <class T>
@@ -41,32 +42,34 @@ public:
     BrpcClientCache();
     virtual ~BrpcClientCache();
 
-    inline std::shared_ptr<T> get_client(const butil::EndPoint& endpoint) {
+    std::shared_ptr<T> get_client(const butil::EndPoint& endpoint) {
         return get_client(butil::endpoint2str(endpoint).c_str());
     }
 
 #ifdef BE_TEST
-    virtual inline std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
+    virtual std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
         std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
         return get_client(host_port);
     }
 #else
-    inline std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
+    std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
         std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
         return get_client(host_port);
     }
 #endif
 
-    inline std::shared_ptr<T> get_client(const std::string& host, int port) {
+    std::shared_ptr<T> get_client(const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return get_client(host_port);
     }
 
-    inline std::shared_ptr<T> get_client(const std::string& host_port) {
-        auto stub_ptr = _stub_map.find(host_port);
-        if (LIKELY(stub_ptr != _stub_map.end())) {
-            return stub_ptr->second;
+    std::shared_ptr<T> get_client(const std::string& host_port) {
+        std::shared_ptr<T> stub_ptr;
+        auto get_value = [&stub_ptr](typename StubMap<T>::mapped_type& v) { stub_ptr = v; };
+        if(LIKELY(_stub_map.if_contains(host_port, get_value))) {
+            return stub_ptr;
         }
+
         // new one stub and insert into map
         brpc::ChannelOptions options;
         if constexpr (std::is_same_v<T, PFunctionService_Stub>) {
@@ -85,40 +88,42 @@ public:
         }
         auto stub = std::make_shared<T>(channel.release(),
                                         google::protobuf::Service::STUB_OWNS_CHANNEL);
-        _stub_map[host_port] = stub;
+        _stub_map.try_emplace_l(host_port,
+                                [&stub](typename StubMap<T>::mapped_type& v) { stub = v; },
+                                stub);
         return stub;
     }
 
-    inline size_t size() { return _stub_map.size(); }
+    size_t size() { return _stub_map.size(); }
 
-    inline void clear() { _stub_map.clear(); }
+    void clear() { _stub_map.clear(); }
 
-    inline size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
+    size_t erase(const std::string& host_port) { return _stub_map.erase(host_port); }
 
     size_t erase(const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return erase(host_port);
     }
 
-    inline size_t erase(const butil::EndPoint& endpoint) {
+    size_t erase(const butil::EndPoint& endpoint) {
         return _stub_map.erase(butil::endpoint2str(endpoint).c_str());
     }
 
-    inline bool exist(const std::string& host_port) {
+    bool exist(const std::string& host_port) {
         return _stub_map.find(host_port) != _stub_map.end();
     }
 
-    inline void get_all(std::vector<std::string>* endpoints) {
+    void get_all(std::vector<std::string>* endpoints) {
         for (auto it = _stub_map.begin(); it != _stub_map.end(); ++it) {
             endpoints->emplace_back(it->first.c_str());
         }
     }
 
-    inline bool available(std::shared_ptr<T> stub, const butil::EndPoint& endpoint) {
+    bool available(std::shared_ptr<T> stub, const butil::EndPoint& endpoint) {
         return available(stub, butil::endpoint2str(endpoint).c_str());
     }
 
-    inline bool available(std::shared_ptr<T> stub, const std::string& host_port) {
+    bool available(std::shared_ptr<T> stub, const std::string& host_port) {
         if (!stub) {
             LOG(WARNING) << "stub is null to: " << host_port;
             return false;
@@ -143,13 +148,13 @@ public:
         }
     }
 
-    inline bool available(std::shared_ptr<T> stub, const std::string& host, int port) {
+    bool available(std::shared_ptr<T> stub, const std::string& host, int port) {
         std::string host_port = fmt::format("{}:{}", host, port);
         return available(stub, host_port);
     }
 
 private:
-    SubMap<T> _stub_map;
+    StubMap<T> _stub_map;
 };
 
 using InternalServiceClientCache = BrpcClientCache<PBackendService_Stub>;

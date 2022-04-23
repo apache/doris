@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MEMTABLE_H
-#define DORIS_BE_SRC_OLAP_MEMTABLE_H
+#pragma once
 
 #include <ostream>
 
@@ -40,7 +39,8 @@ class MemTable {
 public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             KeysType keys_type, RowsetWriter* rowset_writer);
+             KeysType keys_type, RowsetWriter* rowset_writer,
+             const std::shared_ptr<MemTracker>& parent_tracker);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
@@ -48,8 +48,8 @@ public:
     std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
     void insert(const Tuple* tuple);
     /// Flush
-    OLAPStatus flush();
-    OLAPStatus close();
+    Status flush();
+    Status close();
 
     int64_t flush_size() const { return _flush_size; }
 
@@ -134,4 +134,3 @@ inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
 
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_MEMTABLE_H

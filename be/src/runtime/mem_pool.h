@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/mem-pool.h
+// and modified by Doris
 
 #ifndef DORIS_BE_RUNTIME_MEM_POOL_H
 #define DORIS_BE_RUNTIME_MEM_POOL_H
@@ -106,7 +109,7 @@ public:
     }
 
     /// Same as Allocate() expect add a check when return a nullptr
-    OLAPStatus allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
+    Status allocate_safely(int64_t size, uint8_t*& ret, Status* rst = nullptr) {
         return allocate_safely<false>(size, DEFAULT_ALIGNMENT, ret, rst);
     }
 
@@ -270,14 +273,14 @@ private:
     }
 
     template <bool CHECK_LIMIT_FIRST>
-    OLAPStatus ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
+    Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
                                              Status* rst = nullptr) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment, rst);
         if (result == nullptr) {
-            return OLAP_ERR_MALLOC_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
         ret = result;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
 private:

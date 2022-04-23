@@ -161,7 +161,7 @@ public:
 
     Status init() override;
 
-    inline Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -275,7 +275,7 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    inline Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -302,8 +302,8 @@ public:
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
-    inline Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
-    inline bool has_empty_items() const {
+    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    bool has_empty_items() const {
         return _item_writer->get_next_rowid() == 0;
     }
 

@@ -46,7 +46,7 @@ public class ProjectPlannerFunctionTest {
         connectContext = UtFrameUtils.createDefaultCtx();
 
         // enable hash project
-        Deencapsulation.setField(connectContext.getSessionVariable(), "enableHashProject", true);
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableProjection", true);
 
         // create database
         String createDbStmtStr = "create database test;";

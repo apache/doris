@@ -71,7 +71,7 @@ Status LoadPathMgr::init() {
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {
                 // TODO(zc): add this thread to cgroup for control resource it use
-                while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(3600))) {
+                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {
                     this->clean();
                 }
             },

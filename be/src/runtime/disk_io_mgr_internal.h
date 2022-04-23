@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr-internal.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
@@ -52,7 +55,7 @@ struct DiskIoMgr::DiskQueue {
     std::list<RequestContext*> request_contexts;
 
     // Enqueue the request context to the disk queue.  The DiskQueue lock must not be taken.
-    inline void enqueue_context(RequestContext* worker) {
+    void enqueue_context(RequestContext* worker) {
         {
             std::unique_lock<std::mutex> disk_lock(lock);
             // Check that the reader is not already on the queue

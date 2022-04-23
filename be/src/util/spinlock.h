@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/spinlock.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_UTIL_SPINLOCK_H
 #define DORIS_BE_SRC_UTIL_SPINLOCK_H
@@ -50,7 +53,7 @@ public:
     void unlock() { _locked.clear(std::memory_order_release); }
 
     // Tries to acquire the lock
-    inline bool try_lock() { return !_locked.test_and_set(std::memory_order_acquire); }
+    bool try_lock() { return !_locked.test_and_set(std::memory_order_acquire); }
 
 private:
     static const int NUM_SPIN_CYCLES = 70;

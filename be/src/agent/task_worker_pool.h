@@ -31,9 +31,7 @@
 #include "gutil/ref_counted.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "util/condition_variable.h"
 #include "util/countdown_latch.h"
-#include "util/mutex.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -51,12 +49,12 @@ public:
         REALTIME_PUSH,
         PUBLISH_VERSION,
         // Deprecated
-        CLEAR_ALTER_TASK,
+        CLEAR_ALTER_TASK [[deprecated]],
         CLEAR_TRANSACTION_TASK,
         DELETE,
         ALTER_TABLE,
         // Deprecated
-        QUERY_SPLIT_KEY,
+        QUERY_SPLIT_KEY [[deprecated]],
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
         CHECK_CONSISTENCY,
@@ -70,21 +68,18 @@ public:
         MOVE,
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO,
-        SUBMIT_TABLE_COMPACTION
+        SUBMIT_TABLE_COMPACTION,
+        STORAGE_MEDIUM_MIGRATE_V2
     };
 
-    enum ReportType {
-        TASK,
-        DISK,
-        TABLET
-    };
+    enum ReportType { TASK, DISK, TABLET };
 
     enum class ThreadModel {
-        SINGLE_THREAD,      // Only 1 thread allowed in the pool
-        MULTI_THREADS       // 1 or more threads allowed in the pool
+        SINGLE_THREAD, // Only 1 thread allowed in the pool
+        MULTI_THREADS  // 1 or more threads allowed in the pool
     };
 
-    inline const std::string TYPE_STRING(TaskWorkerType type) {
+    const std::string TYPE_STRING(TaskWorkerType type) {
         switch (type) {
         case CREATE_TABLE:
             return "CREATE_TABLE";
@@ -96,16 +91,12 @@ public:
             return "REALTIME_PUSH";
         case PUBLISH_VERSION:
             return "PUBLISH_VERSION";
-        case CLEAR_ALTER_TASK:
-            return "CLEAR_ALTER_TASK";
         case CLEAR_TRANSACTION_TASK:
             return "CLEAR_TRANSACTION_TASK";
         case DELETE:
             return "DELETE";
         case ALTER_TABLE:
             return "ALTER_TABLE";
-        case QUERY_SPLIT_KEY:
-            return "QUERY_SPLIT_KEY";
         case CLONE:
             return "CLONE";
         case STORAGE_MEDIUM_MIGRATE:
@@ -134,12 +125,14 @@ public:
             return "UPDATE_TABLET_META_INFO";
         case SUBMIT_TABLE_COMPACTION:
             return "SUBMIT_TABLE_COMPACTION";
+        case STORAGE_MEDIUM_MIGRATE_V2:
+            return "STORAGE_MEDIUM_MIGRATE_V2";
         default:
             return "Unknown";
         }
     }
 
-    inline const std::string TYPE_STRING(ReportType type) {
+    const std::string TYPE_STRING(ReportType type) {
         switch (type) {
         case TASK:
             return "TASK";
@@ -197,23 +190,25 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
     void _submit_table_compaction_worker_thread_callback();
+    void _storage_medium_migrate_v2_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
     void _handle_report(TReportRequest& request, ReportType type);
 
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                                 int64_t signature, TTabletInfo* tablet_info);
+                            int64_t signature, TTabletInfo* tablet_info);
 
-    Status _move_dir(const TTabletId tablet_id, const TSchemaHash schema_hash,
-                          const std::string& src, int64_t job_id, bool overwrite);
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite);
 
-    OLAPStatus _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
+    Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
                                       DataDir** dest_store);
 
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
+    void _storage_medium_migrate_v2(const TAgentTaskRequest& agent_task_req, int64_t signature,
+            const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
 private:
     std::string _name;
 
@@ -225,8 +220,8 @@ private:
     ExecEnv* _env;
 
     // Protect task queue
-    Mutex _worker_thread_lock;
-    ConditionVariable _worker_thread_condition_variable;
+    std::mutex _worker_thread_lock;
+    std::condition_variable _worker_thread_condition_variable;
     CountDownLatch _stop_background_threads_latch;
     bool _is_work;
     ThreadModel _thread_model;
@@ -246,7 +241,7 @@ private:
     static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
-    static Mutex _s_task_signatures_lock;
+    static std::mutex _s_task_signatures_lock;
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);

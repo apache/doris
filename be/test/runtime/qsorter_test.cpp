@@ -239,51 +239,41 @@ TEST_F(QSorterTest, normalCase) {
 
     QSorter sorter(*_row_desc, _order_expr);
 
-    ASSERT_TRUE(sorter.prepare(_state).ok());
-    ASSERT_TRUE(sorter.add_batch(&batch).ok());
-    ASSERT_TRUE(sorter.input_done().ok());
+    EXPECT_TRUE(sorter.prepare(_state).ok());
+    EXPECT_TRUE(sorter.add_batch(&batch).ok());
+    EXPECT_TRUE(sorter.input_done().ok());
 
     RowBatch result(*_row_desc, 1024);
     bool eos = false;
-    ASSERT_TRUE(sorter.get_next(&result, &eos).ok());
-    ASSERT_TRUE(eos);
-    ASSERT_EQ(5, result.num_rows());
+    EXPECT_TRUE(sorter.get_next(&result, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(5, result.num_rows());
 
     // 0, 195
     {
-        ASSERT_EQ(0, *(int*)_order_expr[0]->get_value(result.get_row(0)));
-        ASSERT_EQ(195, *(int*)_order_expr[1]->get_value(result.get_row(0)));
+        EXPECT_EQ(0, *(int*)_order_expr[0]->get_value(result.get_row(0)));
+        EXPECT_EQ(195, *(int*)_order_expr[1]->get_value(result.get_row(0)));
     }
     // 1, 10
     {
-        ASSERT_EQ(1, *(int*)_order_expr[0]->get_value(result.get_row(1)));
-        ASSERT_EQ(10, *(int*)_order_expr[1]->get_value(result.get_row(1)));
+        EXPECT_EQ(1, *(int*)_order_expr[0]->get_value(result.get_row(1)));
+        EXPECT_EQ(10, *(int*)_order_expr[1]->get_value(result.get_row(1)));
     }
     // 5, 5
     {
-        ASSERT_EQ(5, *(int*)_order_expr[0]->get_value(result.get_row(2)));
-        ASSERT_EQ(5, *(int*)_order_expr[1]->get_value(result.get_row(2)));
+        EXPECT_EQ(5, *(int*)_order_expr[0]->get_value(result.get_row(2)));
+        EXPECT_EQ(5, *(int*)_order_expr[1]->get_value(result.get_row(2)));
     }
     // 5, 100
     {
-        ASSERT_EQ(5, *(int*)_order_expr[0]->get_value(result.get_row(3)));
-        ASSERT_EQ(100, *(int*)_order_expr[1]->get_value(result.get_row(3)));
+        EXPECT_EQ(5, *(int*)_order_expr[0]->get_value(result.get_row(3)));
+        EXPECT_EQ(100, *(int*)_order_expr[1]->get_value(result.get_row(3)));
     }
     // 10000, 5
     {
-        ASSERT_EQ(10000, *(int*)_order_expr[0]->get_value(result.get_row(4)));
-        ASSERT_EQ(5, *(int*)_order_expr[1]->get_value(result.get_row(4)));
+        EXPECT_EQ(10000, *(int*)_order_expr[0]->get_value(result.get_row(4)));
+        EXPECT_EQ(5, *(int*)_order_expr[1]->get_value(result.get_row(4)));
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

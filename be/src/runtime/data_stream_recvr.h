@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-recvr.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
 #define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
@@ -100,6 +103,7 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     PlanNodeId dest_node_id() const { return _dest_node_id; }
     const RowDescriptor& row_desc() const { return _row_desc; }
+    const std::shared_ptr<MemTracker>& mem_tracker() const { return _mem_tracker; }
 
     void add_sub_plan_statistics(const PQueryStatistics& statistics, int sender_id) {
         _sub_plan_query_statistics_recvr->insert(statistics, sender_id);

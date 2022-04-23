@@ -33,17 +33,18 @@ public:
     AlphaRowsetWriter();
     virtual ~AlphaRowsetWriter();
 
-    OLAPStatus init(const RowsetWriterContext& rowset_writer_context) override;
+    Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    OLAPStatus add_row(const RowCursor& row) override { return _add_row(row); }
-    OLAPStatus add_row(const ContiguousRow& row) override { return _add_row(row); }
+    Status add_row(const RowCursor& row) override { return _add_row(row); }
+    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     // add rowset by create hard link
-    OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
-    OLAPStatus add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+    Status add_rowset(RowsetSharedPtr rowset) override;
+    Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
                                                    const SchemaMapping& schema_mapping) override;
 
-    OLAPStatus flush() override;
+    Status add_rowset_for_migration(RowsetSharedPtr rowset) override;
+    Status flush() override;
 
     // get a rowset
     RowsetSharedPtr build() override;
@@ -57,15 +58,15 @@ public:
     RowsetTypePB type() const override { return RowsetTypePB::ALPHA_ROWSET; }
 
 private:
-    OLAPStatus _init();
+    Status _init();
 
     template <typename RowType>
-    OLAPStatus _add_row(const RowType& row);
+    Status _add_row(const RowType& row);
 
     // validate rowset build arguments before create rowset to make sure correctness
     bool _validate_rowset();
 
-    OLAPStatus _garbage_collection();
+    Status _garbage_collection();
 
 private:
     int32_t _segment_group_id;

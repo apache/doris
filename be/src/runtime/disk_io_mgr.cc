@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr.cc
+// and modified by Doris
 
 #include "runtime/disk_io_mgr.h"
 
@@ -283,6 +286,7 @@ DiskIoMgr::DiskIoMgr()
 {
     _mem_tracker =
             MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     int num_local_disks = (config::num_disks == 0 ? DiskInfo::num_disks() : config::num_disks);
@@ -305,6 +309,7 @@ DiskIoMgr::DiskIoMgr(int num_local_disks, int threads_per_disk, int min_buffer_s
 {
     _mem_tracker =
             MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
     if (num_local_disks == 0) {
@@ -370,6 +375,7 @@ DiskIoMgr::~DiskIoMgr() {
 }
 
 Status DiskIoMgr::init(const int64_t mem_limit) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     _mem_tracker->set_limit(mem_limit);
     // If we hit the process limit, see if we can reclaim some memory by removing
     // previously allocated (but unused) io buffers.
@@ -456,6 +462,7 @@ void DiskIoMgr::unregister_context(RequestContext* reader) {
 // is on.
 // If wait_for_disks_completion is true, wait for the number of active disks to become 0.
 void DiskIoMgr::cancel_context(RequestContext* context, bool wait_for_disks_completion) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     context->cancel(Status::Cancelled("Cancelled"));
 
     if (wait_for_disks_completion) {
@@ -536,6 +543,7 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange
     if (ranges.empty()) {
         return Status::OK();
     }
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     // Validate and initialize all ranges
     for (int i = 0; i < ranges.size(); ++i) {
@@ -584,6 +592,7 @@ Status DiskIoMgr::add_scan_ranges(RequestContext* reader, const vector<ScanRange
 Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
     DCHECK(reader != nullptr);
     DCHECK(range != nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     *range = nullptr;
     Status status = Status::OK();
 
@@ -638,6 +647,7 @@ Status DiskIoMgr::get_next_range(RequestContext* reader, ScanRange** range) {
 Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescriptor** buffer) {
     DCHECK(range != nullptr);
     DCHECK(buffer != nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     *buffer = nullptr;
 
     if (range->len() > _max_buffer_size) {
@@ -658,6 +668,7 @@ Status DiskIoMgr::read(RequestContext* reader, ScanRange* range, BufferDescripto
 
 void DiskIoMgr::return_buffer(BufferDescriptor* buffer_desc) {
     DCHECK(buffer_desc != nullptr);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     if (!buffer_desc->_status.ok()) {
         DCHECK(buffer_desc->_buffer == nullptr);
     }
@@ -1168,6 +1179,7 @@ int DiskIoMgr::free_buffers_idx(int64_t buffer_size) {
 Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_range) {
     DCHECK_LE(write_range->len(), _max_buffer_size);
     unique_lock<mutex> writer_lock(writer->_lock);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     if (writer->_state == RequestContext::Cancelled) {
         DCHECK(!writer->_status.ok());

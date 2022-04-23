@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROW_CURSOR_H
-#define DORIS_BE_SRC_OLAP_ROW_CURSOR_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -42,31 +41,31 @@ public:
     ~RowCursor();
 
     // Create a RowCursor based on the schema
-    OLAPStatus init(const TabletSchema& schema);
-    OLAPStatus init(const std::vector<TabletColumn>& schema);
+    Status init(const TabletSchema& schema);
+    Status init(const std::vector<TabletColumn>& schema);
 
     // Create a RowCursor based on the first n columns of the schema
-    OLAPStatus init(const std::vector<TabletColumn>& schema, size_t column_count);
-    OLAPStatus init(const TabletSchema& schema, size_t column_count);
+    Status init(const std::vector<TabletColumn>& schema, size_t column_count);
+    Status init(const TabletSchema& schema, size_t column_count);
 
     // Create a RowCursor based on the schema and column id list
     // which is used for the calculation process only uses some discontinuous prefix columns
-    OLAPStatus init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
+    Status init(const TabletSchema& schema, const std::vector<uint32_t>& columns);
 
     // Initialize with the size of the key, currently only used when splitting the range of key
-    OLAPStatus init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
+    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
-    OLAPStatus init_scan_key(const TabletSchema& schema,
+    Status init_scan_key(const TabletSchema& schema,
                              const std::vector<std::string>& keys,
                              const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
-    OLAPStatus allocate_memory_for_string_type(const TabletSchema& schema);
+    Status allocate_memory_for_string_type(const TabletSchema& schema);
 
     RowCursorCell cell(uint32_t cid) const { return RowCursorCell(nullable_cell_ptr(cid)); }
 
     // RowCursor received a continuous buf
-    inline void attach(char* buf) { _fixed_buf = buf; }
+    void attach(char* buf) { _fixed_buf = buf; }
 
     // Output the index of a column to buf
     void write_index_by_index(size_t index, char* index_ptr) const {
@@ -86,7 +85,7 @@ public:
         column_schema(index)->shallow_copy_content(dst_cell, buf);
     }
     // convert and deep copy field content
-    OLAPStatus convert_from(size_t index, const char* src, const TypeInfo* src_type,
+    Status convert_from(size_t index, const char* src, const TypeInfo* src_type,
                             MemPool* mem_pool) {
         char* dest = cell_ptr(index);
         return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
@@ -95,7 +94,7 @@ public:
     // Deserialize the value of each field from the string array,
     // Each array item must be a \0 terminated string
     // and the input string and line cursor need the same number of columns
-    OLAPStatus from_tuple(const OlapTuple& tuple);
+    Status from_tuple(const OlapTuple& tuple);
 
     // Returns the number of columns in the current row cursor
     size_t field_count() const { return _schema->column_ids().size(); }
@@ -106,7 +105,7 @@ public:
 
     const size_t get_index_size(size_t index) const { return column_schema(index)->index_size(); }
 
-    inline bool is_delete() const {
+    bool is_delete() const {
         auto sign_idx = _schema->delete_sign_idx();
         if (sign_idx < 0) {
             return false;
@@ -115,14 +114,14 @@ public:
     }
 
     // set max/min for key field in _field_array
-    OLAPStatus build_max_key();
-    OLAPStatus build_min_key();
+    Status build_max_key();
+    Status build_min_key();
 
-    inline char* get_buf() const { return _fixed_buf; }
+    char* get_buf() const { return _fixed_buf; }
 
     // this two functions is used in unit test
-    inline size_t get_fixed_len() const { return _fixed_len; }
-    inline size_t get_variable_len() const { return _variable_len; }
+    size_t get_fixed_len() const { return _fixed_len; }
+    size_t get_variable_len() const { return _variable_len; }
 
     // Get column nullable pointer with column id
     // TODO(zc): make this return const char*
@@ -131,11 +130,11 @@ public:
 
     bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
 
-    inline void set_null(size_t index) const {
+    void set_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
     }
 
-    inline void set_not_null(size_t index) const {
+    void set_not_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
     }
 
@@ -148,14 +147,14 @@ public:
     char* row_ptr() const { return _fixed_buf; }
 
 private:
-    OLAPStatus _init(const std::vector<uint32_t>& columns);
-    OLAPStatus _init(const std::shared_ptr<Schema>& shared_schema,
+    Status _init(const std::vector<uint32_t>& columns);
+    Status _init(const std::shared_ptr<Schema>& shared_schema,
                      const std::vector<uint32_t>& columns);
     // common init function
-    OLAPStatus _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
-    inline OLAPStatus _alloc_buf();
+    Status _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
+    Status _alloc_buf();
 
-    OLAPStatus _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
+    Status _init_scan_key(const TabletSchema& schema, const std::vector<std::string>& scan_keys);
 
     std::unique_ptr<Schema> _schema;
 
@@ -172,4 +171,3 @@ private:
 };
 } // namespace doris
 
-#endif // DORIS_BE_SRC_OLAP_ROW_CURSOR_H

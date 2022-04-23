@@ -50,7 +50,7 @@ Status VExplodeNumbersTableFunction::process_row(size_t row_idx) {
     } else {
         _cur_size = *reinterpret_cast<const int*>(value.data);
         _cur_offset = 0;
-        _is_current_empty = (_cur_size == 0);
+        _is_current_empty = (_cur_size <= 0);
     }
     return Status::OK();
 }

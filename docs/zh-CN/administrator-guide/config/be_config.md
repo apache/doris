@@ -809,7 +809,7 @@ txn 管理器中每个 txn_partition_map 的最大 txns 数，这是一种自我
 
 * 类型：int
 * 描述：OlapTableSink 发送批处理数据的最大并行度，用户为 `send_batch_parallelism` 设置的值不允许超过 `max_send_batch_parallelism_per_job` ，如果超过， `send_batch_parallelism` 将被设置为 `max_send_batch_parallelism_per_job` 的值。
-* 默认值：1
+* 默认值：5
 
 ### `max_tablet_num_per_shard`
 

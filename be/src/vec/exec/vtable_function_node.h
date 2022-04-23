@@ -37,6 +37,8 @@ private:
 
     Status get_expanded_block(RuntimeState* state, Block* output_block, bool* eos);
 
+    bool _is_inner_and_empty();
+
     std::unique_ptr<Block> _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;

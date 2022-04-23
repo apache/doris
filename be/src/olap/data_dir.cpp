@@ -45,9 +45,9 @@
 #include "service/backend_options.h"
 #include "util/errno.h"
 #include "util/file_utils.h"
-#include "util/monotime.h"
 #include "util/storage_backend.h"
 #include "util/storage_backend_mgr.h"
+
 #include "util/string_util.h"
 
 using strings::Substitute;
@@ -195,8 +195,8 @@ Status DataDir::_init_meta() {
                 Status::MemoryAllocFailed("allocate memory for OlapMeta failed"),
                 "new OlapMeta failed");
     }
-    OLAPStatus res = _meta->init();
-    if (res != OLAP_SUCCESS) {
+    Status res = _meta->init();
+    if (!res.ok()) {
         RETURN_NOT_OK_STATUS_WITH_WARN(
                 Status::IOError(
                         strings::Substitute("open rocksdb failed, path=$0", _path_desc.filepath)),
@@ -233,8 +233,8 @@ Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t
 void DataDir::health_check() {
     // check disk
     if (_is_used) {
-        OLAPStatus res = OLAP_SUCCESS;
-        if ((res = _read_and_write_test_file()) != OLAP_SUCCESS) {
+        Status res = _read_and_write_test_file();
+        if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path="
                          << _path_desc.filepath;
             if (is_io_error(res)) {
@@ -245,12 +245,12 @@ void DataDir::health_check() {
     disks_state->set_value(_is_used ? 1 : 0);
 }
 
-OLAPStatus DataDir::_read_and_write_test_file() {
+Status DataDir::_read_and_write_test_file() {
     std::string test_file = _path_desc.filepath + kTestFilePath;
     return read_write_test_file(test_file);
 }
 
-OLAPStatus DataDir::get_shard(uint64_t* shard) {
+Status DataDir::get_shard(uint64_t* shard) {
     std::stringstream shard_path_stream;
     uint32_t next_shard = 0;
     {
@@ -260,11 +260,11 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     }
     shard_path_stream << _path_desc.filepath << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
+    RETURN_WITH_WARN_IF_ERROR(Env::Default()->create_dirs(shard_path), Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
                               "fail to create path. path=" + shard_path);
 
     *shard = next_shard;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void DataDir::register_tablet(Tablet* tablet) {
@@ -327,7 +327,7 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
             .string();
 }
 
-OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
+Status DataDir::_check_incompatible_old_format_tablet() {
     auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
                                           const std::string& value) -> bool {
         // if strict check incompatible old format, then log fatal
@@ -346,9 +346,9 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
     };
 
     // seek old header prefix. when check_incompatible_old_func is called, it has old format in olap_meta
-    OLAPStatus check_incompatible_old_status = TabletMetaManager::traverse_headers(
+    Status check_incompatible_old_status = TabletMetaManager::traverse_headers(
             _meta, check_incompatible_old_func, OLD_HEADER_PREFIX);
-    if (check_incompatible_old_status != OLAP_SUCCESS) {
+    if (!check_incompatible_old_status) {
         LOG(WARNING) << "check incompatible old format meta fails, it may lead to data missing!!! "
                      << _path_desc.filepath;
     } else {
@@ -358,11 +358,11 @@ OLAPStatus DataDir::_check_incompatible_old_format_tablet() {
 }
 
 // TODO(ygl): deal with rowsets and tablets when load failed
-OLAPStatus DataDir::load() {
+Status DataDir::load() {
     LOG(INFO) << "start to load tablets from " << _path_desc.filepath;
     if (is_remote()) {
         RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->init(_path_desc.filepath + STORAGE_PARAM_PREFIX),
-                                  OLAP_ERR_INIT_FAILED, "DataDir init failed.");
+                                  Status::OLAPInternalError(OLAP_ERR_INIT_FAILED), "DataDir init failed.");
     }
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
@@ -386,10 +386,10 @@ OLAPStatus DataDir::load() {
         dir_rowset_metas.push_back(rowset_meta);
         return true;
     };
-    OLAPStatus load_rowset_status =
+    Status load_rowset_status =
             RowsetMetaManager::traverse_rowset_metas(_meta, load_rowset_func);
 
-    if (load_rowset_status != OLAP_SUCCESS) {
+    if (!load_rowset_status) {
         LOG(WARNING) << "errors when load rowset meta from meta env, skip this data dir:"
                      << _path_desc.filepath;
     } else {
@@ -404,11 +404,11 @@ OLAPStatus DataDir::load() {
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
                                     const std::string& value) -> bool {
-        OLAPStatus status = _tablet_manager->load_tablet_from_meta(
+        Status status = _tablet_manager->load_tablet_from_meta(
                 this, tablet_id, schema_hash, value, false, false, false, false);
-        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR &&
-            status != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
-            // load_tablet_from_meta() may return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
+        if (!status.ok() && status != Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) &&
+            status != Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET)) {
+            // load_tablet_from_meta() may return Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR)
             // which means the tablet status is DELETED
             // This may happen when the tablet was just deleted before the BE restarted,
             // but it has not been cleared from rocksdb. At this time, restarting the BE
@@ -416,7 +416,7 @@ OLAPStatus DataDir::load() {
             // added to the garbage collection queue and will be automatically deleted afterwards.
             // Therefore, we believe that this situation is not a failure.
 
-            // Besides, load_tablet_from_meta() may return OLAP_ERR_ENGINE_INSERT_OLD_TABLET
+            // Besides, load_tablet_from_meta() may return Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET)
             // when BE is restarting and the older tablet have been added to the
             // garbage collection queue but not deleted yet.
             // In this case, since the data_dirs are parallel loaded, a later loaded tablet
@@ -430,7 +430,7 @@ OLAPStatus DataDir::load() {
         }
         return true;
     };
-    OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
+    Status load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
     if (failed_tablet_ids.size() != 0) {
         LOG(WARNING) << "load tablets from header failed"
                      << ", loaded tablet: " << tablet_ids.size()
@@ -441,7 +441,7 @@ OLAPStatus DataDir::load() {
                        << _path_desc.filepath;
         }
     }
-    if (load_tablet_status != OLAP_SUCCESS) {
+    if (!load_tablet_status) {
         LOG(WARNING) << "there is failure when loading tablet headers"
                      << ", loaded tablet: " << tablet_ids.size()
                      << ", error tablet: " << failed_tablet_ids.size()
@@ -470,9 +470,9 @@ OLAPStatus DataDir::load() {
             continue;
         }
         RowsetSharedPtr rowset;
-        OLAPStatus create_status = RowsetFactory::create_rowset(
+        Status create_status = RowsetFactory::create_rowset(
                 &tablet->tablet_schema(), tablet->tablet_path_desc(), rowset_meta, &rowset);
-        if (create_status != OLAP_SUCCESS) {
+        if (!create_status) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
                          << " rowset_type: " << rowset_meta->rowset_type()
@@ -481,12 +481,12 @@ OLAPStatus DataDir::load() {
         }
         if (rowset_meta->rowset_state() == RowsetStatePB::COMMITTED &&
             rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            OLAPStatus commit_txn_status = _txn_manager->commit_txn(
+            Status commit_txn_status = _txn_manager->commit_txn(
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
                     rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
-            if (commit_txn_status != OLAP_SUCCESS &&
-                commit_txn_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            if (!commit_txn_status &&
+                commit_txn_status != Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
                 LOG(WARNING) << "failed to add committed rowset: " << rowset_meta->rowset_id()
                              << " to tablet: " << rowset_meta->tablet_id()
                              << " for txn: " << rowset_meta->txn_id();
@@ -498,9 +498,9 @@ OLAPStatus DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            OLAPStatus publish_status = tablet->add_rowset(rowset, false);
-            if (publish_status != OLAP_SUCCESS &&
-                publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+            Status publish_status = tablet->add_rowset(rowset, false);
+            if (!publish_status &&
+                publish_status != Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:"
                              << rowset->rowset_id() << " tablet id: " << rowset_meta->tablet_id()
                              << " txn id:" << rowset_meta->txn_id()
@@ -520,19 +520,20 @@ OLAPStatus DataDir::load() {
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
-    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath << ", total rowset meta: "
-              << dir_rowset_metas.size() << ", invalid rowset num: " << invalid_rowset_counter;
+    LOG(INFO) << "finish to load tablets from " << _path_desc.filepath
+              << ", total rowset meta: " << dir_rowset_metas.size()
+              << ", invalid rowset num: " << invalid_rowset_counter;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void DataDir::add_pending_ids(const std::string& id) {
-    WriteLock wr_lock(_pending_path_mutex);
+    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
     _pending_path_ids.insert(id);
 }
 
 void DataDir::remove_pending_ids(const std::string& id) {
-    WriteLock wr_lock(_pending_path_mutex);
+    std::lock_guard<std::shared_mutex> wr_lock(_pending_path_mutex);
     _pending_path_ids.erase(id);
 }
 
@@ -549,7 +550,8 @@ void DataDir::perform_path_gc_by_tablet() {
     for (const auto& path : _all_tablet_schemahash_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
@@ -566,7 +568,7 @@ void DataDir::perform_path_gc_by_tablet() {
                          << ", path=" << path;
             continue;
         }
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
         if (tablet != nullptr) {
             // could find the tablet, then skip check it
             continue;
@@ -599,7 +601,8 @@ void DataDir::perform_path_gc_by_rowsetid() {
     for (const auto& path : _all_check_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
+            std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;
@@ -616,7 +619,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
             RowsetId rowset_id;
             bool is_rowset_file = TabletManager::get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
-                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
+                TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
                 if (tablet != nullptr) {
                     if (!tablet->check_rowset_id(rowset_id) &&
                         !StorageEngine::instance()->check_rowset_id_in_unused_rowsets(rowset_id)) {
@@ -702,7 +705,7 @@ void DataDir::_process_garbage_path(const std::string& path) {
 }
 
 bool DataDir::_check_pending_ids(const std::string& id) {
-    ReadLock rd_lock(_pending_path_mutex);
+    std::shared_lock rd_lock(_pending_path_mutex);
     return _pending_path_ids.find(id) != _pending_path_ids.end();
 }
 
@@ -738,7 +741,6 @@ bool DataDir::reach_capacity_limit(int64_t incoming_data_size) {
     double used_pct = (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                       (double)_disk_capacity_bytes;
     int64_t left_bytes = _available_bytes - incoming_data_size;
-
     if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
         left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
         LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
@@ -758,22 +760,19 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 
 // this is moved from src/olap/utils.h, the old move_to_trash() can only support local files,
 // and it is more suitable in DataDir because one trash path is in one DataDir
-OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
+    Status res = Status::OK();
     FilePathDesc storage_root_desc = _path_desc;
     if (is_remote() && !StorageBackendMgr::instance()->get_root_path(
             segment_path_desc.storage_name, &(storage_root_desc.remote_path)).ok()) {
         LOG(WARNING) << "get_root_path failed for storage_name: " << segment_path_desc.storage_name;
-        return OLAP_ERR_OTHER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
     }
 
     // 1. get timestamp string
     string time_str;
-    if ((res = gen_timestamp_string(&time_str)) != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING(
-                "failed to generate time_string when move file to trash."
-                "[err code=%d]",
-                res);
+    if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {
+        LOG(WARNING) << "failed to generate time_string when move file to trash.err code=" << res;
         return res;
     }
 
@@ -809,7 +808,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
         OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
                          segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
-        return OLAP_ERR_OS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
     // 4. move remote file to trash if needed
@@ -820,13 +819,13 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
         if (!st.ok()) {
             LOG(WARNING) << "fail to write storage_name to trash path: " << trash_storage_name_path
                          << ", error:" << st.to_string();
-            return OLAP_ERR_OS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
                 get_storage_backend(segment_path_desc.storage_name);
         if (storage_backend == nullptr) {
             LOG(WARNING) << "storage_backend is invalid: " << segment_path_desc.storage_name;
-            return OLAP_ERR_OS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
         Status status = storage_backend->exist_dir(segment_path_desc.remote_path);
         if (status.ok()) {
@@ -836,13 +835,13 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
             if (!rename_status.ok()) {
                 OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
                                  segment_path_desc.remote_path.c_str(), trash_path_desc.remote_path.c_str());
-                return OLAP_ERR_OS_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
             }
         } else if (status.is_not_found()) {
             LOG(WARNING) << "File may be removed before: " << segment_path_desc.remote_path;
         } else {
             LOG(WARNING) << "File check exist error: " << segment_path_desc.remote_path;
-            return OLAP_ERR_OS_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
         }
     }
 
@@ -851,7 +850,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     if (rename(segment_path_desc.filepath.c_str(), trash_local_file.c_str()) < 0) {
         OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
                          segment_path_desc.filepath.c_str(), trash_local_file.c_str());
-        return OLAP_ERR_OS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
     // 6. check parent dir of source file, delete it when empty
@@ -860,7 +859,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
 
     RETURN_WITH_WARN_IF_ERROR(
             FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()),
-            OLAP_SUCCESS, "access dir failed. [dir=" + source_parent_dir);
+            Status::OK(), "access dir failed. [dir=" + source_parent_dir);
 
     if (sub_dirs.empty() && sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
@@ -868,7 +867,7 @@ OLAPStatus DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
         Env::Default()->delete_dir(source_parent_dir);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

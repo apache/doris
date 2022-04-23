@@ -20,9 +20,9 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <thread>
 
 #include "gutil/ref_counted.h"
-#include "util/monotime.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
@@ -40,21 +40,21 @@ static void decrement_latch(CountDownLatch* latch, int amount) {
 // as 1 by one.
 TEST(TestCountDownLatch, TestLatch) {
     std::unique_ptr<ThreadPool> pool;
-    ASSERT_TRUE(ThreadPoolBuilder("cdl-test").set_max_threads(1).build(&pool).ok());
+    EXPECT_TRUE(ThreadPoolBuilder("cdl-test").set_max_threads(1).build(&pool).ok());
 
     CountDownLatch latch(1000);
 
     // Decrement the count by 1 in another thread, this should not fire the
     // latch.
-    ASSERT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1)).ok());
-    ASSERT_FALSE(latch.wait_for(MonoDelta::FromMilliseconds(200)));
-    ASSERT_EQ(999, latch.count());
+    EXPECT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1)).ok());
+    EXPECT_FALSE(latch.wait_for(std::chrono::milliseconds(200)));
+    EXPECT_EQ(999, latch.count());
 
     // Now decrement by 1000 this should decrement to 0 and fire the latch
     // (even though 1000 is one more than the current count).
-    ASSERT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1000)).ok());
+    EXPECT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1000)).ok());
     latch.wait();
-    ASSERT_EQ(0, latch.count());
+    EXPECT_EQ(0, latch.count());
 }
 
 // Test that resetting to zero while there are waiters lets the waiters
@@ -62,17 +62,12 @@ TEST(TestCountDownLatch, TestLatch) {
 TEST(TestCountDownLatch, TestResetToZero) {
     CountDownLatch cdl(100);
     scoped_refptr<Thread> t;
-    ASSERT_TRUE(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t).ok());
+    EXPECT_TRUE(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t).ok());
 
     // Sleep for a bit until it's likely the other thread is waiting on the latch.
-    SleepFor(MonoDelta::FromMilliseconds(10));
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
     cdl.reset(0);
     t->join();
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

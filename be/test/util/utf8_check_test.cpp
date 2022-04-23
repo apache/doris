@@ -91,34 +91,28 @@ private:
              35}};
 };
 TEST_F(Utf8CheckTest, empty) {
-    ASSERT_TRUE(validate_utf8(pos[0].data, pos[0].len));
+    EXPECT_TRUE(validate_utf8(pos[0].data, pos[0].len));
 }
 
 TEST_F(Utf8CheckTest, normal) {
     for (int i = 0; i < sizeof(pos) / sizeof(pos[0]); ++i) {
-        ASSERT_TRUE(validate_utf8(pos[i].data, pos[i].len));
+        EXPECT_TRUE(validate_utf8(pos[i].data, pos[i].len));
     }
 }
 
 TEST_F(Utf8CheckTest, abnormal) {
     for (int i = 0; i < sizeof(neg) / sizeof(neg[0]); ++i) {
-        ASSERT_FALSE(validate_utf8(neg[i].data, neg[i].len));
+        EXPECT_FALSE(validate_utf8(neg[i].data, neg[i].len));
     }
 }
 
 TEST_F(Utf8CheckTest, naive) {
     for (int i = 0; i < sizeof(pos) / sizeof(pos[0]); ++i) {
-        ASSERT_TRUE(validate_utf8_naive(pos[i].data, pos[i].len));
+        EXPECT_TRUE(validate_utf8_naive(pos[i].data, pos[i].len));
     }
     for (int i = 0; i < sizeof(neg) / sizeof(neg[0]); ++i) {
-        std::cout << validate_utf8_naive(neg[i].data, neg[i].len) << std::endl;
-        ASSERT_FALSE(validate_utf8_naive(neg[i].data, neg[i].len));
+        EXPECT_FALSE(validate_utf8_naive(neg[i].data, neg[i].len));
     }
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

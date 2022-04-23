@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn-evaluator.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
 #define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
@@ -146,8 +149,8 @@ public:
     // Indicate which type of this value : int type;
     static const size_t DATETIME_SIZE = 16;
 
-    inline void update_mem_limlits(int len);
-    inline void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
+    void update_mem_limlits(int len);
+    void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
     bool count_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool sum_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool is_multi_distinct() { return _is_multi_distinct; }
