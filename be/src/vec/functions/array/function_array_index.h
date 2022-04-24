@@ -146,7 +146,10 @@ private:
     ColumnPtr _execute_number_expanded(const ColumnArray::Offsets& offsets,
                                        const UInt8* nested_null_map, const IColumn& nested_column,
                                        const IColumn& right_column) {
-        if (check_column<ColumnInt8>(right_column)) {
+        if (check_column<ColumnUInt8>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnUInt8>(offsets, nested_null_map,
+                                                                  nested_column, right_column);
+        } else if (check_column<ColumnInt8>(right_column)) {
             return _execute_number<NestedColumnType, ColumnInt8>(offsets, nested_null_map,
                                                                  nested_column, right_column);
         } else if (check_column<ColumnInt16>(right_column)) {
@@ -214,7 +217,10 @@ private:
             return_column =
                     _execute_string(offsets, nested_null_map, *nested_column, *right_column);
         } else if (is_number(right_type) && is_number(left_element_type)) {
-            if (check_column<ColumnInt8>(*nested_column)) {
+            if (check_column<ColumnUInt8>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnUInt8>(
+                        offsets, nested_null_map, *nested_column, *right_column);
+            } else if (check_column<ColumnInt8>(*nested_column)) {
                 return_column = _execute_number_expanded<ColumnInt8>(offsets, nested_null_map,
                                                                      *nested_column, *right_column);
             } else if (check_column<ColumnInt16>(*nested_column)) {

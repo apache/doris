@@ -207,6 +207,9 @@ private:
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map,
                                                   *arguments[1].column, nested_null_map,
                                                   dst_null_map);
+        } else if (check_column<ColumnUInt8>(*nested_column)) {
+            res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map,
+                                              *arguments[1].column, nested_null_map, dst_null_map);
         } else if (check_column<ColumnInt8>(*nested_column)) {
             res = _execute_number<ColumnInt8>(offsets, *nested_column, src_null_map,
                                               *arguments[1].column, nested_null_map, dst_null_map);

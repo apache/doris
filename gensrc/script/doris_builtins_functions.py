@@ -145,6 +145,7 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], '', '', '', 'vec', ''],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], '', '', '', 'vec', ''],
 
+    [['array_position'], 'BIGINT', ['ARRAY_BOOLEAN', 'BOOLEAN'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_TINYINT', 'TINYINT'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_SMALLINT', 'SMALLINT'], '', '', '', 'vec', ''],
     [['array_position'], 'BIGINT', ['ARRAY_INT', 'INT'], '', '', '', 'vec', ''],
