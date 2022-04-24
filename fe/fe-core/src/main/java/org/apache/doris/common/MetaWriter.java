@@ -95,12 +95,12 @@ public class MetaWriter {
     public static void write(File imageFile, Catalog catalog) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
         LOG.info("start to save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
-        FileOutputStream imageFileOut = new FileOutputStream(imageFile);
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
         // MetaHeader should use output stream in the future.
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
+        FileOutputStream imageFileOut = new FileOutputStream(imageFile, true);
         try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(
                 imageFileOut), startPosition)) {
             writer.setDelegate(dos, metaIndices);
