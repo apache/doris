@@ -37,20 +37,22 @@ Doris 可以通过滚动升级的方式，平滑进行升级。建议按照以�
 
 1. 关闭集群副本修复和均衡功能
 
-	升级过程中会有节点重启，所以可能会触发不必要的集群均衡和副本修复逻辑。可以先通过以下命令关闭：
+    升级过程中会有节点重启，所以可能会触发不必要的集群均衡和副本修复逻辑。可以先通过以下命令关闭：
 
-	```
-	# 关闭副本均衡逻辑。关闭后，不会再触发普通表副本的均衡操作。
-	$ mysql-client > admin set frontend config("disable_balance" = "true");
+    ```
+    # 关闭副本均衡逻辑。关闭后，不会再触发普通表副本的均衡操作。
+    $ mysql-client > admin set frontend config("disable_balance" = "true");
 	
-	# 关闭 colocation 表的副本均衡逻辑。关闭后，不会再触发 colocation 表的副本重分布操作。
-	$ mysql-client > admin set frontend config("disable_colocate_balance" = "true");
+    # 关闭 colocation 表的副本均衡逻辑。关闭后，不会再触发 colocation 表的副本重分布操作。
+    $ mysql-client > admin set frontend config("disable_colocate_balance" = "true");
 	
-	# 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
-	$ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
-	```
+    # 关闭副本调度逻辑。关闭后，所有已产生的副本修复和均衡任务不会再被调度。
+    $ mysql-client > admin set frontend config("disable_tablet_scheduler" = "true");
+    ```
 
-	当集群升级完毕后，在通过以上命令将对应配置设为原值即可。
+    当集群升级完毕后，在通过以上命令将对应配置设为原值即可。
+
+2. **重要！！在升级之前需要备份元数据！！**
 
 ## 测试 BE 升级正确性
 
