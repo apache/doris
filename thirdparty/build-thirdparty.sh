@@ -749,6 +749,14 @@ build_bitshuffle() {
 
 # croaring bitmap
 build_croaringbitmap() {
+    FORCE_AVX=ON
+    # aarch64 don't support avx2, disable it.
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        FORCE_AVX=OFF
+    fi
+    if [[ `cat /proc/cpuinfo | grep avx2 | wc -l` == "0" ]]; then
+        FORCE_AVX=OFF
+    fi
     check_if_source_exist $CROARINGBITMAP_SOURCE
     cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
@@ -756,7 +764,9 @@ build_croaringbitmap() {
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DROARING_BUILD_STATIC=ON -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DENABLE_ROARING_TESTS=OFF ..
+    -DENABLE_ROARING_TESTS=OFF \
+    -DROARING_DISABLE_NATIVE=ON \
+    -DFORCE_AVX=$FORCE_AVX ..
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
