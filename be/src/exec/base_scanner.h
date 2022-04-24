@@ -64,6 +64,8 @@ public:
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+    
+    void fill_tuple_post_process();
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
