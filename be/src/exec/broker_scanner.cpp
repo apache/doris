@@ -115,12 +115,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
             RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), tuple, tuple_pool));
-            if (_success) {
-                free_expr_local_allocations();
-                *fill_tuple = true;
-            } else {
-                *fill_tuple = false;
-            }
+            fill_tuple_post_process();
             break; // break always
         }
     }
