@@ -71,6 +71,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String CODEGEN_LEVEL = "codegen_level";
+    public static final String HASH_JOIN_PROBE_THREAD_COUNT = "hash_join_probe_thread_count";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -302,6 +303,9 @@ public class SessionVariable implements Serializable, Writable {
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
+
+    @VariableMgr.VarAttr(name = HASH_JOIN_PROBE_THREAD_COUNT)
+    public int hashJoinProbeThreadCount = 1;
 
     @VariableMgr.VarAttr(name = BATCH_SIZE)
     public int batchSize = 1024;
@@ -581,6 +585,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getCodegenLevel() {
         return codegenLevel;
+    }
+
+    public int getHashJoinProbeThreadCount() {
+        return hashJoinProbeThreadCount;
     }
 
     public void setMaxExecMemByte(long maxExecMemByte) {
@@ -927,6 +935,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
+        tResult.setHashJoinProbeThreadCount(hashJoinProbeThreadCount);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);

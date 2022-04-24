@@ -139,7 +139,11 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `codegen_level`
 
     Used to set the level of LLVM codegen. (Not currently in effect).
-    
+
+- `hash_join_probe_thread_count`
+
+    The number of worker threads for probe when setting hash join
+
 * `collation_connection`
 
     Used for compatibility with MySQL clients. No practical effect.

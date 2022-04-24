@@ -25,6 +25,7 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
+#include "util/thread_group.h"
 
 namespace doris::vectorized {
 
@@ -166,6 +167,22 @@ struct ProcessHashTableProbe {
               _items_counts(join_node->_items_counts),
               _build_block_offsets(join_node->_build_block_offsets),
               _build_block_rows(join_node->_build_block_rows),
+              _rows_returned_counter(join_node->_rows_returned_counter),
+              _search_hashtable_timer(join_node->_search_hashtable_timer),
+              _build_side_output_timer(join_node->_build_side_output_timer),
+              _probe_side_output_timer(join_node->_probe_side_output_timer) {}
+
+    ProcessHashTableProbe(HashJoinNode* join_node, Block& probe_block, ColumnRawPtrs&  probe_columns, std::vector<uint32_t>& items_counts, std::vector<int8_t>& build_block_offsets, std::vector<int>& build_block_rows, int& probe_index, int batch_size, int probe_rows)
+            : _join_node(join_node),
+              _batch_size(batch_size),
+              _probe_rows(probe_rows),
+              _build_blocks(join_node->_build_blocks),
+              _probe_block(probe_block),
+              _probe_index(probe_index),
+              _probe_raw_ptrs(probe_columns),
+              _items_counts(items_counts),
+              _build_block_offsets(build_block_offsets),
+              _build_block_rows(build_block_rows),
               _rows_returned_counter(join_node->_rows_returned_counter),
               _search_hashtable_timer(join_node->_search_hashtable_timer),
               _build_side_output_timer(join_node->_build_side_output_timer),
@@ -636,6 +653,58 @@ private:
     ProfileCounter* _probe_side_output_timer;
 };
 
+class ProbeThreadPool {
+public:
+    typedef std::function<void(int thread_id)> WorkFunction;
+    struct Task {
+    public:
+        WorkFunction work_function;
+    };
+
+    ProbeThreadPool(uint32_t num_threads, uint32_t queue_size)
+            : _work_queue(queue_size), _shutdown(false) {
+        for (int i = 0; i < num_threads; ++i) {
+            _threads.create_thread(
+                    std::bind<void>(std::mem_fn(&ProbeThreadPool::work_thread), this, i));
+        }
+    }
+
+    ~ProbeThreadPool() {
+        shutdown();
+        join();
+    }
+
+    bool offer(Task task) { return _work_queue.blocking_put(task); }
+
+    void shutdown() {
+        _shutdown = true;
+        _work_queue.shutdown();
+    }
+
+    virtual void join() { _threads.join_all(); }
+
+private:
+    virtual bool is_shutdown() { return _shutdown; }
+
+    void work_thread(int thread_id) {
+        while (!is_shutdown()) {
+            Task task;
+            if (_work_queue.blocking_get(&task)) {
+                task.work_function(thread_id);
+            }
+            if (_work_queue.get_size() == 0) {
+                _empty_cv.notify_all();
+            }
+        }
+    }
+
+    BlockingQueue<Task> _work_queue;
+    ThreadGroup _threads;
+    std::mutex _lock;
+    std::atomic<bool> _shutdown;
+    std::condition_variable _empty_cv;
+};
+
 HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _join_op(tnode.hash_join_node.join_op),
@@ -651,7 +720,8 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
                               _join_op == TJoinOp::RIGHT_SEMI_JOIN),
           _is_outer_join(_match_all_build || _match_all_probe),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids ? tnode.hash_join_node.hash_output_slot_ids :
-                                std::vector<SlotId>{}) {
+                                std::vector<SlotId>{}),
+          _probe_output_blocks(128) {
     _runtime_filter_descs = tnode.runtime_filters;
     init_join_op();
 
@@ -661,7 +731,10 @@ HashJoinNode::HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Descr
     _build_blocks.reserve(128);
 }
 
-HashJoinNode::~HashJoinNode() = default;
+HashJoinNode::~HashJoinNode() {
+    if (_probe_thread && _probe_thread->joinable())
+        _probe_thread->join();
+}
 
 void HashJoinNode::init_join_op() {
     switch (_join_op) {
@@ -817,9 +890,176 @@ Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
     return Status::NotSupported("Not Implemented HashJoin Node::get_next scalar");
 }
 
+void HashJoinNode::_probe_thread_function(RuntimeState* state) {
+    SCOPED_ATTACH_TASK_THREAD(state, child(0)->mem_tracker());
+    do {
+        Block* probe_block = new Block();
+        {
+            SCOPED_TIMER(_probe_next_timer);
+            child(0)->get_next(state, probe_block, &_probe_eos);
+        }
+        if (probe_block->rows() > 0) {
+            ProbeThreadPool::Task task;
+            task.work_function = std::bind(&HashJoinNode::_probe_worker, this, state, probe_block, std::placeholders::_1);
+            _running_thread_nums++;
+            _probe_thread_pool->offer(task);
+        }
+    } while (!_probe_eos);
+
+    if (_running_thread_nums > 0) {
+        std::unique_lock<std::mutex> l(_probe_mutex);
+        _probe_thread_exit_cv.wait(l, [&] {
+            return _running_thread_nums == 0;
+        });
+    }
+
+    {
+        _probe_output_blocks.blocking_put(nullptr);
+    }
+    std::lock_guard<std::mutex> l(_probe_mutex);
+    _probe_cv.notify_one();
+}
+
+void HashJoinNode::_probe_worker(RuntimeState* state, Block* probe_block, int thread_id) {
+    size_t probe_rows = probe_block->rows();
+    Status st;
+
+    DCHECK(probe_rows > 0);
+
+    ColumnRawPtrs& probe_columns = _probe_columns_pool[thread_id];
+    if (_null_map_column_pool[thread_id] == nullptr)
+        _null_map_column_pool[thread_id] = ColumnUInt8::create();
+
+    ColumnUInt8::MutablePtr& null_map_column = _null_map_column_pool[thread_id];
+    int probe_index = 0;
+
+
+    COUNTER_UPDATE(_probe_rows_counter, probe_rows);
+
+    int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
+    probe_columns.resize(probe_expr_ctxs_sz);
+    null_map_column->get_data().assign(probe_rows, (uint8_t)0);
+    st = std::visit(
+            [&](auto&& arg) -> Status {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                    auto& null_map_val = null_map_column->get_data();
+                    return extract_probe_join_column(*probe_block, null_map_val,
+                                                     probe_columns, _probe_ignore_null,
+                                                     *_probe_expr_call_timer);
+                } else {
+                    LOG(FATAL) << "FATAL: uninited hash table";
+                }
+                __builtin_unreachable();
+            },
+            _hash_table_variants);
+
+    auto& build_block_rows = _build_block_rows_pool[thread_id];
+    auto& build_block_offsets = _build_block_offsets_pool[thread_id];
+    auto& items_counts = _items_counts_pool[thread_id];
+    while (probe_index < probe_rows) {
+        Block* output_block = new Block();
+        std::visit(
+            [&](auto&& arg, auto&& join_op_variants, auto have_other_join_conjunct, auto probe_ignore_null) {
+                using HashTableCtxType = std::decay_t<decltype(arg)>;
+                using JoinOpType = std::decay_t<decltype(join_op_variants)>;
+                if constexpr (have_other_join_conjunct) {
+                    MutableBlock mutable_block(VectorizedUtils::create_empty_columnswithtypename(
+                        _row_desc_for_other_join_conjunt));
+
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        ProcessHashTableProbe<HashTableCtxType, JoinOpType, probe_ignore_null> process_hashtable_ctx(
+                                this, *probe_block, probe_columns, items_counts, build_block_offsets, build_block_rows, probe_index, state->batch_size(), probe_rows);
+                        st = process_hashtable_ctx.do_process_with_other_join_conjunts(
+                                    arg, &null_map_column->get_data(),
+                                    mutable_block, output_block);
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                    }
+                } else {
+                    MutableBlock mutable_block = MutableBlock(VectorizedUtils::create_empty_columnswithtypename(row_desc()));
+
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        ProcessHashTableProbe<HashTableCtxType, JoinOpType, probe_ignore_null> process_hashtable_ctx(
+                                this, *probe_block, probe_columns, items_counts, build_block_offsets, build_block_rows, probe_index, state->batch_size(), probe_rows);
+                        st = process_hashtable_ctx.do_process(
+                                arg, &null_map_column->get_data(),
+                                mutable_block, output_block);
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                    }
+                }
+            }, _hash_table_variants,
+            _join_op_variants,
+            make_bool_variant(_have_other_join_conjunct),
+            make_bool_variant(_probe_ignore_null));
+
+        if (output_block->rows() > 0) {
+            _probe_output_blocks.blocking_put(output_block);
+        } else {
+            delete output_block;
+        }
+    }
+    delete probe_block;
+
+    {
+        std::lock_guard<std::mutex> l(_probe_mutex);
+        _running_thread_nums--;
+        _probe_thread_exit_cv.notify_all();
+    }
+}
+
+Status HashJoinNode::_get_next_in_parallel(RuntimeState* state, Block* output_block, bool* eos) {
+    Block* probe_block = nullptr;;
+    auto ret = _probe_output_blocks.blocking_get(&probe_block);
+    if (ret && probe_block != nullptr) {
+        output_block->swap(*probe_block);
+        delete probe_block;
+    } else {
+        if (!_probe_eos) {
+            std::unique_lock<std::mutex> l(_probe_mutex);
+            if (!_probe_eos) {
+                _probe_cv.wait(l, [&] {
+                    return _probe_eos;
+                });
+            }
+        }
+        if (_is_right_semi_anti || (_is_outer_join && _join_op != TJoinOp::LEFT_OUTER_JOIN)) {
+            MutableBlock mutable_block(
+                    VectorizedUtils::create_empty_columnswithtypename(row_desc()));
+            std::visit(
+                    [&](auto&& arg, auto&& join_op_variants) {
+                        using JoinOpType = std::decay_t<decltype(join_op_variants)>;
+                        using HashTableCtxType = std::decay_t<decltype(arg)>;
+                        if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                            ProcessHashTableProbe<HashTableCtxType, JoinOpType, false> process_hashtable_ctx(
+                                    this, state->batch_size(), 0);
+                            process_hashtable_ctx.process_data_in_hashtable(arg, mutable_block,
+                                                                                 output_block, eos);
+                        } else {
+                            LOG(FATAL) << "FATAL: uninited hash table";
+                        }
+                    },
+                    _hash_table_variants,
+                    _join_op_variants);
+        } else {
+            *eos = true;
+            return Status::OK();
+        }
+    }
+
+    RETURN_IF_ERROR(
+        VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    reached_limit(output_block, eos);
+    return Status::OK();
+}
+
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
+
+    if (_probe_thread_count > 1)
+        return _get_next_in_parallel(state, output_block, eos);
 
     size_t probe_rows = _probe_block.rows();
     if ((probe_rows == 0 || _probe_index == probe_rows) && !_probe_eos) {
@@ -958,6 +1198,31 @@ Status HashJoinNode::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_hash_table_build(state));
     RETURN_IF_ERROR(child(0)->open(state));
+
+    if (state->query_options().hash_join_probe_thread_count > 1) {
+        std::visit(
+                [&](auto&& arg) {
+                    using HashTableCtxType = std::decay_t<decltype(arg)>;
+                    if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        if constexpr (!HashTableCtxType::State::Cache::consecutive_keys_optimization) {
+                            _probe_thread_count = state->query_options().hash_join_probe_thread_count;
+                        }
+                    } else {
+                        LOG(FATAL) << "FATAL: uninited hash table";
+                    }
+                },
+                _hash_table_variants);
+    }
+
+    if (_probe_thread_count >  1) {
+        _items_counts_pool.resize(_probe_thread_count);
+        _build_block_offsets_pool.resize(_probe_thread_count);
+        _build_block_rows_pool.resize(_probe_thread_count);
+        _null_map_column_pool.resize(_probe_thread_count);
+        _probe_columns_pool.resize(_probe_thread_count);
+        _probe_thread_pool.reset(new ProbeThreadPool(_probe_thread_count, _probe_thread_count * 3));
+        _probe_thread.reset(new std::thread(&HashJoinNode::_probe_thread_function, this, state));
+    }
 
     return Status::OK();
 }

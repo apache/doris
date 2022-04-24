@@ -160,6 +160,8 @@ struct TQueryOptions {
   // show bitmap data in result, if use this in mysql cli may make the terminal
   // output corrupted character
   43: optional bool return_object_data_as_binary = false
+
+  44: optional i32 hash_join_probe_thread_count = 1
 }
     
 

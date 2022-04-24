@@ -17,6 +17,7 @@
 
 #pragma once
 #include <variant>
+#include <condition_variable>
 
 #include "common/object_pool.h"
 #include "exec/exec_node.h"
@@ -27,9 +28,12 @@
 #include "vec/exec/join/join_op.h"
 #include "vec/exec/join/vacquire_list.hpp"
 #include "vec/functions/function.h"
+#include "util/blocking_queue.hpp"
 
 namespace doris {
 namespace vectorized {
+
+class ProbeThreadPool;
 
 struct SerializedHashTableContext {
     using Mapped = RowRefList;
@@ -248,6 +252,12 @@ private:
 
     void _hash_table_init();
 
+    void _probe_thread_function(RuntimeState* state);
+
+    void _probe_worker(RuntimeState* state, Block* block, int thread_id);
+
+    Status _get_next_in_parallel(RuntimeState* state, Block* output_block, bool* eos);
+
     template <class HashTableContext, bool ignore_null, bool build_unique>
     friend struct ProcessHashTableBuild;
 
@@ -259,6 +269,22 @@ private:
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+
+    int _probe_thread_count = 1;
+    std::shared_ptr<std::thread> _probe_thread;
+    std::shared_ptr<ProbeThreadPool> _probe_thread_pool;
+
+    std::mutex _probe_mutex;
+    std::atomic_int _running_thread_nums = 0;
+    BlockingQueue<Block*> _probe_output_blocks;
+    std::condition_variable _probe_cv;
+    std::condition_variable _probe_thread_exit_cv;
+
+    std::vector<std::vector<uint32_t>> _items_counts_pool;
+    std::vector<std::vector<int8_t>> _build_block_offsets_pool;
+    std::vector<std::vector<int>> _build_block_rows_pool;
+    std::vector<ColumnUInt8::MutablePtr>  _null_map_column_pool;
+    std::vector<ColumnRawPtrs> _probe_columns_pool;
 };
 } // namespace vectorized
 } // namespace doris
