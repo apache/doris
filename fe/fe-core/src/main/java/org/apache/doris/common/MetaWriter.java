@@ -129,8 +129,8 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
+            imageFileOut.getChannel().force(true);
         }
-        imageFileOut.getFD().sync();
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
