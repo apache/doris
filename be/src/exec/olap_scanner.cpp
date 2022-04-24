@@ -60,6 +60,7 @@ Status OlapScanner::prepare(
         const std::vector<TCondition>& filters,
         const std::vector<std::pair<string, std::shared_ptr<IBloomFilterFuncBase>>>&
                 bloom_filters) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     set_tablet_reader();
     // set limit to reduce end of rowset and segment mem use
     _tablet_reader->set_batch_size(
@@ -74,8 +75,7 @@ Status OlapScanner::prepare(
     _version = strtoul(scan_range.version.c_str(), nullptr, 10);
     {
         std::string err;
-        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash,
-                                                                          true, &err);
+        _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (_tablet.get() == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet. tablet_id=" << tablet_id
@@ -84,7 +84,7 @@ Status OlapScanner::prepare(
             return Status::InternalError(ss.str());
         }
         {
-            ReadLock rdlock(_tablet->get_header_lock());
+            std::shared_lock rdlock(_tablet->get_header_lock());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
             if (rowset == nullptr) {
                 std::stringstream ss;
@@ -97,9 +97,9 @@ Status OlapScanner::prepare(
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
-            OLAPStatus acquire_reader_st =
+            Status acquire_reader_st =
                     _tablet->capture_rs_readers(rd_version, &_tablet_reader_params.rs_readers);
-            if (acquire_reader_st != OLAP_SUCCESS) {
+            if (!acquire_reader_st.ok()) {
                 LOG(WARNING) << "fail to init reader.res=" << acquire_reader_st;
                 std::stringstream ss;
                 ss << "failed to initialize storage reader. tablet=" << _tablet->full_name()
@@ -120,7 +120,8 @@ Status OlapScanner::prepare(
 
 Status OlapScanner::open() {
     SCOPED_TIMER(_parent->_reader_init_timer);
-
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+  
     if (_conjunct_ctxs.size() > _parent->_direct_conjunct_size) {
         _use_pushdown_conjuncts = true;
     }
@@ -128,8 +129,7 @@ Status OlapScanner::open() {
     _runtime_filter_marks.resize(_parent->runtime_filter_descs().size(), false);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init reader.[res=%d]", res);
+    if (!res.ok()) {
         std::stringstream ss;
         ss << "failed to initialize storage reader. tablet="
            << _tablet_reader_params.tablet->full_name() << ", res=" << res
@@ -213,10 +213,10 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    OLAPStatus res =
+    Status res =
             _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING("fail to init row cursor.[res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init row cursor.res = " << res;
         return Status::InternalError("failed to initialize storage read row cursor");
     }
     _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
@@ -275,6 +275,7 @@ Status OlapScanner::_init_return_columns() {
 }
 
 Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     // 2. Allocate Row's Tuple buf
     uint8_t* tuple_buf =
             batch->tuple_data_pool()->allocate(state->batch_size() * _tuple_desc->byte_size());
@@ -308,7 +309,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
  
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
                                                                  &tmp_object_pool, eof);
-            if (res != OLAP_SUCCESS) {
+            if (!res.ok()) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
                    << ", tablet=" << _tablet->full_name()
@@ -388,13 +389,13 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                     const TypeDescriptor& item_type = desc->type().children.at(0);
                     auto pool = batch->tuple_data_pool();
                     CollectionValue::deep_copy_collection(
-                        slot, item_type, [pool](int size) -> MemFootprint {
-                            int64_t offset = pool->total_allocated_bytes();
-                            uint8_t* data = pool->allocate(size);
-                            return { offset, data };
-                        },
-                        false
-                    );
+                            slot, item_type,
+                            [pool](int size) -> MemFootprint {
+                                int64_t offset = pool->total_allocated_bytes();
+                                uint8_t* data = pool->allocate(size);
+                                return {offset, data};
+                            },
+                            false);
                 }
                 // the memory allocate by mem pool has been copied,
                 // so we should release these memory immediately
