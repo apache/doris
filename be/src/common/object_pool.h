@@ -56,6 +56,7 @@ public:
     }
     
     uint64_t size() {
+        std::lock_guard<SpinLock> l(_lock);
         return _objects.size();
     }
 
