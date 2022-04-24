@@ -62,13 +62,7 @@ Lateral View:
 
 ```
 mysql> select k1, e1 from example1 lateral view explode_json_array_int('[]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_int('[1,2,3]') tmp1 as e1 order by k1, e1;
 +------+------+
@@ -89,79 +83,28 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_int('[1,"b",3
 +------+------+
 | k1   | e1   |
 +------+------+
-|    1 | NULL |
 |    1 |    1 |
 |    1 |    3 |
-|    2 | NULL |
 |    2 |    1 |
 |    2 |    3 |
-|    3 | NULL |
 |    3 |    1 |
 |    3 |    3 |
 +------+------+
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_int('["a","b","c"]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    1 | NULL |
-|    1 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_int('{"a": 3}') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('[]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('[1,2,3]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    1 | NULL |
-|    1 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('[1,"b",3]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    1 | NULL |
-|    1 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('[1.0,2.0,3.0]') tmp1 as e1 order by k1, e1;
 +------+------+
@@ -179,52 +122,16 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_double('[1.0,
 +------+------+
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('[1,"b",3]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    1 | NULL |
-|    1 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('["a","b","c"]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    1 | NULL |
-|    1 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_double('{"a": 3}') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_string('[]') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_string('[1.0,2.0,3.0]') tmp1 as e1 order by k1, e1;
 +------+----------+
@@ -272,13 +179,7 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_string('["a",
 +------+------+
 
 mysql> select k1, e1 from example1 lateral view explode_json_array_string('{"a": 3}') tmp1 as e1 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    1 | NULL |
-|    2 | NULL |
-|    3 | NULL |
-+------+------+
+Empty set
 ```
 
 ## keyword
