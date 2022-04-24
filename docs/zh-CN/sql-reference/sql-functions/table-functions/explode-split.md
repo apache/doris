@@ -67,11 +67,7 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 +------+------+
 
 mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e1 where k1 = 2 order by k1, e1;
-+------+------+
-| k1   | e1   |
-+------+------+
-|    2 | NULL |
-+------+------+
+Empty set
 
 mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e1 where k1 = 3 order by k1, e1;
 +------+------+
@@ -103,7 +99,7 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 +------+------+
 |    6 |  b   |
 |    6 |  c   |
-|    6 | a    |
+|    6 |  a   |
 +------+------+
 ```
 
