@@ -558,7 +558,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "explode-numbers"
+              "explode-numbers",
+              "outer-combinator"
             ],
           },
           "window-function",

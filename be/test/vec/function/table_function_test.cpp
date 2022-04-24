@@ -64,7 +64,8 @@ private:
 
 TEST_F(TableFunctionTest, vexplode_outer) {
     init_expr_context(1);
-    VExplodeTableFunction explode_outer(true);
+    VExplodeTableFunction explode_outer;
+    explode_outer.set_outer();
     explode_outer.set_vexpr_context(_ctx.get());
 
     // explode_outer(Array<Int32>)
@@ -95,7 +96,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
 
 TEST_F(TableFunctionTest, vexplode) {
     init_expr_context(1);
-    VExplodeTableFunction explode(false);
+    VExplodeTableFunction explode;
     explode.set_vexpr_context(_ctx.get());
 
     // explode(Array<Int32>)
@@ -134,8 +135,7 @@ TEST_F(TableFunctionTest, vexplode_numbers) {
         InputDataSet input_set = {{Int32(2)}, {Int32(3)}, {Null()}, {Int32(0)}, {Int32(-2)}};
 
         InputTypeSet output_types = {TypeIndex::Int32};
-        InputDataSet output_set = {{Int32(0)}, {Int32(1)}, {Int32(0)}, {Int32(1)},
-                                   {Int32(2)}, {Null()},   {Null()},   {Null()}};
+        InputDataSet output_set = {{Int32(0)}, {Int32(1)}, {Int32(0)}, {Int32(1)}, {Int32(2)}};
 
         check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
     }
@@ -158,9 +158,8 @@ TEST_F(TableFunctionTest, vexplode_split) {
                                   {std::string(""), std::string(",")}};
 
         InputTypeSet output_types = {TypeIndex::String};
-        InputDataSet output_set = {{Null()},           {std::string("a")}, {std::string("b")},
-                                   {std::string("c")}, {std::string("")},  {std::string("b,c")},
-                                   {std::string("")}};
+        InputDataSet output_set = {{std::string("a")}, {std::string("b")},   {std::string("c")},
+                                   {std::string("")},  {std::string("b,c")}, {std::string("")}};
 
         check_vec_table_function(&tfn, input_types, input_set, output_types, output_set);
     }
