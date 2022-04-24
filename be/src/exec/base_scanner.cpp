@@ -268,6 +268,15 @@ void BaseScanner::free_expr_local_allocations() {
     }
 }
 
+void BaseScanner::fill_tuple_post_process() {
+    if (_success) {
+        free_expr_local_allocations();
+        *fill_tuple = true;
+    } else {
+        *fill_tuple = false;
+    }
+}
+  
 void BaseScanner::close() {
     if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
