@@ -311,11 +311,11 @@ public:
         
         inline void generate_hash_values() {
             if (_hash_values.size() == 0) {
-                _hash_values.reserve(_dict_data.size());
+                _hash_values.resize(_dict_data.size());
                 for (size_t i = 0; i < _dict_data.size(); i++) {
                     auto& sv = _dict_data[i];
                     uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, sv.len, 0);
-                    _hash_values.push_back_without_reserve(hash_val);
+                    _hash_values[i] = hash_val;
                 }
             }
         }
