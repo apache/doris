@@ -34,7 +34,7 @@ public class MetaCleaner {
 
     public void clean() throws IOException {
         Storage storage = new Storage(imageDir);
-        long currentVersion = storage.getImageSeq();
+        long currentVersion = storage.getLatestImageSeq();
         long imageDeleteVersion = currentVersion - 1;
 
         File currentImage = storage.getImageFile(currentVersion);

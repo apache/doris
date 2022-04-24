@@ -83,7 +83,7 @@ public class Checkpoint extends MasterDaemon {
         try {
             storage = new Storage(imageDir);
             // get max image version
-            imageVersion = storage.getImageSeq();
+            imageVersion = storage.getLatestImageSeq();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
             LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion, checkPointVersion);

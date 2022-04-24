@@ -111,7 +111,7 @@ public class MetaService extends RestBaseController {
         try {
             Storage currentStorageInfo = new Storage(imageDir.getAbsolutePath());
             StorageInfo storageInfo = new StorageInfo(currentStorageInfo.getClusterID(),
-                    currentStorageInfo.getImageSeq(), currentStorageInfo.getEditsSeq());
+                    currentStorageInfo.getLatestImageSeq(), currentStorageInfo.getEditsSeq());
             return ResponseEntityBuilder.ok(storageInfo);
         } catch (IOException e) {
             return ResponseEntityBuilder.internalError(e.getMessage());
