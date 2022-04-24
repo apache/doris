@@ -68,7 +68,6 @@ public:
     struct ReaderParams {
         TabletSharedPtr tablet;
         ReaderType reader_type = READER_QUERY;
-        bool direct_mode = false;
         bool aggregation = false;
         bool need_agg_finalize = true;
         // 1. when read column data page:
@@ -215,7 +214,6 @@ protected:
     bool _next_delete_flag = false;
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
-    bool _direct_mode = false;
     int _batch_size = 1024;
 
     CollectIterator _collect_iter;

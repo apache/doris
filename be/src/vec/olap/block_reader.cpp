@@ -146,11 +146,6 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return status;
     }
 
-    if (_direct_mode) {
-        _next_block_func = &BlockReader::_direct_next_block;
-        return Status::OK();
-    }
-
     switch (tablet()->keys_type()) {
     case KeysType::DUP_KEYS:
         _next_block_func = &BlockReader::_direct_next_block;

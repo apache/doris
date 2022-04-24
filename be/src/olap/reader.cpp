@@ -230,7 +230,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
 Status TabletReader::_init_params(const ReaderParams& read_params) {
     read_params.check_validation();
 
-    _direct_mode = read_params.direct_mode;
     _aggregation = read_params.aggregation;
     _need_agg_finalize = read_params.need_agg_finalize;
     _reader_type = read_params.reader_type;
