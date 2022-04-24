@@ -52,7 +52,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 
      After the cluster is upgraded, just use the above command to set the corresponding configuration to the original value.
 
-2. important! ! Metadata needs to be backed up before upgrading! !
+2. **important! ! Metadata needs to be backed up before upgrading(The entire directory needs to be backed up)! !**
 
 ## Test the correctness of BE upgrade
 
