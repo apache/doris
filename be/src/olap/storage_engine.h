@@ -36,6 +36,7 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gutil/ref_counted.h"
 #include "olap/compaction_permit_limiter.h"
+#include "olap/fs/cached_segment_loader.h"
 #include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -87,6 +88,8 @@ public:
     Cache* index_stream_lru_cache() { return _index_stream_lru_cache; }
 
     std::shared_ptr<Cache> file_cache() { return _file_cache; }
+
+    std::shared_ptr<CachedSegmentLoader> remote_file_cache() { return _remote_file_cache; }
 
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
@@ -315,6 +318,9 @@ private:
     // (e.g. the storage engine's open function must be called earlier than
     // FileBlockManager created.)
     std::shared_ptr<Cache> _file_cache;
+
+    // _remote_file_cache is a lru_cache for remote segment file cache on local disk
+    std::shared_ptr<CachedSegmentLoader> _remote_file_cache;
 
     static StorageEngine* _s_instance;
 

@@ -198,6 +198,7 @@ Status StorageEngine::_open() {
             new_lru_cache("SegmentIndexCache", config::index_stream_cache_capacity);
 
     _file_cache.reset(new_lru_cache("FileHandlerCache", config::file_descriptor_cache_capacity));
+    _remote_file_cache.reset(new CachedSegmentLoader(config::remote_segment_cache_capacity));
 
     auto dirs = get_stores<false>();
     load_data_dirs(dirs);
@@ -601,6 +602,7 @@ void StorageEngine::stop() {
 void StorageEngine::_clear() {
     SAFE_DELETE(_index_stream_lru_cache);
     _file_cache.reset();
+    _remote_file_cache.reset();
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
@@ -647,6 +649,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
 void StorageEngine::_start_clean_cache() {
     _file_cache->prune();
     SegmentLoader::instance()->prune();
+    _remote_file_cache->prune();
 }
 
 Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {

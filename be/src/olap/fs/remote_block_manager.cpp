@@ -32,7 +32,11 @@
 #include "env/env_util.h"
 #include "gutil/strings/substitute.h"
 #include "olap/fs/block_id.h"
+#include "olap/fs/cached_segment_loader.h"
+#include "olap/storage_engine.h"
+#include "util/filesystem_util.h"
 #include "util/storage_backend.h"
+#include "util/storage_backend_mgr.h"
 
 using std::shared_ptr;
 using std::string;
@@ -182,7 +186,8 @@ Status RemoteWritableBlock::_close(SyncMode mode) {
 class RemoteReadableBlock : public ReadableBlock {
 public:
     RemoteReadableBlock(RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
-                        std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
+                        std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle,
+                        CachedSegmentCacheHandle* cache_handle);
 
     virtual ~RemoteReadableBlock();
 
@@ -209,6 +214,10 @@ private:
     const BlockId _block_id;
     const FilePathDesc _path_desc;
 
+    // make sure this handle is initialized and valid before
+    // reading data.
+    CachedSegmentCacheHandle* _cached_segment_cache_handle;
+
     // The underlying opened file backing this block.
     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
     // the backing file of OpenedFileHandle, not owned.
@@ -223,7 +232,14 @@ private:
 
 RemoteReadableBlock::RemoteReadableBlock(
         RemoteBlockManager* block_manager, const FilePathDesc& path_desc,
-        std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle) {
+        std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle,
+        CachedSegmentCacheHandle* cache_handle)
+        : _block_manager(block_manager),
+          _path_desc(path_desc),
+          _cached_segment_cache_handle(cache_handle),
+          _file_handle(std::move(file_handle)),
+          _closed(false) {
+        _file = _file_handle->file();
 }
 
 RemoteReadableBlock::~RemoteReadableBlock() {
@@ -247,7 +263,11 @@ const FilePathDesc& RemoteReadableBlock::path_desc() const {
 }
 
 Status RemoteReadableBlock::size(uint64_t* sz) const {
-    return Status::IOError("invalid function", 0, "");
+    DCHECK(!_closed.load());
+
+    std::shared_lock<std::shared_mutex> segment_rdlock(_block_manager->get_segment_lock_ptr());
+    RETURN_IF_ERROR(_file->size(sz));
+    return Status::OK();
 }
 
 Status RemoteReadableBlock::read(uint64_t offset, Slice result) const {
@@ -255,7 +275,12 @@ Status RemoteReadableBlock::read(uint64_t offset, Slice result) const {
 }
 
 Status RemoteReadableBlock::readv(uint64_t offset, const Slice* results, size_t res_cnt) const {
-    return Status::IOError("invalid function", 0, "");
+    DCHECK(!_closed.load());
+
+    std::shared_lock<std::shared_mutex> segment_rdlock(_block_manager->get_segment_lock_ptr());
+    RETURN_IF_ERROR(_file->readv_at(offset, results, res_cnt));
+
+    return Status::OK();
 }
 
 } // namespace internal
@@ -267,6 +292,13 @@ Status RemoteReadableBlock::readv(uint64_t offset, const Slice* results, size_t 
 RemoteBlockManager::RemoteBlockManager(Env* local_env, std::shared_ptr<StorageBackend> storage_backend,
                                        const BlockManagerOptions& opts)
         : _local_env(local_env), _storage_backend(storage_backend), _opts(opts) {
+#ifdef BE_TEST
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable_remote_cache",
+            config::file_descriptor_cache_capacity));
+#else
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable_remote_cache",
+            StorageEngine::instance()->file_cache()));
+#endif
 }
 
 RemoteBlockManager::~RemoteBlockManager() {}
@@ -296,20 +328,60 @@ Status RemoteBlockManager::create_block(const CreateBlockOptions& opts,
 }
 
 Status RemoteBlockManager::open_block(const FilePathDesc& path_desc, std::unique_ptr<ReadableBlock>* block) {
-    VLOG_CRITICAL << "Opening remote block. local: "
-                  << path_desc.filepath << ", remote: " << path_desc.remote_path;
-    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle;
-    if (Env::Default()->path_exists(path_desc.filepath).ok()) {
-        file_handle.reset(new OpenedFileHandle<RandomAccessFile>());
-        bool found = _file_cache->lookup(path_desc.filepath, file_handle.get());
-        if (!found) {
-            std::unique_ptr<RandomAccessFile> file;
-            RETURN_IF_ERROR(Env::Default()->new_random_access_file(path_desc.filepath, &file));
-            _file_cache->insert(path_desc.filepath, file.release(), file_handle.get());
-        }
+    VLOG_CRITICAL << "Opening remote block. path_desc: " << path_desc.debug_string();
+    if (!path_desc.is_remote()) {
+        return Status::OLAPInternalError(OLAP_ERR_STORAGE_NOT_REMOTE);
     }
 
-    block->reset(new internal::RemoteReadableBlock(this, path_desc, file_handle));
+    // If local cache flag file `filepath_done` dose not exist, download segments first.
+    string file_path = path_desc.filepath;
+    string download_file_path = file_path + "_done";
+
+    // load cached segments
+    CachedSegmentCacheHandle cache_handle;
+    bool cached = StorageEngine::instance()->remote_file_cache()->load_cached_segment(
+            download_file_path, &cache_handle);
+
+    // If the segment is not cached, download it first, then insert it into cache.
+    if (!cached) {
+        std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->get_storage_backend(path_desc.storage_name);
+        if (storage_backend == nullptr) {
+            return Status::OLAPInternalError(OLAP_ERR_STORAGE_BACKEND_NOT_EXIST);
+        }
+        // add write lock to check done flag file's existence
+        std::lock_guard<std::shared_mutex> segment_wrlock(_segment_lock);
+        if (!Env::Default()->path_exists(download_file_path).ok()) {
+            Status status = storage_backend->download(path_desc.remote_path, file_path);
+            if (!status.ok()) {
+                LOG(WARNING) << "fail to download file. from=" << path_desc.remote_path << ", to="
+                             << file_path << ", error_msg=" << status.get_error_msg();
+                return status;
+            }
+
+            // create download done file
+            Status st = FileSystemUtil::create_file(download_file_path);
+            if (!st.ok()) {
+                LOG(WARNING) << "fail to create download_done file[" << download_file_path
+                             << "], with error: " << st.get_error_msg();
+                return st;
+            }
+
+            LOG(INFO) << "Download file successfully. from="<< path_desc.remote_path << ", to="
+                      << file_path;
+        }
+        // insert into cache
+        StorageEngine::instance()->remote_file_cache()->insert(download_file_path, file_path, &cache_handle);
+    }
+
+    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle;
+    file_handle.reset(new OpenedFileHandle<RandomAccessFile>());
+    bool found = _file_cache->lookup(path_desc.filepath, file_handle.get());
+    if (!found) {
+        std::unique_ptr<RandomAccessFile> file;
+        RETURN_IF_ERROR(Env::Default()->new_random_access_file(path_desc.filepath, &file));
+        _file_cache->insert(path_desc.filepath, file.release(), file_handle.get());
+    }
+    block->reset(new internal::RemoteReadableBlock(this, path_desc, file_handle, &cache_handle));
     return Status::OK();
 }
 

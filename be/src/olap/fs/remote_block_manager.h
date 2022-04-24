@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <shared_mutex>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -60,12 +61,15 @@ public:
     Status link_file(const FilePathDesc& src_path_desc,
                      const FilePathDesc& dest_path_desc) override;
 
+    inline std::shared_mutex& get_segment_lock_ptr() { return _segment_lock; }
 private:
     Env* _local_env;
     std::shared_ptr<StorageBackend> _storage_backend;
     const BlockManagerOptions _opts;
     // Underlying cache instance. Caches opened files.
     std::unique_ptr<FileCache<RandomAccessFile>> _file_cache;
+    // Protect download segment
+    std::shared_mutex _segment_lock;
 };
 
 } // namespace fs

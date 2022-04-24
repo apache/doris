@@ -1058,7 +1058,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
             if (!tablet_uid.empty() && !storage_name.empty()) {
                 segment_desc.storage_name = storage_name;
                 StorageParamPB storage_param;
-                if (StorageBackendMgr::instance()->get_storage_param(storage_name, &storage_param) != OLAP_SUCCESS) {
+                if (!StorageBackendMgr::instance()->get_storage_param(storage_name, &storage_param).ok()) {
                     LOG(WARNING) << "storage_name is invalid: " << storage_name;
                     return;
                 }

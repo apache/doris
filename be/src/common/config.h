@@ -653,6 +653,9 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // else we will call sync method
 CONF_mBool(runtime_filter_use_async_rpc, "true");
 
+// The capacity of lru cache in remote S3 cached segment loader.
+CONF_mInt32(remote_segment_cache_capacity, "5000");
+
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
 // if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
