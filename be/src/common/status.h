@@ -22,7 +22,7 @@ namespace doris {
 
 // ErrorName, ErrorCode, String Description, Should print stacktrace
 #define APPLY_FOR_ERROR_CODES(M) \
-    M(OLAP_SUCCESS, 0, "", true) \
+    M(OLAP_SUCCESS, 0, "", false) \
     M(OLAP_ERR_OTHER_ERROR, -1, "", true) \
     M(OLAP_REQUEST_FAILED, -2, "", true) \
     M(OLAP_ERR_OS_ERROR, -100, "", true) \
