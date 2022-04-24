@@ -174,8 +174,8 @@ public class StatisticsJobScheduler extends MasterDaemon {
 
             // step 3: generate [min,max,ndv] task
             if (rowCount > backendIds.size() * NDV_MAX_SCAN_PER_TASK) {
-                for (String columnName : columnNameList) {
-                    // divide subtasks by partition
+                // divide subtasks by partition
+                columnNameList.forEach(columnName -> {
                     for (Long partitionId : partitionIds) {
                         StatsCategoryDesc columnCategory = getColStatsCategoryDesc(dbId, tblId, columnName);
                         StatsGranularityDesc columnGranularity = getPartitionStatsGranularityDesc(tblId, partitionId);
@@ -183,7 +183,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                         SQLStatisticsTask sqlTask = new SQLStatisticsTask(jobId, columnGranularity, columnCategory, statsTypes);
                         tasks.add(sqlTask);
                     }
-                }
+                });
             } else {
                 for (String columnName : columnNameList) {
                     StatsCategoryDesc columnCategory = getColStatsCategoryDesc(dbId, tblId, columnName);
