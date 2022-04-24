@@ -1,0 +1,207 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.policy;
+
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+import lombok.SneakyThrows;
+import org.apache.commons.lang.StringUtils;
+import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+public class PolicyMgr implements Writable {
+    private static final Logger LOG = LogManager.getLogger(PolicyMgr.class);
+    
+    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    
+    @SerializedName(value = "dbIdToPolicyMap")
+    private Map<Long, List<Policy>> dbIdToPolicyMap = Maps.newConcurrentMap();
+    
+    @SerializedName(value = "userToPolicyMap")
+    private Map<String, List<Policy>> userToPolicyMap = Maps.newConcurrentMap();
+    
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+    
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+    
+    @SneakyThrows
+    public String rewriteOriginStmt(String user, String originStmt) {
+        List<Policy> userPolicies = getUserPolicies(user);
+        if (userPolicies.isEmpty()) {
+            return originStmt;
+        }
+        Policy lastPolicy = userPolicies.get(userPolicies.size() - 1);
+        String op = lastPolicy.getFilterType().getOp();
+        // 按照用户和表合并策略
+        Map<String, Policy> policyMap = new HashMap<>();
+        userPolicies.forEach(policy -> {
+            String key = policy.getDbId() + ":" + policy.getTableId();
+            Policy oldPolicy = policyMap.get(key);
+            if (oldPolicy == null) {
+                policyMap.put(key, policy);
+            } else {
+                // 合并
+                policy.setFilter("( " + oldPolicy.getFilter() + ") " + op + " (" + policy.getFilter() + " )");
+                policyMap.put(key, policy);
+            }
+        });
+        Collection<Policy> mergePolicies = policyMap.values();
+        long currentDbId = ConnectContext.get().getCurrentDbId();
+        for (Policy policy : mergePolicies) {
+            long dbId = policy.getDbId();
+            long tableId = policy.getTableId();
+            Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+            Table table = db.getTableOrAnalysisException(tableId);
+            String dbName = db.getFullName();
+            String tableName = table.getName();
+            String filter = policy.getFilter();
+            String policyName = policy.getPolicyName();
+            // 当前db可以省略不写
+            String targetName = dbName + "." + tableName;
+            if (currentDbId == dbId) {
+                if (originStmt.contains(targetName)) {
+                    originStmt = replaceStmt(originStmt, targetName, filter, policyName);
+                } else {
+                    if (originStmt.contains(tableName)) {
+                        originStmt = replaceStmt(originStmt, tableName, filter, policyName);
+                    }
+                }
+            } else {
+                if (originStmt.contains(targetName)) {
+                    originStmt = replaceStmt(originStmt, targetName, filter, policyName);
+                }
+            }
+        }
+        return originStmt;
+    }
+    
+    private String replaceStmt(String originStmt, String tableName, String filter, String policyName) {
+        return originStmt.replace(tableName, "(select * from " + tableName + " where " + filter + " as " + tableName + "_" + policyName + " )");
+    }
+    
+    public void createPolicy(CreatePolicyStmt stmt) throws UserException {
+        writeLock();
+        try {
+            Policy policy = Policy.fromCreateStmt(stmt);
+            if (existPolicy(policy.getDbId(), policy.getTableId(), policy.getType(), policy.getPolicyName())) {
+                if (stmt.isIfNotExists()) {
+                    return;
+                }
+                throw new DdlException("the policy " + policy.getPolicyName() + " already create");
+            }
+            unprotectedAdd(policy);
+            Catalog.getCurrentCatalog().getEditLog().logCreatePolicy(policy);
+        } finally {
+            writeUnlock();
+        }
+    }
+    
+    public void dropSqlBlockRule(DropPolicyStmt stmt) throws DdlException {
+        writeLock();
+        try {
+            DropPolicyLog policy = DropPolicyLog.fromDropStmt(stmt);
+            if (!existPolicy(policy.getDbId(), policy.getTableId(), policy.getType(), policy.getPolicyName())) {
+                if (stmt.isIfExists()) {
+                    return;
+                }
+                throw new DdlException("the policy " + policy.getPolicyName() + " not exist");
+            }
+            unprotectedDrop(policy);
+            Catalog.getCurrentCatalog().getEditLog().logDropPolicy(policy);
+        } finally {
+            writeUnlock();
+        }
+    }
+    
+    private boolean existPolicy(long dbId, long tableId, String type, String policyName) {
+        List<Policy> policies = getDbPolicies(dbId);
+        return policies.stream().anyMatch(policy -> matchPolicy(policy, type, tableId, policyName));
+    }
+    
+    public List<Policy> getDbPolicies(long dbId) {
+        return dbIdToPolicyMap.get(dbId);
+    }
+    
+    public List<Policy> getUserPolicies(String user) {
+        return userToPolicyMap.get(user);
+    }
+    
+    public void unprotectedAdd(Policy policy) {
+        long dbId = policy.getDbId();
+        String user = policy.getUser();
+        List<Policy> dbPolicies = dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>());
+        dbPolicies.add(policy);
+        dbIdToPolicyMap.put(dbId, dbPolicies);
+        List<Policy> userPolicies = userToPolicyMap.getOrDefault(user, new ArrayList<>());
+        userPolicies.add(policy);
+        userToPolicyMap.put(user, userPolicies);
+    }
+    
+    public void unprotectedDrop(DropPolicyLog log) {
+        List<Policy> policies = getDbPolicies(log.getDbId());
+        policies.removeIf(p -> matchPolicy(p, log.getType(), log.getTableId(), log.getPolicyName()));
+        dbIdToPolicyMap.put(log.getDbId(), policies);
+        userToPolicyMap.forEach((user, userPolicies) -> {
+            boolean remove = userPolicies.removeIf(p -> matchPolicy(p, log.getType(), log.getTableId(), log.getPolicyName()));
+            if (remove) {
+                userToPolicyMap.put(user, userPolicies);
+            }
+        });
+    }
+    
+    private boolean matchPolicy(Policy policy, String type, long tableId, String policyName) {
+        return StringUtils.equals(policy.getType(), type)
+            && policy.getTableId() == tableId
+            && StringUtils.equals(policy.getPolicyName(), policyName);
+    }
+    
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+    
+    public static PolicyMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, PolicyMgr.class);
+    }
+}

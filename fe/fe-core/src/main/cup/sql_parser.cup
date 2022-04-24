@@ -275,7 +275,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNLOCK, KW_UNSIGNED, KW_USE, KW_USER, KW_USING, KW_UNINSTALL,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VERBOSE, KW_VIEW,
     KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
-    KW_YEAR, KW_SQL_BLOCK_RULE;
+    KW_YEAR, KW_SQL_BLOCK_RULE, KW_POLICY;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -322,6 +322,7 @@ nonterminal describe_command, opt_full, opt_inner, opt_outer, from_or_in, keys_o
 nonterminal String user, opt_user;
 nonterminal UserIdentity user_identity;
 nonterminal String quantity;
+nonterminal String opt_policy_type;
 
 // Description of user
 nonterminal UserDesc grant_user;
@@ -1022,6 +1023,16 @@ opt_dup_keys ::=
     :}
     ;
 
+opt_policy_type ::=
+    {:
+        RESULT = "ROW";
+    :}
+    | KW_ROW
+    {:
+        RESULT = "ROW";
+    :}
+    ;
+
 alter_table_clause ::=
     KW_ADD KW_COLUMN column_definition:col opt_col_pos:col_pos opt_to_rollup:rollup opt_properties:properties
     {:
@@ -1352,6 +1363,12 @@ create_stmt ::=
     | KW_CREATE KW_SQL_BLOCK_RULE ident:ruleName opt_properties:properties
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
+    :}
+    /* row policy */
+    | KW_CREATE opt_policy_type:type KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
+    KW_USING LPAREN ident:filter RPAREN
+    {:
+        RESULT = new CreatePolicyStmt(type, ifNotExists, policyName, tbl, filterType, user, filter);
     :}
     ;
 
@@ -2057,6 +2074,10 @@ drop_stmt ::=
     | KW_DROP KW_SQL_BLOCK_RULE ident_list:ruleNames
     {:
         RESULT = new DropSqlBlockRuleStmt(ruleNames);
+    :}
+    | KW_DROP opt_policy_type:type opt_if_exists:ifExists KW_POLICY ident:policyName KW_ON table_name:tbl
+    {:
+        RESULT = new DropPolicyStmt(ifExists, type, policyName, tbl);
     :}
     ;
 

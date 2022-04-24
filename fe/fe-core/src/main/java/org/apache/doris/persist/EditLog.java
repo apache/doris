@@ -63,6 +63,8 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -1410,5 +1412,13 @@ public class EditLog {
 
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
+    }
+    
+    public void logCreatePolicy(Policy policy) {
+        logEdit(OperationType.OP_CREATE_POLICY, policy);
+    }
+    
+    public void logDropPolicy(DropPolicyLog log) {
+        logEdit(OperationType.OP_CREATE_POLICY, log);
     }
 }
