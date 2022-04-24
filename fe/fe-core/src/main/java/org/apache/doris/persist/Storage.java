@@ -61,6 +61,7 @@ public class Storage {
     private String nodeName;
     private long editsSeq;
     private long latestImageSeq;
+    private long latestValidatedImageSeq;
     private String metaDir;
     private List<Long> editsFileSequenceNumbers;
 
@@ -126,7 +127,11 @@ public class Storage {
                 if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
                     && !name.endsWith(".part") && name.contains(".")) {
                     if (name.startsWith(IMAGE)) {
-                        latestImageSeq = Math.max(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)), latestImageSeq);
+                        long fileSeq = Long.parseLong(name.substring(name.lastIndexOf('.') + 1));
+                        if (latestImageSeq < fileSeq) {
+                            latestValidatedImageSeq = latestImageSeq;
+                            latestImageSeq = fileSeq;
+                        }
                     } else if (name.startsWith(EDITS)) {
                         // Just record the sequence part of the file name
                         editsFileSequenceNumbers.add(Long.parseLong(name.substring(name.lastIndexOf('.') + 1)));
@@ -173,6 +178,10 @@ public class Storage {
 
     public long getLatestImageSeq() {
         return latestImageSeq;
+    }
+
+    public long getLatestValidatedImageSeq() {
+        return latestValidatedImageSeq;
     }
 
     public void setLatestImageSeq(long latestImageSeq) {

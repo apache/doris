@@ -184,7 +184,9 @@ public class Checkpoint extends MasterDaemon {
         if (successPushed == otherNodesCount) {
             try {
                 long minOtherNodesJournalId = Long.MAX_VALUE;
-                long deleteVersion = checkPointVersion;
+                // Actually, storage.getLatestValidatedImageSeq returns number before this
+                // checkpoint.
+                long deleteVersion = storage.getLatestValidatedImageSeq();
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
                         String host = fe.getHost();
@@ -220,7 +222,7 @@ public class Checkpoint extends MasterDaemon {
                             }
                         }
                     }
-                    deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
+                    deleteVersion = Math.min(minOtherNodesJournalId, deleteVersion);
                 }
 
                 editLog.deleteJournals(deleteVersion + 1);
