@@ -342,16 +342,17 @@ void BrokerScanner::split_line(const Slice& line) {
         size_t start = 0;  // point to the start pos of next col value.
         size_t curpos = 0; // point to the start pos of separator matching sequence.
         size_t p1 = 0;     // point to the current pos of separator matching sequence.
+        size_t non_space = 0;  // point to the last pos of non_space charactor.
 
         // Separator: AAAA
         //
-        //   curpos
+        //    p1
         //     ▼
         //     AAAA
         //   1000AAAA2000AAAA
         //   ▲   ▲
         // Start │
-        //       p1
+        //     curpos
 
         while (curpos < line.size) {
             if (*(value + curpos + p1) != _value_separator[p1]) {
@@ -362,16 +363,26 @@ void BrokerScanner::split_line(const Slice& line) {
                 p1++;
                 if (p1 == _value_separator_length) {
                     // Match a separator
-                    _split_values.emplace_back(value + start, curpos - start);
+                    non_space = curpos;
+                    // Trim trailing spaces. Be consistent with hive and trino's behavior.
+                    while (non_space > start && *(value + non_space - 1) == ' ') {
+                        non_space--;
+                    }
+                    _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
                     p1 = 0;
+                    non_space = 0;
                 }
             }
         }
 
         CHECK(curpos == line.size) << curpos << " vs " << line.size;
-        _split_values.emplace_back(value + start, curpos - start);
+        non_space = curpos;
+        while (non_space > start && *(value + non_space - 1) == ' ') {
+            non_space--;
+        }
+        _split_values.emplace_back(value + start, non_space - start);
     }
 }
 
