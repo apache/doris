@@ -155,7 +155,18 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
+Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
+    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
+    if (_success) {
+        free_expr_local_allocations();
+        *fill_tuple = true;
+    } else {
+        *fill_tuple = false;
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     // filter src tuple by preceding filter first
     if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
         _counter->num_rows_unselected++;
@@ -268,15 +279,6 @@ void BaseScanner::free_expr_local_allocations() {
     }
 }
 
-void BaseScanner::fill_tuple_post_process() {
-    if (_success) {
-        free_expr_local_allocations();
-        *fill_tuple = true;
-    } else {
-        *fill_tuple = false;
-    }
-}
-  
 void BaseScanner::close() {
     if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
