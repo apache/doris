@@ -286,8 +286,8 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
         SCOPED_TIMER(_parent->_scan_timer);
-        ObjectPool tmp_object_pool;
-        ObjectPool unused_object_pool;
+        ObjectPool tmp_object_pool;           // store the object which may can't pass the conjuncts temporarily. pushed all objects into agg_object_pool directly may lead to OOM.
+        ObjectPool unused_object_pool;        // release the memory of the object which can't pass the conjuncts by lot.
  
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
