@@ -182,11 +182,16 @@ void check_function(const std::string& func_name, const InputTypeSet& input_type
             Field field;
             column->get(i, field);
 
-            const auto& column_data = field.get<typename ReturnType::FieldType>();
             const auto& expect_data =
                     std::any_cast<typename ReturnType::FieldType>(data_set[i].second);
 
-            EXPECT_EQ(column_data, expect_data);
+            if constexpr (std::is_same_v<ReturnType, DataTypeDecimal<Decimal128>>) {
+                const auto& column_data = field.get<DecimalField<Decimal128>>().get_value();
+                EXPECT_EQ(column_data.value, expect_data.value);
+            } else {
+                const auto& column_data = field.get<typename ReturnType::FieldType>();
+                EXPECT_EQ(column_data, expect_data);
+            }
         };
 
         if constexpr (nullable) {

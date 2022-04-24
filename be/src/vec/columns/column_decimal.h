@@ -71,6 +71,7 @@ private:
     friend class COWHelper<ColumnVectorHelper, Self>;
 
 public:
+    using value_type = T;
     using Container = DecimalPaddedPODArray<T>;
 
 private:
