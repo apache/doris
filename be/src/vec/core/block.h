@@ -121,14 +121,17 @@ public:
         raw_res_ptr->reserve(batch_size);
 
         // adapt for outer join change column to nullable
-        if (raw_res_ptr->is_nullable()) {
+        if (raw_res_ptr->is_nullable() && input_col_ptr->is_nullable()) {
+            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
+        } else if (raw_res_ptr->is_nullable()) {
             auto col_ptr_nullable =
                     reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
             col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
             raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
+            return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
+        } else {
+            return Status::InternalError("unexpected input/output type in block.copy_column_data_to_block");
         }
-
-        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
     }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {

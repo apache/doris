@@ -189,7 +189,8 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
 }
 
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
-    const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
+    const ColumnNullable* nullable_col_ptr = check_and_get_column<ColumnNullable>(col_ptr);
+    DCHECK(nullable_col_ptr != nullptr);
     ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
     ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
     RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
