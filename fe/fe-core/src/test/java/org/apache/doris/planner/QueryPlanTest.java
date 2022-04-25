@@ -1992,6 +1992,7 @@ public class QueryPlanTest {
         ExplainTest explainTest = new ExplainTest();
         explainTest.before(connectContext);
         explainTest.testExplainSelect();
+        explainTest.testExplainInsertInto();
         explainTest.testExplainVerboseSelect();
         explainTest.testExplainConcatSelect();
         explainTest.testExplainVerboseConcatSelect();

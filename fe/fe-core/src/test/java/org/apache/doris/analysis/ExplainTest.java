@@ -79,6 +79,13 @@ public class ExplainTest {
         Assert.assertFalse(explainString.contains("CAST"));
     }
 
+    public void testExplainInsertInto() throws Exception {
+        String sql = "explain verbose insert into test_explain.explain_t1 select * from test_explain.explain_t2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("CAST"));
+    }
+
     public void testExplainVerboseSelect() throws Exception {
         String queryStr = "explain verbose select * from test_explain.explain_t1 where dt = '1001';";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, queryStr, true);
