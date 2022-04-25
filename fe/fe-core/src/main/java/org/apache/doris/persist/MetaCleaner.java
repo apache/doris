@@ -67,6 +67,17 @@ public class MetaCleaner {
             }
         }
     }
+
+    public void cleanTheLatestInvalidImageFile(String path) throws IOException {
+        File latestInvalidImage = new File(path);
+        if (latestInvalidImage.exists()) {
+            if (latestInvalidImage.delete()) {
+                LOG.info(latestInvalidImage.getAbsoluteFile() + " deleted.");
+            } else {
+                LOG.warn(latestInvalidImage.getAbsoluteFile() + " delete failed.");
+            }
+        }
+    }
     
     private String fileType(File file) throws IOException {
         String type = null;
