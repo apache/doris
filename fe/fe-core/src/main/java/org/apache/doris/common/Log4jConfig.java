@@ -97,7 +97,7 @@ public class Log4jConfig extends XmlConfiguration {
             "    <Root level=\"${sys_log_level}\">\n" +
             "      <AppenderRef ref=\"Sys\"/>\n" +
             "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n" +
-            "      <AppenderRef ref=\"Console\"/>\n" +
+            "      <!--REPLACED BY Console Logger-->\n" +
             "    </Root>\n" +
             "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n" +
             "      <AppenderRef ref=\"Auditfile\"/>\n" +
@@ -116,6 +116,12 @@ public class Log4jConfig extends XmlConfiguration {
     public static String confDir;
     // custom conf dir
     public static String customConfDir;
+    // Doris uses both system.out and log4j to print log messages.
+    // This variable is used to check whether to add console appender to loggers.
+    //     If doris is running under daemon mode, then this variable == false, and console logger will not be added.
+    //	   If doris is not running under daemon mode, then this variable == true, and console logger will be added to 
+    //	   loggers, all logs will be printed to console.
+    public static boolean foreground = false;
 
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
@@ -167,6 +173,12 @@ public class Log4jConfig extends XmlConfiguration {
         newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->",
                 sb.toString());
 
+        if (foreground) {
+            StringBuilder consoleLogger = new StringBuilder();
+            consoleLogger.append("<AppenderRef ref=\"Console\"/>\n");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY Console Logger-->",
+            		consoleLogger.toString());
+        }
         Map<String, String> properties = Maps.newHashMap();
         properties.put("sys_log_dir", sysLogDir);
         properties.put("sys_file_pattern", sysLogRollPattern);
