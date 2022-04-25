@@ -114,13 +114,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), tuple, tuple_pool));
-            if (_success) {
-                free_expr_local_allocations();
-                *fill_tuple = true;
-            } else {
-                *fill_tuple = false;
-            }
+            RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), tuple, tuple_pool, fill_tuple));
             break; // break always
         }
     }
@@ -469,14 +463,14 @@ bool is_null(const Slice& slice) {
 }
 
 // Convert one row to this tuple
-Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool) {
+Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple) {
     RETURN_IF_ERROR(_line_to_src_tuple(line));
     if (!_success) {
         // If not success, which means we met an invalid row, return.
         return Status::OK();
     }
 
-    return fill_dest_tuple(tuple, tuple_pool);
+    return fill_dest_tuple(tuple, tuple_pool, fill_tuple);
 }
 
 // Convert one row to this tuple
