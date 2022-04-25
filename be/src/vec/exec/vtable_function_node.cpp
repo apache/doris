@@ -92,16 +92,6 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
     return Status::OK();
 }
 
-bool VTableFunctionNode::_is_inner_and_empty() {
-    for (int i = 0; i < _fn_num; i++) {
-        // if any table function is not outer and has empty result, go to next child row
-        if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output_block, bool* eos) {
     DCHECK(_child_block != nullptr);
 
@@ -225,7 +215,7 @@ Status VTableFunctionNode::_process_next_child_row() {
             RETURN_IF_ERROR(fn->process_close());
         }
 
-        release_block_memory(*_child_block.get());
+        release_block_memory(*_child_block);
         _cur_child_offset = -1;
         return Status::OK();
     }
