@@ -33,15 +33,15 @@ public class StatisticsTaskResult {
     }
 
     public StatsGranularityDesc getGranularityDesc() {
-        return this.granularityDesc;
+        return granularityDesc;
     }
 
     public StatsCategoryDesc getCategoryDesc() {
-        return this.categoryDesc;
+        return categoryDesc;
     }
 
     public Map<StatsType, String> getStatsTypeToValue() {
-        return this.statsTypeToValue;
+        return statsTypeToValue;
     }
 
     public Map<String, String> getStatsNameToValue() {

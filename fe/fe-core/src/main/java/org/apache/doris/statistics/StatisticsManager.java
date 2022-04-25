@@ -46,13 +46,13 @@ public class StatisticsManager {
     private final Statistics statistics;
 
     public StatisticsManager() {
-        this.statistics = new Statistics();
+        statistics = new Statistics();
     }
 
     public void alterTableStatistics(AlterTableStatsStmt stmt)
             throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
-        this.statistics.updateTableStats(table.getId(), stmt.getProperties());
+        statistics.updateTableStats(table.getId(), stmt.getProperties());
     }
 
     public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws AnalysisException {
@@ -63,7 +63,7 @@ public class StatisticsManager {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
         // match type and column value
-        this.statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getProperties());
+        statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getProperties());
     }
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
@@ -111,7 +111,7 @@ public class StatisticsManager {
         }
         // get stats
         List<List<String>> result = Lists.newArrayList();
-        Map<String, ColumnStats> nameToColumnStats = this.statistics.getColumnStats(table.getId());
+        Map<String, ColumnStats> nameToColumnStats = statistics.getColumnStats(table.getId());
         if (nameToColumnStats == null) {
             throw new AnalysisException("There is no column statistics in this table:" + table.getName());
         }
@@ -125,7 +125,7 @@ public class StatisticsManager {
     }
 
     private List<String> showTableStats(Table table) throws AnalysisException {
-        TableStats tableStats = this.statistics.getTableStats(table.getId());
+        TableStats tableStats = statistics.getTableStats(table.getId());
         if (tableStats == null) {
             throw new AnalysisException("There is no statistics in this table:" + table.getName());
         }
@@ -140,7 +140,7 @@ public class StatisticsManager {
         validateTableAndColumn(categoryDesc);
         long tblId = categoryDesc.getTableId();
         Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        this.statistics.updateTableStats(tblId, statsNameToValue);
+        statistics.updateTableStats(tblId, statsNameToValue);
     }
 
     public void alterColumnStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
@@ -153,7 +153,7 @@ public class StatisticsManager {
         String columnName = categoryDesc.getColumnName();
         Type columnType = table.getColumn(columnName).getType();
         Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        this.statistics.updateColumnStats(tblId, columnName, columnType, statsNameToValue);
+        statistics.updateColumnStats(tblId, columnName, columnType, statsNameToValue);
     }
 
     private Table validateTableName(TableName dbTableName) throws AnalysisException {

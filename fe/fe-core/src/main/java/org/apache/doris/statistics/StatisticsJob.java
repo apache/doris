@@ -110,51 +110,51 @@ public class StatisticsJob {
     }
 
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public long getDbId() {
-        return this.dbId;
+        return dbId;
     }
 
     public Set<Long> getTblIds() {
-        return this.tblIds;
+        return tblIds;
     }
 
     public Map<Long, List<String>> getTableIdToColumnName() {
-        return this.tableIdToColumnName;
+        return tableIdToColumnName;
     }
 
     public Map<String, String> getProperties() {
-        return this.properties;
+        return properties;
     }
 
     public List<StatisticsTask> getTasks() {
-        return this.tasks;
+        return tasks;
     }
 
     public List<String> getErrorMsgs() {
-        return this.errorMsgs;
+        return errorMsgs;
     }
 
     public JobState getJobState() {
-        return this.jobState;
+        return jobState;
     }
 
     public long getCreateTime() {
-        return this.createTime;
+        return createTime;
     }
 
     public long getStartTime() {
-        return this.startTime;
+        return startTime;
     }
 
     public long getFinishTime() {
-        return this.finishTime;
+        return finishTime;
     }
 
     public int getProgress() {
-        return this.progress;
+        return progress;
     }
 
     public void updateJobState(JobState newState) throws IllegalStateException {
@@ -165,13 +165,13 @@ public class StatisticsJob {
             // PENDING -> SCHEDULING/FAILED/CANCELLED
             if (jobState == JobState.PENDING) {
                 if (newState == JobState.SCHEDULING) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else {
                     LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
@@ -183,15 +183,15 @@ public class StatisticsJob {
             // SCHEDULING -> RUNNING/FAILED/CANCELLED
             if (jobState == JobState.SCHEDULING) {
                 if (newState == JobState.RUNNING) {
-                    this.jobState = newState;
+                    jobState = newState;
                     // job start running, set start time
-                    this.startTime = System.currentTimeMillis();
+                    startTime = System.currentTimeMillis();
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 }  else {
                     LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
@@ -204,14 +204,14 @@ public class StatisticsJob {
             if (jobState == JobState.RUNNING) {
                 if (newState == JobState.FINISHED) {
                     // set finish time
-                    this.finishTime = System.currentTimeMillis();
-                    this.jobState = newState;
+                    finishTime = System.currentTimeMillis();
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
+                    jobState = newState;
                     LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
                 }  else {
                     LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
@@ -233,16 +233,16 @@ public class StatisticsJob {
         writeLock();
 
         try {
-            for (StatisticsTask task : this.tasks) {
+            for (StatisticsTask task : tasks) {
                 if (taskId == task.getId()) {
                     if (Strings.isNullOrEmpty(errorMsg)) {
-                        this.progress += 1;
-                        if (this.progress == this.tasks.size()) {
+                        progress += 1;
+                        if (progress == tasks.size()) {
                             updateJobState(StatisticsJob.JobState.FINISHED);
                         }
                         task.updateTaskState(StatisticsTask.TaskState.FINISHED);
                     } else {
-                        this.errorMsgs.add(errorMsg);
+                        errorMsgs.add(errorMsg);
                         task.updateTaskState(StatisticsTask.TaskState.FAILED);
                         updateJobState(StatisticsJob.JobState.FAILED);
                     }

@@ -67,7 +67,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         this.jobId = jobId;
         this.granularityDesc = granularityDesc;
         this.categoryDesc = categoryDesc;
-        this.statsTypeList = statsTypeList;
+        statsTypeList = statsTypeList;
     }
 
     public void readLock() {
@@ -87,7 +87,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     }
 
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public void setId(long id) {
@@ -95,35 +95,35 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     }
 
     public long getJobId() {
-        return this.jobId;
+        return jobId;
     }
 
     public StatsGranularityDesc getGranularityDesc() {
-        return this.granularityDesc;
+        return granularityDesc;
     }
 
     public StatsCategoryDesc getCategoryDesc() {
-        return this.categoryDesc;
+        return categoryDesc;
     }
 
     public List<StatsType> getStatsTypeList() {
-        return this.statsTypeList;
+        return statsTypeList;
     }
 
     public TaskState getTaskState() {
-        return this.taskState;
+        return taskState;
     }
 
     public long getCreateTime() {
-        return this.createTime;
+        return createTime;
     }
 
     public long getStartTime() {
-        return this.startTime;
+        return startTime;
     }
 
     public long getFinishTime() {
-        return this.finishTime;
+        return finishTime;
     }
 
     /**
