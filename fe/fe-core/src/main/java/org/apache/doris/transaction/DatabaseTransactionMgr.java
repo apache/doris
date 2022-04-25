@@ -1364,7 +1364,8 @@ public class DatabaseTransactionMgr {
     }
 
     public int getTransactionNum() {
-        return idToRunningTransactionState.size() + idToFinalStatusTransactionState.size();
+        return idToRunningTransactionState.size() + finalStatusTransactionStateDequeShort.size() +
+               finalStatusTransactionStateDequeLong.size();
     }
 
 
