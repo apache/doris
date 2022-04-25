@@ -17,9 +17,6 @@
 
 package org.apache.doris.policy;
 
-import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
@@ -29,6 +26,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -120,6 +122,11 @@ public class PolicyMgr implements Writable {
         return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>()).stream().filter(p -> p.getUser().equals(user)).collect(Collectors.toList());
     }
     
+    public void replayCreate(Policy policy) {
+        unprotectedAdd(policy);
+        LOG.info("replay create policy: {}", policy);
+    }
+    
     public void unprotectedAdd(Policy policy) {
         if (policy == null) {
             return;
@@ -136,6 +143,11 @@ public class PolicyMgr implements Writable {
         List<Policy> userPolicies = getUserPolicies(user);
         userPolicies.add(policy);
         userToPolicyMap.put(user, userPolicies);
+    }
+    
+    public void replayDrop(DropPolicyLog log) {
+        unprotectedDrop(log);
+        LOG.info("replay drop policy log: {}", log);
     }
     
     public void unprotectedDrop(DropPolicyLog log) {

@@ -1787,10 +1787,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
-        if (code == 0) {
-            LOG.warn("code=0");
-            return null;
-        }
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
         if (exprSerCode == null) {
             throw new IOException("Unknown code: " + code);

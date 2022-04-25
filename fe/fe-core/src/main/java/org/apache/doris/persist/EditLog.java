@@ -813,12 +813,12 @@ public class EditLog {
                 }
                 case OperationType.OP_CREATE_POLICY: {
                     Policy log = (Policy) journal.getData();
-                    catalog.getPolicyMgr().unprotectedAdd(log);
+                    catalog.getPolicyMgr().replayCreate(log);
                     break;
                 }
                 case OperationType.OP_DROP_POLICY: {
                     DropPolicyLog log = (DropPolicyLog) journal.getData();
-                    catalog.getPolicyMgr().unprotectedDrop(log);
+                    catalog.getPolicyMgr().replayDrop(log);
                     break;
                 }
                 default: {

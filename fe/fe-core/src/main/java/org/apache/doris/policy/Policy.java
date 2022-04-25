@@ -17,11 +17,10 @@
 
 package org.apache.doris.policy;
 
-import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Setter;
+
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
@@ -34,6 +33,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -42,6 +47,7 @@ import java.util.List;
 @Data
 @AllArgsConstructor
 public class Policy implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Policy.class);
 
     @SerializedName(value = "dbId")
     private long dbId;
@@ -89,18 +95,18 @@ public class Policy implements Writable {
     }
 
     public List<String> getShowInfo() throws AnalysisException {
-        return Lists.newArrayList(this.policyName, Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId).getTableOrAnalysisException(this.tableId).getName(), this.type, this.filterType.name(), this.wherePredicate.toSql(), this.user);
+        return Lists.newArrayList(this.policyName, Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId).getTableOrAnalysisException(this.tableId).getName(), this.type, this.filterType.name(), this.wherePredicate != null ? this.wherePredicate.toSql() : null, this.user);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
         Expr.writeTo(wherePredicate, out);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static Policy read(DataInput in) throws IOException {
-        String json = Text.readString(in);
         Expr expr = Expr.readIn(in);
+        String json = Text.readString(in);
         Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
         policy.setWherePredicate(expr);
         return policy;

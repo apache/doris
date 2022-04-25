@@ -31,6 +31,11 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import org.apache.commons.lang3.StringUtils;
 
+/*
+ Show policy statement
+ syntax:
+      SHOW POLICY [FOR user]
+*/
 public class ShowPolicyStmt extends ShowStmt {
 
     @Getter
