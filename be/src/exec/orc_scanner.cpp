@@ -357,8 +357,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* 
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool));
-            *fill_tuple = _success;
+            RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool, fill_tuple));
             break;
         }
         if (_scanner_eof) {

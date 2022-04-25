@@ -87,7 +87,7 @@ private:
     // Convert one row to one tuple
     //  'ptr' and 'len' is csv text line
     //  output is tuple
-    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
+    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple);
 
     Status _line_to_src_tuple(const Slice& line);
 
