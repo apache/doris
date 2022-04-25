@@ -355,16 +355,16 @@ public class MigrationHandler extends AlterHandler {
     }
 
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
-        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
-        getAlterJobV2Infos(db, schemaChangeJobInfos);
+        List<List<Comparable>> migrationJobInfos = new LinkedList<>();
+        getAlterJobV2Infos(db, migrationJobInfos);
 
         // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-        schemaChangeJobInfos.sort(comparator);
-        return schemaChangeJobInfos;
+        migrationJobInfos.sort(comparator);
+        return migrationJobInfos;
     }
 
-    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2, List<List<Comparable>> schemaChangeJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2, List<List<Comparable>> migrationJobInfos) {
         ConnectContext ctx = ConnectContext.get();
         for (AlterJobV2 alterJob : alterJobsV2) {
             if (alterJob.getDbId() != db.getId()) {
@@ -375,12 +375,12 @@ public class MigrationHandler extends AlterHandler {
                     continue;
                 }
             }
-            alterJob.getInfo(schemaChangeJobInfos);
+            alterJob.getInfo(migrationJobInfos);
         }
     }
 
-    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
-        getAlterJobV2Infos(db, ImmutableList.copyOf(alterJobsV2.values()), schemaChangeJobInfos);
+    private void getAlterJobV2Infos(Database db, List<List<Comparable>> migrationJobInfos) {
+        getAlterJobV2Infos(db, ImmutableList.copyOf(alterJobsV2.values()), migrationJobInfos);
     }
 
     @Override
@@ -394,7 +394,7 @@ public class MigrationHandler extends AlterHandler {
     }
 
     protected void addMigrationJob(AlterJobV2 alterJob) {
-        // super.addAlterJobV2(alterJob);
+        super.addAlterJobV2(alterJob);
         runnableMigrationJob.put(alterJob.getJobId(), alterJob);
     }
 

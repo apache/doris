@@ -59,6 +59,7 @@ public class S3Resource extends Resource {
     private static final Logger LOG = LogManager.getLogger(S3Resource.class);
 
     // required
+    private static final String TYPE = "type";
     private static final String S3_ENDPOINT = "s3_endpoint";
     private static final String S3_REGION = "s3_region";
     private static final String S3_ROOT_PATH = "s3_root_path";
@@ -219,6 +220,8 @@ public class S3Resource extends Resource {
                         break;
                     case S3_CONNECTION_TIMEOUT_MS:
                         s3StorageParam.setS3ConnTimeoutMs(Integer.parseInt(property.getValue()));
+                        break;
+                    case TYPE:
                         break;
                     default:
                         LOG.warn("Invalid s3 storage param key: {}", property.getKey());
