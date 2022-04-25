@@ -1966,8 +1966,13 @@ public class Catalog {
     }
 
     public void saveImage(File curFile, long replayedJournalId) throws IOException {
-        if (!curFile.exists()) {
-            curFile.createNewFile();
+        if (curFile.exists()) {
+            if (!curFile.delete()) {
+                throw new IOException(curFile.getName() + " can not be deleted.");
+            }
+        }
+        if (!curFile.createNewFile()) {
+            throw new IOException(curFile.getName() + " can not be created.");
         }
         MetaWriter.write(curFile, this);
     }
