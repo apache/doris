@@ -69,8 +69,7 @@ fe/mocked/
 fe/fe-core/src/main/resources/static/
 
 # BE
-be/build/
-be/build_Release/
+be/build*/
 be/ut_build*/
 be/src/gen_cpp/*.[cc, cpp, h]
 be/src/gen_cpp/opcode
