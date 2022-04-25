@@ -17,6 +17,7 @@
 
 package org.apache.doris.policy;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -36,6 +37,7 @@ import org.apache.doris.qe.ConnectContext;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 @Data
 @AllArgsConstructor
@@ -84,6 +86,10 @@ public class Policy implements Writable {
         UserIdentity userIdent = stmt.getUserIdent();
         userIdent.analyze(ConnectContext.get().getClusterName());
         return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent.getQualifiedUser());
+    }
+
+    public List<String> getShowInfo() throws AnalysisException {
+        return Lists.newArrayList(this.policyName, Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId).getTableOrAnalysisException(this.tableId).getName(), this.type, this.filterType.name(), this.wherePredicate.toSql(), this.user);
     }
 
     @Override

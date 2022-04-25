@@ -60,6 +60,7 @@ import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
+import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
@@ -158,6 +159,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
@@ -342,8 +344,13 @@ public class ShowExecutor {
             handleAdminShowTabletStorageFormat();
         } else if (stmt instanceof AdminDiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
+<<<<<<< HEAD
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
+=======
+        } else if (stmt instanceof ShowPolicyStmt) {
+            handleShowPolicy();
+>>>>>>> 8c41838f8 (ADD: support show policy)
         } else {
             handleEmtpy();
         }
@@ -2203,6 +2210,22 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
+    }
+
+    public void handleShowPolicy() throws AnalysisException {
+        ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        List<Policy> policies;
+        long currentDbId = ConnectContext.get().getCurrentDbId();
+        if (showStmt.getUser() == null) {
+            policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbPolicies(currentDbId);
+        } else {
+            policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(currentDbId, showStmt.getUser());
+        }
+        for (Policy policy : policies) {
+            rows.add(policy.getShowInfo());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
 }

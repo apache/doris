@@ -2567,6 +2567,14 @@ show_stmt ::=
     {:
         RESULT = new ShowSqlBlockRuleStmt(null);
     :}
+    | KW_SHOW KW_POLICY KW_FOR ident:user
+    {:
+        RESULT = new ShowPolicyStmt(user);
+    :}
+    | KW_SHOW KW_POLICY
+    {:
+        RESULT = new ShowPolicyStmt(null);
+    :}
     ;
 
 show_param ::=

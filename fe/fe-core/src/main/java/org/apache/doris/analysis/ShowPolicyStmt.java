@@ -18,71 +18,62 @@
 package org.apache.doris.analysis;
 
 import lombok.Getter;
+
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.policy.FilterType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSetMetaData;
 
-/*
- Create policy statement
- syntax:
-      CREATE [ROW] POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO admin USING (a = ’xxx‘)
-*/
-public class CreatePolicyStmt extends DdlStmt {
-    
+import org.apache.commons.lang3.StringUtils;
+
+public class ShowPolicyStmt extends ShowStmt {
+
     @Getter
-    private final String type;
-    
-    @Getter
-    private final boolean ifNotExists;
-    
-    @Getter
-    private final String policyName;
-    
-    @Getter
-    private final TableName tableName;
-    
-    @Getter
-    private final FilterType filterType;
-    
-    @Getter
-    private final UserIdentity userIdent;
-    
-    @Getter
-    private final Expr wherePredicate;
-    
-    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity userIdent, Expr wherePredicate) {
-        this.type = type;
-        this.ifNotExists = ifNotExists;
-        this.policyName = policyName;
-        this.tableName = tableName;
-        this.filterType = FilterType.of(filterType);
-        this.userIdent = userIdent;
-        this.wherePredicate = wherePredicate;
+    private String user;
+
+    public ShowPolicyStmt(String user) {
+        this.user = user;
     }
-    
+
+    public ShowPolicyStmt() {
+    }
+
+    private static final ShowResultSetMetaData META_DATA =
+        ShowResultSetMetaData.builder()
+            .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+            .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
+            .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
+            .addColumn(new Column("User", ScalarType.createVarchar(20)))
+            .build();
+
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return META_DATA;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        tableName.analyze(analyzer);
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-    
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE ").append(type).append(" ROW POLICY ");
-        if (ifNotExists) {
-            sb.append("IF NOT EXISTS");
+        sb.append("SHOW POLICY");
+        if (StringUtils.isNotEmpty(user)) {
+            sb.append(" FOR ").append(user);
         }
-        sb.append(policyName).append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-            .append(" TO ").append(userIdent.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
         return sb.toString();
     }
 }

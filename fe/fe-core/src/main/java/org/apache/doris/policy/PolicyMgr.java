@@ -112,6 +112,13 @@ public class PolicyMgr implements Writable {
         }
         return userToPolicyMap.getOrDefault(user, new ArrayList<>());
     }
+
+    public List<Policy> getDbUserPolicies(long dbId, String user) {
+        if (dbIdToPolicyMap == null) {
+            return new ArrayList<>();
+        }
+        return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>()).stream().filter(p -> p.getUser().equals(user)).collect(Collectors.toList());
+    }
     
     public void unprotectedAdd(Policy policy) {
         if (policy == null) {
