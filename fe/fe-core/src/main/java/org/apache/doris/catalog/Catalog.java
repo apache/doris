@@ -1950,7 +1950,8 @@ public class Catalog {
     }
 
     // Only called by checkpoint thread
-    public void saveImage() throws IOException {
+    // return the latest image file's absolute path
+    public String saveImage() throws IOException {
         // Write image.ckpt
         Storage storage = new Storage(this.imageDir);
         File curFile = storage.getImageFile(replayedJournalId.get());
@@ -1963,6 +1964,7 @@ public class Catalog {
             curFile.delete();
             throw new IOException();
         }
+        return curFile.getAbsolutePath();
     }
 
     public void saveImage(File curFile, long replayedJournalId) throws IOException {
