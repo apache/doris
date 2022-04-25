@@ -33,6 +33,7 @@ import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 
@@ -138,10 +139,10 @@ public class AlterViewStmtTest {
             }
         };
 
-        new MockUp<Analyzer>() {
-            @Mock
-            String getClusterName() {
-                return "testCluster";
+        new Expectations() {
+            {
+                connectContext.getClusterName();
+                result = SystemInfoService.DEFAULT_CLUSTER;
             }
         };
     }
@@ -175,7 +176,7 @@ public class AlterViewStmtTest {
         catalog1.alterView(alterViewStmt);
 
         View newView = (View) db.getTableOrAnalysisException("testView");
-        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)" +
+        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `default_cluster:testDb`.`testTbl`)" +
                         " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
                 newView.getInlineViewDef());
     }
