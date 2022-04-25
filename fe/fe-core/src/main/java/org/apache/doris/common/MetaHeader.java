@@ -83,7 +83,7 @@ public class MetaHeader {
             raf.seek(0);
             MetaMagicNumber.write(raf);
             MetaJsonHeader.write(raf);
-            raf.getChannel.force(true);
+            raf.getChannel().force(true);
             return raf.getFilePointer();
         }
     }
