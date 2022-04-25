@@ -66,6 +66,9 @@ public class PaloFe {
 
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args) {
+    	if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+    		Log4jConfig.foreground = true;
+    	}
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
