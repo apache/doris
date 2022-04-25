@@ -60,22 +60,19 @@ Ready to work
 #export MVN_BIN=
 #export JAVA_HOME=
 
-##amend as below
-export THRIFT_BIN=./thirdparty/installed/bin（thrift installation directory）
+##amend as below,MacOS as an example
+export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 #export MVN_BIN=
 #export JAVA_HOME=
 
 Install `thrift` 0.13.0 (Note: `Doris` 0.15 and the latest builds are based on `thrift` 0.13.0, previous versions are still built with `thrift` 0.9.3)
 Windows:
   1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-  2. Copy: Copy the file to `./thirdparty/installed/bin` 
-  
+  2. Modify thrift-0.13.0.exe to thrift 
  
 MacOS:
   1. Download: `brew install thrift@0.13.0`
-  2. Create a soft link:
-       `mkdir -p ./thirdparty/installed/bin`
-       `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+  2. default address: /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 
 Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that the version cannot be found. The solution is as follows, execute it in the terminal:
     1. `brew tap-new $USER/local-tap`
@@ -91,7 +88,8 @@ Linux:
     5.`./configure --without-tests`
     6.`make`
     7.`make install`
-   Check the version after installation is complete：thrift --version  
+   Check the version after installation is complete：thrift --version
+   Note: If you have compiled Doris, you do not need to install thrift, you can directly use $DORIS_HOME/thirdparty/installed/bin/thrift
 ```
 
 Execute following command in source dir:
@@ -116,7 +114,7 @@ After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SN
 **Remarks:** 
 
 1. Doris FE should be configured to enable http v2 in the configuration
-2. Scala version currently only supports 2.12.x version
+2. Scala version currently supports 2.12 and 2.11
 
 conf/fe.conf
 
@@ -138,7 +136,8 @@ enable_http_server_v2 = true
 
 **Notes**
 
-Please replace the Connector version according to the different Flink and Scala versions.
+1.Please replace the Connector version according to the different Flink and Scala versions.
+2.At present, only the scala2.12 version of the package is provided in maven. The 2.11 version of the package needs to be compiled by itself. Please refer to the compilation and installation section above.
 
 ## How to use
 
@@ -446,4 +445,4 @@ Then suppose a row of data is 500B, and the user wants every 100MB or 10 seconds
 
 1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
 
-Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` Type: TINYINT
+Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` in Flink Schema Type: TINYINT
