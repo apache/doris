@@ -102,7 +102,7 @@ public class StorageTest {
 
         Storage storage2 = new Storage(1, "token", 2, 3, "test");
         Assert.assertEquals(1, storage2.getClusterID());
-        Assert.assertEquals(2, storage2.getImageSeq());
+        Assert.assertEquals(2, storage2.getLatestImageSeq());
         Assert.assertEquals(3, storage2.getEditsSeq());
         Assert.assertEquals("test", storage2.getMetaDir());
     }
@@ -116,7 +116,7 @@ public class StorageTest {
         Assert.assertEquals(966271669, storage.getClusterID());
         storage.setClusterID(1234);
         Assert.assertEquals(1234, storage.getClusterID());
-        Assert.assertEquals(0, storage.getImageSeq());
+        Assert.assertEquals(0, storage.getLatestImageSeq());
         Assert.assertEquals(10, Storage.getMetaSeq(new File("storageTestDir/edits.10")));
         Assert.assertTrue(Storage.getCurrentEditsFile(new File("storageTestDir"))
                 .equals(new File("storageTestDir/edits")));
@@ -133,8 +133,8 @@ public class StorageTest {
 
         Assert.assertTrue(storage.getVersionFile().equals(new File("storageTestDir/VERSION")));
 
-        storage.setImageSeq(100);
-        Assert.assertEquals(100, storage.getImageSeq());
+        storage.setLatestImageSeq(100);
+        Assert.assertEquals(100, storage.getLatestImageSeq());
 
         storage.setEditsSeq(100);
         Assert.assertEquals(100, storage.getEditsSeq());
