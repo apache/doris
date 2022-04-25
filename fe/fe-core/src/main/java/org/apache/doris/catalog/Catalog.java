@@ -1531,7 +1531,7 @@ public class Catalog {
     private void getNewImage(Pair<String, Integer> helperNode) throws IOException {
         long localImageVersion = 0;
         Storage storage = new Storage(this.imageDir);
-        localImageVersion = storage.getImageSeq();
+        localImageVersion = storage.getLatestImageSeq();
 
         try {
             URL infoUrl = new URL("http://" + helperNode.first + ":" + Config.http_port + "/info");
@@ -1617,7 +1617,7 @@ public class Catalog {
             LOG.info("image does not exist: {}", curFile.getAbsolutePath());
             return;
         }
-        replayedJournalId.set(storage.getImageSeq());
+        replayedJournalId.set(storage.getLatestImageSeq());
         MetaReader.read(curFile, this);
     }
 
