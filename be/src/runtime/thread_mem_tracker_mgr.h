@@ -81,12 +81,14 @@ public:
 
     void detach_task();
 
-    // Must be fast enough!
-    // Thread update_tracker may be called very frequently, adding a memory copy will be slow.
+    // Must be fast enough! Thread update_tracker may be called very frequently.
+    // So for performance, add tracker as early as possible, and then call update_tracker<Existed>.
     template <bool Existed>
     int64_t update_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
     void update_tracker_id(int64_t tracker_id);
 
+    // Before switching the same tracker multiple times, add tracker as early as possible,
+    // update_tracker<true> can reduce one map find.
     void add_tracker(const std::shared_ptr<MemTracker>& mem_tracker);
 
     ConsumeErrCallBackInfo update_consume_err_cb(const std::string& cancel_msg, bool cancel_task,
@@ -116,23 +118,23 @@ public:
     int64_t switch_count = 0;
 
     std::string print_debug_string() {
-        std::stringstream mem_trackers_str;
+        std::string mem_trackers_str;
         for (const auto& [key, value] : _mem_trackers) {
-            mem_trackers_str << std::to_string(key) << "_" << value << ",";
+            mem_trackers_str += fmt::format("{}_{},", std::to_string(key), value);
         }
-        std::stringstream untracked_mems_str;
+        std::string untracked_mems_str;
         for (const auto& [key, value] : _untracked_mems) {
-            untracked_mems_str << std::to_string(key) << "_" << std::to_string(value) << ",";
+            untracked_mems_str += fmt::format("{}_{},", std::to_string(key), value);
         }
-        std::stringstream mem_tracker_labels_str;
+        std::string mem_tracker_labels_str;
         for (const auto& [key, value] : _mem_tracker_labels) {
-            mem_tracker_labels_str << std::to_string(key) << "_" << value << ",";
+            mem_tracker_labels_str += fmt::format("{}_{},", std::to_string(key), value);
         }
         return fmt::format(
                 "ThreadMemTrackerMgr debug string, _tracker_id:{}, _untracked_mem:{}, _task_id:{}, "
                 "_mem_trackers:<{}>, _untracked_mems:<{}>, _mem_tracker_labels:<{}>",
                 std::to_string(_tracker_id), std::to_string(_untracked_mem), _task_id,
-                mem_trackers_str.str(), untracked_mems_str.str(), mem_tracker_labels_str.str());
+                mem_trackers_str, untracked_mems_str, mem_tracker_labels_str);
     }
 
 private:
@@ -209,6 +211,7 @@ inline int64_t ThreadMemTrackerMgr::update_tracker(const std::shared_ptr<MemTrac
     if (Existed) {
         DCHECK(_mem_trackers.find(_temp_tracker_id) != _mem_trackers.end()) << print_debug_string();
     } else {
+        // If the tracker has already been added, avoid `_untracked_mems[x] = 0;` again causing the memory track to be lost.
         if (_mem_trackers.find(_temp_tracker_id) == _mem_trackers.end()) {
             _mem_trackers[_temp_tracker_id] = mem_tracker;
             DCHECK(_mem_trackers[_temp_tracker_id]) << print_debug_string();
@@ -271,16 +274,16 @@ inline void ThreadMemTrackerMgr::noncache_consume(int64_t size) {
 
 inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& mem_tracker) {
     DCHECK(_mem_trackers.find(mem_tracker->id()) == _mem_trackers.end()) << print_debug_string();
-    if (_mem_trackers.find(mem_tracker->id()) == _mem_trackers.end()) {
-        _mem_trackers[mem_tracker->id()] = mem_tracker;
-        DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
-        _untracked_mems[mem_tracker->id()] = 0;
-        _mem_tracker_labels[_temp_tracker_id] = mem_tracker->label();
-    }
+    _mem_trackers[mem_tracker->id()] = mem_tracker;
+    DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
+    _untracked_mems[mem_tracker->id()] = 0;
+    _mem_tracker_labels[_temp_tracker_id] = mem_tracker->label();
 }
 
 inline std::shared_ptr<MemTracker> ThreadMemTrackerMgr::mem_tracker() {
+    // Whether the key _tracker_id exists in _mem_trackers.
     DCHECK(_mem_trackers.find(_tracker_id) != _mem_trackers.end()) << print_debug_string();
+    // If the key _tracker_id exists in _mem_trackers, check whether the value is null.
     DCHECK(_mem_trackers[_tracker_id]) << print_debug_string();
     return _mem_trackers[_tracker_id];
 }

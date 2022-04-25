@@ -60,6 +60,13 @@
     auto VARNAME_LINENUM(witch_tracker_cb) =                            \
             doris::SwitchThreadMemTrackerErrCallBack(action_type, ##__VA_ARGS__)
 #define SCOPED_SWITCH_BTHREAD() auto VARNAME_LINENUM(switch_bthread) = SwitchBthread()
+// Before switching the same tracker multiple times, add tracker as early as possible,
+// and then call `SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER` to reduce one map find.
+// For example, in the exec_node open phase `add tracker`, it is no longer necessary to determine
+// whether the tracker exists in TLS when switching the tracker in the exec_node get_next phase.
+// TODO(zxy): Duplicate add tracker is currently prohibited, because it will,
+// 1. waste time 2. `_untracked_mems[mem_tracker->id()] = 0` will cause the memory track to be lost.
+// Some places may have to repeat the add tracker. optimize after.
 #define ADD_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
     doris::tls_ctx()->_thread_mem_tracker_mgr->add_tracker(mem_tracker)
 #define CONSUME_THREAD_LOCAL_MEM_TRACKER(size) \

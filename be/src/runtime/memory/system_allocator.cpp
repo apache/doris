@@ -73,6 +73,7 @@ uint8_t* SystemAllocator::allocate_via_mmap(size_t length) {
         char buf[64];
         LOG(ERROR) << "fail to allocate memory via mmap, errno=" << errno
                    << ", errmsg=" << strerror_r(errno, buf, 64);
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
     return ptr;

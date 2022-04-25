@@ -80,6 +80,7 @@ Status SystemAllocator::AllocateViaMMap(int64_t len, uint8_t** buffer_mem) {
     uint8_t* mem = reinterpret_cast<uint8_t*>(
             mmap(nullptr, map_len, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0));
     if (mem == MAP_FAILED) {
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(map_len);
         return Status::BufferAllocFailed("mmap failed");
     }
 

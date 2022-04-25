@@ -101,6 +101,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 
     if (MAP_FAILED == memory) {
         OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -112,6 +113,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
     if (nullptr == buf) {
         deleter(memory);
         OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -137,6 +139,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
 
     if (MAP_FAILED == memory) {
         OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
 
@@ -148,6 +151,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
     if (nullptr == buf) {
         deleter(memory);
         OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
+        RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
 

@@ -143,11 +143,13 @@ public:
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
-            if (MAP_FAILED == buf)
+            if (MAP_FAILED == buf){
+                RELEASE_THREAD_LOCAL_MEM_TRACKER(new_size - old_size);
                 doris::vectorized::throwFromErrno("Allocator: Cannot mremap memory chunk from " +
                                                           std::to_string(old_size) + " to " +
                                                           std::to_string(new_size) + ".",
                                                   doris::TStatusCode::VEC_CANNOT_MREMAP);
+            }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else if (new_size < MMAP_THRESHOLD) {
@@ -201,9 +203,11 @@ private:
 
             CONSUME_THREAD_LOCAL_MEM_TRACKER(size);
             buf = mmap(get_mmap_hint(), size, PROT_READ | PROT_WRITE, mmap_flags, -1, 0);
-            if (MAP_FAILED == buf)
+            if (MAP_FAILED == buf) {
+                RELEASE_THREAD_LOCAL_MEM_TRACKER(size);
                 doris::vectorized::throwFromErrno(fmt::format("Allocator: Cannot mmap {}.", size),
                                                   doris::TStatusCode::VEC_CANNOT_ALLOCATE_MEMORY);
+            }
 
             /// No need for zero-fill, because mmap guarantees it.
         } else {

@@ -65,9 +65,7 @@ static std::shared_ptr<MemTracker> brpc_server_tracker;
 static GoogleOnceType brpc_server_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::create_brpc_server_tracker() {
-    brpc_server_tracker.reset(new MemTracker(-1, "Brpc", get_process_tracker(), MemTrackerLevel::OVERVIEW, nullptr));
-    get_process_tracker()->add_child_tracker(brpc_server_tracker);
-    brpc_server_tracker->init();
+    brpc_server_tracker = MemTracker::create_tracker(-1, "Brpc", get_process_tracker(), MemTrackerLevel::OVERVIEW);
 }
 
 std::shared_ptr<MemTracker> MemTracker::get_brpc_server_tracker() {
@@ -138,6 +136,7 @@ MemTracker::MemTracker(int64_t byte_limit, const std::string& label,
                        RuntimeProfile* profile)
         : _limit(byte_limit),
           _label(label),
+          // Not 100% sure the id is unique. This is generated because it is faster than converting to int after hash.
           _id((GetCurrentTimeMicros() % 1000000) * 100 + _label.length()),
           _parent(parent),
           _level(level) {
