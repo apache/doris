@@ -202,7 +202,6 @@ public class ConnectProcessor {
         List<Pair<StatementBase, Data.PQueryStatistics>> auditInfoList = Lists.newArrayList();
         boolean alreadyAddedToAuditInfoList = false;
         try {
-            originStmt = Catalog.getCurrentCatalog().getPolicyMgr().rewriteOriginStmt(ctx.getQualifiedUser(), originStmt);
             List<StatementBase> stmts = analyze(originStmt);
             for (int i = 0; i < stmts.size(); ++i) {
                 alreadyAddedToAuditInfoList = false;

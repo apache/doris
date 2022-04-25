@@ -20,16 +20,19 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.TableAliasGenerator;
-import org.apache.doris.common.UserException;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
+import lombok.SneakyThrows;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.TableAliasGenerator;
+import org.apache.doris.common.UserException;
+import org.apache.doris.policy.Policy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1140,6 +1143,39 @@ public class StmtRewriter {
         }
         smap.put(subquery, subquerySubstitute);
         return exprWithSubquery.substitute(smap, analyzer, false);
+    }
+
+    @SneakyThrows
+    public static void rewriteByPolicy(SelectStmt selectStmt, Analyzer analyzer) {
+        Catalog currentCatalog = Catalog.getCurrentCatalog();
+        for (int i = 0; i < selectStmt.fromClause_.size(); i++) {
+            TableRef tableRef = selectStmt.fromClause_.get(i);
+            Table table = tableRef.getTable();
+            String tableName = table.getName();
+            String dbName = tableRef.getName().getDb();
+            if (dbName == null) {
+                dbName = analyzer.getDefaultDb();
+            }
+            Database db = currentCatalog.getDbOrAnalysisException(dbName);
+            long dbId = db.getId();
+            long tableId = table.getId();
+            String user = analyzer.getQualifiedUser();
+            Policy matchPolicy = currentCatalog.getPolicyMgr().getMatchPolicy(dbId, tableId, user);
+            if (matchPolicy == null) {
+                continue;
+            }
+            SelectList selectList = new SelectList();
+            selectList.addItem(SelectListItem.createStarItem(tableRef.getName()));
+            SelectStmt stmt = new SelectStmt(selectList,
+                new FromClause(Lists.newArrayList(tableRef)),
+                matchPolicy.getWherePredicate(),
+                null,
+                null,
+                null,
+                LimitElement.NO_LIMIT);
+            selectStmt.fromClause_.set(i, new InlineViewRef(String.format("policy_rewrite_%s_%s", tableName, matchPolicy.getPolicyName()), stmt));
+        }
+
     }
 }
 

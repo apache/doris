@@ -1366,9 +1366,9 @@ create_stmt ::=
     :}
     /* row policy */
     | KW_CREATE opt_policy_type:type KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
-    KW_USING LPAREN ident:filter RPAREN
+    KW_USING LPAREN expr:wherePredicate RPAREN
     {:
-        RESULT = new CreatePolicyStmt(type, ifNotExists, policyName, tbl, filterType, user, filter);
+        RESULT = new CreatePolicyStmt(type, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
     :}
     ;
 

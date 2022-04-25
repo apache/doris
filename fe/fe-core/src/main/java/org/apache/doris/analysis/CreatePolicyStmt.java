@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import lombok.Getter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -24,8 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.qe.ConnectContext;
-
-import lombok.Getter;
 
 /*
  Create policy statement
@@ -53,16 +52,16 @@ public class CreatePolicyStmt extends DdlStmt {
     private final UserIdentity userIdent;
     
     @Getter
-    private final String filter;
+    private final Expr wherePredicate;
     
-    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity userIdent, String filter) {
+    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity userIdent, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
         this.tableName = tableName;
         this.filterType = FilterType.of(filterType);
         this.userIdent = userIdent;
-        this.filter = filter;
+        this.wherePredicate = wherePredicate;
     }
     
     @Override
@@ -82,7 +81,7 @@ public class CreatePolicyStmt extends DdlStmt {
             sb.append("IF NOT EXISTS");
         }
         sb.append(policyName).append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-            .append(" TO ").append(userIdent.getQualifiedUser()).append(" USING ").append(filter);
+            .append(" TO ").append(userIdent.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
         return sb.toString();
     }
 }

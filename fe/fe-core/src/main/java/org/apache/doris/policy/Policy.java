@@ -23,12 +23,16 @@ import lombok.Data;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -37,53 +41,58 @@ import java.io.IOException;
 @Data
 @AllArgsConstructor
 public class Policy implements Writable {
-    
+
     @SerializedName(value = "dbId")
     private long dbId;
-    
+
     @SerializedName(value = "tableId")
     private long tableId;
-    
+
     @SerializedName(value = "policyName")
     private String policyName;
-    
+
     /**
      * ROW
      **/
     @SerializedName(value = "type")
     private String type;
-    
+
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails
      **/
     @SerializedName(value = "filterType")
     private final FilterType filterType;
-    
+
     /**
      * filter sql
      **/
-    @SerializedName(value = "filter")
+    @SerializedName(value = "wherePredicate")
     @Setter
-    private String filter;
-    
+    private Expr wherePredicate;
+
     /**
      * bind user
      **/
     @SerializedName(value = "user")
     private final String user;
-    
-    @SneakyThrows
-    public static Policy fromCreateStmt(CreatePolicyStmt stmt) {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(stmt.getTableName().getDb());
+
+    public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
+        String curDb = stmt.getTableName().getDb();
+        if (curDb == null) {
+            curDb = ConnectContext.get().getDatabase();
+        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getFilter(), stmt.getUserIdent().getQualifiedUser());
+        UserIdentity userIdent = stmt.getUserIdent();
+        userIdent.analyze(ConnectContext.get().getClusterName());
+        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent.getQualifiedUser());
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-    
+
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Policy.class);

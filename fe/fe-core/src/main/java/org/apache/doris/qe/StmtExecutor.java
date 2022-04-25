@@ -676,6 +676,10 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
             }
+            if (parsedStmt instanceof SelectStmt) {
+                StmtRewriter.rewriteByPolicy((SelectStmt) parsedStmt, analyzer);
+                reAnalyze = true;
+            }
             if (reAnalyze) {
                 // The rewrites should have no user-visible effect. Remember the original result
                 // types and column labels to restore them after the rewritten stmt has been
