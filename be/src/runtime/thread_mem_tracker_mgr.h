@@ -120,11 +120,11 @@ public:
     std::string print_debug_string() {
         std::string mem_trackers_str;
         for (const auto& [key, value] : _mem_trackers) {
-            mem_trackers_str += fmt::format("{}_{},", std::to_string(key), value);
+            mem_trackers_str += fmt::format("{}_{},", std::to_string(key), value->log_usage(1));
         }
         std::string untracked_mems_str;
         for (const auto& [key, value] : _untracked_mems) {
-            untracked_mems_str += fmt::format("{}_{},", std::to_string(key), value);
+            untracked_mems_str += fmt::format("{}_{},", std::to_string(key), std::to_string(value));
         }
         std::string mem_tracker_labels_str;
         for (const auto& [key, value] : _mem_tracker_labels) {
