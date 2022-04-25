@@ -26,6 +26,11 @@ import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 
+/*
+ Drop policy statement
+ syntax:
+      DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table
+*/
 public class DropPolicyStmt extends DdlStmt {
     
     @Getter

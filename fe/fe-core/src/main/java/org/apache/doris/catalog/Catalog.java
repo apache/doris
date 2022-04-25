@@ -1949,6 +1949,14 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadPolicy(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
+            policyMgr = PolicyMgr.read(in);
+        }
+        LOG.info("finished replay policy from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2213,6 +2221,11 @@ public class Catalog {
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
+        return checksum;
+    }
+
+    public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getPolicyMgr().write(out);
         return checksum;
     }
 

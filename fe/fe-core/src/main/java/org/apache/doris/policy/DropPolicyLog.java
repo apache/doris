@@ -28,17 +28,12 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/**
- * DropPolicyLog
- *
- * @author lirongqian
- * @since 2022/04/24
- */
 @AllArgsConstructor
 @Getter
 public class DropPolicyLog implements Writable {
@@ -57,7 +52,11 @@ public class DropPolicyLog implements Writable {
     
     @SneakyThrows
     public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) {
-        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(stmt.getTableName().getDb());
+        String curDb = stmt.getTableName().getDb();
+        if (curDb == null) {
+            curDb = ConnectContext.get().getDatabase();
+        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
         return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(), stmt.getPolicyName());
     }

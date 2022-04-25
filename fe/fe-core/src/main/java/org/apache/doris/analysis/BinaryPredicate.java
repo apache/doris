@@ -565,6 +565,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         int isWritable = in.readInt();
         if (isWritable == 0) {

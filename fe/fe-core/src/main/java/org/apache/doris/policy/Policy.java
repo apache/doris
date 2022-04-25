@@ -21,7 +21,6 @@ import com.google.gson.annotations.SerializedName;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Setter;
-import lombok.SneakyThrows;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
@@ -66,7 +65,6 @@ public class Policy implements Writable {
     /**
      * filter sql
      **/
-    @SerializedName(value = "wherePredicate")
     @Setter
     private Expr wherePredicate;
 
@@ -91,10 +89,14 @@ public class Policy implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+        Expr.writeTo(wherePredicate, out);
     }
 
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Policy.class);
+        Expr expr = Expr.readIn(in);
+        Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
+        policy.setWherePredicate(expr);
+        return policy;
     }
 }

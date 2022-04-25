@@ -1,8 +1,20 @@
-/**
- * @(#)PolicyTest.java, 2022-04-24.
- * <p>
- * Copyright 2022 Stalary.
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CreateDbStmt;
@@ -17,12 +29,6 @@ import org.junit.Test;
 
 import java.util.UUID;
 
-/**
- * PolicyTest
- *
- * @author lirongqian
- * @since 2022/04/24
- */
 public class PolicyTest {
     
     private static String runningDir = "fe/mocked/policyTest/" + UUID.randomUUID().toString() + "/";
@@ -51,8 +57,6 @@ public class PolicyTest {
     public void testSql() throws Exception {
         createPolicy("CREATE POLICY test_row_policy ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)");
         String queryStr = "select * from test.table1;";
-        String retStr = Catalog.getCurrentCatalog().getPolicyMgr().rewriteOriginStmt("root", queryStr);
-        System.out.println(retStr);
     }
     
     private static void createTable(String sql) throws Exception {

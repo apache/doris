@@ -100,20 +100,33 @@ public class PolicyMgr implements Writable {
     }
     
     public List<Policy> getDbPolicies(long dbId) {
+        if (dbIdToPolicyMap == null) {
+            return new ArrayList<>();
+        }
         return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>());
     }
     
     public List<Policy> getUserPolicies(String user) {
+        if (userToPolicyMap == null) {
+            return new ArrayList<>();
+        }
         return userToPolicyMap.getOrDefault(user, new ArrayList<>());
     }
     
     public void unprotectedAdd(Policy policy) {
+        if (policy == null) {
+            return;
+        }
         long dbId = policy.getDbId();
         String user = policy.getUser();
-        List<Policy> dbPolicies = dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>());
+        if (dbId == 0 || user == null) {
+            LOG.warn("policy={} error", policy);
+            return;
+        }
+        List<Policy> dbPolicies = getDbPolicies(dbId);
         dbPolicies.add(policy);
         dbIdToPolicyMap.put(dbId, dbPolicies);
-        List<Policy> userPolicies = userToPolicyMap.getOrDefault(user, new ArrayList<>());
+        List<Policy> userPolicies = getUserPolicies(user);
         userPolicies.add(policy);
         userToPolicyMap.put(user, userPolicies);
     }
@@ -143,6 +156,9 @@ public class PolicyMgr implements Writable {
         }
         List<Policy> policies = dbIdToPolicyMap.get(dbId);
         List<Policy> userPolicies = policies.stream().filter(policy -> policy.getTableId() == tableId && StringUtils.equals(policy.getUser(), user)).collect(Collectors.toList());
+        if (userPolicies.isEmpty()) {
+            return null;
+        }
         // op use last
         Policy lastPolicy = userPolicies.get(userPolicies.size() - 1);
         CompoundPredicate.Operator op = lastPolicy.getFilterType().getOp();

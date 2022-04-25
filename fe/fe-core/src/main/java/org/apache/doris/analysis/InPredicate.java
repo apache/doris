@@ -38,6 +38,9 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -53,7 +56,7 @@ public class InPredicate extends Predicate {
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE= "in_iterate";
     private static final String NOT_IN_ITERATE = "not_in_iterate";
-    private final boolean isNotIn;
+    private boolean isNotIn;
     private static final String IN = "in";
     private static final String NOT_IN = "not_in";
 
@@ -87,6 +90,10 @@ public class InPredicate extends Predicate {
                     "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
 
         }
+    }
+
+    public InPredicate() {
+        super();
     }
 
     // First child is the comparison expr for which we
@@ -327,5 +334,32 @@ public class InPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return hasNullableChild();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeBoolean(isNotIn);
+        out.writeInt(children.size());
+        for (Expr child : children) {
+            Expr.writeTo(child, out);
+        }
+    }
+
+    public static InPredicate read(DataInput input) throws IOException {
+        InPredicate inPredicate = new InPredicate();
+        inPredicate.readFields(input);
+        return inPredicate;
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        isNotIn = in.readBoolean();
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            Expr expr = Expr.readIn(in);
+            if (expr != null) {
+                children.add(expr);
+            }
+        }
     }
 }

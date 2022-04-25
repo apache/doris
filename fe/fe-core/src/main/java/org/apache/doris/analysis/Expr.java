@@ -1714,7 +1714,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         BINARY_PREDICATE(11),
         FUNCTION_CALL(12),
         ARRAY_LITERAL(13),
-        CAST_EXPR(14);
+        CAST_EXPR(14),
+        COMPOUND_EXPR(15),
+        IN_EXPR(16),
+        ;
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1766,7 +1769,11 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof CastExpr){
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
-        }else {
+        } else if (expr instanceof CompoundPredicate) {
+            output.writeInt(ExprSerCode.COMPOUND_EXPR.getCode());
+        } else if (expr instanceof InPredicate) {
+            output.writeInt(ExprSerCode.IN_EXPR.getCode());
+        } else {
             throw new IOException("Unknown class " + expr.getClass().getName());
         }
         expr.write(output);
@@ -1780,6 +1787,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      */
     public static Expr readIn(DataInput in) throws IOException {
         int code = in.readInt();
+        if (code == 0) {
+            LOG.warn("code=0");
+            return null;
+        }
         ExprSerCode exprSerCode = ExprSerCode.fromCode(code);
         if (exprSerCode == null) {
             throw new IOException("Unknown code: " + code);
@@ -1811,6 +1822,10 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return ArrayLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
+            case COMPOUND_EXPR:
+                return CompoundPredicate.read(in);
+            case IN_EXPR:
+                return InPredicate.read(in);
             default:
                 throw new IOException("Unknown code: " + code);
         }

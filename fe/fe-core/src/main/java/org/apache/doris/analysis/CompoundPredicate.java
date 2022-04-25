@@ -25,6 +25,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
@@ -34,6 +35,10 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -42,7 +47,7 @@ import java.util.Objects;
  */
 public class CompoundPredicate extends Predicate {
     private final static Logger LOG = LogManager.getLogger(CompoundPredicate.class);
-    private final Operator op;
+    private Operator op;
 
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -51,6 +56,10 @@ public class CompoundPredicate extends Predicate {
                 Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                 Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
+    }
+
+    public CompoundPredicate() {
+        super();
     }
 
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
@@ -161,6 +170,10 @@ public class CompoundPredicate extends Predicate {
         private final String      description;
         private final TExprOpcode thriftOp;
 
+        public static Operator of(String name) {
+            return Arrays.stream(values()).filter(op -> op.name().equals(name)).findFirst().orElse(Operator.AND);
+        }
+
         Operator(String description, TExprOpcode thriftOp) {
             this.description = description;
             this.thriftOp = thriftOp;
@@ -255,5 +268,29 @@ public class CompoundPredicate extends Predicate {
     @Override
     public boolean isNullable() {
         return hasNullableChild();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, op.name());
+        out.writeInt(children.size());
+        for (Expr child : children) {
+            Expr.writeTo(child, out);
+        }
+    }
+
+    public static CompoundPredicate read(DataInput input) throws IOException {
+        CompoundPredicate compoundPredicate = new CompoundPredicate();
+        compoundPredicate.readFields(input);
+        return compoundPredicate;
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        op = Operator.of(Text.readString(in));
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            children.add(Expr.readIn(in));
+        }
     }
 }

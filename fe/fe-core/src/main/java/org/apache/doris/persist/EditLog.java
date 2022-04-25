@@ -811,6 +811,16 @@ public class EditLog {
                     catalog.getAlterInstance().replayProcessModifyEngine(log);
                     break;
                 }
+                case OperationType.OP_CREATE_POLICY: {
+                    Policy log = (Policy) journal.getData();
+                    catalog.getPolicyMgr().unprotectedAdd(log);
+                    break;
+                }
+                case OperationType.OP_DROP_POLICY: {
+                    DropPolicyLog log = (DropPolicyLog) journal.getData();
+                    catalog.getPolicyMgr().unprotectedDrop(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
