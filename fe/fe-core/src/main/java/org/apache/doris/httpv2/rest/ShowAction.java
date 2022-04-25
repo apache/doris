@@ -242,7 +242,7 @@ public class ShowAction extends RestBaseController {
         feInfo.put("is_ready", String.valueOf(Catalog.getCurrentCatalog().isReady()));
 
         Storage storage = new Storage(Config.meta_dir + "/image");
-        feInfo.put("last_checkpoint_version", String.valueOf(storage.getImageSeq()));
+        feInfo.put("last_checkpoint_version", String.valueOf(storage.getLatestImageSeq()));
         long lastCheckpointTime = storage.getCurrentImageFile().lastModified();
         feInfo.put("last_checkpoint_time", String.valueOf(lastCheckpointTime));
 
