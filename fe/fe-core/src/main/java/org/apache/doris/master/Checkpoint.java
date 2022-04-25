@@ -35,6 +35,8 @@ import org.apache.doris.system.Frontend;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.google.common.base.Strings;
+
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -111,6 +113,8 @@ public class Checkpoint extends MasterDaemon {
         catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
         createStaticFieldForCkpt();
+        boolean exceptionCaught = false;
+        String latestImageFilePath = null;
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
@@ -119,13 +123,25 @@ public class Checkpoint extends MasterDaemon {
                         checkPointVersion, catalog.getReplayedJournalId()));
             }
             catalog.fixBugAfterMetadataReplayed(false);
-            catalog.saveImage();
+            latestImageFilePath = catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
+
+            // destroy checkpoint catalog, reclaim memory
+            catalog = null;
+            Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
+
+            // Load image to verify if the newly generated image file is valid
+            // If success, do all the following jobs
+            // If failed, just return
+            catalog = Catalog.getCurrentCatalog();
+            catalog.loadImage(imageDir);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
+            exceptionCaught = true;
             e.printStackTrace();
             LOG.error("Exception when generate new image file", e);
             if (MetricRepo.isInit) {
@@ -137,6 +153,22 @@ public class Checkpoint extends MasterDaemon {
             catalog = null;
             Catalog.destroyCheckpoint();
             destroyStaticFieldForCkpt();
+            // if new image generated && exception caught, delete the latest image here
+            // delete the newest image file, cuz it is invalid
+            if ((!Strings.isNullOrEmpty(latestImageFilePath)) && exceptionCaught) {
+                MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
+                try {
+                    cleaner.cleanTheLatestInvalidImageFile(latestImageFilePath);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
+                    }
+                } catch (Throwable ex) {
+                    LOG.error("Master delete latest invalid image file failed.", ex);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
+                    }
+                }
+            }
         }
 
         // push image file to all the other non master nodes
