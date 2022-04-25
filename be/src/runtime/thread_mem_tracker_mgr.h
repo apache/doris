@@ -118,23 +118,25 @@ public:
     int64_t switch_count = 0;
 
     std::string print_debug_string() {
-        std::string mem_trackers_str;
+        fmt::memory_buffer mem_trackers_buf;
         for (const auto& [key, value] : _mem_trackers) {
-            mem_trackers_str += fmt::format("{}_{},", std::to_string(key), value->log_usage(1));
+            fmt::format_to(mem_trackers_buf, "{}_{},", std::to_string(key), value->log_usage(1));
         }
-        std::string untracked_mems_str;
+        fmt::memory_buffer untracked_mems_buf;
         for (const auto& [key, value] : _untracked_mems) {
-            untracked_mems_str += fmt::format("{}_{},", std::to_string(key), std::to_string(value));
+            fmt::format_to(untracked_mems_buf, "{}_{},", std::to_string(key),
+                           std::to_string(value));
         }
-        std::string mem_tracker_labels_str;
+        fmt::memory_buffer mem_tracker_labels_buf;
         for (const auto& [key, value] : _mem_tracker_labels) {
-            mem_tracker_labels_str += fmt::format("{}_{},", std::to_string(key), value);
+            fmt::format_to(mem_tracker_labels_buf, "{}_{},", std::to_string(key), value);
         }
         return fmt::format(
                 "ThreadMemTrackerMgr debug string, _tracker_id:{}, _untracked_mem:{}, _task_id:{}, "
                 "_mem_trackers:<{}>, _untracked_mems:<{}>, _mem_tracker_labels:<{}>",
                 std::to_string(_tracker_id), std::to_string(_untracked_mem), _task_id,
-                mem_trackers_str, untracked_mems_str, mem_tracker_labels_str);
+                fmt::to_string(mem_trackers_buf), fmt::to_string(untracked_mems_buf),
+                fmt::to_string(mem_tracker_labels_buf));
     }
 
 private:
