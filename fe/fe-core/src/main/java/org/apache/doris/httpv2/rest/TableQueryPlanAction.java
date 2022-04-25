@@ -129,7 +129,6 @@ public class TableQueryPlanAction extends RestBaseController {
             resultMap.put("status", e.getCode().code());
             resultMap.put("exception", e.getMessage());
         } catch (Exception e) {
-            e.printStackTrace();
             resultMap.put("status", "1");
             resultMap.put("exception", e.getMessage());
         }
