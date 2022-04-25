@@ -50,11 +50,7 @@ Schedule statistics task
 public class StatisticsTaskScheduler extends MasterDaemon {
     private final static Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
 
-    private final Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue(Config.cbo_max_statistics_task_num);
-
-    public int getUnfinishedTaskNum() {
-        return queue.size();
-    }
+    private final Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
 
     public StatisticsTaskScheduler() {
         super("Statistics task scheduler", 0);
