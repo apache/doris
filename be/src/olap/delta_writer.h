@@ -89,6 +89,10 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
+    int64_t save_mem_consumption_snapshot();
+
+    int64_t get_mem_consumption_snapshot() const;
+
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
 
@@ -119,9 +123,12 @@ private:
     int64_t _segment_counter = 0;
 
     std::mutex _lock;
-
+    
     // use in vectorized load
     bool _is_vec;
+
+    //only used for std::sort more detail see issue(#9237)
+    int64_t _mem_consumption_snapshot = 0;
 };
 
 } // namespace doris
