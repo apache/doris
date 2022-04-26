@@ -104,7 +104,7 @@ ssh agent01@xx.xxx.xx.xx
 
 1. 代码包路径
 
-   通过Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的[二进制版本](https://dlcdn.apache.org/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz)。
+   通过Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的[二进制版本](https://doris.apache.org/zh-CN/downloads/downloads.html)。
 
 `Doris Manager 将通过 http 方式拉取Doris安装包，若您需要自建 http 服务，请参考文档底部-自建http服务`。
 
