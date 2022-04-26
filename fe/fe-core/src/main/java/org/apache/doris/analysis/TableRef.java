@@ -46,6 +46,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -101,6 +102,8 @@ public class TableRef implements ParseNode, Writable {
     private boolean isForcePreAggOpened;
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
+
+    private boolean isGatheringDict;
 
     protected Expr onClause;
 
@@ -422,9 +425,11 @@ public class TableRef implements ParseNode, Writable {
         }
         // Currently only 'PREAGGOPEN' is supported
         for (String hint : commonHints) {
-            if (hint.toUpperCase().equals("PREAGGOPEN")) {
+            String normalizedHint = hint.toUpperCase();
+            if (normalizedHint.equals("PREAGGOPEN")) {
                 isForcePreAggOpened = true;
-                break;
+            } else if (normalizedHint.equals("META")) {
+                isGatheringDict = true;
             }
         }
     }
@@ -714,6 +719,10 @@ public class TableRef implements ParseNode, Writable {
 
     public boolean isResolved() {
         return !getClass().equals(TableRef.class);
+    }
+
+    public boolean isGatheringDict() {
+        return isGatheringDict;
     }
 
     /**

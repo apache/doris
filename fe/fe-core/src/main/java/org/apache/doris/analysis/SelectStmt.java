@@ -1868,6 +1868,10 @@ public class SelectStmt extends QueryStmt {
         return false;
     }
 
+    public boolean isDictQuery() {
+
+    }
+
     @Override
     public int hashCode() {
         return id.hashCode();

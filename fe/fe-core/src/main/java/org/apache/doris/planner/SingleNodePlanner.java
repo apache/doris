@@ -1683,6 +1683,9 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
+                if (tblRef.isGatheringDict()) {
+
+                }
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
