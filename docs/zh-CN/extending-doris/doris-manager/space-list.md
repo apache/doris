@@ -88,12 +88,12 @@ cat ~/id_rsa.pub >> .ssh/authorized_keys
 #5.这样做完之后我们就可以在doris manger机器免密码登录agent01
 ssh agent01@xx.xxx.xx.xx
 ```
+详细可参考：https://blog.csdn.net/universe_hao/article/details/52296811
 
 另外需要注意，.ssh目录的权限为700，其下文件authorized_keys和私钥的权限为600。否则会因为权限问题导致无法免密码登录。我们可以看到登陆后会有known_hosts文件生成。同时启动doris时需要使用免密码登录的账号。
 
-在Doris Manager 安装集群时，使用部署doris manager机器的私钥即可，即~/.ssh/id_rsa
 
-详细可参考：https://blog.csdn.net/universe_hao/article/details/52296811
+在Doris Manager 安装集群第二步添加节点时，使用部署doris manager机器的私钥即可，即~/.ssh/id_rsa(注意：包括密钥文件的头尾)
 
 #### 主机列表
 输入主机IP添加新的主机，也可通过批量添加。
@@ -102,13 +102,16 @@ ssh agent01@xx.xxx.xx.xx
 
 #### 获取安装包
 
-通过 Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的二进制版本。
+1. 代码包路径
 
-Doris Manager 将通过 http 方式拉取安装包，若您需要自建 http 服务，请参考文档底部-自建http服务。
+   通过Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的[二进制版本](https://dlcdn.apache.org/incubator/doris/1.0/1.0.0-incubating/apache-doris-1.0.0-incubating-bin.tar.gz)。
+
+`Doris Manager 将通过 http 方式拉取Doris安装包，若您需要自建 http 服务，请参考文档底部-自建http服务`。
 
 #### 指定安装路径
 
-Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+1. Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+2. 指定Agent启动端口，默认为8001，若有冲突，可自定义。
 
 ### 4 校验主机
 
@@ -185,7 +188,8 @@ ssh agent01@xx.xxx.xx.xx
 
 #### 指定安装路径
 
-Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+1. Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+2. 指定Agent启动端口，默认为8001，若有冲突，可自定义。
 
 ### 4 校验主机
 
