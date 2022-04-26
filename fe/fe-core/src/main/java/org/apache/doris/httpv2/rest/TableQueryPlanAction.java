@@ -67,7 +67,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -128,6 +127,9 @@ public class TableQueryPlanAction extends RestBaseController {
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic
             resultMap.put("status", e.getCode().code());
+            resultMap.put("exception", e.getMessage());
+        } catch (Exception e) {
+            resultMap.put("status", "1");
             resultMap.put("exception", e.getMessage());
         }
         return ResponseEntityBuilder.ok(resultMap);
@@ -252,7 +254,7 @@ public class TableQueryPlanAction extends RestBaseController {
         for (TScanRangeLocations scanRangeLocations : scanRangeLocationsList) {
             // only process palo(doris) scan range
             TPaloScanRange scanRange = scanRangeLocations.scan_range.palo_scan_range;
-            Node tabletRouting = new Node(Long.parseLong(scanRange.version), Integer.parseInt(scanRange.schema_hash));
+            Node tabletRouting = new Node(Long.parseLong(scanRange.version), 0 /* schema hash is not used */);
             for (TNetworkAddress address : scanRange.hosts) {
                 tabletRouting.addRouting(address.hostname + ":" + address.port);
             }

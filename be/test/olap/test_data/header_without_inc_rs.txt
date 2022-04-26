@@ -141,5 +141,7 @@
         "lo": 10
     },
     "preferred_rowset_type": "BETA_ROWSET",
-    "tablet_type": "TABLET_TYPE_DISK"
+    "tablet_type": "TABLET_TYPE_DISK",
+    "storage_medium": "HDD",
+    "remote_storage_name": ""
 }
