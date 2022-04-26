@@ -34,7 +34,7 @@ suite("test_duplicate_table", "data_model") {
                 date_value date
             )
             DUPLICATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1")
         """
     sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01')"
     sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02')"
@@ -53,7 +53,7 @@ suite("test_duplicate_table", "data_model") {
                 k3 int,
                 int_value int
             )
-            DISTRIBUTED BY HASH(k1) BUCKETS 5
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
     sql "insert into ${tbName1} values(0, 1, 2, 4)"
     sql "insert into ${tbName1} values(0, 1, 2, 5)"
