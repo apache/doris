@@ -118,7 +118,7 @@ public:
         raw_res_ptr->reserve(batch_size);
 
         // adapt for outer join change column to nullable
-        if (raw_res_ptr->is_nullable()) {
+        if (raw_res_ptr->is_nullable() && !input_col_ptr->is_nullable()) {
             auto col_ptr_nullable =
                     reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
             col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
