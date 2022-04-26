@@ -113,8 +113,8 @@ OLAPStatus BetaRowsetWriter::add_block(const vectorized::Block* block) {
             // no space for another signle row, need flush now
             RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
             RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
-            DCHECK(_segment_writer->max_row_to_add(row_avg_size_in_bytes) > 0);
-            continue;
+            max_row_add = _segment_writer->max_row_to_add(row_avg_size_in_bytes);
+            DCHECK(max_row_add > 0);
         }
 
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));

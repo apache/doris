@@ -159,7 +159,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
     int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)estimate_segment_size()) / row_avg_size_in_bytes;
-    int64_t count_rows = (int64_t)_max_row_per_segment - _row_count ;
+    int64_t count_rows = (int64_t)_max_row_per_segment - _row_count;
 
     return std::min(size_rows, count_rows);
 }

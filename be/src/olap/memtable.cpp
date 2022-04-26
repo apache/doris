@@ -228,8 +228,8 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     for (uint32_t cid = _schema->num_key_columns(); cid < _schema->num_columns(); ++cid) {
         auto place = row_in_skiplist->_agg_places[cid];
         auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-        _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>( &col_ptr),
-                new_row->_row_pos,nullptr);
+        _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                new_row->_row_pos, nullptr);
     }   
     
 }

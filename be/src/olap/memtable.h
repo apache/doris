@@ -105,8 +105,9 @@ private:
     class RowInBlockComparator {
     public:
         RowInBlockComparator(const Schema* schema) : _schema(schema) {};
-        //call set_block before operator().
-        //在第一次insert block时创建的 _input_mutable_block, 所以无法在Comparator的构造函数中获得pblock
+        // call set_block before operator().
+        // only first time insert block to create _input_mutable_block,
+        // so can not Comparator of construct to set pblock
         void set_block(vectorized::MutableBlock* pblock) {_pblock = pblock;}
         int operator()(const RowInBlock* left, const RowInBlock* right) const;
     private:
