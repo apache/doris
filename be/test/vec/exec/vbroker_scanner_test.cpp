@@ -458,7 +458,3 @@ TEST_F(VBrokerScannerTest, normal5) {
 }
 } // namespace vectorized
 } // namespace doris
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

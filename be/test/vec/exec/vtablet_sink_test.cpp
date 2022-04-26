@@ -828,8 +828,3 @@ TEST_F(VOlapTableSinkTest, decimal) {
 } // namespace stream_load
 } // namespace doris
 
-int main(int argc, char** argv) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

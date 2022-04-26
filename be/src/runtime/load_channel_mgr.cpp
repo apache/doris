@@ -94,10 +94,9 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-LoadChannel* 
-LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                                     bool is_high_priority, const std::string& sender_ip) {
-    return new LoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip);
+LoadChannel* LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
+                                     bool is_high_priority, const std::string& sender_ip, bool is_vec) {
+    return new LoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip, is_vec);
 }
 
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
@@ -121,7 +120,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
             channel.reset(_create_load_channel(load_id, job_max_memory, job_timeout_s, is_high_priority,
-                                          params.sender_ip()));
+                                          params.sender_ip(), params.is_vectorized()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -142,37 +141,6 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
         _last_success_channel->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;
-}
-
-Status LoadChannelMgr::add_batch(const PTabletWriterAddBatchRequest& request,
-                                 PTabletWriterAddBatchResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    UniqueId load_id(request.id());
-    // 1. get load channel
-    std::shared_ptr<LoadChannel> channel;
-    bool is_eof;
-    auto status = _get_load_channel(channel, is_eof, load_id, request);
-    if (!status.ok() || is_eof) {
-        return status;
-    }
-
-    if (!channel->is_high_priority()) {
-        // 2. check if mem consumption exceed limit
-        // If this is a high priority load task, do not handle this.
-        // because this may block for a while, which may lead to rpc timeout.
-        _handle_mem_exceed_limit();
-    }
-
-    // 3. add batch to load channel
-    // batch may not exist in request(eg: eos request without batch),
-    // this case will be handled in load channel's add batch method.
-    RETURN_IF_ERROR(channel->add_batch(request, response));
-
-    // 4. handle finish
-    if (channel->is_finished()) {
-        _finish_load_channel(load_id);
-    }
-    return Status::OK();
 }
 
 void LoadChannelMgr::_handle_mem_exceed_limit() {
@@ -220,7 +188,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
         }
     }
 
-    if (cancelled_channel.get() != nullptr) {
+    if (cancelled_channel != nullptr) {
         cancelled_channel->cancel();
         LOG(INFO) << "load channel has been cancelled: " << load_id;
     }

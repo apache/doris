@@ -75,6 +75,7 @@ message PTabletWriterOpenRequest {
     optional int64 load_channel_timeout_s = 9;
     optional bool is_high_priority = 10 [default = false];
     optional string sender_ip = 11 [default = ""];
+    optional bool is_vectorized = 12 [default = false];
 };
 
 message PTabletWriterOpenResult {

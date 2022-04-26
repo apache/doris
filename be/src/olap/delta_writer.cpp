@@ -29,19 +29,20 @@
 
 namespace doris {
 
-OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer) {
-    *writer = new DeltaWriter(req, StorageEngine::instance());
+OLAPStatus DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, bool is_vec) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), is_vec);
     return OLAP_SUCCESS;
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
           _rowset_writer(nullptr),
           _tablet_schema(nullptr),
           _delta_written_success(false),
-          _storage_engine(storage_engine) {}
+          _storage_engine(storage_engine),
+          _is_vec(is_vec) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -195,6 +196,40 @@ OLAPStatus DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>&
     return OLAP_SUCCESS;
 }
 
+OLAPStatus DeltaWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs) {
+    if (UNLIKELY(row_idxs.empty())) {
+        return OLAP_SUCCESS;
+    }
+    std::lock_guard<std::mutex> l(_lock);
+    if (!_is_init && !_is_cancelled) {
+        RETURN_NOT_OK(init());
+    }
+
+    if (_is_cancelled) {
+        return OLAP_ERR_ALREADY_CANCELLED;
+    }
+
+    int start = 0, end = 0;
+    const size_t num_rows = row_idxs.size();
+    for (; start < num_rows;) {
+        auto count = end + 1 - start;
+        if (end == num_rows - 1 || (row_idxs[end + 1] - row_idxs[start]) != count) {
+            _mem_table->insert(block, row_idxs[start], count);
+            start += count;
+            end = start;
+        } else {
+            end++;
+        }
+    }
+
+    if (_mem_table->memory_usage() >= config::write_buffer_size) {
+        RETURN_NOT_OK(_flush_memtable_async());
+        _reset_mem_table();
+    }
+
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus DeltaWriter::_flush_memtable_async() {
     if (++_segment_counter > config::max_segment_num_per_rowset) {
         return OLAP_ERR_TOO_MANY_SEGMENTS;
@@ -252,7 +287,7 @@ OLAPStatus DeltaWriter::wait_flush() {
 void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet->tablet_id(), _schema.get(), _tablet_schema, _req.slots,
                                   _req.tuple_desc, _tablet->keys_type(), _rowset_writer.get(),
-                                  _mem_tracker));
+                                  _mem_tracker, _is_vec));
 }
 
 OLAPStatus DeltaWriter::close() {
