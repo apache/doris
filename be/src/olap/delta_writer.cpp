@@ -368,7 +368,7 @@ Status DeltaWriter::cancel() {
 }
 
 int64_t DeltaWriter::save_mem_consumption_snapshot() {
-    _mem_consumption_snapshot = _mem_tracker->consumption();
+    _mem_consumption_snapshot = mem_consumption();
     return _mem_consumption_snapshot;
 }
 
