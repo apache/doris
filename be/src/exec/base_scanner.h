@@ -21,6 +21,7 @@
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -70,6 +71,10 @@ public:
     virtual Status get_next(vectorized::Block* block, bool* eof) {
         return Status::NotSupported("Not Implemented get block");
     }
+    
+    virtual Status get_next(vectorized::Block& output_block, bool* eof) {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
     virtual void close() = 0;
@@ -112,6 +117,8 @@ protected:
     // and will be converted to `_pre_filter_ctxs` when scanner is open.
     const std::vector<TExpr> _pre_filter_texprs;
     std::vector<ExprContext*> _pre_filter_ctxs;
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
 
     bool _strict_mode;
 

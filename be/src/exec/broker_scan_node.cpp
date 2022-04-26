@@ -21,6 +21,8 @@
 #include <sstream>
 
 #include "common/object_pool.h"
+#include "vec/exec/vbroker_scanner.h"
+#include "vec/exec/vjson_scanner.h"
 #include "exec/json_scanner.h"
 #include "exec/orc_scanner.h"
 #include "exec/parquet_scanner.h"

@@ -156,7 +156,6 @@ Status BaseScanner::init_expr_ctxes() {
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_expr_ctx.emplace_back(ctx);
         }
-
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
