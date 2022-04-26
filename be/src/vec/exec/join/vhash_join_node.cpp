@@ -681,10 +681,10 @@ public:
         _work_queue.shutdown();
     }
 
-    virtual void join() { _threads.join_all(); }
+    void join() { _threads.join_all(); }
 
 private:
-    virtual bool is_shutdown() { return _shutdown; }
+    bool is_shutdown() { return _shutdown; }
 
     void work_thread(int thread_id) {
         while (!is_shutdown()) {
@@ -1199,13 +1199,13 @@ Status HashJoinNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(_hash_table_build(state));
     RETURN_IF_ERROR(child(0)->open(state));
 
-    if (state->query_options().hash_join_probe_thread_count > 1) {
+    if (state->query_options().hash_join_probe_thread_num > 1) {
         std::visit(
                 [&](auto&& arg) {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                         if constexpr (!HashTableCtxType::State::Cache::consecutive_keys_optimization) {
-                            _probe_thread_count = state->query_options().hash_join_probe_thread_count;
+                            _probe_thread_count = state->query_options().hash_join_probe_thread_num;
                         }
                     } else {
                         LOG(FATAL) << "FATAL: uninited hash table";

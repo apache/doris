@@ -138,7 +138,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
     用于设置 LLVM codegen 的等级。（当前未生效）。
 
-- `hash_join_probe_thread_count`
+- `hash_join_probe_thread_num`
 
     用于设置 hash join 时 probe 的工作线程数
 
