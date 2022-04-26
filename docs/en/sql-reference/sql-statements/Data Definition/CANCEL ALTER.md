@@ -51,12 +51,12 @@ Grammar:
 
 ## example
 [CANCEL ALTER TABLE COLUMN]
-1. 撤销针对 my_table 的 ALTER COLUMN 操作。
+1. Cancel ALTER COLUMN operation for my_table.
 CANCEL ALTER TABLE COLUMN
 FROM example_db.my_table;
 
 [CANCEL ALTER TABLE ROLLUP]
-1. 撤销 my_table 下的 ADD ROLLUP 操作。
+1. Cancel ADD ROLLUP operation for my_table.
 CANCEL ALTER TABLE ROLLUP
 FROM example_db.my_table;
 
