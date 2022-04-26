@@ -52,6 +52,3 @@ INSTALL(TARGETS DorisUdf
         ARCHIVE DESTINATION ${OUTPUT_DIR}/udf
         LIBRARY DESTINATION ${OUTPUT_DIR}/udf/lib
         PUBLIC_HEADER DESTINATION ${OUTPUT_DIR}/udf/include)
-
-#ADD_BE_TEST(udf_test)
-#ADD_BE_TEST(uda_test)

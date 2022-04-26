@@ -20,12 +20,14 @@
 # This script is used to run unit test of Doris Backend
 # Usage: $0 <options>
 #  Optional options:
-#     --clean      clean and build ut
-#     --run        build and run all ut
-#     --run xx     build and run specified ut
+#     --clean            clean and build ut
+#     --run              build and run all ut
+#     --run --filter=xx  build and run specified ut
+#     -j                 build parallel
+#     -h                 print this help message
 #
-# All BE tests must use "_test" as the file suffix, and use
-# ADD_BE_TEST() to declared in the corresponding CMakeLists.txt file.
+# All BE tests must use "_test" as the file suffix, and add the file
+# to be/test/CMakeLists.txt.
 #
 # GTest result xml files will be in "be/ut_build_ASAN/gtest_output/"
 #####################################################################
