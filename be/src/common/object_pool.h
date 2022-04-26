@@ -60,6 +60,11 @@ public:
         src->_objects.clear();
     }
 
+    uint64_t size() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _objects.size();
+    }
+
 private:
     ObjectPool(const ObjectPool&) = delete;
     void operator=(const ObjectPool&) = delete;
