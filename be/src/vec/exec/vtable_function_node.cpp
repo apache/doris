@@ -146,7 +146,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
             }
 
             // if any table function is not outer and has empty result, go to next child row
-            if ((skip_child_row = _is_inner_and_empty()) == true) {
+            if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
                 continue;
             }
 

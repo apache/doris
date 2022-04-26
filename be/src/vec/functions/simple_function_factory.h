@@ -111,6 +111,11 @@ public:
         }
     }
 
+    template <class Function>
+    void register_function(std::string name) {
+        function_creators[name] = &createDefaultFunction<Function>;
+    }
+
     void register_alias(const std::string& name, const std::string& alias) {
         function_alias[alias] = name;
     }

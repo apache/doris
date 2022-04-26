@@ -25,21 +25,17 @@
 
 namespace doris::vectorized {
 
-// We can use std::basic_fixed_string with c++20 in the future
-template <const char* Name, typename ReturnType, bool Nullable = false>
+template <typename ReturnType, bool AlwaysNullable = false>
 struct FunctionFakeBaseImpl {
-    static constexpr auto name = Name;
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        if constexpr (Nullable) {
+        if constexpr (AlwaysNullable) {
             return make_nullable(std::make_shared<ReturnType>());
         }
         return std::make_shared<ReturnType>();
     }
 };
 
-template <const char* Name>
-struct FunctionExplodeImpl {
-    static constexpr auto name = Name;
+struct FunctionExplode {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
         return make_nullable(
@@ -47,36 +43,49 @@ struct FunctionExplodeImpl {
     }
 };
 
-#define C_STR(STR) boost::mpl::c_str<BOOST_METAPARSE_STRING(#STR)>::value
+template <typename ReturnType, bool Nullable = false>
+void register_function_default(SimpleFunctionFactory& factory, const std::string& name) {
+    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType, Nullable>>>(name);
+};
 
-using FunctionEsquery = FunctionFakeBaseImpl<C_STR("esquery"), DataTypeUInt8>;
+template <typename FunctionImpl>
+void register_table_function_expand(SimpleFunctionFactory& factory, const std::string& name,
+                                    const std::string& suffix) {
+    factory.register_function<FunctionFake<FunctionImpl>>(name);
+    factory.register_function<FunctionFake<FunctionImpl>>(name + suffix);
+};
 
-#define REGISTER_TABLE_FUNCTION_DEFAULT(CLASS_NAME, FN_NAME, RETURN_TYPE)                      \
-    using CLASS_NAME = FunctionFakeBaseImpl<C_STR(FN_NAME), RETURN_TYPE, false>;               \
-    using CLASS_NAME##Outer = FunctionFakeBaseImpl<C_STR(FN_NAME##_outer), RETURN_TYPE, true>; \
-    factory.register_function<FunctionFake<CLASS_NAME>>();                                     \
-    factory.register_function<FunctionFake<CLASS_NAME##Outer>>();
+template <typename ReturnType>
+void register_table_function_expand_default(SimpleFunctionFactory& factory, const std::string& name,
+                                            const std::string& suffix) {
+    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType>>>(name);
+    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType, true>>>(name + suffix);
+};
 
-#define REGISTER_TABLE_FUNCTION(CLASS_NAME, FN_NAME, RETURN_TYPE_IMPL)  \
-    using CLASS_NAME = RETURN_TYPE_IMPL<C_STR(FN_NAME)>;                \
-    using CLASS_NAME##Outer = RETURN_TYPE_IMPL<C_STR(FN_NAME##_outer)>; \
-    factory.register_function<FunctionFake<CLASS_NAME>>();              \
-    factory.register_function<FunctionFake<CLASS_NAME##Outer>>();
+template <typename FunctionImpl>
+void register_table_function_expand_outer(SimpleFunctionFactory& factory, const std::string& name) {
+    register_table_function_expand<FunctionImpl>(factory, name, COMBINATOR_SUFFIX_OUTER);
+};
+
+template <typename ReturnType>
+void register_table_function_expand_outer_default(SimpleFunctionFactory& factory,
+                                                  const std::string& name) {
+    register_table_function_expand_default<ReturnType>(factory, name, COMBINATOR_SUFFIX_OUTER);
+};
 
 void register_function_fake(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionFake<FunctionEsquery>>();
+    register_function_default<DataTypeUInt8>(factory, "esquery");
 
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeSplit, explode_split, DataTypeString);
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeNumbers, explode_numbers, DataTypeInt32);
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeJsonArrayInt, explode_json_array_int,
-                                    DataTypeInt64);
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeJsonArrayString, explode_json_array_string,
-                                    DataTypeString);
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeJsonArrayDouble, explode_json_array_double,
-                                    DataTypeFloat64);
-    REGISTER_TABLE_FUNCTION_DEFAULT(FunctionExplodeBitmap, explode_bitmap, DataTypeInt64);
+    register_table_function_expand_outer<FunctionExplode>(factory, "explode");
 
-    REGISTER_TABLE_FUNCTION(FunctionExplode, explode, FunctionExplodeImpl);
+    register_table_function_expand_outer_default<DataTypeString>(factory, "explode_split");
+    register_table_function_expand_outer_default<DataTypeInt32>(factory, "explode_numbers");
+    register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
+    register_table_function_expand_outer_default<DataTypeString>(factory,
+                                                                 "explode_json_array_string");
+    register_table_function_expand_outer_default<DataTypeFloat64>(factory,
+                                                                  "explode_json_array_double");
+    register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");
 }
 
 } // namespace doris::vectorized

@@ -32,7 +32,7 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
-    static constexpr auto name = Impl::name;
+    static constexpr auto name = "fake";
 
     static FunctionPtr create() { return std::make_shared<FunctionFake>(); }
 
