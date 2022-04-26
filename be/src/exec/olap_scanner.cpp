@@ -272,6 +272,11 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
         SCOPED_TIMER(_parent->_scan_timer);
+        // store the object which may can't pass the conjuncts temporarily.
+        // otherwise, pushed all objects into agg_object_pool directly may lead to OOM.
+        ObjectPool tmp_object_pool;
+        // release the memory of the object which can't pass the conjuncts.
+        ObjectPool unused_object_pool;
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
@@ -280,9 +285,18 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 _update_realtime_counter();
                 break;
             }
+
+            if (tmp_object_pool.size() > 0) {
+                unused_object_pool.acquire_data(&tmp_object_pool); 
+            }
+
+            if (unused_object_pool.size() >= config::object_pool_buffer_size) {
+                unused_object_pool.clear();
+            }
+
             // Read one row from reader
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
-                                                          batch->agg_object_pool(), eof);
+                                                                 &tmp_object_pool, eof);
             if (res != OLAP_SUCCESS) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
@@ -404,6 +418,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
 
                 // check direct && pushdown conjuncts success then commit tuple
                 batch->commit_last_row();
+                batch->agg_object_pool()->acquire_data(&tmp_object_pool);
                 char* new_tuple = reinterpret_cast<char*>(tuple);
                 new_tuple += _tuple_desc->byte_size();
                 tuple = reinterpret_cast<Tuple*>(new_tuple);

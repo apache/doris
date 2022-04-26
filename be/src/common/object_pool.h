@@ -60,6 +60,11 @@ public:
         src->_objects.clear();
     }
 
+    uint64_t size() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _objects.size();
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(ObjectPool);
 
