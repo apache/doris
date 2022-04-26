@@ -67,7 +67,11 @@ Status DataConsumerPool::get_consumer_grp(StreamLoadContext* ctx,
                 "PAUSE: Currently only support consumer group for Kafka data source");
     }
     DCHECK(ctx->kafka_info);
-    DCHECK(ctx->kafka_info->begin_offset.size() > 0);
+
+    if (ctx->kafka_info->begin_offset.size() == 0) {
+        return Status::InternalError(
+                "PAUSE: The size of begin_offset of task should not be 0.");
+    }
 
     std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
 

@@ -468,6 +468,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 partitionOffsets = KafkaUtil.getOffsetsForTimes(this.brokerList, this.topic, convertedCustomProperties, partitionOffsets);
             } catch (LoadException e) {
                 LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                        .add("partition:timestamp", Joiner.on(",").join(partitionOffsets))
                         .add("error_msg", "Job failed to fetch current offsets from times with error " + e.getMessage())
                         .build(), e);
                 throw new UserException(e);
