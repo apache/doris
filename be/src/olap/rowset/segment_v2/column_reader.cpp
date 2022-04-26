@@ -417,7 +417,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     array_batch->get_offset_by_length(dst->current_offset(), *n);
 
     // 2. read null
-    if (dst->is_nullable()) {
+    if (_array_reader->is_nullable()) {
+        DCHECK(dst->is_nullable());
         auto null_batch = array_batch->get_null_as_batch();
         ColumnBlock null_block(&null_batch, nullptr);
         ColumnBlockView null_view(&null_block, dst->current_offset());
