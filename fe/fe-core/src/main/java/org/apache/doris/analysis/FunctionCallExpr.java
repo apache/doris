@@ -83,6 +83,18 @@ public class FunctionCallExpr extends Expr {
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
+    private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
+        new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+            .add("min").add("max").add("lead").add("lag")
+            .add("first_value").add("last_value").add("abs")
+            .add("positive").add("negative").build();
+    private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
+        new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+            .add("sum").add("avg").add("multi_distinct_sum").build();
+    private static final  ImmutableSet<String> DECIMAL_FUNCTION_SET =
+        new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
+            .addAll(DECIMAL_SAME_TYPE_SET)
+            .addAll(DECIMAL_WIDER_TYPE_SET).build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     // use to record the num of json_object parameters 
@@ -1021,6 +1033,16 @@ public class FunctionCallExpr extends Expr {
             }
         } else {
             this.type = fn.getReturnType();
+        }
+
+        // DECIMAL need to pass precision and scale to be
+        if (DECIMAL_FUNCTION_SET.contains(fn.getFunctionName().getFunction()) && this.type.isDecimalV2()) {
+            if (DECIMAL_SAME_TYPE_SET.contains(fnName.getFunction())) {
+                this.type = argTypes[0];
+            } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
+                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION,
+                    ((ScalarType) argTypes[0]).getScalarScale());
+            }
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
