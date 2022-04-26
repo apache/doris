@@ -3,6 +3,7 @@
     "title": "sequence 列",
     "language": "zh-CN"
 }
+
 ---
 
 <!-- 
@@ -28,7 +29,7 @@ under the License.
 
 sequence列目前只支持Uniq模型，Uniq模型主要针对需要唯一主键的场景，可以保证主键唯一性约束，但是由于使用REPLACE聚合方式，在同一批次中导入的数据，替换顺序不做保证，详细介绍可以参考[数据模型](../../data-table/data-model.md)。替换顺序无法保证则无法确定最终导入到表中的具体数据，存在了不确定性。
 
-为了解决这个问题，Doris支持了sequence列，通过用户在导入时指定sequence列，相同key列下，REPLACE聚合类型的列将按照sequence列的值进行替换，较大值可以替换较小值，反之则无法替换。该方法将顺序的确定交给了用户，由用户控制替换顺序。
+为了解决这个问题，Doris支持了sequence列，通过用户在导入时指定sequence列，对于该批次导入数据中相同key列的数据，REPLACE聚合类型的列将按照sequence列的值选取一个最大值所在的数据，从而替换Doris中对应key的数据。
 
 ## 适用场景
 
@@ -143,9 +144,29 @@ PROPERTIES
 
 1. 创建支持sequence column的表
 
+```sql
+CREATE TABLE `test`.`test_table` (
+    `user_id` BIGINT(20),
+    `date` DATE,
+    `group_id` BIGINT(20),
+    `modify_date` DATE,
+    `keyword` VARCHAR(128)
+) ENGINE=OLAP
+UNIQUE KEY(`user_id`,`date`,`group_id`)
+COMMENT "OLAP"
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+PROPERTIES (
+"replication_num" = "1",
+"function_column.sequence_type" = 'Date',
+"in_memory" = "false",
+"storage_format" = "V2"
+);
+```
+
 表结构如下：
 
 ```sql
+MySQL > SET show_hidden_columns=true;
 MySQL > desc test_table;
 +-------------+--------------+------+-------+---------+---------+
 | Field       | Type         | Null | Key   | Default | Extra   |
@@ -188,9 +209,9 @@ MySQL > select * from test_table;
 +---------+------------+----------+-------------+---------+
 ```
 
-在这次导入中，因sequence column的值（也就是modify_date中的值）中'2020-03-05'为最大值，所以keyword列中最终保留了c。
+在这次导入的数据中，因sequence column的值（也就是modify_date中的值）中'2020-03-05'为最大值，所以keyword列中最终保留了c。
 
-3. 替换顺序的保证
+3. 再次导入数据
 
 上述步骤完成后，接着导入如下数据
 
@@ -199,23 +220,7 @@ MySQL > select * from test_table;
 1       2020-02-22      1       2020-02-23      b
 ```
 
-查询数据
-
-```sql
-MySQL [test]> select * from test_table;
-+---------+------------+----------+-------------+---------+
-| user_id | date       | group_id | modify_date | keyword |
-+---------+------------+----------+-------------+---------+
-|       1 | 2020-02-22 |        1 | 2020-03-05  | c       |
-+---------+------------+----------+-------------+---------+
-```
-
-由于新导入的数据的sequence column都小于表中已有的值，无法替换 再尝试导入如下数据
-
-```text
-1       2020-02-22      1       2020-02-22      a
-1       2020-02-22      1       2020-03-23      w
-```
+在这次导入的数据中，因sequence column的值（也就是modify_date中的值）中'22020-02-23'为最大值，所以keyword列中最终保留了b。
 
 查询数据
 
@@ -224,11 +229,8 @@ MySQL [test]> select * from test_table;
 +---------+------------+----------+-------------+---------+
 | user_id | date       | group_id | modify_date | keyword |
 +---------+------------+----------+-------------+---------+
-|       1 | 2020-02-22 |        1 | 2020-03-23  | w       |
+|       1 | 2020-02-22 |        1 | 2020-02-23  | b       |
 +---------+------------+----------+-------------+---------+
 ```
 
-此时就可以替换表中原有的数据
-
-
-
+最后，指定sequence column是在导入批次数据中对相同key数据选择列值最大的那一条，从而插入到Doris表中。
