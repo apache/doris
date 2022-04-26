@@ -966,8 +966,9 @@ private:
                    !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                      check_and_get_data_type<DataTypeDate>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
-        } else
+        } else {
             function = FunctionTo<DataType>::Type::create();
+        }
 
         /// Check conversion using underlying function
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }

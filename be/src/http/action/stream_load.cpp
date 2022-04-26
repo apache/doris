@@ -98,6 +98,8 @@ static TFileFormatType::type parse_format(const std::string& format_str,
         if (compress_type.empty()) {
             format_type = TFileFormatType::FORMAT_JSON;
         }
+    } else if (boost::iequals(format_str, "PARQUET")) {
+        format_type = TFileFormatType::FORMAT_PARQUET;
     }
     return format_type;
 }

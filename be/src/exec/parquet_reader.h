@@ -79,6 +79,9 @@ public:
     Status size(int64_t* size);
     Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                const std::string& timezone);
+    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
+                    const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                    bool* eof);
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -86,6 +89,7 @@ private:
     Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     Status set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc);
     Status read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
+    const std::shared_ptr<arrow::RecordBatch>& get_batch();
     Status handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t* buf,
                             int32_t* wbtyes);
 

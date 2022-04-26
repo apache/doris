@@ -255,6 +255,9 @@ public class StreamLoadTask implements LoadTaskInfo {
             case FILE_STREAM:
                 path = request.getPath();
                 break;
+            case FILE_LOCAL:
+                path = request.getPath();
+                break;
             default:
                 throw new UserException("unsupported file type, type=" + request.getFileType());
         }

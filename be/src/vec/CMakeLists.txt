@@ -100,6 +100,7 @@ set(VEC_FILES
   exec/vtable_function_node.cpp
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
+  exec/vparquet_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -193,7 +194,8 @@ set(VEC_FILES
   runtime/vsorted_run_merger.cpp
   runtime/vload_channel.cpp
   runtime/vload_channel_mgr.cpp
-  runtime/vtablets_channel.cpp)
+  runtime/vtablets_channel.cpp
+  utils/arrow_column_to_doris_column.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

@@ -20,6 +20,7 @@
 
 #include "common/status.h"
 #include "exprs/expr.h"
+#include "vec/exprs/vexpr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 
@@ -34,6 +35,7 @@ class RuntimeState;
 class ExprContext;
 
 namespace vectorized {
+class VExprContext;
 class IColumn;
 using MutableColumnPtr = IColumn::MutablePtr;
 }
@@ -94,6 +96,8 @@ protected:
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
+    // for vec
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctxs;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -103,6 +107,8 @@ protected:
     // and will be converted to `_pre_filter_ctxs` when scanner is open.
     const std::vector<TExpr> _pre_filter_texprs;
     std::vector<ExprContext*> _pre_filter_ctxs;
+    // for vec
+    std::vector<vectorized::VExprContext*> _pre_filter_vctxs;
 
     bool _strict_mode;
 
