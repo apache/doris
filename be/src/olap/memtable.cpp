@@ -135,6 +135,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
     _rows++;
     bool overwritten = false;
     if (_keys_type == KeysType::DUP_KEYS) {
+        // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
         _vec_skip_list->Insert(row_in_block, &overwritten);
         DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
         return;
@@ -148,7 +149,7 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
         for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++){
             auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
             auto place = row_in_block->_agg_places[cid];
-            _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>( &col_ptr),
+            _agg_functions[cid]->add(place, const_cast<const doris::vectorized::IColumn**>(&col_ptr),
                                      row_in_block->_row_pos, nullptr);
         }
         
