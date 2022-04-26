@@ -351,7 +351,7 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showRollupStmt.getMetaData(), rowSets);
     }
 
-    // Handle show authors
+    // Handle show processlist
     private void handleShowProcesslist() {
         ShowProcesslistStmt showStmt = (ShowProcesslistStmt) stmt;
         List<List<String>> rowSet = Lists.newArrayList();
@@ -530,7 +530,7 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    // Show clusters
+    // Show migrations
     private void handleShowMigrations() throws AnalysisException {
         final ShowMigrationsStmt showStmt = (ShowMigrationsStmt) stmt;
         final List<List<String>> rows = Lists.newArrayList();
