@@ -245,11 +245,14 @@ struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
     doris::vectorized::UInt8 size_degree = initial_size_degree;
 
-    /// The size of the hash table in the cells.
-    size_t buf_size() const { return 1ULL << size_degree; }
+    size_t _buf_size = 1ULL << initial_size_degree;
+    size_t _max_fill = 1ULL << (initial_size_degree - 1);
 
-    size_t max_fill() const { return 1ULL << (size_degree - 1); }
-    size_t mask() const { return buf_size() - 1; }
+    /// The size of the hash table in the cells.
+    size_t buf_size() const { return _buf_size; }
+
+    size_t max_fill() const { return _max_fill; }
+    size_t mask() const { return _buf_size - 1; }
 
     /// From the hash value, get the cell number in the hash table.
     size_t place(size_t x) const { return x & mask(); }
@@ -261,10 +264,13 @@ struct HashTableGrower {
     }
 
     /// Whether the hash table is sufficiently full. You need to increase the size of the hash table, or remove something unnecessary from it.
-    bool overflow(size_t elems) const { return elems > max_fill(); }
+    bool overflow(size_t elems) const { return elems > _max_fill; }
 
     /// Increase the size of the hash table.
-    void increase_size() { size_degree += size_degree >= 23 ? 1 : 2; }
+    void increase_size() {
+        size_degree += size_degree >= 23 ? 1 : 2;
+        _size_degree_updated();
+    }
 
     /// Set the buffer size by the number of elements in the hash table. Used when deserializing a hash table.
     void set(size_t num_elems) {
@@ -274,10 +280,17 @@ struct HashTableGrower {
                         : ((initial_size_degree > static_cast<size_t>(log2(num_elems - 1)) + 2)
                                    ? initial_size_degree
                                    : (static_cast<size_t>(log2(num_elems - 1)) + 2));
+        _size_degree_updated();
     }
 
     void set_buf_size(size_t buf_size_) {
         size_degree = static_cast<size_t>(log2(buf_size_ - 1) + 1);
+        _size_degree_updated();
+    }
+
+    void _size_degree_updated() {
+        _buf_size = 1ULL << size_degree;
+        _max_fill = 1ULL << (size_degree - 1);
     }
 };
 
