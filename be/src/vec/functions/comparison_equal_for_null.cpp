@@ -79,7 +79,7 @@ public:
             func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
 
             if (left_nullable) {
-                auto res_column = std::move(*temporary_block.get_by_position(2).column).mutate();
+                auto res_column = temporary_block.get_by_position(2).column->assume_mutable();
                 auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
                 const auto& left_null_map = left_column->get_null_map_data();
                 const auto& right_null_map = right_column->get_null_map_data();
@@ -109,7 +109,7 @@ public:
             func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
 
             auto res_nullable_column = assert_cast<ColumnNullable*>(
-                    std::move(*temporary_block.get_by_position(2).column).mutate().get());
+                    temporary_block.get_by_position(2).column->assume_mutable().get());
             auto& null_map = res_nullable_column->get_null_map_data();
             auto& res_map =
                     assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column())

@@ -576,7 +576,7 @@ Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprN
 
 Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
                                                        uint16_t pos) {
-    auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
+    auto column = part_key->first->get_by_position(pos).column->assume_mutable();
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         vectorized::VecDateTimeValue dt;

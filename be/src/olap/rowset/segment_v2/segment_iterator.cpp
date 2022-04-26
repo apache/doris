@@ -800,7 +800,7 @@ void SegmentIterator::_init_current_block(
         if (_is_pred_column[cid]) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
-            current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+            current_columns[cid] = block->get_by_position(i).column->assume_mutable();
 
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();

@@ -308,7 +308,7 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
     {
         auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
         auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
-        auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
+        auto mutable_nullable_vector = column_nullable_vector->assume_mutable();
         for (int i = 0; i < 4096; i++) {
             mutable_nullable_vector->insert(vectorized::cast_to_nearest_field_type(i));
         }
@@ -359,7 +359,7 @@ TEST(BlockTest, dump_data) {
 
     auto column_vector_int32 = vectorized::ColumnVector<Int32>::create();
     auto column_nullable_vector = vectorized::make_nullable(std::move(column_vector_int32));
-    auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
+    auto mutable_nullable_vector = column_nullable_vector->assume_mutable();
     for (int i = 0; i < 4096; i++) {
         mutable_nullable_vector->insert(vectorized::cast_to_nearest_field_type(i));
     }

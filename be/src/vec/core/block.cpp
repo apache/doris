@@ -382,7 +382,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
-            std::string s = "";
+            std::string s;
             if (data[i].column) {
                 s = data[i].to_string(row_num);
             }
@@ -444,7 +444,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
+        columns[i] = data[i].column ? data[i].column->assume_mutable()
                                     : data[i].type->create_column();
     }
     return columns;
@@ -587,7 +587,7 @@ void filter_block_internal(Block* block, const IColumn::Filter& filter, uint32_t
     auto count = count_bytes_in_filter(filter);
     if (count == 0) {
         for (size_t i = 0; i < column_to_keep; ++i) {
-            std::move(*block->get_by_position(i).column).mutate()->clear();
+            block->get_by_position(i).column->assume_mutable()->clear();
         }
     } else {
         if (count != block->rows()) {
@@ -628,7 +628,7 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         bool ret = const_column->get_bool(0);
         if (!ret) {
             for (size_t i = 0; i < column_to_keep; ++i) {
-                std::move(*block->get_by_position(i).column).mutate()->clear();
+                block->get_by_position(i).column->assume_mutable();
             }
         }
     } else {

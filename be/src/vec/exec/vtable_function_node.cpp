@@ -101,7 +101,7 @@ Status VTableFunctionNode::get_expanded_block(RuntimeState* state, Block* output
     std::vector<vectorized::MutableColumnPtr> columns(column_size);
     for (size_t i = 0; i < column_size; i++) {
         if (mem_reuse) {
-            columns[i] = std::move(*output_block->get_by_position(i).column).mutate();
+            columns[i] = output_block->get_by_position(i).column->assume_mutable();
         } else {
             columns[i] = _output_slots[i]->get_empty_mutable_column();
         }

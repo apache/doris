@@ -483,9 +483,8 @@ struct ProcessHashTableProbe {
                     if (!other_hit) {
                         for (size_t j = 0; j < right_col_len; ++j) {
                             typeid_cast<ColumnNullable*>(
-                                    std::move(*output_block->get_by_position(j + right_col_idx)
-                                                       .column)
-                                            .mutate()
+                                    output_block->get_by_position(j + right_col_idx)
+                                            .column->assume_mutable()
                                             .get())
                                     ->get_null_map_data()[i] = true;
                         }

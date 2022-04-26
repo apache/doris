@@ -359,13 +359,6 @@ public:
         return false;
     }
 
-    MutablePtr mutate() const&& {
-        MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn(
-                [](WrappedPtr& subcolumn) { subcolumn = std::move(*subcolumn).mutate(); });
-        return res;
-    }
-
     /** Some columns can contain another columns inside.
       * So, we have a tree of columns. But not all combinations are possible.
       * There are the following rules:

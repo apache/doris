@@ -391,9 +391,9 @@ public:
             _columns.resize(block.columns());
             for (size_t i = 0; i < block.columns(); ++i) {
                 if (block.get_by_position(i).column) {
-                    _columns[i] = (*std::move(block.get_by_position(i)
-                                                      .column->convert_to_full_column_if_const()))
-                                          .mutate();
+                    _columns[i] = block.get_by_position(i)
+                                          .column->convert_to_full_column_if_const()
+                                          ->assume_mutable();
                 } else {
                     _columns[i] = _data_types[i]->create_column();
                 }

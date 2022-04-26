@@ -460,7 +460,7 @@ Status AggregationNode::_get_without_key_result(RuntimeState* state, Block* bloc
             // unless `count`, other aggregate function dispose empty set should be null
             // so here check the children row return
             ptr = make_nullable(ptr, _children[0]->rows_returned() == 0);
-            columns[i] = std::move(*ptr).mutate();
+            columns[i] = ptr->assume_mutable();
         }
     }
 
@@ -691,9 +691,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         MutableColumns value_columns;
                         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
                             if (mem_reuse) {
-                                value_columns.emplace_back(
-                                        std::move(*out_block->get_by_position(i + key_size).column)
-                                                .mutate());
+                                value_columns.emplace_back(out_block->get_by_position(i + key_size)
+                                                                   .column->assume_mutable());
                             } else {
                                 // slot type of value it should always be string type
                                 value_columns.emplace_back(serialize_string_type->create_column());
@@ -726,8 +725,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                             out_block->swap(Block(columns_with_schema));
                         } else {
                             for (int i = 0; i < key_size; ++i) {
-                                std::move(*out_block->get_by_position(i).column)
-                                        .mutate()
+                                out_block->get_by_position(i)
+                                        .column->assume_mutable()
                                         ->insert_range_from(*key_columns[i], 0, rows);
                             }
                         }
@@ -847,7 +846,7 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
         if (!mem_reuse) {
             key_columns.emplace_back(column_withschema[i].type->create_column());
         } else {
-            key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            key_columns.emplace_back(block->get_by_position(i).column->assume_mutable());
         }
     }
     MutableColumns value_columns;
@@ -855,7 +854,7 @@ Status AggregationNode::_get_with_serialized_key_result(RuntimeState* state, Blo
         if (!mem_reuse) {
             value_columns.emplace_back(column_withschema[i].type->create_column());
         } else {
-            value_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            value_columns.emplace_back(block->get_by_position(i).column->assume_mutable());
         }
     }
 
@@ -925,7 +924,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     MutableColumns key_columns;
     for (int i = 0; i < key_size; ++i) {
         if (mem_reuse) {
-            key_columns.emplace_back(std::move(*block->get_by_position(i).column).mutate());
+            key_columns.emplace_back(block->get_by_position(i).column->assume_mutable());
         } else {
             key_columns.emplace_back(_probe_expr_ctxs[i]->root()->data_type()->create_column());
         }
@@ -937,7 +936,7 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         value_data_types[i] = serialize_string_type;
         if (mem_reuse) {
-            value_columns[i] = std::move(*block->get_by_position(i + key_size).column).mutate();
+            value_columns[i] = block->get_by_position(i + key_size).column->assume_mutable();
         } else {
             value_columns[i] = serialize_string_type->create_column();
         }

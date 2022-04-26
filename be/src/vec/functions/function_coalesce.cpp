@@ -129,9 +129,9 @@ public:
                     block.get_by_position(filtered_args[i]).column;
             func_is_not_null->execute(context, temporary_block, {0}, 1, input_rows_count);
 
-            auto res_column =
-                    (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
-                            .mutate();
+            auto res_column = temporary_block.get_by_position(1)
+                                      .column->convert_to_full_column_if_const()
+                                      ->assume_mutable();
             auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
             auto* __restrict res = res_map.data();
 

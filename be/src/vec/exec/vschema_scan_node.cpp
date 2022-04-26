@@ -77,7 +77,7 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     do {
         for (int i = 0; i < _slot_num; ++i) {
             if (mem_reuse) {
-                columns[i] = std::move(*block->get_by_position(i).column).mutate();
+                columns[i] = block->get_by_position(i).column->assume_mutable();
             } else {
                 columns[i] = _dest_tuple_desc->slots()[i]->get_empty_mutable_column();
             }

@@ -383,7 +383,7 @@ void VSetOperationNode::create_mutable_cols(Block* output_block) {
 
     for (int i = 0; i < _left_table_data_types.size(); ++i) {
         if (mem_reuse) {
-            _mutable_cols[i] = (std::move(*output_block->get_by_position(i).column).mutate());
+            _mutable_cols[i] = output_block->get_by_position(i).column->assume_mutable();
         } else {
             _mutable_cols[i] = (_left_table_data_types[i]->create_column());
         }

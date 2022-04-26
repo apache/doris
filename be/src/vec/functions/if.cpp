@@ -270,7 +270,7 @@ public:
             if (cond_col) {
                 if (is_column_nullable(*arg_else.column)) {
                     auto arg_else_column = arg_else.column;
-                    auto result_column = (*std::move(arg_else_column)).mutate();
+                    auto result_column = arg_else_column->assume_mutable();
                     assert_cast<ColumnNullable&>(*result_column)
                             .apply_null_map(assert_cast<const ColumnUInt8&>(*arg_cond.column));
                     block.replace_by_position(result, std::move(result_column));
@@ -313,7 +313,7 @@ public:
 
                 if (is_column_nullable(*arg_then.column)) {
                     auto arg_then_column = arg_then.column;
-                    auto result_column = (*std::move(arg_then_column)).mutate();
+                    auto result_column = arg_then_column->assume_mutable();
                     assert_cast<ColumnNullable&>(*result_column)
                             .apply_negated_null_map(
                                     assert_cast<const ColumnUInt8&>(*arg_cond.column));
