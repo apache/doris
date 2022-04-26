@@ -48,7 +48,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     }
     @Test
     public void testQueryPlanAction() throws IOException, TException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }");
+        RequestBody body = RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }", JSON);
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
@@ -67,8 +67,6 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
             Assert.assertNotNull(tabletObject.get("routings"));
             Assert.assertEquals(3, ((JSONArray) tabletObject.get("routings")).size());
             Assert.assertEquals(testStartVersion, (long) tabletObject.get("version"));
-            Assert.assertEquals(testSchemaHash, (long) tabletObject.get("schemaHash"));
-
         }
         String queryPlan = (String) ((JSONObject) jsonObject.get("data")).get("opaqued_query_plan");
         Assert.assertNotNull(queryPlan);

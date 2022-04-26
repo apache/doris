@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
@@ -128,5 +129,23 @@ public class CreateViewTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("OlapScanNode"));
+    }
+
+    @Test
+    public void testAlterView() throws Exception {
+        String originStmt = "select k1 as kc1, sum(k2) as kc2 from test.tbl1 group by kc1";
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.alter1 as " + originStmt));
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        View alter1 = (View) db.getTableOrDdlException("alter1");
+        Assert.assertEquals("SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `default_cluster:test`.`tbl1` GROUP BY `kc1`", alter1.getInlineViewDef());
+
+        String alterStmt = "alter view test.alter1 as with test1_cte (w1, w2) as (select k1, k2 from test.tbl1) select w1 as c1, sum(w2) as c2 from test1_cte where w1 > 10 group by w1 order by w1";
+        AlterViewStmt alterViewStmt = (AlterViewStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmt, connectContext);
+        Catalog.getCurrentCatalog().alterView(alterViewStmt);
+
+        alter1 = (View) db.getTableOrDdlException("alter1");
+        System.out.println(alter1.getInlineViewDef());
+        Assert.assertEquals("WITH test1_cte(w1, w2) AS (SELECT `k1` AS `k1`, `k2` AS `k2` FROM `default_cluster:test`.`tbl1`) SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC", alter1.getInlineViewDef());
     }
 }

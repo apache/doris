@@ -36,7 +36,7 @@ suite("test_list_partition", "partition") {
             PARTITION p1 VALUES IN ("1","2","3","4"), 
             PARTITION p2 VALUES IN ("5","6","7","8","9","10","11","12","13","14"), 
             PARTITION p3 VALUES IN ("15") ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 5
+        DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1")
         """
     List<List<Object>> result1  = sql "show tables like 'list_par'"
     logger.info("${result1}")

@@ -1991,8 +1991,8 @@ public class QueryPlanTest {
     public void testExplainInsertInto() throws Exception {
         ExplainTest explainTest = new ExplainTest();
         explainTest.before(connectContext);
-        explainTest.testExplainInsertInto();
         explainTest.testExplainSelect();
+        explainTest.testExplainInsertInto();
         explainTest.testExplainVerboseSelect();
         explainTest.testExplainConcatSelect();
         explainTest.testExplainVerboseConcatSelect();
@@ -2097,7 +2097,8 @@ public class QueryPlanTest {
                 "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
     }
 
     @Test

@@ -19,7 +19,7 @@ suite("test_bitmap_int", "datatype") {
     sql "DROP TABLE IF EXISTS test_int_bitmap"
     sql """
         CREATE TABLE test_int_bitmap (`id` int, `bitmap_set` bitmap bitmap_union) 
-        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5
+        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
         """
     sql "insert into test_int_bitmap values(1, bitmap_hash(1)), (2, bitmap_hash(2)), (3, bitmap_hash(3))"
 
