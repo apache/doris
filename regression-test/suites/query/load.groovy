@@ -38,7 +38,7 @@ suite("load") {
             `k12` string replace null comment "",
             `k13` largeint(40) replace null comment ""
         ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
         """
     sql """
         CREATE TABLE `test` (
@@ -57,7 +57,7 @@ suite("load") {
             `k12` string replace_if_not_null null comment "",
             `k13` largeint(40) replace null comment ""
         ) engine=olap
-        DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 5 properties("replication_num" = "1")
         """
     streamLoad {
         table "baseall"
