@@ -273,8 +273,8 @@ CollectIterator::Level1Iterator::Level1Iterator(
         const std::list<CollectIterator::LevelIterator*>& children,
         bool merge, bool reverse, int sequence_id_idx, uint64_t* merge_count,
         SortType sort_type, int sort_col_num)
-        : _children(children), _merge(merge), _reverse(reverse), _merged_rows(merge_count),
-        _sort_type(sort_type), _sort_col_num(sort_col_num) {}
+        : _children(children), _merge(merge), _reverse(reverse), _sequence_id_idx(sequence_id_idx),
+        _merged_rows(merge_count), _sort_type(sort_type), _sort_col_num(sort_col_num) {}
 
 CollectIterator::LevelIterator::~LevelIterator() = default;
 
