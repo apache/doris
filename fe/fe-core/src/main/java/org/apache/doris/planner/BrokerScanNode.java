@@ -508,10 +508,11 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
-                    if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null)
+                    if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
                         rangeDesc.hdfs_params.setFsName(fsName);
-                    else if (rangeDesc.hdfs_params == null)
+                    } else if (rangeDesc.hdfs_params == null) {
                         rangeDesc.setHdfsParams(tHdfsParams);
+                    }
 
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
@@ -535,10 +536,11 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                 }
-                if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null)
+                if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
                     rangeDesc.hdfs_params.setFsName(fsName);
-                else if (rangeDesc.hdfs_params == null)
+                } else if (rangeDesc.hdfs_params == null) {
                     rangeDesc.setHdfsParams(tHdfsParams);
+                }
 
                 rangeDesc.setReadByColumnDef(true);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
