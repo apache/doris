@@ -87,9 +87,10 @@ Status VParquetScanner::next_arrow_batch() {
 Status VParquetScanner::init_arrow_batch_if_necessary() {
     // 1. init batch if first time 
     // 2. reset reader if end of file
+    Status status;
     if (_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
         while (!_scanner_eof) {
-            Status status = next_arrow_batch();
+            status = next_arrow_batch();
             if (_scanner_eof) {
                 return status;
             }
@@ -100,7 +101,7 @@ Status VParquetScanner::init_arrow_batch_if_necessary() {
             return status;
         }
     }
-    return Status::OK();
+    return status;
 }
 
 Status VParquetScanner::init_src_block(Block* block) {
@@ -111,7 +112,7 @@ Status VParquetScanner::init_src_block(Block* block) {
             continue;
         }
         auto* array = _batch->column(batch_pos++).get();
-        auto pt = arrow_type_to_pt(array->type()->id());
+        auto pt = arrow_type_to_primitive_type(array->type()->id());
         if (pt == INVALID_TYPE) {
             return Status::NotSupported(fmt::format(
                 "Not support arrow type:{}", array->type()->name()));
@@ -179,11 +180,7 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
     RETURN_IF_ERROR(eval_conjunts(&src_block));
     // materialize, src block => dest columns
     RETURN_IF_ERROR(materialize_block(&src_block, columns));
-    if (_scanner_eof) {
-        *eof = true;
-    } else {
-        *eof = false;
-    }
+    *eof = _scanner_eof;
     return Status::OK();
 }
 

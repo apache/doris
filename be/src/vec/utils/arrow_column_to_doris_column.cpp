@@ -66,7 +66,7 @@
 
 namespace doris::vectorized {
 
-const PrimitiveType arrow_type_to_pt(::arrow::Type::type type) {
+const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type) {
     switch(type) {
 #    define DISPATCH(ARROW_TYPE, CPP_TYPE) \
         case ARROW_TYPE: \
@@ -85,7 +85,7 @@ static size_t fill_nullable_column(const arrow::Array* array, size_t array_idx, 
     NullMap& map_data = nullable_column->get_null_map_data();
     for (size_t i = 0; i < num_elements; ++i) {
         auto is_null = array->IsNull(array_idx + i);
-        map_data.push_back(is_null);
+        map_data.emplace_back(is_null);
         null_elements_count += is_null;
     }
     return null_elements_count;
