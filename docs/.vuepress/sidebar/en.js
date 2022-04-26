@@ -259,6 +259,18 @@ module.exports = [
       "flink-doris-connector",
       "datax",
       {
+        title: "Doris Manager",
+        directoryPath: "doris-manager/",
+        children: [
+          "compiling-deploying",
+          "initializing",
+          "space-list",
+          "system-settings",
+          "cluster-managenent",
+          "space-management"
+        ],
+      },
+      {
         title: "Seatunnel",
         directoryPath: "seatunnel/",
         initialOpenGroupIndex: -1,
