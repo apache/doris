@@ -132,12 +132,12 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
         size_t segment_max_row_num;
         size_t input_row_num;
         do {
-            assert(row_offset < block_row_num);
+            CHECK(row_offset < block_row_num);
             segment_max_row_num =
                     std::max(std::min((size_t)segment_capacity_in_bytes / row_avg_size_in_bytes,
                              (size_t)segment_capacity_in_rows), (size_t)1);
             input_row_num = std::min(segment_max_row_num, block_row_num - row_offset);
-            assert(input_row_num > 0);
+            CHECK(input_row_num > 0);
             auto s = _segment_writer->append_block(block, row_offset, input_row_num);
             if (UNLIKELY(!s.ok())) {
                 LOG(WARNING) << "failed to append block: " << s.to_string();
@@ -187,7 +187,7 @@ template Status BetaRowsetWriter::_add_row(const RowCursor& row);
 template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
 
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
-    assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
+    CHECK(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_NOT_OK(rowset->link_files_to(_context.path_desc, _context.rowset_id));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();

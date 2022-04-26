@@ -380,7 +380,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     IteratorRowRef cur_row = _ref;
     do {
         const auto& src_block = cur_row.block;
-        assert(src_block->columns() == column_count);
+        CHECK(src_block->columns() == column_count);
         for (size_t i = 0; i < column_count; ++i) {
             target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
                                            cur_row.row_pos);

@@ -88,7 +88,7 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
 
-    std::string encode_short_keys(const std::vector<const void*> key_column_fields,
+    std::string encode_short_keys(const std::vector<const void*>& key_column_fields,
                                   bool null_first = true);
 
 private:
@@ -107,8 +107,8 @@ private:
     uint32_t _row_count = 0;
 
     vectorized::OlapBlockDataConvertor _olap_data_convertor;
-    std::vector< const KeyCoder* > _short_key_coders;
-    std::vector< uint16_t > _short_key_index_size;
+    std::vector< const KeyCoder*> _short_key_coders;
+    std::vector< uint16_t> _short_key_index_size;
     size_t _short_key_row_pos = 0;
 };
 

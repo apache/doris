@@ -192,7 +192,7 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
 }
 
 Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
-    assert(data && num_rows > 0);
+    CHECK(data && num_rows > 0);
     if (nullmap) {
         size_t bitmap_size = BitmapSize(num_rows);
         if (_null_bitmap.size() < bitmap_size) {

@@ -25,7 +25,7 @@ namespace doris::vectorized {
 
 // class OlapBlockDataConvertor
 OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema) {
-    assert(tablet_schema);
+    CHECK(tablet_schema);
     const auto& columns = tablet_schema->columns();
     for (const auto& col : columns) {
         switch (col.type()) {
@@ -111,7 +111,7 @@ OlapBlockDataConvertor::OlapBlockDataConvertor(const TabletSchema* tablet_schema
 
 void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, size_t row_pos,
                                                 size_t num_rows) {
-    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+    CHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
            block->columns() == _convertors.size());
     size_t cid = 0;
     for (const auto& typed_column : *block) {
@@ -128,7 +128,7 @@ void OlapBlockDataConvertor::clear_source_content() {
 
 std::pair<Status, IOlapColumnDataAccessorSPtr> OlapBlockDataConvertor::convert_column_data(
         size_t cid) {
-    assert(cid < _convertors.size());
+    CHECK(cid < _convertors.size());
     auto status = _convertors[cid]->convert_to_olap();
     return {status, _convertors[cid]};
 }
@@ -136,7 +136,7 @@ std::pair<Status, IOlapColumnDataAccessorSPtr> OlapBlockDataConvertor::convert_c
 // class OlapBlockDataConvertor::OlapColumnDataConvertorBase
 void OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
-    assert(num_rows > 0 && row_pos + num_rows <= typed_column.column->size());
+    CHECK(num_rows > 0 && row_pos + num_rows <= typed_column.column->size());
     _typed_column = typed_column;
     _row_pos = row_pos;
     _num_rows = num_rows;
@@ -153,7 +153,7 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorBase::clear_source_column() 
 }
 
 const UInt8* OlapBlockDataConvertor::OlapColumnDataConvertorBase::get_nullmap() const {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     return _nullmap;
 }
 
@@ -172,7 +172,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data() co
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
+    CHECK(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -181,7 +181,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorObject::get_data_at(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnBitmap* column_bitmap = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -192,7 +192,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() 
         column_bitmap = assert_cast<const vectorized::ColumnBitmap*>(_typed_column.column.get());
     }
 
-    assert(column_bitmap);
+    CHECK(column_bitmap);
     BitmapValue* bitmap_value_cur =
             const_cast<BitmapValue*>(column_bitmap->get_data().data() + _row_pos);
     BitmapValue* bitmap_value_end = bitmap_value_cur + _num_rows;
@@ -222,7 +222,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() 
             ++nullmap_cur;
             ++bitmap_value_cur;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (bitmap_value_cur != bitmap_value_end) {
             slice_size = bitmap_value_cur->getSizeInBytes();
@@ -238,7 +238,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorObject::convert_to_olap() 
             ++slice;
             ++bitmap_value_cur;
         }
-        assert(slice == _slice.get_end_ptr());
+        CHECK(slice == _slice.get_end_ptr());
     }
     return Status::OK();
 }
@@ -257,7 +257,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorHLL::get_data() const
 }
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorHLL::get_data_at(size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
+    CHECK(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     auto null_map = get_nullmap();
     if (null_map) {
@@ -267,7 +267,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorHLL::get_data_at(size
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnHLL* column_hll = nullptr;
     const UInt8* nullmap = get_nullmap();
     if (nullmap) {
@@ -279,7 +279,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
         column_hll = assert_cast<const vectorized::ColumnHLL*>(_typed_column.column.get());
     }
 
-    assert(column_hll);
+    CHECK(column_hll);
     HyperLogLog* hll_value_cur =
             const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
     HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
@@ -310,7 +310,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
             ++nullmap_cur;
             ++hll_value_cur;
         }
-        assert(nullmap_cur == nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+        CHECK(nullmap_cur == nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (hll_value_cur != hll_value_end) {
             slice_size = hll_value_cur->max_serialized_size();
@@ -327,7 +327,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
             ++slice;
             ++hll_value_cur;
         }
-        assert(slice == _slice.get_end_ptr());
+        CHECK(slice == _slice.get_end_ptr());
     }
     return Status::OK();
 }
@@ -335,7 +335,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
 // class OlapBlockDataConvertor::OlapColumnDataConvertorChar
 OlapBlockDataConvertor::OlapColumnDataConvertorChar::OlapColumnDataConvertorChar(size_t length)
         : _length(length) {
-    assert(length > 0);
+    CHECK(length > 0);
 }
 
 void OlapBlockDataConvertor::OlapColumnDataConvertorChar::set_source_column(
@@ -353,7 +353,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() cons
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
+    CHECK(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -362,7 +362,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnString* column_string = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -373,7 +373,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
         column_string = assert_cast<const vectorized::ColumnString*>(_typed_column.column.get());
     }
 
-    assert(column_string);
+    CHECK(column_string);
 
     const ColumnString::Char* char_data = column_string->get_chars().data();
     const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
@@ -388,7 +388,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
         while (offset_cur != offset_end) {
             if (!*nullmap_cur) {
                 string_length = *offset_cur - string_offset - 1;
-                assert(string_length <= slice_size);
+                CHECK(string_length <= slice_size);
                 memcpy(raw_data, char_data + string_offset, string_length);
 
                 slice->data = raw_data;
@@ -405,11 +405,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
             ++offset_cur;
             raw_data += slice_size;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (offset_cur != offset_end) {
             string_length = *offset_cur - string_offset - 1;
-            assert(string_length <= slice_size);
+            CHECK(string_length <= slice_size);
             memcpy(raw_data, char_data + string_offset, string_length);
 
             slice->data = raw_data;
@@ -420,7 +420,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
             ++offset_cur;
             raw_data += slice_size;
         }
-        assert(slice == _slice.get_end_ptr());
+        CHECK(slice == _slice.get_end_ptr());
     }
     return Status::OK();
 }
@@ -443,7 +443,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data() c
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _slice.size());
+    CHECK(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -452,7 +452,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::get_data_at(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnString* column_string = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -463,7 +463,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
         column_string = assert_cast<const vectorized::ColumnString*>(_typed_column.column.get());
     }
 
-    assert(column_string);
+    CHECK(column_string);
 
     const char* char_data = (const char*)(column_string->get_chars().data());
     const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
@@ -492,7 +492,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
             ++slice;
             ++offset_cur;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
@@ -505,7 +505,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
             ++slice;
             ++offset_cur;
         }
-        assert(slice == _slice.get_end_ptr());
+        CHECK(slice == _slice.get_end_ptr());
     }
     return Status::OK();
 }
@@ -524,7 +524,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data() cons
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _values.size());
+    CHECK(offset < _num_rows && _num_rows == _values.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -533,7 +533,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data_at(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -545,7 +545,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
                 _typed_column.column.get());
     }
 
-    assert(column_datetime);
+    CHECK(column_datetime);
 
     const VecDateTimeValue* datetime_cur =
             (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
@@ -563,14 +563,14 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDate::convert_to_olap() {
             ++datetime_cur;
             ++nullmap_cur;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
     } else {
         while (datetime_cur != datetime_end) {
             *value = datetime_cur->to_olap_date();
             ++value;
             ++datetime_cur;
         }
-        assert(value == _values.get_end_ptr());
+        CHECK(value == _values.get_end_ptr());
     }
     return Status::OK();
 }
@@ -589,7 +589,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::get_data() 
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _values.size());
+    CHECK(offset < _num_rows && _num_rows == _values.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -598,7 +598,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::get_data_at
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnVector<vectorized::Int64>* column_datetime = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -610,7 +610,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
                 _typed_column.column.get());
     }
 
-    assert(column_datetime);
+    CHECK(column_datetime);
 
     const VecDateTimeValue* datetime_cur =
             (const VecDateTimeValue*)(column_datetime->get_data().data()) + _row_pos;
@@ -628,14 +628,14 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
             ++datetime_cur;
             ++nullmap_cur;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
     } else {
         while (datetime_cur != datetime_end) {
             *value = datetime_cur->to_olap_datetime();
             ++value;
             ++datetime_cur;
         }
-        assert(value == _values.get_end_ptr());
+        CHECK(value == _values.get_end_ptr());
     }
     return Status::OK();
 }
@@ -654,7 +654,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::get_data() c
 
 const void* OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::get_data_at(
         size_t offset) const {
-    assert(offset < _num_rows && _num_rows == _values.size());
+    CHECK(offset < _num_rows && _num_rows == _values.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
         null_flag = _nullmap[offset];
@@ -663,7 +663,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::get_data_at(
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap() {
-    assert(_typed_column.column);
+    CHECK(_typed_column.column);
     const vectorized::ColumnDecimal<vectorized::Decimal128>* column_decimal = nullptr;
     if (_nullmap) {
         auto nullable_column =
@@ -675,7 +675,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
                 _typed_column.column.get());
     }
 
-    assert(column_decimal);
+    CHECK(column_decimal);
 
     const DecimalV2Value* decimal_cur =
             (const DecimalV2Value*)(column_decimal->get_data().data()) + _row_pos;
@@ -694,7 +694,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
             ++decimal_cur;
             ++nullmap_cur;
         }
-        assert(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
+        CHECK(nullmap_cur == _nullmap + _row_pos + _num_rows && value == _values.get_end_ptr());
     } else {
         while (decimal_cur != decimal_end) {
             value->integer = decimal_cur->int_value();
@@ -702,7 +702,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal::convert_to_olap()
             ++value;
             ++decimal_cur;
         }
-        assert(value == _values.get_end_ptr());
+        CHECK(value == _values.get_end_ptr());
     }
     return Status::OK();
 }

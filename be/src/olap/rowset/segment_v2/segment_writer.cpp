@@ -111,7 +111,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
 
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+    CHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
            block->columns() == _column_writers.size());
     _olap_data_convertor.set_source_content(block, row_pos, num_rows);
 
@@ -157,11 +157,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 }
 
 std::string SegmentWriter::encode_short_keys(
-        const std::vector<const void*> key_column_fields, bool null_first) {
+        const std::vector<const void*>& key_column_fields, bool null_first) {
     size_t num_key_columns = _tablet_schema->num_short_key_columns();
-    assert(key_column_fields.size() == num_key_columns &&
-           _short_key_coders.size() == num_key_columns &&
-           _short_key_index_size.size() == num_key_columns);
+    CHECK(key_column_fields.size() == num_key_columns &&
+          _short_key_coders.size() == num_key_columns &&
+          _short_key_index_size.size() == num_key_columns);
 
     std::string encoded_keys;
     for (size_t cid = 0; cid < num_key_columns; ++cid) {

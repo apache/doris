@@ -182,7 +182,7 @@ private:
         const void* get_data() const override { return _values; }
 
         const void* get_data_at(size_t offset) const override {
-            assert(offset < _num_rows);
+            CHECK(offset < _num_rows);
             UInt8 null_flag = 0;
             if (_nullmap) {
                 null_flag = _nullmap[offset];
@@ -202,7 +202,7 @@ private:
                         _typed_column.column.get());
             }
 
-            assert(column_data);
+            CHECK(column_data);
             _values = (const T*)(column_data->get_data().data()) + _row_pos;
             return Status::OK();
         }

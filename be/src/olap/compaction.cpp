@@ -140,7 +140,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     }
 
     std::string merge_type = config::enable_vectorized_compaction? "v": "";
-    LOG(INFO) << "succeed to do " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
+    LOG(WARNING) << "succeed to do " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
