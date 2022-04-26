@@ -182,7 +182,10 @@ public class DppUtils {
             byte value = (byte) (b ? 1 : 0);
             buffer.put(value);
         }
-        buffer.flip();
+        // do not flip buffer when the buffer was created by wrap()
+        if (!type.equals(DataTypes.StringType)) {
+            buffer.flip();
+        }
         return buffer;
     }
 
