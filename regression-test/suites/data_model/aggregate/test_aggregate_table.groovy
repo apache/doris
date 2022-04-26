@@ -35,7 +35,7 @@ suite("test_aggregate_table", "data_model") {
                 int_value_replace_if_not_null int replace_if_not_null
             )
             AGGREGATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
     sql """insert into int_agg values(0, 1, 1, 1, 1, 1)"""
     sql """insert into int_agg values(0, 2, 2, 2, 2, 2)"""
@@ -54,7 +54,7 @@ suite("test_aggregate_table", "data_model") {
                 char_value_replace_if_not_null char(10) replace_if_not_null
             )
             AGGREGATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
     sql """insert into string_agg values(0, '1', '1', '1', '1')"""
     sql """insert into string_agg values(0, '2', '2', '2', '2')"""
@@ -74,7 +74,7 @@ suite("test_aggregate_table", "data_model") {
                 date_value_replace_if_not_null date replace_if_not_null
             )
             AGGREGATE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
     sql """insert into date_agg values(0, '2000-01-01', '2000-01-01', '2000-01-01', '2000-01-01')"""
     sql """insert into date_agg values(0, '2000-12-31', '2000-12-31', '2000-12-31', '2000-12-31')"""
