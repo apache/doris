@@ -8,7 +8,6 @@
 #include <glog/logging.h>
 
 #include "gutil/strings/fastmem.h" // for memcpy_inlined
-#include "common/config.h"
 namespace doris {
 
 constexpr int MAX_ERROR_NUM = 65536;
