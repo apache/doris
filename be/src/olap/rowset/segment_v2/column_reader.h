@@ -351,7 +351,7 @@ public:
             ordinal_t start_offset_in_this_page =
                     _length_iterator->get_current_page()->first_array_item_ordinal;
             ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-            ordinal_t size_to_read = ord - start_offset_in_this_page;
+            ordinal_t size_to_read = ord - _length_iterator->get_current_ordinal();
             bool has_null = false;
             ordinal_t item_ordinal = start_offset_in_this_page;
             while (size_to_read > 0) {
