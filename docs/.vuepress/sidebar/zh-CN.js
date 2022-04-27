@@ -500,7 +500,7 @@ module.exports = [
           },
           {
             title: "加密和信息摘要函数",
-            directoryPath: "encrypt-digest-functions/",
+            directoryPath: "encrypt-dixgest-functions/",
             initialOpenGroupIndex: -1,
             children: [
               "aes",
