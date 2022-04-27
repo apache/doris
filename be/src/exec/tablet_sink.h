@@ -33,6 +33,7 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"
 #include "util/ref_count_closure.h"
@@ -325,6 +326,7 @@ public:
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
+        SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
         for (auto& it : _node_channels) {
             func(it.second);
         }
@@ -365,7 +367,7 @@ private:
     std::unordered_map<int64_t, std::string> _failed_channels_msgs;
     Status _intolerable_failure_status = Status::OK();
 
-    std::shared_ptr<MemTracker> _index_channel_tracker; // TODO(zxy) use after
+    std::shared_ptr<MemTracker> _index_channel_tracker;
 };
 
 // Write data to Olap Table.

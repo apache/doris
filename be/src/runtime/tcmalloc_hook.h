@@ -36,11 +36,11 @@
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
 void new_hook(const void* ptr, size_t size) {
-    doris::thread_local_ctx.get()->consume_mem(tc_nallocx(size, 0));
+    doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
 }
 
 void delete_hook(const void* ptr) {
-    doris::thread_local_ctx.get()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
+    doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
 }
 
 void init_hook() {
