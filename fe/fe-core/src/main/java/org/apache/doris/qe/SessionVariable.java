@@ -277,7 +277,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The number of seconds the server waits for activity on a noninteractive connection before closing it.
     @VariableMgr.VarAttr(name = WAIT_TIMEOUT)
-    public int waitTimeout = 28800;
+    public int waitTimeoutS = 28800;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
@@ -471,7 +471,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getWaitTimeoutS() {
-        return waitTimeout;
+        return waitTimeoutS;
     }
 
     public long getSqlMode() {
@@ -554,10 +554,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getInteractiveTimeout() {
         return interactiveTimeout;
-    }
-
-    public int getWaitTimeout() {
-        return waitTimeout;
     }
 
     public int getNetWriteTimeout() {
