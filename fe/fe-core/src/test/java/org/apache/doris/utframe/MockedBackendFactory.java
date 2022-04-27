@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TDiskTrashInfo;
@@ -318,6 +319,11 @@ public class MockedBackendFactory {
         @Override
         public void cleanTrash() throws TException {
             return;
+        }
+
+        @Override
+        public TCheckStorageFormatResult checkStorageFormat() throws TException {
+            return new TCheckStorageFormatResult();
         }
     }
 

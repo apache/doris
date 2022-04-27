@@ -22,6 +22,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentServiceVersion;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
 import org.apache.doris.thrift.TMiniLoadEtlStatusResult;
 import org.apache.doris.thrift.TMiniLoadEtlTaskRequest;
@@ -167,6 +168,21 @@ public class AgentClient {
         return result;
     }
 
+    public TCheckStorageFormatResult checkStorageFormat() {
+        TCheckStorageFormatResult result = null;
+        LOG.debug("submit make snapshot task.");
+        try {
+            borrowClient();
+            result = client.checkStorageFormat();
+            ok = true;
+        } catch (Exception e) {
+            LOG.warn("checkStorageFormat error", e);
+        } finally {
+            returnClient();
+        }
+        return result;
+    }
+
     public void deleteEtlFiles(long dbId, long jobId, String dbName, String label) {
         TDeleteEtlFilesRequest request = new TDeleteEtlFilesRequest(TAgentServiceVersion.V1, 
                 new TUniqueId(dbId, jobId), dbName, label);
@@ -197,4 +213,5 @@ public class AgentClient {
             ClientPool.backendPool.invalidateObject(address, client);
         }
     }
+
 }

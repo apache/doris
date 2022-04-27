@@ -370,4 +370,8 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 void BackendService::clean_trash() {
     StorageEngine::instance()->start_trash_sweep(nullptr, true);
 }
+
+void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
+    StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
+}
 } // namespace doris
