@@ -192,6 +192,8 @@ public class CreateReplicaTask extends AgentTask {
     	if (storageFormat == TStorageFormat.V1) {
     		// Ignore v1 format, the storage format must not be v1
     		// V1 will be removed in the future
+    		LOG.error("StorageFormat.V1 is not supported any more, will use V2 automatically");
+    		this.storageFormat = TStorageFormat.V2;
     		return;
     	}
     	this.storageFormat = storageFormat;
