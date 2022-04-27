@@ -30,8 +30,6 @@
 #include "exec/plain_binary_line_reader.h"
 #include "exec/plain_text_line_reader.h"
 #include "exec/s3_reader.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -82,10 +80,6 @@ BrokerScanner::~BrokerScanner() {
 
 Status BrokerScanner::open() {
     RETURN_IF_ERROR(BaseScanner::open()); // base default function
-    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
-    if (_text_converter == nullptr) {
-        return Status::InternalError("No memory error.");
-    }
     return Status::OK();
 }
 
@@ -272,7 +266,7 @@ Status BrokerScanner::open_line_reader() {
             return Status::InternalError(ss.str());
         }
         size += 1;
-        // not  first range will always skip one line
+        // not first range will always skip one line
         _skip_lines = 1;
     }
 

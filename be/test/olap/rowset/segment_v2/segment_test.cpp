@@ -117,7 +117,7 @@ protected:
         EXPECT_TRUE(st.ok());
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(wblock.get(), 0, &build_schema, &data_dir, opts);
+        SegmentWriter writer(wblock.get(), 0, &build_schema, &data_dir, INT32_MAX, opts);
         st = writer.init(10);
         EXPECT_TRUE(st.ok());
 
@@ -624,7 +624,7 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     EXPECT_TRUE(st.ok()) << st.to_string();
     DataDir data_dir(dname);
     data_dir.init();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
     st = writer.init(10);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
@@ -797,7 +797,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     EXPECT_TRUE(st.ok());
     DataDir data_dir(dname);
     data_dir.init();
-    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, opts);
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), &data_dir, INT32_MAX, opts);
     st = writer.init(10);
     EXPECT_TRUE(st.ok());
 
