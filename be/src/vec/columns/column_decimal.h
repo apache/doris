@@ -111,16 +111,8 @@ public:
         }
     }
 
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            int64_t int_value = *(int64_t*)(cur_ptr);
-            int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-            DecimalV2Value decimal_val(int_value, frac_value);
-            this->insert_data(reinterpret_cast<char*>(&decimal_val), 0);
-        }
-    }
-
+    inline T get_scale_multiplier(UInt32 scale);
+    void insert_many_fix_len_data(const char* data_ptr, size_t num) override;
     void insert_data(const char* pos, size_t /*length*/) override;
     void insert_default() override { data.push_back(T()); }
     void insert(const Field& x) override {

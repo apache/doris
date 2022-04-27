@@ -142,6 +142,35 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
+    } else if (type == TYPE_DECIMALV2 && config::enable_decimalv3) {
+        WhichDataType which(nested_type_ptr->get_type_id());
+        for (int i = 0; i < row_size; ++i) {
+            if (0 != buf_ret) {
+                return Status::InternalError("pack mysql buffer failed.");
+            }
+            _buffer.reset();
+
+            if constexpr (is_nullable) {
+                if (column_ptr->is_null_at(i)) {
+                    buf_ret = _buffer.push_null();
+                    result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+                    continue;
+                }
+            }
+            std::string decimal_str;
+            if (which.is_decimal32()) {
+                decimal_str = typeid_cast<const DataTypeDecimal<Decimal32>*>(nested_type_ptr.get())
+                                      ->to_string(*column, i);
+            } else if (which.is_decimal64()) {
+                decimal_str = typeid_cast<const DataTypeDecimal<Decimal64>*>(nested_type_ptr.get())
+                                      ->to_string(*column, i);
+            } else if (which.is_decimal128()) {
+                decimal_str = typeid_cast<const DataTypeDecimal<Decimal128>*>(nested_type_ptr.get())
+                                      ->to_string(*column, i);
+            }
+            buf_ret = _buffer.push_string(decimal_str.c_str(), decimal_str.length());
+            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
+        }
     } else {
         using ColumnType = typename PrimitiveTypeTraits<type>::ColumnType;
         auto& data = assert_cast<const ColumnType&>(*column).get_data();
@@ -198,7 +227,6 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 char* pos = time_val.to_string(buf);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
             }
-
             if constexpr (type == TYPE_DECIMALV2) {
                 DecimalV2Value decimal_val(data[i]);
                 auto decimal_str = decimal_val.to_string();
@@ -419,9 +447,13 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
         }
         case TYPE_DECIMALV2: {
             if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result);
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, true>(column_ptr, result,
+                                                                              nested_type);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result);
+                status = _add_one_column<PrimitiveType::TYPE_DECIMALV2, false>(column_ptr, result,
+                                                                               type_ptr);
             }
             break;
         }

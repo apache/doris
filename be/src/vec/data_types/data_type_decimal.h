@@ -106,8 +106,8 @@ public:
         }
 
         // Now, Doris only support precision:27, scale: 9
-        DCHECK(precision == 27);
-        DCHECK(scale == 9);
+        // DCHECK(precision == 27);
+        // DCHECK(scale == 9);
     }
 
     DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}

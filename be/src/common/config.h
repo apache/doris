@@ -737,6 +737,8 @@ CONF_Validator(string_type_length_soft_limit_bytes,
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
+
+CONF_Bool(enable_decimalv3, "false");
 } // namespace config
 
 } // namespace doris
