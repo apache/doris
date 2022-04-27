@@ -104,9 +104,9 @@ PROPERTIES (
     - `database`: the name of the database to which Hive is mounted
     - `table`: the name of the table to which Hive is mounted
     - `dfs.nameservices`：the logical name for this new nameservice. See hdfs-site.xml
-    - `dfs.ha.namenodes.[nameservice ID]：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
+    - `dfs.ha.namenodes.[nameservice ID]`：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
     - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
-    - `dfs.client.failover.proxy.provider.[nameservice ID] `：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+    - `dfs.client.failover.proxy.provider.[nameservice ID]`：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
     
 ## Data Type Matching
 
