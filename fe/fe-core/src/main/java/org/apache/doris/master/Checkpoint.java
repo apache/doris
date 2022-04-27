@@ -32,10 +32,10 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -73,12 +73,16 @@ public class Checkpoint extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        doCheckpoint();
+        try {
+            doCheckpoint();
+        } catch (CheckpointException e) {
+            LOG.warn("failed to do checkpoint.", e);
+        }
     }
 
     // public for unit test, so that we can trigger checkpoint manually.
     // DO NOT call it manually outside the unit test.
-    public synchronized void doCheckpoint() {
+    public synchronized void doCheckpoint() throws CheckpointException {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
@@ -143,12 +147,11 @@ public class Checkpoint extends MasterDaemon {
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
             exceptionCaught = true;
-            e.printStackTrace();
             LOG.error("Exception when generate new image file", e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
             }
-            return;
+            throw new CheckpointException(e.getMessage(), e);
         } finally {
             // destroy checkpoint catalog, reclaim memory
             catalog = null;
