@@ -1232,7 +1232,6 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().reset();
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
-        
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }

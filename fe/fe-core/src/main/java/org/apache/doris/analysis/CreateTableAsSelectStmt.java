@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import lombok.Getter;
+
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
