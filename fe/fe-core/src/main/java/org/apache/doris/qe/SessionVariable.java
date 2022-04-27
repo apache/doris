@@ -205,7 +205,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
-    public boolean enableProfile = false;
+    public boolean enableProfile = true;
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
