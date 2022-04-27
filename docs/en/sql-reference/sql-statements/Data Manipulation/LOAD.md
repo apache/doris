@@ -162,10 +162,10 @@ Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 NULL value: N
 
 6. S3 Storage
-   fs.s3a.access.key  user AK，required
-   fs.s3a.secret.key  user SK，required
-   fs.s3a.endpoint  user endpoint，required
-   fs.s3a.impl.disable.cache  whether disable cache，default true，optional
+   fs.s3a.access.key  user AK,required
+   fs.s3a.secret.key  user SK,required
+   fs.s3a.endpoint  user endpoint,required
+   fs.s3a.impl.disable.cache  whether disable cache,default true,optional
 
 '35;'35; example
 

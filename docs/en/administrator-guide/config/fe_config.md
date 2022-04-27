@@ -124,17 +124,17 @@ There are two ways to configure FE configuration items:
 
 ### max_dynamic_partition_num
 
-Default：500
+Default: 500
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Used to limit the maximum number of partitions that can be created when creating a dynamic partition table,  to avoid creating too many partitions at one time. The number is determined by "start" and "end" in the dynamic partition parameters.. 
 
 ### grpc_max_message_size_bytes
 
-Default：1G
+Default: 1G
 
 Used to set the initial flow window size of the GRPC client channel, and also used to max message size.  When the result set is large, you may need to increase this value.
 
@@ -152,49 +152,49 @@ Used to set maximal number of replication per tablet.
 
 ### enable_outfile_to_local
 
-Default：false
+Default: false
 
 Whether to allow the outfile function to export the results to the local disk.
 
 ### enable_access_file_without_broker
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This config is used to try skip broker when access bos or other cloud storage via broker
 
 ### enable_bdbje_debug_mode
 
-Default：false
+Default: false
 
 If set to true, FE will be started in BDBJE debug mode
 
 ### enable_alpha_rowset
 
-Default：false
+Default: false
 
 Whether to support the creation of alpha rowset tables.  The default is false and should only be used in emergency situations,  this config should be remove in some future version
 
 ### enable_http_server_v2
 
-Default：The default is true after the official 0.14.0 version is released, and the default is false before
+Default: The default is true after the official 0.14.0 version is released, and the default is false before
 
 HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
 
 ### jetty_server_acceptors
 
-Default：2
+Default: 2
 
 ### jetty_server_selectors
 
-Default：4
+Default: 4
 
 ### jetty_server_workers
 
-Default：0
+Default: 0
 
 With the above three parameters, Jetty's thread architecture model is very simple, divided into acceptors, selectors and workers three thread pools. Acceptors are responsible for accepting new connections, and then hand them over to selectors to process the unpacking of the HTTP message protocol, and finally workers process the request. The first two thread pools adopt a non-blocking model, and one thread can handle the read and write of many sockets, so the number of thread pools is small.
 
@@ -212,13 +212,13 @@ The maximum number of threads in the Jetty thread pool, the default is 400
 
 ### jetty_server_max_http_post_size
 
-Default：100 * 1024 * 1024  （100MB）
+Default: 100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
 
 ### **`disable_mini_load`**
 
-Whether to disable the mini load data import method, the default：true  (Disabled)
+Whether to disable the mini load data import method, the default: true  (Disabled)
 
 ### frontend_address
 
@@ -226,21 +226,21 @@ Status: Deprecated, not recommended use. This parameter may be deleted later Typ
 
 ### default_max_filter_ratio
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximum percentage of data that can be filtered (due to reasons such as data is irregularly) , The default value is 0.
 
 ### default_db_data_quota_bytes
 
-Default：1PB
+Default: 1PB
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Used to set the default database data quota size. To set the quota size of a single database, you can use:
 
@@ -248,16 +248,16 @@ Used to set the default database data quota size. To set the quota size of a sin
 Set the database data quota, the unit is:B/K/KB/M/MB/G/GB/T/TB/P/PB
 ALTER DATABASE db_name SET DATA QUOTA quota;
 View configuration
-show data （Detail：HELP SHOW DATA）
+show data （Detail: HELP SHOW DATA）
 ```
 
 ### default_db_replica_quota_size
 
 Default: 1073741824
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Used to set the default database replica quota. To set the quota size of a single database, you can use: 
 
@@ -265,26 +265,26 @@ Used to set the default database replica quota. To set the quota size of a singl
 Set the database replica quota
 ALTER DATABASE db_name SET REPLICA QUOTA quota;
 View configuration
-show data （Detail：HELP SHOW DATA）
+show data （Detail: HELP SHOW DATA）
 ```
 
 ### enable_batch_delete_by_default
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether to add a delete sign column when create unique table
 
 ### recover_with_empty_tablet
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
  In some very special circumstances, such as code bugs, or human misoperation, etc., all replicas of some tablets may be lost. In this case, the data has been substantially lost. However, in some scenarios, the business still hopes to ensure that the query will not report errors even if there is data loss, and reduce the perception of the user layer. At this point, we can use the blank Tablet to fill the missing replica to ensure that the query can be executed normally.
 
@@ -292,41 +292,41 @@ Set to true so that Doris will automatically use blank replicas to fill tablets 
 
 ### max_allowed_in_element_num_of_delete
 
-Default：1024
+Default: 1024
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration is used to limit element num of InPredicate in delete statement.
 
 ### cache_result_max_row_count
 
-Default：3000
+Default: 3000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 In order to avoid occupying too much memory, the maximum number of rows that can be cached is 2000 by default. If this threshold is exceeded, the cache cannot be set
 
 ### cache_last_version_interval_second
 
-Default：900
+Default: 900
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 The time interval of the latest partitioned version of the table refers to the time interval between the data update and the current version. It is generally set to 900 seconds, which distinguishes offline and real-time import
 
 ### cache_enable_partition_mode
 
-Default：true
+Default: true
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 When this switch is turned on, the query result set will be cached according to the partition. If the interval between the query table partition time and the query time is less than cache_last_version_interval_second, the result set will be cached according to the partition.
 
@@ -334,11 +334,11 @@ Part of the data will be obtained from the cache and some data from the disk whe
 
 ### cache_enable_sql_mode
 
-Default：true
+Default: true
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 If this switch is turned on, the SQL query result set will be cached. If the interval between the last visit version time in all partitions of all tables in the query is greater than cache_last_version_interval_second, and the result set is less than cache_result_max_row_count, the result set will be cached, and the next same SQL will hit the cache
 
@@ -351,11 +351,11 @@ If set to true, fe will enable sql result caching. This option is suitable for o
 
 ### min_clone_task_timeout_sec  和 max_clone_task_timeout_sec
 
-Default：Minimum 3 minutes, maximum two hours
+Default: Minimum 3 minutes, maximum two hours
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Type: long Description: Used to control the maximum timeout of a clone task. The unit is second. Default value: 7200 Dynamic modification: yes
 
@@ -363,11 +363,11 @@ Can cooperate with `mix_clone_task_timeout_sec` to control the maximum and minim
 
 ### agent_task_resend_wait_time_ms
 
-Default：5000
+Default: 5000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration will decide whether to resend agent task when create_time for agent_task is set, only when current_time - create_time > agent_task_resend_wait_time_ms can ReportHandler do resend agent task.
 
@@ -379,41 +379,41 @@ But at the same time, it will cause the submission of failed or failed execution
 
 ### enable_odbc_table
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it. This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
 
 ### enable_spark_load
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether to enable spark load temporarily, it is not enabled by default
 
 ### disable_storage_medium_check
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 If disable_storage_medium_check is true, ReportHandler would not check tablet's storage medium and disable storage cool down function, the default value is false. You can set the value true when you don't care what the storage medium of the tablet is.
 
 ### drop_backend_after_decommission
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 1. This configuration is used to control whether the system drops the BE after successfully decommissioning the BE. If true, the BE node will be deleted after the BE is successfully offline. If false, after the BE successfully goes offline, the BE will remain in the DECOMMISSION state, but will not be dropped.
 
@@ -426,31 +426,31 @@ MasterOnly：true
 
 ### period_of_auto_resume_min
 
-Default：5 （s）
+Default: 5 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Automatically restore the cycle of Routine load
 
 ### max_tolerable_backend_down_num
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 As long as one BE is down, Routine Load cannot be automatically restored 
 
 ### enable_materialized_view
 
-Default：true
+Default: true
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration is used to turn on and off the creation of materialized views. If set to true, the function to create a materialized view is enabled. The user can create a materialized view through the `CREATE MATERIALIZED VIEW` command. If set to false, materialized views cannot be created.
 
@@ -460,47 +460,47 @@ This variable is a dynamic configuration, and users can modify the configuration
 
 ### check_java_version
 
-Default：true
+Default: true
 
 Doris will check whether the compiled and run Java versions are compatible, if not, it will throw a Java version mismatch exception message and terminate the startup
 
 ### max_running_rollup_job_num_per_table
 
-Default：1
+Default: 1
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Control the concurrency limit of Rollup jobs
 
 ### dynamic_partition_enable
 
-Default：true
+Default: true
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether to enable dynamic partition, enabled by default
 
 ### dynamic_partition_check_interval_seconds
 
-Default：600 （s）
+Default: 600 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Decide how often to check dynamic partition
 
 ### disable_cluster_feature
 
-Default：true
+Default: true
 
-IsMutable：true
+IsMutable: true
 
-The multi cluster feature will be deprecated in version 0.12 ，set this config to true will disable all operations related to cluster feature, include:
+The multi cluster feature will be deprecated in version 0.12 ,set this config to true will disable all operations related to cluster feature, include:
         create/drop cluster
         add free backend/add backend to cluster/decommission cluster balance
         change the backends num of cluster
@@ -508,31 +508,31 @@ The multi cluster feature will be deprecated in version 0.12 ，set this config 
 
 ### force_do_metadata_checkpoint
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 If set to true, the checkpoint thread will make the checkpoint regardless of the jvm memory used percent
 
 ### metadata_checkpoint_memory_threshold
 
-Default：60  （60%）
+Default: 60  （60%）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
  If the jvm memory used percent(heap or old mem pool) exceed this threshold, checkpoint thread will  not work to avoid OOM.
 
 ### max_distribution_pruner_recursion_depth
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 This will limit the max recursion depth of hash distribution pruner.
       eg: where a in (5 elements) and b in (4 elements) and c in (3 elements) and d in (2 elements).
@@ -548,73 +548,73 @@ This configuration is mainly used to control the number of backup/restore tasks 
 
 ### using_old_load_usage_pattern
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 If set to true, the insert stmt with processing error will still return a label to user.  And user can use this label to check the load job's status. The default value is false, which means if insert operation encounter errors,  exception will be thrown to user client directly without load label.
 
 ### small_file_dir
 
-Default：DORIS_HOME_DIR/small_files
+Default: DORIS_HOME_DIR/small_files
 
 Save small files
 
 ### max_small_file_size_bytes
 
-Default：1M
+Default: 1M
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The max size of a single file store in SmallFileMgr
 
 ### max_small_file_number
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The max number of files store in SmallFileMgr
 
 ### max_routine_load_task_num_per_be
 
-Default：5
+Default: 5
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 the max concurrent routine load task num per BE.  This is to limit the num of routine load tasks sending to a BE, and it should also less than BE config 'routine_load_thread_pool_size'(default 10), which is the routine load task thread pool size on BE.
 
 ### max_routine_load_task_concurrent_num
 
-Default：5
+Default: 5
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 the max concurrent routine load task num of a single routine load job
 
 ### max_routine_load_job_num
 
-Default：100
+Default: 100
 
 the max routine load job num, including NEED_SCHEDULED, RUNNING, PAUSE
 
 ### max_running_txn_num_per_db
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration is mainly used to control the number of concurrent load jobs of the same database.
 
@@ -630,17 +630,17 @@ Generally it is not recommended to increase this configuration value. An excessi
 
 ### enable_metric_calculator
 
-Default：true
+Default: true
 
 If set to true, metric collector will be run as a daemon timer to collect metrics at fix interval
 
 ### report_queue_size
 
-Default： 100
+Default:  100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
  This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.  In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost  several seconds after some modification of metadata(drop partition, etc..). And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable. we will optimize the processing speed of tablet report in future, but now, just discard the report if queue size exceeding limit.
     Some online time cost:
@@ -651,85 +651,85 @@ MasterOnly：true
 
 ### partition_rebalance_max_moves_num_per_selection
 
-Default：10
+Default: 10
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
-Valid only if use PartitionRebalancer，
+Valid only if use PartitionRebalancer,
 
 ### partition_rebalance_move_expire_after_access
 
-Default：600   (s)
+Default: 600   (s)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Valid only if use PartitionRebalancer. If this changed, cached moves will be cleared 
 
 ### tablet_rebalancer_type
 
-Default：BeLoad
+Default: BeLoad
 
-MasterOnly：true
+MasterOnly: true
 
 Rebalancer type(ignore case): BeLoad, Partition. If type parse failed, use BeLoad as default
 
 ### max_balancing_tablets
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 if the number of balancing tablets in TabletScheduler exceed max_balancing_tablets, no more balance check 
 
 ### max_scheduling_tablets
 
-Default：2000
+Default: 2000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets skip checking.
 
 ### disable_balance
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 if set to true, TabletScheduler will not do balance.
 
 ### balance_load_score_threshold
 
-Default：0.1 (10%)
+Default: 0.1 (10%)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 the threshold of cluster balance score, if a backend's load score is 10% lower than average score,  this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load  will be marked
 
 ### schedule_slot_num_per_path
 
-Default：2
+Default: 2
 
 the default slot number per path in tablet scheduler , remove this config and dynamically adjust it by clone task statistic
 
 ### tablet_repair_delay_factor_second
 
-Default：60 （s）
+Default: 60 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 the factor of delay time before deciding to repair tablet.  if priority is VERY_HIGH, repair it immediately.
 
@@ -739,27 +739,27 @@ the factor of delay time before deciding to repair tablet.  if priority is VERY_
 
 ### es_state_sync_interval_second
 
-Default：10
+Default: 10
 
 fe will call es api to get es index shard info every es_state_sync_interval_secs
 
 ### disable_hadoop_load
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Load using hadoop cluster will be deprecated in future. Set to true to disable this kind of load.
 
 ### db_used_data_quota_update_interval_secs
 
-Default：300 (s)
+Default: 300 (s)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 For better data load performance, in the check of whether the amount of data used by the database before data load exceeds the quota, we do not calculate the amount of data already used by the database in real time, but obtain the periodically updated value of the daemon thread.
 
@@ -767,11 +767,11 @@ This configuration is used to set the time interval for updating the value of th
 
 ### disable_load_job
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 if this is set to true
 
@@ -781,33 +781,33 @@ if this is set to true
 
 ### catalog_try_lock_timeout_ms
 
-Default：5000  （ms）
+Default: 5000  （ms）
 
-IsMutable：true
+IsMutable: true
 
 The tryLock timeout configuration of catalog lock.  Normally it does not need to change, unless you need to test something.
 
 ### max_query_retry_time
 
-Default：1
+Default: 1
 
-IsMutable：true
+IsMutable: true
 
 The number of query retries.  A query may retry if we encounter RPC exception and no result has been sent to user.  You may reduce this number to avoid Avalanche disaster
 
 ### remote_fragment_exec_timeout_ms
 
-Default：5000  （ms）
+Default: 5000  （ms）
 
-IsMutable：true
+IsMutable: true
 
-The timeout of executing async remote fragment.  In normal case, the async remote fragment will be executed in a short time. If system are under high load condition，try to set this timeout longer.
+The timeout of executing async remote fragment.  In normal case, the async remote fragment will be executed in a short time. If system are under high load condition,try to set this timeout longer.
 
 ### enable_local_replica_selection
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
 If set to true, Planner will try to select replica of tablet on same host as this Frontend. This may reduce network transmission in following case: 
 
@@ -818,63 +818,63 @@ If set to true, Planner will try to select replica of tablet on same host as thi
 
 ### enable_local_replica_selection_fallback
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
 Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
 
 ### max_unfinished_load_job
 
-Default：1000
+Default: 1000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
  Max number of load jobs, include PENDING、ETL、LOADING、QUORUM_FINISHED. If exceed this number, load job is not allowed to be submitted
 
 ### max_bytes_per_broker_scanner
 
-Default：3 * 1024 * 1024 * 1024L  （3G）
+Default: 3 * 1024 * 1024 * 1024L  （3G）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Max bytes a broker scanner can process in one broker load job. Commonly, each Backends has one broker scanner.
 
 ### enable_auth_check
 
-Default：true
+Default: true
 
 if set to false, auth check will be disable, in case some goes wrong with the new privilege system.
 
 ### tablet_stat_update_interval_second
 
-Default：300，（5min）
+Default: 300,（5min）
 
 update interval of tablet stat , All frontends will get tablet stat from all backends at each interval
 
 ### storage_flood_stage_usage_percent  
 
-Default：95 （95%）
+Default: 95 （95%）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 ###  storage_flood_stage_left_capacity_bytes
 
-Default：
+Default: 
 
 	storage_flood_stage_usage_percent  : 95  (95%)
 	
 	storage_flood_stage_left_capacity_bytes :  1 * 1024 * 1024 * 1024 (1GB)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 If capacity of disk reach the 'storage_flood_stage_usage_percent' and  'storage_flood_stage_left_capacity_bytes', the following operation will be rejected: 
 
@@ -883,59 +883,59 @@ If capacity of disk reach the 'storage_flood_stage_usage_percent' and  'storage_
 
 ### storage_high_watermark_usage_percent
 
-Default：85  (85%)
+Default: 85  (85%)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 ### storage_min_left_capacity_bytes
 
-Default： 2 * 1024 * 1024 * 1024  (2GB)
+Default:  2 * 1024 * 1024 * 1024  (2GB)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
  'storage_high_watermark_usage_percent' limit the max capacity usage percent of a Backend storage path.  'storage_min_left_capacity_bytes' limit the minimum left capacity of a Backend storage path.  If both limitations are reached, this storage path can not be chose as tablet balance destination. But for tablet recovery, we may exceed these limit for keeping data integrity as much as possible.
 
 ### backup_job_default_timeout_ms
 
-Default：86400 * 1000  (1day)
+Default: 86400 * 1000  (1day)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 default timeout of backup job
 
 ### with_k8s_certs
 
-Default：false
+Default: false
 
 If use k8s deploy manager locally, set this to true and prepare the certs files
 
 ### dpp_hadoop_client_path
 
-Default：/lib/hadoop-client/hadoop/bin/hadoop
+Default: /lib/hadoop-client/hadoop/bin/hadoop
 
 ### dpp_bytes_per_reduce
 
-Default：100 * 1024 * 1024L;   // 100M
+Default: 100 * 1024 * 1024L;   // 100M
 
 ### dpp_default_cluster
 
-Default：palo-dpp
+Default: palo-dpp
 
 ### dpp_default_config_str
 
-Default：{
+Default: {
             hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
         }
 
 ### dpp_config_str
 
-Default：{
+Default: {
             palo-dpp : {
                     hadoop_palo_path : '/dir',
                     hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
@@ -944,7 +944,7 @@ Default：{
 
 ### enable_deploy_manager
 
-Default：disable
+Default: disable
 
  Set to true if you deploy Palo using thirdparty deploy manager Valid options are:
 
@@ -955,47 +955,47 @@ Default：disable
 
 ### enable_token_check
 
-Default：true
+Default: true
 
 For forward compatibility, will be removed later. check token when download image file.
 
 ### expr_depth_limit
 
-Default：3000
+Default: 3000
 
-IsMutable：true
+IsMutable: true
 
 Limit on the depth of an expr tree.  Exceed this limit may cause long analysis time while holding db read lock.  Do not set this if you know what you are doing
 
 ### expr_children_limit
 
-Default：10000
+Default: 10000
 
-IsMutable：true
+IsMutable: true
 
 Limit on the number of expr children of an expr tree.  Exceed this limit may cause long analysis time while holding database read lock.  
 
 ### proxy_auth_magic_prefix
 
-Default：x@8
+Default: x@8
 
 ### proxy_auth_enable
 
-Default：false
+Default: false
 
 ### meta_publish_timeout_ms
 
-Default：1000 （ms）
+Default: 1000 （ms）
 
 The default user resource publishing timeout 
 
 ### disable_colocate_balance
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configs can set to true to disable the automatic colocate tables's relocate and balance.  If 'disable_colocate_balance' is set to true,   ColocateTableBalancer will not relocate and balance colocate tables.
       **Attention**: 
@@ -1006,87 +1006,87 @@ This configs can set to true to disable the automatic colocate tables's relocate
 
 ### query_colocate_join_memory_limit_penalty_factor
 
-Default：1
+Default: 1
 
-IsMutable：true
+IsMutable: true
 
 colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num) 
 
 ### max_connection_scheduler_threads_num
 
-Default：4096
+Default: 4096
 
 Maximal number of thread in connection-scheduler-pool.
 
 ### qe_max_connection
 
-Default：1024
+Default: 1024
 
 Maximal number of connections per FE.
 
 ### check_consistency_default_timeout_second
 
-Default：600 （10分钟）
+Default: 600 （10分钟）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default timeout of a single consistency check task. Set long enough to fit your tablet size
 
 ### consistency_check_start_time
 
-Default：23
+Default: 23
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*. Default is from 23:00 to 04:00 
 
 ### consistency_check_end_time
 
-Default：04
+Default: 04
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*. Default is from 23:00 to 04:00 
 
 ### export_tablet_num_per_task
 
-Default：5
+Default: 5
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Number of tablets per export query plan
 
 ### export_task_default_timeout_second
 
-Default：2 * 3600   （2 hour）
+Default: 2 * 3600   （2 hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default timeout of export jobs.
 
 ### export_running_job_num_limit
 
-Default：5
+Default: 5
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Limitation of the concurrency of running export jobs.  Default is 5.  0 is unlimited
 
 ### export_checker_interval_second
 
-Default：5
+Default: 5
 
 Export checker's running interval.
 
@@ -1094,102 +1094,102 @@ Export checker's running interval.
 
 Default: 1
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default parallelism of the broker load execution plan on a single node.
 If the user to set the parallelism when the broker load is submitted, this parameter will be ignored.
 
 ### max_broker_concurrency
 
-Default：10
+Default: 10
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal concurrency of broker scanners.  
 
 ### min_bytes_per_broker_scanner
 
-Default：67108864L (64M)
+Default: 67108864L (64M)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Minimum bytes that a single broker scanner will read.  
 
 ### catalog_trash_expire_second
 
-Default：86400L (1day)
+Default: 86400L (1day)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 After dropping database(table/partition), you can recover it by using RECOVER stmt. And this specifies the maximal data retention time. After time, the data will be deleted permanently.
 
 ### storage_cooldown_second
 
-Default：30 * 24 * 3600L  （30day）
+Default: 30 * 24 * 3600L  （30day）
 
 When create a table(or partition), you can specify its storage medium(HDD or SSD). If set to SSD, this specifies the default duration that tablets will stay on SSD.  After that, tablets will be moved to HDD automatically.  You can set storage cooldown time in CREATE TABLE stmt.
 
 ### default_storage_medium
 
-Default：HDD
+Default: HDD
 
 When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.
 
 ### max_backend_down_time_second
 
-Default：3600  （1hour）
+Default: 3600  （1hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered. 
 
 ### alter_table_timeout_second
 
-Default：86400   （1day）
+Default: 86400   （1day）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal timeout of ALTER TABLE request. Set long enough to fit your table data size. 
 
 ### capacity_used_percent_high_water
 
-Default：0.75  （75%）
+Default: 0.75  （75%）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The high water of disk capacity used percent. This is used for calculating load score of a backend
 
 ### clone_distribution_balance_threshold
 
-Default：0.2 
+Default: 0.2 
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Balance threshold of num of replicas in Backends.
 
 ### clone_capacity_balance_threshold
 
-Default：0.2  
+Default: 0.2  
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Balance threshold of data size in BE.
       The balance algorithm is: 
@@ -1201,88 +1201,88 @@ Balance threshold of data size in BE.
 
 ### replica_delay_recovery_second
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 the minimal delay seconds between a replica is failed and fe try to recovery it using clone.
 
 ### clone_high_priority_delay_second
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 HIGH priority clone job's delay trigger time.
 
 ### clone_normal_priority_delay_second 
 
-Default：300 （5min）
+Default: 300 （5min）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 NORMAL priority clone job's delay trigger time
 
 ### clone_low_priority_delay_second
 
-Default：600 （10min）
+Default: 600 （10min）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 LOW priority clone job's delay trigger time. A clone job contains a tablet which need to be cloned(recovery or migration).  If the priority is LOW, it will be delayed *clone_low_priority_delay_second*  after the job creation and then be executed.  This is to avoid a large number of clone jobs running at same time only because a host is down for a short time. 
  **NOTICE** that this config(and *clone_normal_priority_delay_second* as well)  will not work if it's smaller then *clone_checker_interval_second*
 
 ### clone_max_job_num
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Concurrency of LOW priority clone jobs.  Concurrency of High priority clone jobs is currently unlimited.
 
 ### clone_job_timeout_second
 
-Default：7200  (2小时)
+Default: 7200  (2小时)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default timeout of a single clone job. Set long enough to fit your replica size.  The larger the replica data size is, the more time is will cost to finish clone
 
 ### clone_checker_interval_second
 
-Default：300 （5min）
+Default: 300 （5min）
 
 Clone checker's running interval
 
 ### tablet_delete_timeout_second
 
-Default：2
+Default: 2
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
 ### async_loading_load_task_pool_size
 
-Default：10
+Default: 10
 
-IsMutable：false
+IsMutable: false
 
-MasterOnly：true
+MasterOnly: true
 
 The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
 
@@ -1290,11 +1290,11 @@ Currently, it only limits the loading_load task of broker load
 
 ### async_pending_load_task_pool_size
 
-Default：10
+Default: 10
 
-IsMutable：false
+IsMutable: false
 
-MasterOnly：true
+MasterOnly: true
 
 The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
 
@@ -1304,244 +1304,244 @@ It should be less than 'max_running_txn_num_per_db'
 
 ### async_load_task_pool_size
 
-Default：10
+Default: 10
 
-IsMutable：false
+IsMutable: false
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size, it will be removed in the future.
 
 ###  disable_show_stream_load
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether to disable show stream load and clear stream load records in memory.
 
 ### max_stream_load_record_size
 
-Default：5000
+Default: 5000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default max number of recent stream load record that can be stored in memory.
 
 ### fetch_stream_load_record_interval_second
 
-Default：120
+Default: 120
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 fetch stream load record interval.
 
 ### desired_max_waiting_jobs
 
-Default：100
+Default: 100
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
-Default number of waiting jobs for routine load and version 2 of load ， This is a desired number.  In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs.
+Default number of waiting jobs for routine load and version 2 of load , This is a desired number.  In some situation, such as switch the master, the current number is maybe more than desired_max_waiting_jobs.
 
 ### yarn_config_dir
 
-Default：PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
+Default: PaloFe.DORIS_HOME_DIR + "/lib/yarn-config"
 
-Default yarn config file directory ，Each time before running the yarn command, we need to check that the  config file exists under this path, and if not, create them.
+Default yarn config file directory ,Each time before running the yarn command, we need to check that the  config file exists under this path, and if not, create them.
 
 
 ### yarn_client_path
 
-Default：DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn"
+Default: DORIS_HOME_DIR + "/lib/yarn-client/hadoop/bin/yarn"
 
 Default yarn client path
 
 ### spark_launcher_log_dir
 
-Default： sys_log_dir + "/spark_launcher_log"
+Default:  sys_log_dir + "/spark_launcher_log"
 
 The specified spark launcher log dir
 
 ### spark_resource_path
 
-Default：none
+Default: none
 
 Default spark dependencies path
 
 ### spark_home_default_dir
 
-Default：DORIS_HOME_DIR + "/lib/spark2x"
+Default: DORIS_HOME_DIR + "/lib/spark2x"
 
 Default spark home dir
 
 ### spark_load_default_timeout_second
 
-Default：86400  (1天)
+Default: 86400  (1天)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default spark load timeout
 
 ### spark_dpp_version
 
-Default：1.0.0
+Default: 1.0.0
 
 Default spark dpp version
 
 ### hadoop_load_default_timeout_second
 
-Default：86400 * 3   (3天)
+Default: 86400 * 3   (3天)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default hadoop load timeout
 
 ### min_load_timeout_second
 
-Default：1 （1s）
+Default: 1 （1s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Min stream load timeout applicable to all type of load
 
 ### max_stream_load_timeout_second
 
-Default：259200 （3天）
+Default: 259200 （3天）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 This configuration is specifically used to limit timeout setting for stream load. It is to prevent that failed stream load transactions cannot be canceled within a short time because of the user's large timeout setting
 
 ### max_load_timeout_second
 
-Default：259200 （3天）
+Default: 259200 （3天）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Max load timeout applicable to all type of load except for stream load
 
 ### stream_load_default_timeout_second
 
-Default：600 （s）
+Default: 600 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default stream load and streaming mini load timeout
 
 ### insert_load_default_timeout_second
 
-Default：3600    （1 hour）
+Default: 3600    （1 hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default insert load timeout
 
 ### mini_load_default_timeout_second
 
-Default：3600    （1 hour）
+Default: 3600    （1 hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default non-streaming mini load timeout
 
 ### broker_load_default_timeout_second
 
-Default：14400   （4 hour）
+Default: 14400   （4 hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Default broker load timeout
 
 ### load_running_job_num_limit
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The number of loading tasks is limited, the default is 0, no limit
 
 ### load_input_size_limit_gb
 
-Default：0
+Default: 0
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The size of the data entered by the Load job, the default is 0, unlimited
 
 ### delete_thread_num
 
-Default：10
+Default: 10
 
 Concurrency of delete jobs.
 
 ### load_etl_thread_num_normal_priority
 
-Default：10
+Default: 10
 
 Concurrency of NORMAL priority etl load jobs. Do not change this if you know what you are doing.
 
 ### load_etl_thread_num_high_priority
 
-Default：3
+Default: 3
 
 Concurrency of HIGH priority etl load jobs. Do not change this if you know what you are doing
 
 ### load_pending_thread_num_normal_priority
 
-Default：10
+Default: 10
 
 Concurrency of NORMAL priority pending load jobs.  Do not change this if you know what you are doing.
 
 ### load_pending_thread_num_high_priority
 
-Default：3
+Default: 3
 
  Concurrency of HIGH priority pending load jobs. Load job priority is defined as HIGH or NORMAL.  All mini batch load jobs are HIGH priority, other types of load jobs are NORMAL priority.  Priority is set to avoid that a slow load job occupies a thread for a long time.  This is just a internal optimized scheduling policy.  Currently, you can not specified the job priority manually, and do not change this if you know what you are doing.
 
 ### load_checker_interval_second
 
-Default：5 （s）
+Default: 5 （s）
 
 The load scheduler running interval. A load job will transfer its state from PENDING to LOADING to FINISHED.  The load scheduler will transfer load job from PENDING to LOADING while the txn callback will transfer load job from LOADING to FINISHED.  So a load job will cost at most one interval to finish when the concurrency has not reached the upper limit.
 
 ### max_layout_length_per_row
 
-Default：100000
+Default: 100000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal memory layout length of a row. default is 100 KB. In BE, the maximal size of a RowBlock is 100MB(Configure as max_unpacked_row_block_size in be.conf). And each RowBlock contains 1024 rows. So the maximal size of a row is approximately 100 KB.
      eg.
@@ -1553,11 +1553,11 @@ Maximal memory layout length of a row. default is 100 KB. In BE, the maximal siz
 
 ### load_straggler_wait_second
 
-Default：300
+Default: 300
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal wait seconds for straggler node in load
      eg.
@@ -1572,43 +1572,43 @@ Maximal wait seconds for straggler node in load
 
 ### thrift_server_max_worker_threads
 
-Default：4096
+Default: 4096
 
 The thrift server max worker threads
 
 ### publish_version_interval_ms
 
-Default：10 （ms）
+Default: 10 （ms）
 
 minimal intervals between two publish version action
 
 ### publish_version_timeout_second
 
-Default：30 （s）
+Default: 30 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal waiting time for all publish version tasks of one transaction to be finished
 
 ### max_create_table_timeout_second
 
-Default：60 （s）
+Default: 60 （s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 In order not to wait too long for create table(index), set a max timeout.
 
 ### tablet_create_timeout_second
 
-Default：1（s）
+Default: 1（s）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Maximal waiting time for creating a single replica.
       eg.
@@ -1617,7 +1617,7 @@ Maximal waiting time for creating a single replica.
 
 ### max_mysql_service_task_threads_num
 
-Default：4096
+Default: 4096
 
 When FeEstarts the MySQL server based on NIO model, the number of threads responsible for Task events. Only `mysql_service_nio_enabled` is true takes effect.
 
@@ -1632,43 +1632,43 @@ This variable is a session variable, and the session level takes effect.
 
 ### cluster_id
 
-Default：-1
+Default: -1
 
 node(FE or BE) will be considered belonging to the same Palo cluster if they have same cluster id.  Cluster id is usually a random integer generated when master FE start at first time. You can also specify one.
 
 ### auth_token
 
-Default：空
+Default: 空
 
 Cluster token used for internal authentication.
 
 ### cluster_name
 
-Default： Apache doris
+Default:  Apache doris
 
 Cluster name will be shown as the title of web page
 
 ### mysql_service_io_threads_num
 
-Default：4
+Default: 4
 
 When FeEstarts the MySQL server based on NIO model, the number of threads responsible for IO events. Only `mysql_service_nio_enabled` is true takes effect.
 
 ### mysql_service_nio_enabled
 
-Default：true
+Default: true
 
 Whether FE starts the MySQL server based on NiO model. It is recommended to turn off this option when the query connection is less than 1000 or the concurrency scenario is not high
 
 ### query_port
 
-Default：9030
+Default: 9030
 
 FE MySQL server port
 
 ### rpc_port
 
-Default：9020
+Default: 9020
 
 FE Thrift Server port
 
@@ -1684,13 +1684,13 @@ If this parameter is `THREAD_POOL`, then the `TThreadPoolServer` model is used, 
 
 ### thrift_backlog_num
 
-Default：1024
+Default: 1024
 
-The backlog_num for thrift server ， When you enlarge this backlog_num, you should ensure it's value larger than the linux /proc/sys/net/core/somaxconn config
+The backlog_num for thrift server , When you enlarge this backlog_num, you should ensure it's value larger than the linux /proc/sys/net/core/somaxconn config
 
 ### thrift_client_timeout_ms
 
-Default：0
+Default: 0
 
 The connection timeout and socket timeout config for thrift server.
 
@@ -1698,35 +1698,35 @@ The value for thrift_client_timeout_ms is set to be larger than zero to prevent 
 
 ### mysql_nio_backlog_num
 
-Default：1024
+Default: 1024
 
 The backlog_num for mysql nio server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
 
 ### http_backlog_num
 
-Default：1024
+Default: 1024
 
 The backlog_num for netty http server, When you enlarge this backlog_num, you should enlarge the value in the linux /proc/sys/net/core/somaxconn file at the same time
 
 ### http_max_line_length
 
-Default：4096
+Default: 4096
 
 The max length of an HTTP URL. The unit of this configuration is BYTE. Defaults to 4096.
 
 ###  http_max_header_size
 
-Default：8192
+Default: 8192
 
 The max size of allowed HTTP headers. The unit of this configuration is BYTE. Defaults to 8192.
 
 ###  http_max_chunk_size
 
-Default：8192
+Default: 8192
 
 ### http_port
 
-Default：8030
+Default: 8030
 
 HTTP bind port. Defaults to 8030
 
@@ -1738,128 +1738,128 @@ The default is empty, that is, not set
 
 ### max_bdbje_clock_delta_ms
 
-Default：5000 （5s）
+Default: 5000 （5s）
 
 Set the maximum acceptable clock skew between non-master FE to Master FE host. This value is checked whenever a non-master FE establishes a connection to master FE via BDBJE. The connection is abandoned if the clock skew is larger than this value.
 
 ### ignore_meta_check
 
-Default：false
+Default: false
 
-IsMutable：true
+IsMutable: true
 
 If true, non-master FE will ignore the meta data delay gap between Master FE and its self,  even if the metadata delay gap exceeds *meta_delay_toleration_second*.  Non-master FE will still offer read service.
 This is helpful when you try to stop the Master FE for a relatively long time for some reason,  but still wish the non-master FE can offer read service.
 
 ### metadata_failure_recovery
 
-Default：false
+Default: false
 
 If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)  and is supposed to start as Master.  If all the electable nodes can not start, we can copy the meta data to another node and set this config to true to try to restart the FE..
 
 ### priority_networks
 
-Default：none
+Default: none
 
-Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 ， If no ip match this rule, will choose one randomly..
+Declare a selection strategy for those servers have many ips.  Note that there should at most one ip match this list.  this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24 , If no ip match this rule, will choose one randomly..
 
 ### txn_rollback_limit
 
-Default：100
+Default: 100
 
 the max txn number which bdbje can rollback when trying to rejoin the group
 
 ### max_agent_task_threads_num
 
-Default：4096
+Default: 4096
 
-MasterOnly：true
+MasterOnly: true
 
 max num of thread to handle agent task in agent task thread-pool.
 
 ### heartbeat_mgr_blocking_queue_size
 
-Default：1024
+Default: 1024
 
-MasterOnly：true
+MasterOnly: true
 
 blocking queue size to store heartbeat task in heartbeat_mgr.
 
 ### heartbeat_mgr_threads_num
 
-Default：8
+Default: 8
 
-MasterOnly：true
+MasterOnly: true
 
 num of thread to handle heartbeat events in heartbeat_mgr.
 
 ### bdbje_replica_ack_timeout_second
 
-Default：10  (s)
+Default: 10  (s)
 
-The replica ack timeout when writing to bdbje ， When writing some relatively large logs, the ack time may time out, resulting in log writing failure.  At this time, you can increase this value appropriately.
+The replica ack timeout when writing to bdbje , When writing some relatively large logs, the ack time may time out, resulting in log writing failure.  At this time, you can increase this value appropriately.
 
 ### bdbje_lock_timeout_second
 
-Default：1
+Default: 1
 
-The lock timeout of bdbje operation， If there are many LockTimeoutException in FE WARN log, you can try to increase this value
+The lock timeout of bdbje operation, If there are many LockTimeoutException in FE WARN log, you can try to increase this value
 
 ### bdbje_heartbeat_timeout_second
 
-Default：30
+Default: 30
 
 The heartbeat timeout of bdbje between master and follower. the default is 30 seconds, which is same as default value in bdbje. If the network is experiencing transient problems, of some unexpected long java GC annoying you,  you can try to increase this value to decrease the chances of false timeouts
 
 ### replica_ack_policy
 
-Default：SIMPLE_MAJORITY
+Default: SIMPLE_MAJORITY
 
-OPTION：ALL, NONE, SIMPLE_MAJORITY
+OPTION: ALL, NONE, SIMPLE_MAJORITY
 
 Replica ack policy of bdbje. more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.ReplicaAckPolicy.html
 
 ### replica_sync_policy
 
-Default：SYNC
+Default: SYNC
 
-选项：SYNC, NO_SYNC, WRITE_NO_SYNC
+选项: SYNC, NO_SYNC, WRITE_NO_SYNC
 
 Follower FE sync policy of bdbje.
 
 ### master_sync_policy
 
-Default：SYNC
+Default: SYNC
 
-选项：SYNC, NO_SYNC, WRITE_NO_SYNC
+选项: SYNC, NO_SYNC, WRITE_NO_SYNC
 
 Master FE sync policy of bdbje. If you only deploy one Follower FE, set this to 'SYNC'. If you deploy more than 3 Follower FE,  you can set this and the following 'replica_sync_policy' to WRITE_NO_SYNC.  more info, see: http://docs.oracle.com/cd/E17277_02/html/java/com/sleepycat/je/Durability.SyncPolicy.html
 
 ### meta_delay_toleration_second
 
-Default：300 （5分钟）
+Default: 300 （5分钟）
 
 Non-master FE will stop offering service  if meta data delay gap exceeds *meta_delay_toleration_second*
 
 ### edit_log_roll_num
 
-Default：50000
+Default: 50000
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Master FE will save image every *edit_log_roll_num* meta journals.
 
 ### edit_log_port
 
-Default：9010
+Default: 9010
 
 bdbje port
 
 ### edit_log_type
 
-Default：BDB
+Default: BDB
 
 Edit log type.
       BDB: write log to bdbje
@@ -1867,13 +1867,13 @@ Edit log type.
 
 ### tmp_dir
 
-Default：PaloFe.DORIS_HOME_DIR + "/temp_dir"
+Default: PaloFe.DORIS_HOME_DIR + "/temp_dir"
 
 temp dir is used to save intermediate results of some process, such as backup and restore process.  file in this dir will be cleaned after these process is finished.
 
 ### meta_dir
 
-Default：DORIS_HOME_DIR + "/doris-meta"
+Default: DORIS_HOME_DIR + "/doris-meta"
 
 Type: string Description: Doris meta data will be saved here.The storage of this dir is highly recommended as to be:
 
@@ -1882,7 +1882,7 @@ Type: string Description: Doris meta data will be saved here.The storage of this
 
 ### custom_config_dir
 
-Default：PaloFe.DORIS_HOME_DIR + "/conf"
+Default: PaloFe.DORIS_HOME_DIR + "/conf"
 
 Configure the location of the `fe_custom.conf` file. The default is in the `conf/` directory.
 
@@ -1890,13 +1890,13 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 
 ### log_roll_size_mb
 
-Default：1024  （1G）
+Default: 1024  （1G）
 
 The max size of one sys log and audit log
 
 ### sys_log_dir
 
-Default：PaloFe.DORIS_HOME_DIR + "/log"
+Default: PaloFe.DORIS_HOME_DIR + "/log"
 
 sys_log_dir:
       This specifies FE log dir. FE will produces 2 log files:
@@ -1905,29 +1905,29 @@ sys_log_dir:
 
 ### sys_log_level
 
-Default：INFO
+Default: INFO
 
-log level：INFO, WARNING, ERROR, FATAL
+log level: INFO, WARNING, ERROR, FATAL
 
 ### sys_log_roll_num
 
-Default：10
+Default: 10
 
 Maximal FE log files to be kept within an sys_log_roll_interval. default is 10, which means there will be at most 10 log files in a day
 
 ### sys_log_verbose_modules
 
-Default：{}
+Default: {}
 
 Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
 
-eg：
+eg: 
     sys_log_verbose_modules = org.apache.doris.catalog
     This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
 
 ### sys_log_roll_interval
 
-Default：DAY
+Default: DAY
 
 sys_log_roll_interval:
 
@@ -1936,7 +1936,7 @@ sys_log_roll_interval:
 
 ### sys_log_delete_age
 
-Default：7d
+Default: 7d
 
 sys_log_delete_age:
        default is 7 days, if log's last modify time is 7 days ago, it will be deleted.
@@ -1950,40 +1950,40 @@ sys_log_delete_age:
 
 ### audit_log_dir
 
-Default：DORIS_HOME_DIR + "/log"
+Default: DORIS_HOME_DIR + "/log"
 
-audit_log_dir：
+audit_log_dir: 
            This specifies FE audit log dir..
             Audit log fe.audit.log contains all requests with related infos such as user, host, cost, status, etc
 
 ### audit_log_roll_num
 
-Default：90
+Default: 90
 
 Maximal FE audit log files to be kept within an audit_log_roll_interval. 
 
 ### audit_log_modules
 
-Default：{"slow_query", "query", "load", "stream_load"}
+Default: {"slow_query", "query", "load", "stream_load"}
 
 Slow query contains all queries which cost exceed *qe_slow_log_ms*
 
 ### qe_slow_log_ms
 
-Default：5000 （5秒）
+Default: 5000 （5秒）
 
 If the response time of a query exceed this threshold, it will be recorded in audit log as slow_query.
 
 ### audit_log_roll_interval
 
-Default：DAY
+Default: DAY
 
-DAY:  logsuffix is ：yyyyMMdd
-HOUR: logsuffix is ：yyyyMMddHH
+DAY:  logsuffix is : yyyyMMdd
+HOUR: logsuffix is : yyyyMMddHH
 
 ### audit_log_delete_age
 
-Default：30d
+Default: 30d
 
 default is 30 days, if log's last modify time is 30 days ago, it will be deleted.
 
@@ -1995,7 +1995,7 @@ default is 30 days, if log's last modify time is 30 days ago, it will be deleted
 
 ### plugin_dir
 
-Default：DORIS_HOME + "/plugins
+Default: DORIS_HOME + "/plugins
 
 plugin install directory
 
@@ -2003,63 +2003,63 @@ plugin install directory
 
 Default:true
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 Whether the plug-in is enabled, enabled by default
 
 ### label_keep_max_second
 
-Default：3 * 24 * 3600  (3day)
+Default: 3 * 24 * 3600  (3day)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
-labels of finished or cancelled load jobs will be removed after *label_keep_max_second* ， The removed labels can be reused.  Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
+labels of finished or cancelled load jobs will be removed after *label_keep_max_second* , The removed labels can be reused.  Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
 
 In the case of high concurrent writes, if there is a large backlog of jobs and call frontend service failed, check the log. If the metadata write takes too long to lock, you can adjust this value to 12 hours, or 6 hours less
 
 ### streaming_label_keep_max_second
 
-Default：43200 （12 hour）
+Default: 43200 （12 hour）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 For some high-frequency load work, such as: INSERT, STREAMING LOAD, ROUTINE_LOAD_TASK. If it expires, delete the completed job or task.
 
 ### history_job_keep_max_second
 
-Default：7 * 24 * 3600   （7 day）
+Default: 7 * 24 * 3600   （7 day）
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：true
+MasterOnly: true
 
 The max keep time of some kind of jobs. like schema change job and rollup job.
 
 ### label_clean_interval_second
 
-Default：4 * 3600  （4 hour）
+Default: 4 * 3600  （4 hour）
 
 Load label cleaner will run every *label_clean_interval_second* to clean the outdated jobs.
 
 ### delete_info_keep_max_second
 
-Default：3 * 24 * 3600  (3day)
+Default: 3 * 24 * 3600  (3day)
 
-IsMutable：true
+IsMutable: true
 
-MasterOnly：false
+MasterOnly: false
 
 Delete all deleteInfo older than *delete_info_keep_max_second* , Setting a shorter time will reduce FE memory usage and image file size. (Because all deleteInfo is stored in memory and image files before being deleted)
 
 ### transaction_clean_interval_second
 
-Default：30
+Default: 30
 
 the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted  we should make this interval as short as possible and each clean cycle as soon as possible
 
@@ -2092,7 +2092,7 @@ When there are a large number of replicas waiting to be balanced or repaired in 
 
 Default: false
 
-IsMutable：true
+IsMutable: true
 
 MasterOnly: true
 

@@ -199,7 +199,7 @@ under the License.
     9. Modify default buckets number of partition 
         grammer:
             MODIFY DISTRIBUTION DISTRIBUTED BY HASH (k1[,k2 ...]) BUCKETS num
-        note：
+        note:
             1）Only support non colocate table with RANGE partition and HASH distribution
 
     10. Modify table comment

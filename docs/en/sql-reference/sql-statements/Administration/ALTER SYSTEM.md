@@ -78,7 +78,7 @@ under the License.
              Other properties: Other information necessary to access remote storage, such as authentication information.
         
         7) Modify BE node attributes currently supports the following attributes:
-           1. tag.location：Resource tag
+           1. tag.location: Resource tag
            2. disable_query: Query disabled attribute
            3. disable_load: Load disabled attribute
 
