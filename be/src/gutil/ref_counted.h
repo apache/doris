@@ -95,9 +95,6 @@ public:
 
 protected:
     ~RefCounted() {}
-
-private:
-    DISALLOW_COPY_AND_ASSIGN(RefCounted<T>);
 };
 
 // Forward declaration.

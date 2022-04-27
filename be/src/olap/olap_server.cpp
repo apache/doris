@@ -294,7 +294,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     do {
         LOG(INFO) << "begin to produce tablet meta checkpoint tasks.";
         for (auto data_dir : data_dirs) {
-            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([=]() {
+            auto st = _tablet_meta_checkpoint_thread_pool->submit_func([=, this]() {
                 CgroupsMgr::apply_system_cgroup();
                 _tablet_manager->do_tablet_meta_checkpoint(data_dir);
             });
@@ -391,7 +391,7 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 // It is necessary to wake up the thread on timeout to prevent deadlock
                 // in case of no running compaction task.
                 _compaction_producer_sleep_cv.wait_for(lock, std::chrono::milliseconds(2000),
-                                                       [=] { return _wakeup_producer_flag == 1; });
+                                                       [=, this] { return _wakeup_producer_flag == 1; });
                 continue;
             }
 
@@ -565,7 +565,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
     int64_t permits = 0;
     Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
     if (st.ok() && permits > 0 && _permit_limiter.request(permits)) {
-        auto st = _compaction_thread_pool->submit_func([=]() {
+        auto st = _compaction_thread_pool->submit_func([=, this]() {
             CgroupsMgr::apply_system_cgroup();
             tablet->execute_compaction(compaction_type);
             _permit_limiter.release(permits);

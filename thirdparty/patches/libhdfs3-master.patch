@@ -136,3 +136,14 @@ diff -uprN a/src/CMakeLists.txt b/src/CMakeLists.txt
 
  echo 'bootstrap success. Run "make" to build.'
 
+diff --git a/bootstrap b/bootstrap
+index 2cae2ad..7ccd432 100755
+--- a/bootstrap
++++ b/bootstrap
+@@ -121,6 +121,7 @@ ${cmake} -DENABLE_DEBUG=${enable_build} -DCMAKE_INSTALL_PREFIX=${prefix_dirs} \
+     -DCMAKE_C_COMPILER=${c_compiler} -DCMAKE_CXX_COMPILER=${cxx_compiler} \
+     -DCMAKE_PREFIX_PATH=${dependency_dir} -DENABLE_BOOST=${enable_boost} \
+     -DENABLE_COVERAGE=${enable_coverage} -DENABLE_LIBCPP=${enable_clang_lib} ${source_dir} \
++    -DCXXFLAGS="-fPIC" \
+     $CMAKE_EXTRA_FLAGS \
+     || die "failed to configure the project"

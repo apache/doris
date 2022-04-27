@@ -37,6 +37,29 @@ if (${MAKE_TEST} STREQUAL "OFF")
     # This permits libraries loaded by dlopen to link to the symbols in the program.
     set_target_properties(palo_be PROPERTIES ENABLE_EXPORTS 1)
 
+    find_package(absl REQUIRED)
+
+    target_link_libraries(palo_be
+        absl::base
+        absl::btree
+        absl::config
+        absl::core_headers
+        absl::dynamic_annotations
+        absl::endian
+        absl::fixed_array
+        absl::flat_hash_map
+        absl::flat_hash_set
+        absl::hash
+        absl::inlined_vector
+        absl::int128
+        absl::log_severity
+        absl::memory
+        absl::span
+        absl::str_format
+        absl::strings
+        absl::type_traits
+    )
+
     target_link_libraries(palo_be
         ${DORIS_LINK_LIBS}
     )

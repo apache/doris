@@ -274,7 +274,7 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
             break;
         }
         PackedInt128 num = binary_cast<DecimalV2Value, PackedInt128>(decimal_slot);
-        reinterpret_cast<vectorized::ColumnVector<doris::PackedInt128>*>(col_ptr)->insert_value(
+        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(
                 num.value);
         break;
     }

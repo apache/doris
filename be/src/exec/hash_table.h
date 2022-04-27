@@ -152,13 +152,13 @@ public:
     Iterator find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
-    int64_t size() { return _num_nodes; }
+    int64_t size() const { return _num_nodes; }
 
     // Returns the number of buckets
     int64_t num_buckets() { return _buckets.size(); }
 
     // Returns the number of filled buckets
-    int64_t num_filled_buckets() { return _num_filled_buckets; }
+    int64_t num_filled_buckets() const { return _num_filled_buckets; }
 
     // Check the hash table should be shrink
     bool should_be_shrink(int64_t valid_row) {
@@ -243,11 +243,11 @@ public:
             return _node->matched;
         }
 
-        bool operator==(const Iterator& rhs) {
+        bool operator==(const Iterator& rhs) const {
             return _bucket_idx == rhs._bucket_idx && _node == rhs._node;
         }
 
-        bool operator!=(const Iterator& rhs) {
+        bool operator!=(const Iterator& rhs) const {
             return _bucket_idx != rhs._bucket_idx || _node != rhs._node;
         }
 

@@ -26,6 +26,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "util/types.h"
 #include "vec/common/exception.h"
 #include "vec/common/int_exp.h"
 #include "vec/common/strong_typedef.h"
@@ -626,6 +627,10 @@ struct Field::TypeToEnum<Int128> {
     static const Types::Which value = Types::Int128;
 };
 template <>
+struct Field::TypeToEnum<PackedInt128> {
+    static const Types::Which value = Types::Int128;
+};
+template <>
 struct Field::TypeToEnum<Float64> {
     static const Types::Which value = Types::Float64;
 };
@@ -807,6 +812,10 @@ struct NearestFieldTypeImpl<Int128> {
     using Type = Int128;
 };
 template <>
+struct NearestFieldTypeImpl<PackedInt128> {
+    using Type = Int128;
+};
+template <>
 struct NearestFieldTypeImpl<Decimal32> {
     using Type = DecimalField<Decimal32>;
 };
@@ -871,10 +880,13 @@ struct NearestFieldTypeImpl<AggregateFunctionStateData> {
 template <typename T>
 decltype(auto) cast_to_nearest_field_type(T&& x) {
     using U = NearestFieldType<std::decay_t<T>>;
-    if constexpr (std::is_same_v<std::decay_t<T>, U>)
+    if constexpr (std::is_same_v<PackedInt128, std::decay_t<T>>) {
+        return U(x.value);
+    } else if constexpr (std::is_same_v<std::decay_t<T>, U>) {
         return std::forward<T>(x);
-    else
+    } else {
         return U(x);
+    }
 }
 
 /// This (rather tricky) code is to avoid ambiguity in expressions like

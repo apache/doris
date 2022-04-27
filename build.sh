@@ -280,6 +280,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+            -DCMAKE_PREFIX_PATH=${DORIS_THIRDPARTY}/installed \
             -DMAKE_TEST=OFF \
             ${CMAKE_USE_CCACHE} \
             -DWITH_MYSQL=${WITH_MYSQL} \

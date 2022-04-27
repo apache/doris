@@ -1,0 +1,18 @@
+diff --git a/parallel_hashmap/btree.h b/parallel_hashmap/btree.h      
+index cbfb8ee..7dcf39b 100644
+--- a/parallel_hashmap/btree.h
++++ b/parallel_hashmap/btree.h
+@@ -1529,6 +1529,13 @@ namespace priv {
+             return node != x.node || position != x.position;
+         }
+
++        bool operator==(const iterator &x) const {
++            return node == x.node && position == x.position;
++        }
++        bool operator!=(const iterator &x) const {
++            return node != x.node || position != x.position;
++        }
++
+         // Accessors for the key/value the iterator is pointing at.
+         reference operator*() const {
+             return node->value(position);

@@ -516,7 +516,7 @@ build_mysql() {
         cp -rf $TP_SOURCE_DIR/$BOOST_SOURCE ./
     fi
 
-    CFLAGS="-static -pthread -lrt" CXXFLAGS="-static -pthread -lrt" \
+    CFLAGS="-static -pthread -lrt -fPIC" CXXFLAGS="-static -pthread -lrt" \
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DCMAKE_LINK_SEARCH_END_STATIC=1 \
     -DWITH_BOOST=`pwd`/$BOOST_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
     -DWITHOUT_SERVER=1 -DWITH_ZLIB=1 -DZLIB_ROOT=$TP_INSTALL_DIR \
@@ -676,23 +676,38 @@ build_arrow() {
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
 }
 
+# abseil
+build_abseil() {
+    check_if_source_exist $ABSEIL_SOURCE
+    cd $TP_SOURCE_DIR/$ABSEIL_SOURCE
+
+    CXXFLAGS="-O3" \
+    LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
+    ${CMAKE_CMD} -B $BUILD_DIR -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
+    -DABSL_ENABLE_INSTALL=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_CXX_STANDARD=20
+
+    cmake --build $BUILD_DIR
+    cmake --install $BUILD_DIR --prefix $TP_INSTALL_DIR
+}
+
 # s2
 build_s2() {
     check_if_source_exist $S2_SOURCE
     cd $TP_SOURCE_DIR/$S2_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
+
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_INCLUDE_PATH="$TP_INSTALL_DIR/include" \
+    -DCMAKE_PREFIX_PATH=$TP_INSTALL_DIR \
     -DBUILD_SHARED_LIBS=OFF \
-    -DGFLAGS_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DWITH_GFLAGS=ON \
-    -DGLOG_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DCMAKE_LIBRARY_PATH="$TP_INSTALL_DIR/lib64" \
-    -DOPENSSL_ROOT_DIR="$TP_INSTALL_DIR/include" \
-    -DWITH_GLOG=ON ..
+    -DCMAKE_CXX_STANDARD=20 \
+    -DCMAKE_LIBRARY_PATH=$TP_INSTALL_DIR ..
+
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
 }
 
@@ -766,6 +781,7 @@ build_fmt() {
     cd $TP_SOURCE_DIR/$FMT_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-fPIC" \
     $CMAKE_CMD -G "${GENERATOR}" -DBUILD_SHARED_LIBS=FALSE -DFMT_TEST=OFF -DFMT_DOC=OFF -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR ..
     ${BUILD_SYSTEM} -j$PARALLEL && ${BUILD_SYSTEM} install
 }
@@ -797,7 +813,7 @@ build_orc() {
     cd $TP_SOURCE_DIR/$ORC_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
-    CXXFLAGS="-O3 -Wno-array-bounds $warning_reserved_identifier $warning_suggest_override" \
+    CXXFLAGS="-fPIC -O3 -Wno-array-bounds $warning_reserved_identifier $warning_suggest_override" \
     ${CMAKE_CMD} -G "${GENERATOR}" ../ -DBUILD_JAVA=OFF \
     -DPROTOBUF_HOME=$TP_INSTALL_DIR \
     -DSNAPPY_HOME=$TP_INSTALL_DIR \
@@ -982,6 +998,7 @@ build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
 build_arrow
+build_abseil
 build_s2
 build_bitshuffle
 build_croaringbitmap

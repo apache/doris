@@ -32,7 +32,7 @@ public:
 
     ~PathTrie() {
         if (_root_value != nullptr) {
-            _allocator.destroy(_root_value);
+            std::destroy_at(_root_value);
             _allocator.deallocate(_root_value, 1);
         }
     }
@@ -49,7 +49,7 @@ public:
         TrieNode(const std::string& key, const T& value, const std::string& wildcard)
                 : _value(nullptr), _wildcard(wildcard) {
             _value = _allocator.allocate(1);
-            _allocator.construct(_value, value);
+            std::construct_at(_value, value);
             if (is_named_wildcard(key)) {
                 _named_wildcard = extract_template(key);
             }
@@ -61,7 +61,7 @@ public:
                 iter.second = nullptr;
             }
             if (_value != nullptr) {
-                _allocator.destroy(_value);
+                std::destroy_at(_value);
                 _allocator.deallocate(_value, 1);
             }
         }
@@ -104,7 +104,7 @@ public:
                 if (index == path.size() - 1) {
                     if (node->_value == nullptr) {
                         node->_value = _allocator.allocate(1);
-                        _allocator.construct(node->_value, value);
+                        std::construct_at(node->_value, value);
                         return true;
                     }
                     // Already register by other path
@@ -146,7 +146,7 @@ public:
                 if (node->_value == nullptr) {
                     return false;
                 }
-                _allocator.construct(value, *node->_value);
+                std::construct_at(value, *node->_value);
                 return true;
             }
 
@@ -208,7 +208,7 @@ public:
         if (path_array.empty()) {
             if (_root_value == nullptr) {
                 _root_value = _allocator.allocate(1);
-                _allocator.construct(_root_value, value);
+                std::construct_at(_root_value, value);
                 return true;
             } else {
                 return false;
@@ -228,7 +228,7 @@ public:
             if (_root_value == nullptr) {
                 return false;
             } else {
-                _allocator.construct(value, *_root_value);
+                std::construct_at(value, *_root_value);
                 return true;
             }
         }
@@ -238,7 +238,7 @@ public:
             if (_root_value == nullptr) {
                 return false;
             } else {
-                _allocator.construct(value, *_root_value);
+                std::construct_at(value, *_root_value);
                 return true;
             }
         }

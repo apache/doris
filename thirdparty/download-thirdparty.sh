@@ -265,11 +265,20 @@ echo "Finished patching $LIBEVENT_SOURCE"
 # s2 patch to disable shared library
 cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
-    patch -p1 < $TP_PATCH_DIR/s2geometry-0.9.0.patch
+    patch -p1 < $TP_PATCH_DIR/s2geometry-0.10.0.patch
     touch $PATCHED_MARK
 fi
 cd -
 echo "Finished patching $S2_SOURCE"
+
+# phmap c++20 compatibility fix
+cd $TP_SOURCE_DIR/$PARALLEL_HASHMAP_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/parallel-hashmap-1.33.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $PARALLEL_HASHMAP_SOURCE"
 
 # hdfs3 patch to fix compile error
 cd $TP_SOURCE_DIR/$HDFS3_SOURCE
