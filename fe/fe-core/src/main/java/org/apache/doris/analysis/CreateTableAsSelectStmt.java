@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import lombok.Getter;
+
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -31,16 +33,25 @@ import java.util.List;
  *          opt_engine opt_partition opt_properties KW_AS query_stmt
  */
 public class CreateTableAsSelectStmt extends DdlStmt {
+    
+    @Getter
     private final CreateTableStmt createTableStmt;
+    
+    @Getter
     private final List<String> columnNames;
+    
+    @Getter
     private QueryStmt queryStmt;
+    
+    @Getter
+    private final InsertStmt insertStmt;
     
     public CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
                                    List<String> columnNames, QueryStmt queryStmt) {
         this.createTableStmt = createTableStmt;
         this.columnNames = columnNames;
         this.queryStmt = queryStmt;
-        // Insert is not currently supported
+        this.insertStmt = new InsertStmt(createTableStmt.getDbTbl(), queryStmt.clone());
     }
     
     @Override
@@ -62,17 +73,6 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         if (columnNames != null && columnNames.size() != resultExprs.size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }
-    }
-    
-    public CreateTableStmt getCreateTableStmt() {
-        return createTableStmt;
-    }
-    
-    public List<String> getColumnNames() {
-        return columnNames;
-    }
-    
-    public QueryStmt getQueryStmt() {
-        return queryStmt;
+        // Cannot analyze insertStmt because the table has not been created yet
     }
 }
