@@ -76,12 +76,12 @@ under the License.
 
     7. hdfs
       Specify to use libhdfs export to hdfs
-          Grammar：
+          Grammar:
           WITH HDFS ("key"="value"[,...])
 
           The following parameters can be specified:
-            fs.defaultFS: Set the fs such as：hdfs://ip:port
-            hdfs_user：Specify hdfs user name
+            fs.defaultFS: Set the fs such as:hdfs://ip:port
+            hdfs_user:Specify hdfs user name
 
 ## example
 

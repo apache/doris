@@ -33,8 +33,8 @@ under the License.
 `BITMAP BITMAP_SUBSET_LIMIT(BITMAP src, BIGINT range_start, BIGINT cardinality_limit)`
 
 Create subset of the BITMAP, begin with range from range_start, limit by cardinality_limit
-range_start：start value for the range
-cardinality_limit：subset upper limit
+range_start: start value for the range
+cardinality_limit: subset upper limit
 
 ## example
 
@@ -50,7 +50,7 @@ mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5
 +-------+
 | value |
 +-------+
-| 4，5     |
+| 4,5     |
 +-------+
 ```
 

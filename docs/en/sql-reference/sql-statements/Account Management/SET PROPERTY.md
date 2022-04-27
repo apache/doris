@@ -40,7 +40,7 @@ key:
 Super user rights:
 max_user_connections: Maximum number of connections.
 max_query_instances: Maximum number of query instance user can use when query.
-sql_block_rules: set sql block rules。After setting, if the query user execute match the rules, it will be rejected.
+sql_block_rules: set sql block rules.After setting, if the query user execute match the rules, it will be rejected.
 cpu_resource_limit: limit the cpu resource usage of a query. See session variable `cpu_resource_limit`.
 exec_mem_limit: Limit the memory usage of the query. See the description of the session variable `exec_mem_limit` for details. -1 means not set.
 load_mem_limit: Limit memory usage for imports. See the introduction of the session variable `load_mem_limit` for details. -1 means not set.

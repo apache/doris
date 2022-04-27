@@ -43,7 +43,7 @@ LDAP group authorization, is to map the group in LDAP to the Role in Doris, if t
 
 You need to configure the LDAP basic information in the fe/conf/ldap.conf file, and the LDAP administrator password needs to be set using sql statements.
 
-#### Configure the fe/conf/ldap.conf file：
+#### Configure the fe/conf/ldap.conf file:
 * ldap_authentication_enabled = false  
   Set the value to "true" to enable LDAP authentication; when the value is "false", LDAP authentication is not enabled and all other configuration items of this profile are invalid.Set the value to "true" to enable LDAP authentication; when the value is "false", LDAP authentication is not enabled and all other configuration items of this profile are invalid.
 
@@ -66,7 +66,7 @@ You need to configure the LDAP basic information in the fe/conf/ldap.conf file, 
   For example, if you use the LDAP user node uid attribute as the username to log into Doris, you can configure it as:    
   ldap_user_filter = (&(uid={login}))；  
   This item can be configured using the LDAP user mailbox prefix as the user name:   
-  ldap_user_filter = (&(mail={login}@baidu.com))。
+  ldap_user_filter = (&(mail={login}@baidu.com)).
 
 * ldap_group_basedn = ou=group,dc=domain,dc=com
   base dn when Doris searches for group information in LDAP. if this item is not configured, LDAP group authorization will not be enabled.  

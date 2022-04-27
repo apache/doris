@@ -38,13 +38,13 @@ Support SQL block rule by user level:
 
 SQL block rule CRUD
 - create SQL block rule
-    - sql：Regex pattern，Special characters need to be translated, "NULL" by default
+    - sql: Regex pattern,Special characters need to be translated, "NULL" by default
     - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log, This parameter is the only choice between sql and sql, "NULL" by default
     - partition_num: Max number of partitions will be scanned by a scan node, 0L by default
     - tablet_num: Max number of tablets will be scanned by a scan node, 0L by default
     - cardinality: An inaccurate number of scan rows of a scan node, 0L by default
     - global: Whether global(all users)is in effect, false by default
-    - enable：Whether to enable block rule，true by default
+    - enable: Whether to enable block rule,true by default
 ```sql
 CREATE SQL_BLOCK_RULE test_rule 
 PROPERTIES(
@@ -70,7 +70,7 @@ CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "30", "cardinality
 ```sql
 SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
 ```
-- alter SQL block rule，Allows changes sql/sqlHash/global/enable/partition_num/tablet_num/cardinality anyone
+- alter SQL block rule,Allows changes sql/sqlHash/global/enable/partition_num/tablet_num/cardinality anyone
   - sql and sqlHash cannot be set both. It means if sql or sqlHash is set in a rule, another property will never be allowed to be altered
   - sql/sqlHash and partition_num/tablet_num/cardinality cannot be set together. For example, partition_num is set in a rule, then sql or sqlHash will never be allowed to be altered.
 ```sql
@@ -81,7 +81,7 @@ ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","en
 ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
-- drop SQL block rule，Support multiple rules, separated by `,`
+- drop SQL block rule,Support multiple rules, separated by `,`
 ```sql
 DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ```

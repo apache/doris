@@ -46,17 +46,17 @@ Copy gensrc/proto/function_service.proto and gensrc/proto/types.proto to Rpc ser
 
 - function_service.proto
   - PFunctionCallRequest
-    - function_name：The function name, corresponding to the symbol specified when the function was created
-    - args：The parameters passed by the method
-    - context：Querying context Information
+    - function_name:The function name, corresponding to the symbol specified when the function was created
+    - args:The parameters passed by the method
+    - context:Querying context Information
   - PFunctionCallResponse
-    - result：Return result
-    - status：Return Status, 0 indicates normal
+    - result:Return result
+    - status:Return Status, 0 indicates normal
   - PCheckFunctionRequest
-    - function：Function related information
-    - match_type：Matching type
+    - function:Function related information
+    - match_type:Matching type
   - PCheckFunctionResponse
-    - status：Return status, 0 indicates normal
+    - status:Return status, 0 indicates normal
 
 ### Generated interface
 
@@ -65,9 +65,9 @@ Use protoc generate code, and specific parameters are viewed using protoc -h
 ### Implementing an interface
 
 The following three methods need to be implemented
-- fnCall：Used to write computational logic
-- checkFn：Used to verify function names, parameters, and return values when creating UDFs
-- handShake：Used for interface probe
+- fnCall:Used to write computational logic
+- checkFn:Used to verify function names, parameters, and return values when creating UDFs
+- handShake:Used for interface probe
 
 ## Create UDF
 
@@ -81,10 +81,10 @@ PROPERTIES (["key"="value"][,...])
 ```
 Instructions:
 
-1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set。
-2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4)。
-3. PROPERTIES中`type`Indicates the UDF call type, which is Native by default. Rpc is transmitted when Rpc UDF is used。
-4. name: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`。
+1. PROPERTIES中`symbol`Represents the name of the method passed by the RPC call, which must be set.
+2. PROPERTIES中`object_file`Represents the RPC service address. Currently, a single address and a cluster address in BRPC-compatible format are supported. Refer to the cluster connection mode[Format specification](https://github.com/apache/incubator-brpc/blob/master/docs/cn/client.md#%E8%BF%9E%E6%8E%A5%E6%9C%8D%E5%8A%A1%E9%9B%86%E7%BE%A4).
+3. PROPERTIES中`type`Indicates the UDF call type, which is Native by default. Rpc is transmitted when Rpc UDF is used.
+4. name: A function belongs to a DB and name is of the form`dbName`.`funcName`. When `dbName` is not explicitly specified, the db of the current session is used`dbName`.
 
 Sample:
 ```sql

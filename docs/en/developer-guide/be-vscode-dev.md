@@ -32,7 +32,7 @@ under the License.
 
 1. Download the doris source code
 
-   URL：[apache/incubator-doris: Apache Doris (Incubating) (github.com)](https://github.com/apache/incubator-doris)
+   URL: [apache/incubator-doris: Apache Doris (Incubating) (github.com)](https://github.com/apache/incubator-doris)
 
 2. Install GCC 8.3.1+, Oracle JDK 1.8+, Python 2.7+, confirm that the gcc, java, python commands point to the correct version, and set the JAVA_HOME environment variable
 
@@ -132,7 +132,7 @@ Need to create this folder, this is where the be data is stored
 mkdir -p /soft/be/storage
 ```
 
-3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/incubator-doris/**，For details on how to vscode, refer to the online tutorial
+3. Open vscode, and open the directory where the be source code is located. In this case, open the directory as **/home/workspace/incubator-doris/**,For details on how to vscode, refer to the online tutorial
 
 4. Install the vscode ms c++ debugging plug-in, the plug-in identified by the red box in the figure below
 

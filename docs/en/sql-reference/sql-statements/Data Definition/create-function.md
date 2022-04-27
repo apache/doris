@@ -79,7 +79,7 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 >           "prepare_fn": Function signature of the prepare function for finding the entry from the dynamic library. This option is optional for custom functions
 > 
 >           "close_fn": Function signature of the close function for finding the entry from the dynamic library. This option is optional for custom functions
->           "type"： Function type, RPC for remote udf, NATIVE for c++ native udf
+>           "type": Function type, RPC for remote udf, NATIVE for c++ native udf
 
 
 

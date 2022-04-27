@@ -215,8 +215,8 @@ See the section on `lower_case_table_names` variables in [Variables](../administ
       
     **instructions**
       
-    * 1./home/disk1/doris,medium:hdd,capacity:10，capacity limit is 10GB, HDD;
-    * 2./home/disk2/doris,medium:ssd,capacity:50，capacity limit is 50GB, SSD;
+    * 1./home/disk1/doris,medium:hdd,capacity:10,capacity limit is 10GB, HDD;
+    * 2./home/disk2/doris,medium:ssd,capacity:50,capacity limit is 50GB, SSD;
 
 * BE webserver_port configuration
 
