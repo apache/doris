@@ -179,7 +179,6 @@ set(VEC_FILES
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
-  olap/vdelta_writer.cpp
   olap/olap_data_convertor.cpp
   sink/mysql_result_writer.cpp
   sink/result_sink.cpp
@@ -195,7 +194,8 @@ set(VEC_FILES
   runtime/vload_channel.cpp
   runtime/vload_channel_mgr.cpp
   runtime/vtablets_channel.cpp
-  utils/arrow_column_to_doris_column.cpp)
+  utils/arrow_column_to_doris_column.cpp
+  runtime/vsorted_run_merger.cpp)
 
 add_library(Vec STATIC
     ${VEC_FILES}

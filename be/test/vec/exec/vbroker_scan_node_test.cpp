@@ -642,7 +642,3 @@ TEST_F(VBrokerScanNodeTest, where_binary_pre) {
 
 } // namespace vectorized
 } // namespace doris
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

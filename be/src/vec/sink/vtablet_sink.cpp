@@ -134,7 +134,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-Status VNodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
+Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
@@ -178,7 +178,7 @@ Status VNodeChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 
 int VNodeChannel::try_send_and_fetch_status(RuntimeState* state,
                                             std::unique_ptr<ThreadPoolToken>& thread_pool_token) {
-        auto st = none_of({_cancelled, _send_finished});
+    auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
     }
@@ -307,31 +307,10 @@ void VNodeChannel::mark_close() {
     _eos_is_produced = true;
 }
 
-VIndexChannel::VIndexChannel(OlapTableSink* parent, int64_t index_id)
-    : IndexChannel(parent, index_id) {
-    _is_vectorized = true;
-}
-
-VIndexChannel::~VIndexChannel() {}
-
-void VIndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
-    auto it = _channels_by_tablet.find(tablet_id);
-    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
-    for (auto channel : it->second) {
-        // if this node channel is already failed, this add_row will be skipped
-        auto st = channel->add_row(block_row, tablet_id);
-        if (!st.ok()) {
-            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
-        }
-    }
-}
-
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                const std::vector<TExpr>& texprs, Status* status)
         : OlapTableSink(pool, row_desc, texprs, status) {
-
     _is_vectorized = true;
-
     // From the thrift expressions create the real exprs.
     vectorized::VExpr::create_expr_trees(pool, texprs, &_output_vexpr_ctxs);
     _name = "VOlapTableSink";
@@ -341,7 +320,7 @@ VOlapTableSink::~VOlapTableSink() {
     // We clear NodeChannels' batches here, cuz NodeChannels' batches destruction will use
     // OlapTableSink::_mem_tracker and its parents.
     // But their destructions are after OlapTableSink's.
-    for (auto index_channel : _channels) {
+    for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_blocks(); });
     }
 }

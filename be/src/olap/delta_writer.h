@@ -54,17 +54,15 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer);
+    static OLAPStatus open(WriteRequest* req, DeltaWriter** writer, bool is_vec = false);
 
-    virtual ~DeltaWriter();
+    ~DeltaWriter();
 
     OLAPStatus init();
 
     OLAPStatus write(Tuple* tuple);
     OLAPStatus write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
-    virtual OLAPStatus write_block(const vectorized::Block* block, const std::vector<int>& row_idxs) {
-        return OLAP_ERR_READER_INITIALIZE_ERROR;
-    }
+    OLAPStatus write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
@@ -92,24 +90,23 @@ public:
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
-protected:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
+private:
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
 
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
 
-private:
     void _garbage_collection();
 
-    virtual void _reset_mem_table();
+    void _reset_mem_table();
 
-protected:
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
     std::unique_ptr<RowsetWriter> _rowset_writer;
+    // TODO: Recheck the lifttime of _mem_table, Look only should use unique_ptr
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
     const TabletSchema* _tablet_schema;
@@ -123,6 +120,9 @@ protected:
     int64_t _segment_counter = 0;
 
     std::mutex _lock;
+
+    // use in vectorized load
+    bool _is_vec;
 };
 
 } // namespace doris

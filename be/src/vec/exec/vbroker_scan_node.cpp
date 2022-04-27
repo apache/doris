@@ -35,8 +35,6 @@ VBrokerScanNode::VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode,
     _vectorized = true;
 }
 
-VBrokerScanNode::~VBrokerScanNode() {}
-
 Status VBrokerScanNode::start_scanners() {
     {
         std::unique_lock<std::mutex> l(_batch_queue_lock);
@@ -146,7 +144,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
             }
         }
 
-        if (columns[0]->size() > 0) {
+        if (!columns[0]->empty()) {
             auto n_columns = 0;
             for (const auto slot_desc : _tuple_desc->slots()) {
                 block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
