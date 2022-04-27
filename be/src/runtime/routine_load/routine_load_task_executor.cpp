@@ -355,7 +355,7 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
 
 void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& st,
                                           const std::string& err_msg) {
-    LOG(WARNING) << err_msg;
+    LOG(WARNING) << err_msg << ", routine load task: " << ctx->brief(true);
     ctx->status = st;
     if (ctx->need_rollback) {
         _exec_env->stream_load_executor()->rollback_txn(ctx);
