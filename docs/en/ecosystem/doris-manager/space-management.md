@@ -1,7 +1,7 @@
 ---
 {
-    "title": "空间管理",
-    "language": "zh-CN"
+    "title": "Space management",
+    "language": "en"
 }
 ---
 
@@ -24,30 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 空间管理
+# Space management
 
-若您为 Doris Manger 的空间管理员，您将有权限对于空间、空间成员、角色等进行设置或管理。
+If you are Doris Manger's space administrator, you will have permission to set or manage the space, space members, roles, etc.
 
-## 空间
+## Space
 
-空间管理员在空间模块下主要可进行如下操作：
+The space administrator can mainly perform the following operations under the space module:
 
-- 编辑已经保存的空间信息
+- Edit saved space information
 
-### 编辑空间信息
+### Edit space information
 
-如果空间信息已经完备，空间管理员可以在此查看并编辑空间相关信息，包括空间名称、空间简介、空间管理员等等。
+If the space information is complete, space administrators can view and edit space-related information here, including space name, space introduction, space administrator, etc.
 
 ![](/images/doris-manager/spacemanagement-1.png)
 
-## 成员
+## Members
 
-在“空间管理”界面的二级导航栏中选择“成员”，进入成员管理页面。此页面可以查看当前空间下的所有用户，您可以对成员进行移除操作。
+In the secondary navigation bar of the "Space Management" interface, select "Members" to enter the member management page. This page can view all users in the current space, and you can remove members.
 
 ![](/images/doris-manager/spacemanagement-2.png)
 
-## 角色
+## Role
 
-空间管理员可以通过单击导航栏“角色”按钮，查看所有角色和角色成员。新成员默认属于"空间成员"角色和"空间管理员"角色。默认角色有"空间管理员"和"空间成员"且不可被其他管理员更改。
+Space administrators can view all roles and role members by clicking the "Roles" button in the navigation bar. New members by default belong to the "Space Member" role and the "Space Admin" role. The default roles are "Space Admin" and "Space Member" and cannot be changed by other administrators.
 
 ![](/images/doris-manager/spacemanagement-3.png)

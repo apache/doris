@@ -1,7 +1,7 @@
 ---
 {
-    "title": "编译与部署",
-    "language": "zh-CN"
+    "title": "Compile and deploy",
+    "language": "en"
 }
 ---
 
@@ -24,79 +24,89 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 编译与部署
+# Compile and deploy
 
-## 编译
-直接运行manager路径下的build.sh脚本，会在manager路径下生成安装运行包——output，其中包括:
-1、Doris Manager的运行包doris-manager.jar
-2、运行的配置文件夹conf
-3、启动脚本start_manager.sh
-4、停止脚本stop_manager.sh
+## Compile
 
-## 运行
-### 1 配置
-进入生成的安装运行包，查看配置文件conf路径，打开路径中的配置文件manager.conf，重点关注的配置项内容如下：
-```$xslt
-服务的启动http端口
+Running the build.sh script under the manager path directly will generate the installation and running package -- output under the manager path, including:
+1. Doris Manager's running package doris-manager.jar
+2. The running configuration folder conf
+3. Start the script start_manager.sh
+4. Stop the script stop_manager.sh
+
+## Run
+
+### 1 Configuration
+
+Enter the generated installation and running package, view the configuration file conf path, and open the configuration file manager.conf in the path. The configuration items to focus on are as follows:
+
+````$xslt
+The service's startup http port
 STUDIO_PORT=8080
 
-后端数据存放的数据库的类型，包括mysql/h2/postgresql.默认是支持mysql
+The type of database where the backend data is stored, including mysql/h2/postgresql. The default is to support mysql
 MB_DB_TYPE=mysql
 
-数据库连接信息
-如果是配置的h2类型数据库，就不需要配置这些信息，会把数据以本地文件存放在本地
-h2数据文件存放路径，默认直接存放在当前路径
+Database connection information
+If it is a configured h2 type database, you do not need to configure this information, and the data will be stored locally as a local file
+h2 data file storage path, directly stored in the current path by default
 H2_FILE_PATH=
 
-如果是mysql/postgresql就需要配置如下连接信息
-数据库地址
+If it is mysql/postgresql, you need to configure the following connection information
+database address
 MB_DB_HOST=
 
-数据库端口
+database port
 MB_DB_PORT=3306
 
-数据库访问端口
+database access port
 MB_DB_USER=
 
-数据库访问密码
+Database access password
 MB_DB_PASS=
 
-数据库的database名称
+database name of the database
 MB_DB_DBNAME=
 
-服务运行的路径，默认直接存放在当前运行路径的log文件夹中
+The path where the service runs, which is directly stored in the log folder of the current running path by default.
 LOG_PATH=
 
-web容器的等待队列长度，默认100。队列也做缓冲池用，但也不能无限长，不但消耗内存，而且出队入队也消耗CPU
+The length of the waiting queue of the web container, the default is 100. The queue is also used as a buffer pool, but it cannot be infinitely long. It not only consumes memory, but also consumes CPU when entering the queue.
 WEB_ACCEPT_COUNT=100
 
-Web容器的最大工作线程数，默认200。（一般是CPU核数*200）
+The maximum number of worker threads for the web container, 200 by default. (usually the number of CPU cores * 200)
 WEB_MAX_THREADS=200
 
-Web容器的最小工作空闲线程数，默认10。（适当增大一些，以便应对突然增长的访问量）
+The minimum number of working idle threads for the web container, the default is 10. (Appropriately increase some to cope with the sudden increase in traffic)
 WEB_MIN_SPARE_THREADS=10
 
-Web容器的最大连接数，默认10000。（适当增大一些，以便应对突然增长的访问量）
+The maximum number of connections for the web container, the default is 10000. (Appropriately increase some to cope with the sudden increase in traffic)
 WEB_MAX_CONNECTIONS=10000
 
-访问数据库连接池最大连接数量，默认为10
+The maximum number of connections to access the database connection pool, the default is 10
 DB_MAX_POOL_SIZE=20
 
-访问数据库连接池最小空闲连接数，默认为10
+The minimum number of idle connections to access the database connection pool, the default is 10
 DB_MIN_IDLE=10
-```
+````
 
-### 2 启动
-配置修改完成后，回到安装运行包，直接运行如下命令
-```$xslt
+### 2 Start
+
+After the configuration modification is completed, go back to the installation and run package and run the following command directly
+
+````$xslt
 nohup sh ./start_manager.sh > start.log 2>&1 &
-```
-查看logs中的日志即可判断程序是否启动成功
+````
 
-### 3 使用
-Doris Manager预设了一个超级管理员用户，信息如下：
-```$xslt
-用户名: Admin
-密码: Admin@123
-```
-为确保使用安全，登陆后请修改密码！
+Check the logs in the logs to determine whether the program started successfully
+
+### 3 Use
+
+Doris Manager presets a super administrator user with the following information:
+
+````$xslt
+Username: Admin
+Password: Admin@123
+````
+
+To ensure safe use, please change your password after logging in!

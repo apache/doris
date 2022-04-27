@@ -1,7 +1,7 @@
 ---
 {
-    "title": "集群管理",
-    "language": "zh-CN"
+    "title": "Cluster management",
+    "language": "en"
 }
 ---
 
@@ -24,46 +24,46 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 集群管理
+# Cluster management
 
-超级管理员和空间管理员在集群模块下主要可进行如下操作：
+The super administrator and space administrator can mainly perform the following operations under the cluster module:
 
-- 查看集群概览
-- 查看节点列表
-- 编辑参数配置
+- View cluster overview
+- View node list
+- Edit parameter configuration
 
-## 集群概览
+## Cluster overview
 
-### 查看集群基本信息
+### View basic cluster information
 
-集群功能，展示以集群为粒度的监控面板。
+Cluster function, showing a cluster-based monitoring panel.
 
-进入首页，点击导航栏中的“集群”，进入集群功能。
+On the home page, click "Cluster" in the navigation bar to enter the cluster function.
 
-![](/images/doris-manager/iclustermanagenent-1.png)
+![](/images/doris-manager/iclustermanager-1.png)
 
-运维监控面板提供集群的各类性能监控指标，供用户洞察集群状态。用户可以在右上角通过按钮控制集群的启动和停止操作。
+The operation and maintenance monitoring panel provides various performance monitoring indicators of the cluster for users to gain insight into the cluster status. Users can control the start and stop operations of the cluster through buttons in the upper right corner.
 
-### 查看集群资源使用量
+### View cluster resource usage
 
-用户可以通过饼图查看磁盘使用率，以及查看数据库的数量等。
+Users can view disk usage through pie charts, and view the number of databases, etc.
 
-## 节点列表
+## Node list
 
-展示集群中FE节点、BE节点和Broker相关信息。
-提供包括节点ID、节点类型、主机IP以及节点状态字段。
+Displays information about FE nodes, BE nodes, and brokers in the cluster.
+Provides fields including Node ID, Node Type, Host IP, and Node Status.
 
-![](/images/doris-manager/iclustermanagenent-2.png)
+![](/images/doris-manager/iclustermanager-2.png)
 
-## 参数配置
+## Parameter configuration
 
-参数配置提供参数名称、参数类型、参数值类型、热生效和操作字段。
+Parameter configuration provides parameter name, parameter type, parameter value type, thermal effect and operation fields.
 
-![](/images/doris-manager/iclustermanagenent-3.png)
+![](/images/doris-manager/iclustermanager-3.png)
 
-- **操作**：点击“编辑”按钮，可编辑修改对应配置值，可以选择对应的生效方式；点击“查看当前值”按钮，可查看主机IP对应当前值
+- **Operation**: Click the "Edit" button, you can edit and modify the corresponding configuration value, you can choose the corresponding effective method; click the "View current value" button, you can view the current value corresponding to the host IP
 
-![](/images/doris-manager/iclustermanagenent-4.png)
+![](/images/doris-manager/iclustermanager-4.png)
 
-![](/images/doris-manager/iclustermanagenent-5.png)
+![](/images/doris-manager/iclustermanager-5.png)
 

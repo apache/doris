@@ -1,7 +1,7 @@
 ---
 {
-    "title": "空间列表",
-    "language": "zh-CN"
+    "title": "Space list",
+    "language": "en"
 }
 ---
 
@@ -24,204 +24,211 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 空间列表
+# Space list
 
-超级管理员在空间列表主要可进行如下操作：
+The super administrator can perform the following operations in the space list:
 
-- 进行新建集群和集群托管操作
+- Perform new cluster and cluster hosting operations
 
-- 未完成空间的恢复和删除操作
+- Recovery and deletion of unfinished spaces
 
-- 已完成空间的删除操作
+- Completed space deletion operation
 
-空间管理员在空间列表主要可进行如下操作：
+The space administrator can mainly perform the following operations in the space list:
 
-- 查看有权限的空间信息
+- View authorized space information
 
-## 已完成空间
+## Completed space
 
-超级管理员可以通过空间名称右侧按钮对已完成空间进行操作。空间管理员可以点击进入空间，对空间内的集群或数据进行管理操作。
+The super administrator can operate the completed space through the button to the right of the space name. Space administrators can click to enter the space to manage clusters or data in the space.
 
 ![](/images/doris-manager/spacelist-1.png)
 
-## 未完成空间
+## Unfinished space
 
-Doris Manger 提供了空间创建流程的草稿保存功能，用以记录未完成的空间创建流程。超级管理员可从通过切换tab页查看未完成空间列表，进行恢复或是删除操作。
+Doris Manger provides a draft save function of the space creation process to record the incomplete space creation process. Super administrators can view the list of unfinished spaces by switching tabs, and perform recovery or deletion operations.
 
 ![](/images/doris-manager/spacelist-2.png)
 
-# 新建空间
+# New space
 
-新建空间包括新建集群和集群托管两种方式。
+There are two ways to create a new space: new cluster and cluster hosting.
 
-## 新建集群
+## New cluster
 
-### 1 注册空间
+### 1 Registration space
 
-空间信息包括空间名称、空间简介、选择空间管理员。
+Space information includes space name, space introduction, and selection of space administrators.
 
-空间名称、管理员为必填/选字段。
+Space name and administrator are required/optional fields.
 
 ![](/images/doris-manager/spacelist-3.png)
 
-### 2 添加主机
+### 2 Add host
 
 ![](/images/doris-manager/spacelist-4.png)
 
-#### 配置SSH免登陆
+#### Configure SSH login-free
 
-Doris Manager 在安装时需要分发Agent安装包，故需要在待安装Doris的服务器(agent01)配置SSH免登陆。
+Doris Manager needs to distribute the Agent installation package during installation, so it is necessary to configure SSH login-free on the server (agent01) where Doris is to be installed.
 
 ```shell
-#1.登录服务器，需要使用manager和agent账号保持一致
+#1. To log in to the server, you need to use the manager and agent accounts to be consistent
 su - xxx
 pwd
-#2.在部署doris manager机器上生成密钥对
+#2. Generate a key pair on the machine where doris manager is deployed
 ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa
 
-#3.将公钥拷贝到机器agent01上
-scp  ~/.ssh/id_rsa.pub root@agent01:~
+#3. Copy the public key to the machine agent01
+scp ~/.ssh/id_rsa.pub root@agent01:~
 
-#4.登录agent01，将公钥追加到authorized_keys 
+#4. Log in to agent01 and append the public key to authorized_keys
 cat ~/id_rsa.pub >> .ssh/authorized_keys
 
-#5.这样做完之后我们就可以在doris manger机器免密码登录agent01
+#5. After doing this, we can log in to agent01 without password on the doris manger machine
 ssh agent01@xx.xxx.xx.xx
-```
+````
 
-另外需要注意，.ssh目录的权限为700，其下文件authorized_keys和私钥的权限为600。否则会因为权限问题导致无法免密码登录。我们可以看到登陆后会有known_hosts文件生成。同时启动doris时需要使用免密码登录的账号。
+In addition, it should be noted that the permissions of the .ssh directory are 700, and the permissions of the authorized_keys and private keys under it are 600. Otherwise, you will not be able to log in without a password due to permission issues. We can see that the known_hosts file will be generated after logging in. At the same time, when starting doris, you need to use a password-free login account.
 
-在Doris Manager 安装集群时，使用部署doris manager机器的私钥即可，即~/.ssh/id_rsa
+When installing a cluster in Doris Manager, just use the private key of the doris manager machine, ie ~/.ssh/id_rsa
 
-详细可参考：https://blog.csdn.net/universe_hao/article/details/52296811
+For details, please refer to: https://blog.csdn.net/universe_hao/article/details/52296811
 
-#### 主机列表
-输入主机IP添加新的主机，也可通过批量添加。
+#### Host list
 
-### 3 安装选项
+Enter the host IP to add a new host, or add it in batches.
 
-#### 获取安装包
+### 3 Installation options
 
-通过 Doris Manager 进行集群部署时，需要提供已编译好的 Doris 安装包，您可以通过 Doris 源码自行编译，或使用官方提供的二进制版本。
+#### Get the installation package
 
-Doris Manager 将通过 http 方式拉取安装包，若您需要自建 http 服务，请参考文档底部-自建http服务。
+When deploying a cluster through Doris Manager, you need to provide the compiled Doris installation package. You can compile it yourself from the Doris source code, or use the official binary version.
 
-#### 指定安装路径
+Doris Manager will pull the installation package through http. If you need to build your own http service, please refer to the bottom of the document - Self-built http service.
 
-Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+#### Specify the installation path
 
-### 4 校验主机
+Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
 
-系统会根据主机状态自动进行校验，当校验完成时既Agent启动回传心跳，可点击进行下一步。
+### 4 Verify the host
+
+The system will automatically perform verification according to the host status. When the verification is completed, the Agent will start sending back the heartbeat, and you can click to proceed to the next step.
 
 ![](/images/doris-manager/spacelist-5.png)
 
-### 5 规划节点
+### 5 Planning Nodes
 
-点击分配节点按钮，对主机进行FE/BE/Broker节点的规划。
+Click the Assign Node button to plan FE/BE/Broker nodes for the host.
 
 ![](/images/doris-manager/spacelist-6.png)
 
-### 6 配置参数
+### 6 Configuration Parameters
 
-对上一步规划的节点进行配置参数，可以使用默认值也可以打开自定义配置开关对配置进行自定义。
+Configure parameters for the nodes planned in the previous step. You can use the default values or turn on the custom configuration switch to customize the configuration.
 
-### 7 部署集群
+### 7 Deploy the cluster
 
-系统会根据主机安装进度状态自动进行校验，当校验完成时既启动节点并回传心跳，可点击进行下一步。
+The system will automatically perform verification according to the status of the host installation progress. When the verification is completed, it will start the node and return the heartbeat. You can click to proceed to the next step.
 
 ![](/images/doris-manager/spacelist-7.png)
 
-### 8 完成创建
+### 8 Complete the creation
 
-完成以上步骤即可完成新建集群。
+Complete the above steps to complete the new cluster.
 
 ![](/images/doris-manager/spacelist-8.png)
 
-## 集群托管
+## Cluster hosting
 
-### 1 注册空间
+### 1 Registration space
 
-空间信息包括空间名称、空间简介、选择空间管理员。
+Space information includes space name, space introduction, and selection of space administrators.
 
-空间名称、管理员为必填/选字段。
+Space name and administrator are required/optional fields.
 
-### 2 连接集群
+### 2 Connect to the cluster
 
-集群信息包括集群地址、HTTP端口、JDBC端口、集群用户名和集群密码。用户可根据自身集群信息进行填写。
+Cluster information includes cluster address, HTTP port, JDBC port, cluster username, and cluster password. Users can fill in according to their own cluster information.
 
-点击链接测试按钮进行测试。
+Click the Link Test button to test it.
 
-### 3 托管选项
+### 3 Hosting Options
 
 ![](/images/doris-manager/spacelist-9.png)
 
-#### 配置SSH免登陆
+#### Configure SSH login-free
 
-Doris Manager 在安装时需要分发Agent安装包，故需要在待安装Doris的服务器(agent01)配置SSH免登陆。
+Doris Manager needs to distribute the Agent installation package during installation, so it is necessary to configure SSH login-free on the server (agent01) where Doris is to be installed.
 
 ```shell
-#1.登录服务器，需要使用manger和agent账号保持一致
+#1. To log in to the server, you need to use the manger and agent accounts to be consistent
 su - xxx
 pwd
-#2.在部署doris manager机器上生成密钥对
+#2. Generate a key pair on the machine where doris manager is deployed
 ssh-keygen -t rsa -P '' -f ~/.ssh/id_rsa
 
-#3.将公钥拷贝到机器agent01上
-scp  ~/.ssh/id_rsa.pub root@agent01:~
+#3. Copy the public key to the machine agent01
+scp ~/.ssh/id_rsa.pub root@agent01:~
 
-#4.登录agent01，将公钥追加到authorized_keys 
+#4. Log in to agent01 and append the public key to authorized_keys
 cat ~/id_rsa.pub >> .ssh/authorized_keys
 
-#5.这样做完之后我们就可以在doris manger机器免密码登录agent01
+#5. After doing this, we can log in to agent01 without password on the doris manger machine
 ssh agent01@xx.xxx.xx.xx
-```
+````
 
-另外需要注意，.ssh目录的权限为700，其下文件authorized_keys和私钥的权限为600。否则会因为权限问题导致无法免密码登录。我们可以看到登陆后会有known_hosts文件生成。同时启动doris时需要使用免密码登录的账号。
+In addition, it should be noted that the permissions of the .ssh directory are 700, and the permissions of the authorized_keys and private keys under it are 600. Otherwise, you will not be able to log in without a password due to permission issues. We can see that the known_hosts file will be generated after logging in. At the same time, when starting doris, you need to use a password-free login account.
 
-在Doris Manager 安装集群时，使用部署doris manager机器的私钥即可，即~/.ssh/id_rsa
+When installing a cluster in Doris Manager, just use the private key of the doris manager machine, ie ~/.ssh/id_rsa
 
-详细可参考：https://blog.csdn.net/universe_hao/article/details/52296811
+For details, please refer to: https://blog.csdn.net/universe_hao/article/details/52296811
 
-#### 指定安装路径
+#### Specify the installation path
 
-Doris与Doris Manger Agent将安装至该目录下。请确保该目录为Doirs以及相关组件专用。
+Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
 
-### 4 校验主机
+### 4 Verify the host
 
-系统会根据主机状态自动进行校验，当校验完成时既Agent启动回传心跳，可点击进行下一步。
+The system will automatically perform verification according to the host status. When the verification is completed, the Agent will start sending back the heartbeat, and you can click to proceed to the next step.
 
 ![](/images/doris-manager/spacelist-10.png)
 
-### 5 校验集群
-校验集群分位实例安装校验、实例依赖校验、实例启动校验，校验成功后点击下一步即可完成创建。
+### 5 Verify the cluster
+
+Verify the cluster quantile instance installation verification, instance dependency verification, and instance startup verification. After the verification is successful, click Next to complete the creation.
 
 ![](/images/doris-manager/spacelist-11.png)
 
-### 6 完成接入
-完成以上步骤即可完成集群托管。
+### 6 Complete access
 
-## 自建http服务
+Complete the above steps to complete cluster hosting.
 
-### 1 yum源安装
-1.安装
+## Self-built http service
+
+### 1 yum source installation
+
+1. Installation
 yum install -y nginx
-2.启动
+2. Start
 systemctl start nginx
 
-### 2 源码安装
-可参考：https://www.runoob.com/linux/nginx-install-setup.html
+### 2 Source installation
 
-### 3 配置
+Reference: https://www.runoob.com/linux/nginx-install-setup.html
 
-1.将doris安装包放置nginx根目录
+### 3 Configuration
+
+1. Put the doris installation package in the nginx root directory
 mv PALO-0.15.1-rc03-binary.tar.gz /usr/share/nginx/html
 
-2.修改ngixn.conf
-```
+2. Modify ngixn.conf
+
+````
 location /download {
-                alias /home/work/nginx/nginx/html/;
-        }
-```
-修改后重启ngxin访问 ：
+   alias /home/work/nginx/nginx/html/;
+}
+````
+
+Restart ngxin access after modification:
 https://host:port/download/PALO-0.15.1-rc03-binary.tar.gz

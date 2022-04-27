@@ -1,7 +1,7 @@
 ---
 {
-    "title": "系统设置",
-    "language": "zh-CN"
+    "title": "System settings",
+    "language": "en"
 }
 ---
 
@@ -24,67 +24,68 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 系统设置
+# System settings
 
-超级管理员在平台模块下主要可进行如下操作：
+The super administrator can mainly perform the following operations under the platform module:
 
-- 对平台用户进行相关操作
-- 拥有平台最高级权限
+- Perform relevant operations on platform users
+- Have the highest level of authority on the platform
 
-用户权限说明
+User permission description
 
-## 用户
+## users
 
-### 本地认证下用户管理
+### User management under local authentication
 
-单击添加用户按钮，可以通过用户名与邮箱信息创建新用户。
+Click the Add User button to create a new user with username and email information.
 
- Doris Manger 将会为新用户分配临时密码，新用户需要使用所设定的用户名/邮箱和临时密码登录，登录后可在“账户设置”中创建新密码。
+ Doris Manger will assign a temporary password to the new user. The new user needs to log in with the set username/email and temporary password. After logging in, you can create a new password in "Account Settings".
 
 ![](/images/doris-manager/systemsettings-1.png)
 
 ![](/images/doris-manager/systemsettings-2.png)
 
 
-### 编辑用户
+### Edit User
 
-超级管理员可以对用户进行管理，包括编辑用户信息、重置用户密码、停用用户等操作。
+Super administrators can manage users, including editing user information, resetting user passwords, and deactivating users.
 
-#### 编辑用户信息
+#### Edit user information
 
-点击选择选择“编辑”可以修改用户名、邮箱。若更新用户邮箱，则用户需要使用更新后的邮箱进行登录，密码不会被更新。
+Click to select and select "Edit" to modify the user name and email address. If the user mailbox is updated, the user needs to log in with the updated mailbox, and the password will not be updated.
 
 ![](/images/doris-manager/systemsettings-3.png)
 
-#### 重置用户密码
+#### reset user password
 
-点击选择“重置密码”，确认执行此操作后， Doris Manger 将会为该用户重新分配临时密码，用户需要使用所设定的邮箱和新的临时密码登录，登录后可在“账户设置”中创建新密码。
+Click to select "Reset Password", and after confirming this operation, Doris Manger will reassign a temporary password for the user. The user needs to log in with the set email address and the new temporary password. After logging in, you can go to "Account Settings" Create a new password.
 
 
-#### 停用/激活用户
+#### Deactivate/Activate User
 
-点击选择停用用户，确认停用该用户后，该用户状态将由启用变更为停用。已停用用户将无法登录 Doris Manger 。
+Click Opt-out user, and after confirming to deactivate the user, the user's status will be changed from active to inactive. Deactivated users will not be able to log in to Doris Manger.
 
-点击用户右侧的激活用户，可以重新激活该用户。该用户状态将重新变更为启用，能够再次登录 Doris Manger 。
+Click Activate User on the right side of the user to reactivate the user. The user's status will be changed back to enabled and will be able to log in to Doris Manger again.
 
-注意，超级管理员不能停用自己的用户账户，系统内至少要有一位非停用状态的超级管理员用户。
+Note that super administrators cannot deactivate their own user accounts, and there must be at least one non-deactivated super administrator user in the system.
 
 ![](/images/doris-manager/systemsettings-4.png)
 
 
-## 用户权限说明
+## User permission description
 
-### 超级管理员权限
-|   | 创建  | 编辑  | 删除  | 查看  |
-|:----------|:----------|:----------|:----------|:----------|
-| 用户    | ✓    | ✓    | ✓    | ✓    |
-| 角色    | ✓    | ✓    | ✓    | ✓    |
-| 空间    | ✓    | ✓    | ✓    | ✓    |
+### Super administrator privileges
 
-### 空间管理员权限
-|   | 创建  | 编辑  | 删除  | 查看  |
-|:----------|:----------|:----------|:----------|:----------|
-| 用户    | X    | X    | X    | X    |
-| 角色    | X    | X    | X    | ✓    |
-| 空间    | X    | ✓    | X    | ✓    |
+|       | Create | Edit | Delete | View |
+| :---- | :----- | :--- | :----- | :--- |
+| User  | ✓      | ✓    | ✓      | ✓    |
+| Roles | ✓      | ✓    | ✓      | ✓    |
+| Space | ✓      | ✓    | ✓      | ✓    |
 
+### Space administrator permissions
+
+|       | Create | Edit | Delete | View |
+| :---- | :----- | :--- | :----- | :--- |
+| User  | X      | X    | X      | X    |
+| Roles | X      | X    | X      | ✓    |
+| Space | X      | ✓    | X      | ✓    |
