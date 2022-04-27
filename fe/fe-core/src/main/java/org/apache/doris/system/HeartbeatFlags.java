@@ -38,6 +38,8 @@ public class HeartbeatFlags {
         long heartbeatFlags = 0;
         if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
             heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
+        } else {
+        	throw new IllegalArgumentException("DEFAULT_ROWSET_TYPE in global variable should be set to beta rowset");
         }
 
         return heartbeatFlags;
