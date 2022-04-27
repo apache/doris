@@ -18,7 +18,6 @@
 package org.apache.doris.master;
 
 
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -80,6 +79,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import com.google.common.collect.Sets;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang3.tuple.Triple;
@@ -831,8 +831,12 @@ public class ReportHandler extends Daemon {
                                 // The absolute value is meaningless, as long as it is greater than 0.
                                 // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
                                 // it will be considered a version missing replica and will be handled accordingly.
-                                replica.setLastFailedVersion(1L);
-                                backendReplicasInfo.addMissingVersionReplica(tabletId);
+                                long newLastFailedVersion = replica.getLastFailedVersion();
+                                if (newLastFailedVersion < 0) {
+                                    newLastFailedVersion = replica.getVersion() + 1;
+                                }
+                                replica.updateLastFailedVersion(newLastFailedVersion);
+                                backendReplicasInfo.addMissingVersionReplica(tabletId, newLastFailedVersion);
                                 break;
                             }
                         }
