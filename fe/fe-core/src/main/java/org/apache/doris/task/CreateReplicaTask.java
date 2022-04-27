@@ -189,8 +189,12 @@ public class CreateReplicaTask extends AgentTask {
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
-    	// Do nothing, force to use V2 format, and enable this code when v1 rowset code is deleted
-        // this.storageFormat = storageFormat;
+    	if (storageFormat == TStorageFormat.V1) {
+    		// Ignore v1 format, the storage format must not be v1
+    		// V1 will be removed in the future
+    		return;
+    	}
+    	this.storageFormat = storageFormat;
     }
 
     public TCreateTabletReq toThrift() {
