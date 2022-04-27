@@ -135,6 +135,7 @@ public class Checkpoint extends MasterDaemon {
             // If success, do all the following jobs
             // If failed, just return
             catalog = Catalog.getCurrentCatalog();
+            createStaticFieldForCkpt();
             catalog.loadImage(imageDir);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
