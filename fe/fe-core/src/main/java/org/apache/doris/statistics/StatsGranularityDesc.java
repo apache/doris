@@ -29,4 +29,36 @@ public class StatsGranularityDesc {
     private long partitionId;
     private long tabletId;
 
+    public StatsGranularity getGranularity() {
+        return this.granularity;
+    }
+
+    public void setGranularity(StatsGranularity granularity) {
+        this.granularity = granularity;
+    }
+
+    public long getTableId() {
+        return this.tableId;
+    }
+
+    public void setTableId(long tableId) {
+        this.tableId = tableId;
+    }
+
+    public long getPartitionId() {
+        return this.partitionId;
+    }
+
+    public void setPartitionId(long partitionId) {
+        this.partitionId = partitionId;
+    }
+
+    public long getTabletId() {
+        return this.tabletId;
+    }
+
+    public void setTabletId(long tabletId) {
+        this.tabletId = tabletId;
+    }
 }
+
