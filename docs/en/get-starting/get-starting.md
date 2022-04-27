@@ -38,7 +38,7 @@ under the License.
 
 ## Stand-alone deployment
 
-**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
+**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process.** 
 
 1. Set the maximum number of open file handles in the system
 
