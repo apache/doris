@@ -100,7 +100,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        if (config::enable_decimalv3) {
+            nested = vectorized::create_decimal(col_desc.precision, col_desc.scale);
+        } else {
+            nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        }
         break;
     // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL:

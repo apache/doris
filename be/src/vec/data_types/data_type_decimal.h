@@ -104,10 +104,6 @@ public:
         if (UNLIKELY(scale < 0 || static_cast<UInt32>(scale) > max_precision())) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }
-
-        // Now, Doris only support precision:27, scale: 9
-        DCHECK(precision == 27);
-        DCHECK(scale == 9);
     }
 
     DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
