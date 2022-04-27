@@ -301,7 +301,7 @@ The user can control the stop, pause and restart of the job by the three command
    
  7. The difference between STOP and PAUSE
 
-    the FE will automatically clean up stopped ROUTINE LOAD，while paused ROUTINE LOAD can be resumed
+    the FE will automatically clean up stopped ROUTINE LOAD,while paused ROUTINE LOAD can be resumed
 
 ## Related parameters
 

@@ -171,10 +171,10 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + two\_phase\_commit
 
-    Stream load supports the two-phase commit mode。The mode could be enabled by declaring ```two_phase_commit=true``` in http header. This mode is disabled by default.
-    the two-phase commit mode means：During Stream load, after data is written, the message will be returned to the client, the data is invisible at this point and the transaction status is PRECOMMITTED. The data will be visible only after COMMIT is triggered by client。
+    Stream load supports the two-phase commit mode.The mode could be enabled by declaring ```two_phase_commit=true``` in http header. This mode is disabled by default.
+    the two-phase commit mode means: During Stream load, after data is written, the message will be returned to the client, the data is invisible at this point and the transaction status is PRECOMMITTED. The data will be visible only after COMMIT is triggered by client.
     
-    1. User can invoke the following interface to trigger commit operations for transaction：
+    1. User can invoke the following interface to trigger commit operations for transaction:
     ```
     curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
     ```
@@ -183,7 +183,7 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
     curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
     ```
     
-    2. User can invoke the following interface to trigger abort operations for transaction：
+    2. User can invoke the following interface to trigger abort operations for transaction:
     ```
     curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
     ```
@@ -360,7 +360,7 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 	
 	  In the community version 0.14.0 and earlier versions, the connection reset exception occurred after Http V2 was enabled, because the built-in web container is tomcat, and Tomcat has pits in 307 (Temporary Redirect). There is a problem with the implementation of this protocol. All In the case of using Stream load to import a large amount of data, a connect reset exception will occur. This is because tomcat started data transmission before the 307 jump, which resulted in the lack of authentication information when the BE received the data request. Later, changing the built-in container to Jetty solved this problem. If you encounter this problem, please upgrade your Doris or disable Http V2 (`enable_http_server_v2=false`).
 	
-	  After the upgrade, also upgrade the http client version of your program to `4.5.13`，Introduce the following dependencies in your pom.xml file
+	  After the upgrade, also upgrade the http client version of your program to `4.5.13`,Introduce the following dependencies in your pom.xml file
 	
 	  ```xml
 	      <dependency>

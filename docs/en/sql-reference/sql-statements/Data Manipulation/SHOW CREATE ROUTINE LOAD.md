@@ -30,11 +30,11 @@ under the License.
 
 	The kafka partition and offset in the result show the currently consumed partition and the corresponding offset to be consumed.
 
-    grammar：
+    grammar:
         SHOW [ALL] CREATE ROUTINE LOAD for load_name;
         
-    Description：
-       `ALL`: optional，Is for getting all jobs, including history jobs
+    Description:
+       `ALL`: optional,Is for getting all jobs, including history jobs
        `load_name`: routine load name
 
 ## example
