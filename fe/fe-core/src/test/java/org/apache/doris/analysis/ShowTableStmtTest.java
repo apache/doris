@@ -56,7 +56,7 @@ public class ShowTableStmtTest {
         stmt = new ShowTableStmt("abc", true, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc", stmt.toString());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
 
@@ -64,7 +64,7 @@ public class ShowTableStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals("bcd", stmt.getPattern());
         Assert.assertEquals("SHOW FULL TABLES FROM testCluster:abc LIKE 'bcd'", stmt.toString());
-        Assert.assertEquals(2, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(3, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("Tables_in_abc", stmt.getMetaData().getColumn(0).getName());
         Assert.assertEquals("Table_type", stmt.getMetaData().getColumn(1).getName());
     }
