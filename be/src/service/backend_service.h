@@ -156,6 +156,8 @@ public:
 
     virtual void clean_trash() override;
 
+    virtual void check_storage_format(TCheckStorageFormatResult& result) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
