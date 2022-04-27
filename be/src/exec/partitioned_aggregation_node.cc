@@ -853,42 +853,12 @@ Status PartitionedAggregationNode::Partition::Spill(bool more_aggregate_rows) {
     DCHECK(!is_spilled());
     // TODO(ml): enable spill
     std::stringstream msg;
-    msg << "New partitioned Aggregation in spill";
-    RETURN_LIMIT_EXCEEDED(parent->state_->query_mem_tracker(), parent->state_, msg.str());
-
-    RETURN_IF_ERROR(SerializeStreamForSpilling());
-
-    // Free the in-memory result data.
-    NewAggFnEvaluator::Close(agg_fn_evals, parent->state_);
-    agg_fn_evals.clear();
-
-    if (agg_fn_pool.get() != nullptr) {
-        agg_fn_pool->free_all();
-        agg_fn_pool.reset();
-    }
-
-    hash_tbl->Close();
-    hash_tbl.reset();
-
-    // Unpin the stream to free memory, but leave a write buffer in place so we can
-    // continue appending rows to one of the streams in the partition.
-    DCHECK(aggregated_row_stream->has_write_iterator());
-    DCHECK(!unaggregated_row_stream->has_write_iterator());
-    if (more_aggregate_rows) {
-        //    aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL_EXCEPT_CURRENT);
-    } else {
-        //    aggregated_row_stream->UnpinStream(BufferedTupleStream3::UNPIN_ALL);
-        bool got_buffer;
-        RETURN_IF_ERROR(unaggregated_row_stream->PrepareForWrite(&got_buffer));
-        DCHECK(got_buffer) << "Accounted in min reservation"
-                           << parent->_buffer_pool_client.DebugString();
-    }
-
-    COUNTER_UPDATE(parent->num_spilled_partitions_, 1);
-    if (parent->num_spilled_partitions_->value() == 1) {
-        parent->add_runtime_exec_option("Spilled");
-    }
-    return Status::OK();
+    msg << "buffer_pool is full but partitioned Aggregation do not support spill now,"
+        << "please check the memory_used in BE, Backend: "
+        <<  BackendOptions::get_localhost();
+    
+    Status memory_limited = Status::MemoryLimitExceeded(msg.str());
+    return memory_limited;
 }
 
 void PartitionedAggregationNode::Partition::Close(bool finalize_rows) {
