@@ -25,6 +25,7 @@ import org.apache.doris.proto.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 
 /**
@@ -67,13 +68,15 @@ public abstract class CacheProxy {
 
     public static Types.PUniqueId getMd5(String str) {
         MessageDigest msgDigest;
+        final byte[] digest;
         try {
             //128 bit
             msgDigest = MessageDigest.getInstance("MD5");
+            digest = msgDigest.digest(str.getBytes(StandardCharsets.UTF_8));
         } catch (Exception e) {
             return null;
         }
-        final byte[] digest = msgDigest.digest(str.getBytes());
+
         Types.PUniqueId key = Types.PUniqueId.newBuilder()
                 .setLo(getLongFromByte(digest, 0))
                 .setHi(getLongFromByte(digest, 8))

@@ -60,6 +60,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.CacheCoordinator;
 import org.apache.doris.qe.cache.PartitionCache;
@@ -393,14 +394,15 @@ public class PartitionCacheTest {
     }
 
     /**
-     * table appevent(date(pk), userid, eventid, eventtime), stream load every 5 miniutes
+     * table appevent(date(pk), userid, eventid, eventtime, city), stream load every 5 miniutes
      */
     private OlapTable createEventTable() {
         Column column1 = new Column("eventdate", ScalarType.DATE);
         Column column2 = new Column("userid", ScalarType.INT);
         Column column3 = new Column("eventid", ScalarType.INT);
         Column column4 = new Column("eventtime", ScalarType.DATETIME);
-        List<Column> columns = Lists.newArrayList(column1, column2, column3, column4);
+        Column column5 = new Column("city", ScalarType.VARCHAR);
+        List<Column> columns = Lists.newArrayList(column1, column2, column3, column4, column5);
         PartitionInfo partInfo = new RangePartitionInfo(Lists.newArrayList(column1));
         MaterializedIndex baseIndex = new MaterializedIndex(30001, IndexState.NORMAL);
         RandomDistributionInfo distInfo = new RandomDistributionInfo(10);
@@ -1020,6 +1022,25 @@ public class PartitionCacheTest {
         Assert.assertEquals(cacheKey, "SELECT <slot 2> `eventdate` AS `eventdate`, <slot 3> count(`userid`) " +
                 "AS `count(``userid``)` FROM `testCluster:testDb`.`appevent` WHERE `eventdate` " +
                 ">= '2020-01-12 00:00:00' AND `eventdate` <= '2020-01-14 00:00:00' GROUP BY `eventdate`|");
+    }
+
+    @Test
+    public void testSqlCacheKeyWithChineseChar() {
+        Catalog.getCurrentSystemInfo();
+        StatementBase parseStmt = parseSql(
+                "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and " +
+                        "eventdate<=\"2020-01-14\" and city=\"北京\" GROUP BY eventdate"
+        );
+        ArrayList<Long> selectedPartitionIds
+                = Lists.newArrayList(20200112L, 20200113L, 20200114L);
+        List<ScanNode> scanNodes = Lists.newArrayList(createEventScanNode(selectedPartitionIds));
+        CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
+        ca.checkCacheMode(1579053661000L); //2020-1-15 10:01:01
+        Assert.assertEquals(ca.getCacheMode(), CacheMode.Sql);
+        SqlCache sqlCache = (SqlCache) ca.getCache();
+        String cacheKey = sqlCache.getSqlWithViewStmt();
+        Types.PUniqueId sqlKey2 = CacheProxy.getMd5(cacheKey.replace("北京", "上海"));
+        Assert.assertNotEquals(sqlCache.getSqlKey(), sqlKey2);
     }
 
     @Test

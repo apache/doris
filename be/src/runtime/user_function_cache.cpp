@@ -27,6 +27,9 @@
 #include "http/http_client.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
+#ifdef LIBJVM
+#include "util/jni-util.h"
+#endif
 #include "util/md5.h"
 #include "util/spinlock.h"
 

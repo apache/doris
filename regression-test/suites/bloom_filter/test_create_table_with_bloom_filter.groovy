@@ -66,7 +66,8 @@ suite("test_create_table_with_bloom_filter", "bloom_filter") {
         PROPERTIES ( 
             "bloom_filter_columns"="smallint_key,int_key,bigint_key,char_50_key,character_key,
                                     char_key,character_most_key,decimal_key,decimal_most_key,
-                                    date_key,datetime_key"
+                                    date_key,datetime_key",
+            "replication_num" = "1"
         )
         """
     sql """

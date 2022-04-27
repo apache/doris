@@ -134,7 +134,7 @@ public class HaController {
             Map<String, Object> checkPoint = new HashMap<>();
             Storage storage = new Storage(Config.meta_dir + "/image");
             checkPoint.put("Name", "Version");
-            checkPoint.put("Value", storage.getImageSeq());
+            checkPoint.put("Value", storage.getLatestImageSeq());
             list.add(checkPoint);
             long lastCheckpointTime = storage.getCurrentImageFile().lastModified();
             Date date = new Date(lastCheckpointTime);

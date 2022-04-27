@@ -25,6 +25,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
+import org.apache.doris.catalog.Function.NullableMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -2426,13 +2427,13 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
-                    null, null, null));
+                    null, t.isStringType() ? stringValGetValue : null, null));
                     
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lead", Lists.newArrayList(t, Type.BIGINT, t), t, t,
                     prefix + OFFSET_FN_INIT_SYMBOL.get(t),
                     prefix + OFFSET_FN_UPDATE_SYMBOL.get(t),
-                    null, null, null));
+                    null, t.isStringType() ? stringValGetValue : null, null));
             //vec
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
@@ -2482,81 +2483,62 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String EXPLODE_JSON_ARRAY_STRING = "explode_json_array_string";
     public static final String EXPLODE_NUMBERS = "explode_numbers";
     public static final String EXPLODE = "explode";
-    public static final String EXPLODE_OUTER = "explode_outer";
+
+    private void addTableFunction(String name, Type retType, NullableMode nullableMode, ArrayList<Type> argTypes,
+            boolean hasVarArgs, String symbol) {
+        List<Function> functionList = tableFunctions.get(name);
+        functionList.add(ScalarFunction.createBuiltin(name, retType, nullableMode, argTypes, hasVarArgs, symbol, null,
+                null, true));
+    }
+
+    private void addTableFunctionWithCombinator(String name, Type retType, NullableMode nullableMode,
+            ArrayList<Type> argTypes, boolean hasVarArgs, String symbol) {
+        addTableFunction(name, retType, nullableMode, argTypes, hasVarArgs, symbol);
+        addTableFunction(name + "_outer", retType, Function.NullableMode.ALWAYS_NULLABLE, argTypes, hasVarArgs, symbol);
+    }
+
+    private void initTableFunctionListWithCombinator(String name) {
+        tableFunctions.put(name, Lists.newArrayList());
+        tableFunctions.put(name + "_outer", Lists.newArrayList());
+    }
 
     private void initTableFunction() {
-        List<Function> explodeSplits = Lists.newArrayList();
-        explodeSplits.add(ScalarFunction.createBuiltin(
-                EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
+        initTableFunctionListWithCombinator(EXPLODE_SPLIT);
+        addTableFunctionWithCombinator(EXPLODE_SPLIT, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
                 Lists.newArrayList(Type.VARCHAR, Type.VARCHAR), false,
-                "_ZN5doris19DummyTableFunctions13explode_splitEPN9doris_udf15FunctionContextERKNS1_9StringValES6_",
-                null, null, true));
-        tableFunctions.put(EXPLODE_SPLIT, explodeSplits);
+                "_ZN5doris19DummyTableFunctions13explode_splitEPN9doris_udf15FunctionContextERKNS1_9StringValES6_");
 
-        List<Function> explodeBitmaps = Lists.newArrayList();
-        explodeBitmaps.add(ScalarFunction.createBuiltin(
-                EXPLODE_BITMAP, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+        initTableFunctionListWithCombinator(EXPLODE_BITMAP);
+        addTableFunctionWithCombinator(EXPLODE_BITMAP, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
                 Lists.newArrayList(Type.BITMAP), false,
-                "_ZN5doris19DummyTableFunctions14explode_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_BITMAP, explodeBitmaps);
+                "_ZN5doris19DummyTableFunctions14explode_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE");
 
-        List<Function> explodeJsonArrayInts = Lists.newArrayList();
-        explodeJsonArrayInts.add(ScalarFunction.createBuiltin(
-                EXPLODE_JSON_ARRAY_INT, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+        initTableFunctionListWithCombinator(EXPLODE_JSON_ARRAY_INT);
+        addTableFunctionWithCombinator(EXPLODE_JSON_ARRAY_INT, Type.BIGINT, Function.NullableMode.DEPEND_ON_ARGUMENT,
                 Lists.newArrayList(Type.VARCHAR), false,
-                "_ZN5doris19DummyTableFunctions22explode_json_array_intEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_JSON_ARRAY_INT, explodeJsonArrayInts);
+                "_ZN5doris19DummyTableFunctions22explode_json_array_intEPN9doris_udf15FunctionContextERKNS1_9StringValE");
 
-        List<Function> explodeJsonArrayDoubles = Lists.newArrayList();
-        explodeJsonArrayDoubles.add(ScalarFunction.createBuiltin(
-                EXPLODE_JSON_ARRAY_DOUBLE, Type.DOUBLE, Function.NullableMode.DEPEND_ON_ARGUMENT,
+        initTableFunctionListWithCombinator(EXPLODE_JSON_ARRAY_DOUBLE);
+        addTableFunctionWithCombinator(EXPLODE_JSON_ARRAY_DOUBLE, Type.DOUBLE, Function.NullableMode.DEPEND_ON_ARGUMENT,
                 Lists.newArrayList(Type.VARCHAR), false,
-                "_ZN5doris19DummyTableFunctions25explode_json_array_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_JSON_ARRAY_DOUBLE, explodeJsonArrayDoubles);
+                "_ZN5doris19DummyTableFunctions25explode_json_array_doubleEPN9doris_udf15FunctionContextERKNS1_9StringValE");
 
-        List<Function> explodeJsonArrayStrings = Lists.newArrayList();
-        explodeJsonArrayStrings.add(ScalarFunction.createBuiltin(
-                EXPLODE_JSON_ARRAY_STRING, Type.VARCHAR, Function.NullableMode.DEPEND_ON_ARGUMENT,
-                Lists.newArrayList(Type.VARCHAR), false,
-                "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_JSON_ARRAY_STRING, explodeJsonArrayStrings);
+        initTableFunctionListWithCombinator(EXPLODE_JSON_ARRAY_STRING);
+        addTableFunctionWithCombinator(EXPLODE_JSON_ARRAY_STRING, Type.VARCHAR,
+                Function.NullableMode.DEPEND_ON_ARGUMENT, Lists.newArrayList(Type.VARCHAR), false,
+                "_ZN5doris19DummyTableFunctions25explode_json_array_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE");
 
-        List<Function> explodeNumbers = Lists.newArrayList();
-        explodeNumbers.add(ScalarFunction.createBuiltin(
-                EXPLODE_NUMBERS, Type.INT, Function.NullableMode.DEPEND_ON_ARGUMENT,
+        initTableFunctionListWithCombinator(EXPLODE_NUMBERS);
+        addTableFunctionWithCombinator(EXPLODE_NUMBERS, Type.INT, Function.NullableMode.DEPEND_ON_ARGUMENT,
                 Lists.newArrayList(Type.INT), false,
-                "_ZN5doris19DummyTableFunctions22explode_numbersEPN9doris_udf15FunctionContextERKNS1_9IntValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_NUMBERS, explodeNumbers);
+                "_ZN5doris19DummyTableFunctions22explode_numbersEPN9doris_udf15FunctionContextERKNS1_9IntValE");
 
-        List<Function> explodes = Lists.newArrayList();
-        explodes.add(ScalarFunction.createBuiltin(
-                EXPLODE, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
+        initTableFunctionListWithCombinator(EXPLODE);
+        addTableFunctionWithCombinator(EXPLODE, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.INT)), false,
-                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
-                null, null, true));
-        explodes.add(ScalarFunction.createBuiltin(
-                EXPLODE, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
+        addTableFunctionWithCombinator(EXPLODE, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
                 Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
-                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE, explodes);
-
-        List<Function> explodeOuters = Lists.newArrayList();
-        explodeOuters.add(ScalarFunction.createBuiltin(
-                EXPLODE_OUTER, Type.INT, Function.NullableMode.ALWAYS_NULLABLE,
-                Lists.newArrayList(new ArrayType(Type.INT)), false,
-                "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
-                null, null, true));
-        explodeOuters.add(ScalarFunction.createBuiltin(
-                EXPLODE_OUTER, Type.VARCHAR, Function.NullableMode.ALWAYS_NULLABLE,
-                Lists.newArrayList(new ArrayType(Type.VARCHAR)), false,
-                "_ZN5doris19DummyTableFunctions13explode_outerEPN9doris_udf15FunctionContextERKNS1_13CollectionValE",
-                null, null, true));
-        tableFunctions.put(EXPLODE_OUTER, explodeOuters);
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
     }
 }

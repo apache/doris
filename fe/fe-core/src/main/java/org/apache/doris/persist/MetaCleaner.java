@@ -34,7 +34,7 @@ public class MetaCleaner {
 
     public void clean() throws IOException {
         Storage storage = new Storage(imageDir);
-        long currentVersion = storage.getImageSeq();
+        long currentVersion = storage.getLatestValidatedImageSeq();
         long imageDeleteVersion = currentVersion - 1;
 
         File currentImage = storage.getImageFile(currentVersion);
@@ -64,6 +64,17 @@ public class MetaCleaner {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    public void cleanTheLatestInvalidImageFile(String path) throws IOException {
+        File latestInvalidImage = new File(path);
+        if (latestInvalidImage.exists()) {
+            if (latestInvalidImage.delete()) {
+                LOG.info(latestInvalidImage.getAbsoluteFile() + " deleted.");
+            } else {
+                LOG.warn(latestInvalidImage.getAbsoluteFile() + " delete failed.");
             }
         }
     }

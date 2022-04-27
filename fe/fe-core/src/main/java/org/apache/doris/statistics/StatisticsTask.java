@@ -67,7 +67,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         this.jobId = jobId;
         this.granularityDesc = granularityDesc;
         this.categoryDesc = categoryDesc;
-        statsTypeList = statsTypeList;
+        this.statsTypeList = statsTypeList;
     }
 
     public void readLock() {

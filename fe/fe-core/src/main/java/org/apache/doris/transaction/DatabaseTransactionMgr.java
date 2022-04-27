@@ -124,10 +124,10 @@ public class DatabaseTransactionMgr {
 
 
     // count the number of running txns of database, except for the routine load txn
-    private int runningTxnNums = 0;
+    private volatile int runningTxnNums = 0;
 
     // count only the number of running routine load txns of database
-    private int runningRoutineLoadTxnNums = 0;
+    private volatile int runningRoutineLoadTxnNums = 0;
 
     private Catalog catalog;
 
@@ -195,12 +195,10 @@ public class DatabaseTransactionMgr {
         return labelToTxnIds.get(label);
     }
 
-    @VisibleForTesting
     protected int getRunningTxnNums() {
         return runningTxnNums;
     }
 
-    @VisibleForTesting
     protected int getRunningRoutineLoadTxnNums() {
         return runningRoutineLoadTxnNums;
     }
@@ -1366,7 +1364,8 @@ public class DatabaseTransactionMgr {
     }
 
     public int getTransactionNum() {
-        return idToRunningTransactionState.size() + idToFinalStatusTransactionState.size();
+        return idToRunningTransactionState.size() + finalStatusTransactionStateDequeShort.size() +
+               finalStatusTransactionStateDequeLong.size();
     }
 
 

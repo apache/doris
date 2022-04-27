@@ -98,6 +98,7 @@ public class MetaFooter {
             long endIndex = raf.length();
             raf.writeLong(endIndex - startIndex);
             MetaMagicNumber.write(raf);
+            raf.getChannel().force(true);
         }
     }
 
