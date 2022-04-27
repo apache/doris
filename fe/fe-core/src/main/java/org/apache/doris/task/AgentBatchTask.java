@@ -24,7 +24,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
-import org.apache.doris.thrift.TAlterTabletReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
@@ -233,26 +232,6 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setCloneReq(request);
-                return tAgentTaskRequest;
-            }
-            case ROLLUP: {
-                CreateRollupTask rollupTask = (CreateRollupTask) task;
-                TAlterTabletReq request = rollupTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setAlterTabletReq(request);
-                tAgentTaskRequest.setResourceInfo(rollupTask.getResourceInfo());
-                return tAgentTaskRequest;
-            }
-            case SCHEMA_CHANGE: {
-                SchemaChangeTask schemaChangeTask = (SchemaChangeTask) task;
-                TAlterTabletReq request = schemaChangeTask.toThrift();
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(request.toString());
-                }
-                tAgentTaskRequest.setAlterTabletReq(request);
-                tAgentTaskRequest.setResourceInfo(schemaChangeTask.getResourceInfo());
                 return tAgentTaskRequest;
             }
             case STORAGE_MEDIUM_MIGRATE: {
