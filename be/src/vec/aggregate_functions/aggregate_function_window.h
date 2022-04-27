@@ -231,7 +231,7 @@ public:
     }
 
     void set_value(const IColumn** columns, int64_t pos) {
-        if constexpr (is_nullable) {
+        if (is_column_nullable(*columns[0])) {
             const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
             if (nullable_column && nullable_column->is_null_at(pos)) {
                 _data_value.set_null(true);
