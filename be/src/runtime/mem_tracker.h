@@ -97,6 +97,8 @@ public:
     // Gets a shared_ptr to the "process" tracker, creating it if necessary.
     static std::shared_ptr<MemTracker> get_process_tracker();
     static MemTracker* get_raw_process_tracker();
+    // Gets a shared_ptr to the "brpc server" tracker, creating it if necessary.
+    static std::shared_ptr<MemTracker> get_brpc_server_tracker();
 
     Status check_sys_mem_info(int64_t bytes) {
         if (MemInfo::initialized() && MemInfo::current_mem() + bytes >= MemInfo::mem_limit()) {
@@ -464,6 +466,8 @@ private:
 
     // Creates the process tracker.
     static void create_process_tracker();
+    // Creates the brpc server tracker.
+    static void create_brpc_server_tracker();
 
     // Limit on memory consumption, in bytes. If limit_ == -1, there is no consumption limit.
     int64_t _limit;
