@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
 
 import org.apache.logging.log4j.LogManager;
@@ -31,15 +32,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import com.clearspring.analytics.util.Lists;
-
 /*
 Schedule statistics task
  */
 public class StatisticsTaskScheduler extends MasterDaemon {
     private final static Logger LOG = LogManager.getLogger(StatisticsTaskScheduler.class);
 
-    private Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
+    private final Queue<StatisticsTask> queue = Queues.newLinkedBlockingQueue();
 
     public StatisticsTaskScheduler() {
         super("Statistics task scheduler", 0);

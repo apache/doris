@@ -24,8 +24,40 @@ public class StatsCategoryDesc {
     }
 
     private StatsCategory category;
+    private long dbId;
     private long tableId;
     private String columnName;
 
+    public StatsCategory getCategory() {
+        return this.category;
+    }
 
+    public void setCategory(StatsCategory category) {
+        this.category = category;
+    }
+
+    public long getDbId() {
+        return this.dbId;
+    }
+
+    public void setDbId(long dbId) {
+        this.dbId = dbId;
+    }
+
+    public long getTableId() {
+        return this.tableId;
+    }
+
+    public void setTableId(long tableId) {
+        this.tableId = tableId;
+    }
+
+    public String getColumnName() {
+        return this.columnName;
+    }
+
+    public void setColumnName(String columnName) {
+        this.columnName = columnName;
+    }
 }
+
