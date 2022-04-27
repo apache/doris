@@ -1159,6 +1159,7 @@ public class SingleNodePlanner {
                     aggInfo.getSecondPhaseDistinctAggInfo());
             newRoot.init(analyzer);
             Preconditions.checkState(newRoot.hasValidStats());
+        } else if (aggInfo.isGatherDictAgg()) {
         }
         // add Having clause
         newRoot.assignConjuncts(analyzer);

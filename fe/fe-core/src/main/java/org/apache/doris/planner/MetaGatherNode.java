@@ -17,8 +17,14 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.SlotId;
+
+import java.util.List;
+
 public class MetaGatherNode extends PlanNode{
 
-    private Map<String, >
+    private List<SlotId> slotIdList;
+
+
 
 }
