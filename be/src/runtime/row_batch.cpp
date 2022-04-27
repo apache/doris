@@ -173,8 +173,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                CollectionValue::deserialize_collection(array_val, tuple_data,
-                                                        slot_collection->type());
+                const auto& item_type_desc = slot_collection->type().children[0];
+                CollectionValue::deserialize_collection(array_val, tuple_data, item_type_desc);
             }
         }
     }
@@ -580,10 +580,10 @@ size_t RowBatch::total_byte_size() const {
                 if (tuple->is_null(slot_collection->null_indicator_offset())) {
                     continue;
                 }
-                // compute data null_signs size
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                result += array_val->get_byte_size(slot_collection->type());
+                const auto& item_type_desc = slot_collection->type().children[0];
+                result += array_val->get_byte_size(item_type_desc);
             }
         }
     }

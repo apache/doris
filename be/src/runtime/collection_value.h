@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/mem_pool.h"
@@ -31,19 +32,29 @@ using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint(int size)>;
 
 struct TypeDescriptor;
+struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
+
+template <PrimitiveType type>
+struct ArrayIteratorFunctions;
+template <typename T>
+constexpr std::enable_if_t<std::is_base_of_v<ArrayIteratorFunctionsBase, T>, bool>
+        IsTypeFixedWidth = true;
+
+template <>
+constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_CHAR>> = false;
+template <>
+constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_VARCHAR>> = false;
+template <>
+constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_STRING>> = false;
+template <>
+constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_ARRAY>> = false;
 
 /**
  * The format of array-typed slot.
- * The array's sub-element type just support: 
- * - INT32
- * - CHAR
- * - VARCHAR
- * - NULL
- * 
- * A new array need initialization memory before used
+ * A new array needs to be initialized before using it.
  */
-struct CollectionValue {
+class CollectionValue {
 public:
     CollectionValue() = default;
 
@@ -71,15 +82,10 @@ public:
 
     void copy_null_signs(const CollectionValue* other);
 
-    size_t get_byte_size(const TypeDescriptor& type) const;
+    size_t get_byte_size(const TypeDescriptor& item_type) const;
 
-    ArrayIterator iterator(PrimitiveType children_type) const;
-
-    /**
-     * just shallow copy sub-elment value
-     * For special type, will shared actual value's memory, like StringValue.
-     */
-    Status set(uint32_t i, PrimitiveType type, const AnyVal* value);
+    ArrayIterator iterator(PrimitiveType child_type);
+    const ArrayIterator iterator(PrimitiveType child_type) const;
 
     /**
      * init collection, will alloc (children Type's size + 1) * (children Nums) memory  
@@ -103,16 +109,8 @@ public:
                                      const GenMemFootprintFunc& gen_mem_footprint,
                                      bool convert_ptrs);
 
-    // Deep copy items in collection.
-    // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
-    // copy data from origin collection value).
-    static void deep_copy_items_in_collection(CollectionValue* shallow_copied_cv, char* base,
-                                              const TypeDescriptor& item_type,
-                                              const GenMemFootprintFunc& gen_mem_footprint,
-                                              bool convert_ptrs);
-
     static void deserialize_collection(CollectionValue* cv, const char* tuple_data,
-                                       const TypeDescriptor& type);
+                                       const TypeDescriptor& item_type);
 
     const void* data() const { return _data; }
     bool has_null() const { return _has_null; }
@@ -124,7 +122,13 @@ public:
     void set_data(void* data) { _data = data; }
     void set_null_signs(bool* null_signs) { _null_signs = null_signs; }
 
-public:
+private:
+    using AllocateMemFunc = std::function<uint8_t*(size_t size)>;
+    static Status init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
+                                  uint32_t size, PrimitiveType child_type);
+    ArrayIterator internal_iterator(PrimitiveType child_type) const;
+
+private:
     // child column data
     void* _data;
     uint32_t _length;
@@ -137,45 +141,110 @@ public:
     friend ArrayIterator;
 };
 
-/**
- * Array's Iterator, support read array by special type
- */
 class ArrayIterator {
-private:
-    ArrayIterator(PrimitiveType children_type, const CollectionValue* data);
-
 public:
-    bool seek(uint32_t n) {
-        if (n >= _data->size()) {
+    int type_size() const { return _type_size; }
+    bool is_type_fixed_width() const { return _is_type_fixed_width; }
+
+    bool has_next() const { return _offset < _collection_value->size(); }
+    bool next() const {
+        if (has_next()) {
+            ++_offset;
+            return true;
+        }
+        return false;
+    }
+    bool seek(int n) const {
+        if (n >= _collection_value->size()) {
             return false;
         }
-
         _offset = n;
         return true;
     }
-
-    bool has_next() { return _offset < _data->size(); }
-
-    bool next() {
-        if (_offset < _data->size()) {
-            _offset++;
-            return true;
+    bool is_null() const { return _collection_value->is_null_at(_offset); }
+    const void* get() const {
+        if (is_null()) {
+            return nullptr;
         }
-
-        return false;
+        return reinterpret_cast<const uint8_t*>(_collection_value->data()) + _offset * _type_size;
+    }
+    void* get() {
+        if (is_null()) {
+            return nullptr;
+        }
+        return reinterpret_cast<uint8_t*>(_collection_value->mutable_data()) + _offset * _type_size;
+    }
+    void get(AnyVal* value) const {
+        if (is_null()) {
+            value->is_null = true;
+            return;
+        }
+        value->is_null = false;
+        _shallow_get(value, get());
+    }
+    void set(const AnyVal* value) {
+        if (_collection_value->mutable_null_signs()) {
+            _collection_value->mutable_null_signs()[_offset] = value->is_null;
+        }
+        if (value->is_null) {
+            _collection_value->set_has_null(true);
+        } else {
+            _shallow_set(get(), value);
+        }
+    }
+    void self_deep_copy(const TypeDescriptor& type_desc,
+                        const GenMemFootprintFunc& gen_mem_footprint, bool convert_ptrs) {
+        if (is_null()) {
+            return;
+        }
+        _self_deep_copy(get(), type_desc, gen_mem_footprint, convert_ptrs);
+    }
+    void deserialize(const char* tuple_data, const TypeDescriptor& type_desc) {
+        if (is_null()) {
+            return;
+        }
+        _deserialize(get(), tuple_data, type_desc);
+    }
+    size_t get_byte_size(const TypeDescriptor& type) const {
+        if (is_null()) {
+            return 0;
+        }
+        return _get_byte_size(get(), type);
+    }
+    void raw_value_write(const void* value, const TypeDescriptor& type_desc, MemPool* pool) {
+        if (is_null()) {
+            return;
+        }
+        return _raw_value_write(get(), value, type_desc, pool);
     }
 
-    bool is_null();
-
-    void* value();
-
-    void value(AnyVal* dest);
+private:
+    template <typename T,
+              typename = std::enable_if_t<std::is_base_of_v<ArrayIteratorFunctionsBase, T>>>
+    ArrayIterator(CollectionValue* data, const T*)
+            : _shallow_get(T::shallow_get),
+              _shallow_set(T::shallow_set),
+              _self_deep_copy(T::self_deep_copy),
+              _deserialize(T::deserialize),
+              _get_byte_size(T::get_byte_size),
+              _raw_value_write(T::raw_value_write),
+              _collection_value(data),
+              _offset(0),
+              _type_size(T::get_type_size()),
+              _is_type_fixed_width(IsTypeFixedWidth<T>) {}
+    void (*_shallow_get)(AnyVal*, const void*);
+    void (*_shallow_set)(void*, const AnyVal*);
+    void (*_self_deep_copy)(void*, const TypeDescriptor&, const GenMemFootprintFunc&, bool);
+    void (*_deserialize)(void*, const char*, const TypeDescriptor&);
+    size_t (*_get_byte_size)(const void* item, const TypeDescriptor&);
+    void (*_raw_value_write)(void* item, const void* value, const TypeDescriptor& type_desc,
+                             MemPool* pool);
 
 private:
-    size_t _offset;
-    int _type_size;
-    const PrimitiveType _type;
-    const CollectionValue* _data;
+    CollectionValue* _collection_value;
+    mutable uint32_t _offset;
+    const int _type_size;
+    const bool _is_type_fixed_width;
 
     friend CollectionValue;
 };
