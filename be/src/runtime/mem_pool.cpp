@@ -65,7 +65,7 @@ MemPool::MemPool()
           total_allocated_bytes_(0),
           total_reserved_bytes_(0),
           peak_allocated_bytes_(0),
-          _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get()) {}
+          _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get()) {}
 
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_bytes(0) {
     DorisMetrics::instance()->memory_pool_bytes_total->increment(chunk.size);

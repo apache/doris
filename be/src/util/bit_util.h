@@ -25,7 +25,6 @@
 
 #include "common/compiler_util.h"
 #include "gutil/bits.h"
-#include "gutil/port.h"
 #include "util/cpu_info.h"
 #ifdef __aarch64__
 #include "sse2neon.h"
