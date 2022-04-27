@@ -86,7 +86,11 @@ public class StatisticsJobScheduler extends MasterDaemon {
                 LOG.info("The statistics task queue is full, schedule the job(id={}) later", pendingJob.getId());
             } catch (DdlException e) {
                 pendingJobQueue.remove();
-                pendingJob.updateJobState(StatisticsJob.JobState.FAILED);
+                try {
+                    // TODO change to without exception
+                    pendingJob.updateJobState(StatisticsJob.JobState.FAILED);
+                } catch (DdlException ddlException) {
+                }
                 LOG.info("Failed to schedule the statistical job(id={})", pendingJob.getId(), e);
             }
         }
