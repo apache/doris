@@ -46,16 +46,16 @@ under the License.
    Doris build against `thrift` 0.13.0 ( note : `Doris` 0.15 and later version build against `thrift` 0.13.0 , the previous version is still `thrift` 0.9.3)   
    
    Windows: 
-      1. Download：`http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
-      2. Copy：copy the file to `./thirdparty/installed/bin`
+      1. Download: `http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.exe`
+      2. Copy: copy the file to `./thirdparty/installed/bin`
       
    MacOS: 
-      1. Download：`brew install thrift@0.13.0`
-      2. Establish soft connection： 
+      1. Download: `brew install thrift@0.13.0`
+      2. Establish soft connection:
         `mkdir -p ./thirdparty/installed/bin`
         `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
       
-   Note：The error that the version cannot be found may be reported when MacOS execute `brew install thrift@0.13.0`. The solution is execute at the terminal as follows:
+   Note: The error that the version cannot be found may be reported when MacOS execute `brew install thrift@0.13.0`. The solution is execute at the terminal as follows:
       1. `brew tap-new $USER/local-tap`
       2. `brew extract --version='0.13.0' thrift $USER/local-tap`
       3. `brew install thrift@0.13.0`

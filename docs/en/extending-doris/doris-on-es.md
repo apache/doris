@@ -349,7 +349,7 @@ PROPERTIES (
 );
 ```
 
-Parameter Description：
+Parameter Description:
 
 Parameter | Description
 ---|---
@@ -378,7 +378,7 @@ PROPERTIES (
 );
 ```
 
-Parameter Description：
+Parameter Description:
 
 Parameter | Description
 ---|---

@@ -124,9 +124,9 @@ There are many statistical information collected at BE.  so we list the correspo
   - BytesReceived: Size of bytes received by network
   - DataArrivalWaitTime: Total waiting time of sender to push data 
   - MergeGetNext: When there is a sort in the lower level node, exchange node will perform a unified merge sort and output an ordered result. This indicator records the total time consumption of merge sorting, including the time consumption of MergeGetNextBatch.
-  - MergeGetNextBatch：It takes time for merge node to get data. If it is single-layer merge sort, the object to get data is network queue. For multi-level merge sorting, the data object is child merger.
+  - MergeGetNextBatch: It takes time for merge node to get data. If it is single-layer merge sort, the object to get data is network queue. For multi-level merge sorting, the data object is child merger.
   - ChildMergeGetNext: When there are too many senders in the lower layer to send data, single thread merge will become a performance bottleneck. Doris will start multiple child merge threads to do merge sort in parallel. The sorting time of child merge is recorded, which is the cumulative value of multiple threads.
-  - ChildMergeGetNextBatch: It takes time for child merge to get data，If the time consumption is too large, the bottleneck may be the lower level data sending node.
+  - ChildMergeGetNextBatch: It takes time for child merge to get data,If the time consumption is too large, the bottleneck may be the lower level data sending node.
   - FirstBatchArrivalWaitTime: The time waiting for the first batch come from sender
   - DeserializeRowBatchTimer: Time consuming to receive data deserialization
   - SendersBlockedTotalTimer(*): When the DataStreamRecv's queue buffer is full, wait time of sender

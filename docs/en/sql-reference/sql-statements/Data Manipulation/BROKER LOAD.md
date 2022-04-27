@@ -36,7 +36,7 @@ under the License.
     2. Baidu AFS: afs for Baidu. Only be used inside Baidu.
     3. Baidu Object Storage(BOS): BOS on Baidu Cloud.
     4. Apache HDFS.
-    5. Amazon S3：Amazon S3。
+    5. Amazon S3: Amazon S3.
 
 ### Syntax:
 
@@ -137,14 +137,14 @@ under the License.
             read_properties:
 
             Used to specify some special parameters.
-            Syntax：
+            Syntax:
             [PROPERTIES ("key"="value", ...)]
         
             You can specify the following parameters:
                 
-              line_delimiter： Used to specify the line delimiter in the load file. The default is `\n`. You can use a combination of multiple characters as the column separator.
+              line_delimiter:  Used to specify the line delimiter in the load file. The default is `\n`. You can use a combination of multiple characters as the column separator.
 
-              fuzzy_parse： Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
+              fuzzy_parse:  Boolean type, true to indicate that parse json schema as the first line, this can make import more faster,but need all key keep the order of first line, default value is false. Only use for json format.
             
               jsonpaths: There are two ways to import json: simple mode and matched mode.
                 simple mode: it is simple mode without setting the jsonpaths parameter. In this mode, the json data is required to be the object type. For example:
@@ -152,7 +152,7 @@ under the License.
 
                 matched mode: the json data is relatively complex, and the corresponding value needs to be matched through the jsonpaths parameter.
             
-              strip_outer_array: Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false. For example：
+              strip_outer_array: Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false. For example: 
                 [
                   {"k1" : 1, "v1" : 2},
                   {"k1" : 3, "v1" : 4}
@@ -207,9 +207,9 @@ under the License.
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
         4.4. Amazon S3
 
-            fs.s3a.access.key：AmazonS3的access key
-            fs.s3a.secret.key：AmazonS3的secret key
-            fs.s3a.endpoint：AmazonS3的endpoint 
+            fs.s3a.access.key: AmazonS3的access key
+            fs.s3a.secret.key: AmazonS3的secret key
+            fs.s3a.endpoint: AmazonS3的endpoint 
         4.5. If using the S3 protocol to directly connect to the remote storage, you need to specify the following attributes 
 
             (
@@ -230,7 +230,7 @@ under the License.
             )
             fs.defaultFS: defaultFS
             hdfs_user: hdfs user
-            namenode HA：
+            namenode HA: 
             By configuring namenode HA, new namenode can be automatically identified when the namenode is switched
             dfs.nameservices: hdfs service name, customize, eg: "dfs.nameservices" = "my_ha"
             dfs.ha.namenodes.xxx: Customize the name of a namenode, separated by commas. XXX is a custom name in dfs. name services, such as "dfs. ha. namenodes. my_ha" = "my_nn"

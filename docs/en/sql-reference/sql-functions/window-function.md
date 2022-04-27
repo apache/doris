@@ -101,7 +101,7 @@ This section introduces the methods that can be used as analysis functions in Do
 
 ### AVG()
 
-grammar：
+grammar:
 
 ```sql
 AVG([DISTINCT | ALL] *expression*) [OVER (*analytic_clause*)]
@@ -136,7 +136,7 @@ from int_t where property in ('odd','even');
 
 ### COUNT()
 
-grammar：
+grammar:
 
 ```sql
 COUNT([DISTINCT | ALL] expression) [OVER (analytic_clause)]
@@ -173,7 +173,7 @@ from int_t where property in ('odd','even');
 
 The DENSE_RANK() function is used to indicate the ranking. Unlike RANK(), DENSE_RANK() does not have vacant numbers. For example, if there are two parallel ones, the third number of DENSE_RANK() is still 2, and the third number of RANK() is 3.
 
-grammar：
+grammar:
 
 ```sql
 DENSE_RANK() OVER(partition_by_clause order_by_clause)
@@ -202,7 +202,7 @@ The following example shows the ranking of the x column grouped by the property 
 
 FIRST_VALUE() returns the first value in the window range.
 
-grammar：
+grammar:
 
 ```sql
 FIRST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
@@ -224,7 +224,7 @@ We have the following data
  | Mats    | Sweden  | Tja          |
 ```
 
-Use FIRST_VALUE() to group by country and return the value of the first greeting in each group：
+Use FIRST_VALUE() to group by country and return the value of the first greeting in each group:
 
 ```sql
 select country, name,    
@@ -244,7 +244,7 @@ over (partition by country order by name, greeting) as greeting from mail_merge;
 
 The LAG() method is used to calculate the value of several lines forward from the current line.
 
-grammar：
+grammar:
 
 ```sql
 LAG (expr, offset, default) OVER (partition_by_clause order_by_clause)
@@ -274,7 +274,7 @@ order by closing_date;
 
 LAST_VALUE() returns the last value in the window range. Contrary to FIRST_VALUE().
 
-grammar：
+grammar:
 
 ```sql
 LAST_VALUE(expr) OVER(partition_by_clause order_by_clause [window_clause])
@@ -301,7 +301,7 @@ from mail_merge;
 
 The LEAD() method is used to calculate the value of several rows from the current row.
 
-grammar：
+grammar:
 
 ```sql
 LEAD (expr, offset, default]) OVER (partition_by_clause order_by_clause)
@@ -334,7 +334,7 @@ order by closing_date;
 
 ### MAX()
 
-grammar：
+grammar:
 
 ```sql
 MAX([DISTINCT | ALL] expression) [OVER (analytic_clause)]
@@ -365,7 +365,7 @@ from int_t where property in ('prime','square');
 
 ### MIN()
 
-grammar：
+grammar:
 
 ```sql
 MIN([DISTINCT | ALL] expression) [OVER (analytic_clause)]
@@ -398,7 +398,7 @@ from int_t where property in ('prime','square');
 
 The RANK() function is used to indicate ranking. Unlike DENSE_RANK(), RANK() will have vacant numbers. For example, if there are two parallel 1s, the third number in RANK() is 3, not 2.
 
-grammar：
+grammar:
 
 ```sql
 RANK() OVER(partition_by_clause order_by_clause)
@@ -427,7 +427,7 @@ select x, y, rank() over(partition by x order by y) as rank from int_t;
 
 For each row of each Partition, an integer that starts from 1 and increases continuously is returned. Unlike RANK() and DENSE_RANK(), the value returned by ROW_NUMBER() will not be repeated or vacant, and is continuously increasing.
 
-grammar：
+grammar:
 
 ```sql
 ROW_NUMBER() OVER(partition_by_clause order_by_clause)
@@ -452,7 +452,7 @@ select x, y, row_number() over(partition by x order by y) as rank from int_t;
 
 ### SUM()
 
-grammar：
+grammar:
 
 ```sql
 SUM([DISTINCT | ALL] expression) [OVER (analytic_clause)]
