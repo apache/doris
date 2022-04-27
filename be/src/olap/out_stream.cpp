@@ -25,7 +25,7 @@
 namespace doris {
 
 OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size)
-        : _compress_kind(compress_kind), _stream_buffer_size(stream_buffer_size) {
+        : _stream_buffer_size(stream_buffer_size) {
     switch (compress_kind) {
     case COMPRESS_NONE:
         _compressor = nullptr;

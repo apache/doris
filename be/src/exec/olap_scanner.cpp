@@ -52,7 +52,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _version(-1),
           _mem_tracker(MemTracker::create_tracker(
                   tracker->limit(),
-                  tracker->label() + ":OlapScanner:" + thread_local_ctx.get()->thread_id_str(),
+                  tracker->label() + ":OlapScanner:" + tls_ctx()->thread_id_str(),
                   tracker)) {}
 
 Status OlapScanner::prepare(
