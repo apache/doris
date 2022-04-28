@@ -565,7 +565,7 @@ Suite.metaClass.testPlugin = { String info /* param */ ->
     Suite suite = delegate as Suite
 
     // function body
-    suite.getLogger().info("Test plugin: suiteName: ${suite.name}, info: ${info}")
+    suite.getLogger().info("Test plugin: suiteName: ${suite.name}, info: ${info}".toString())
 
     // optional return value
     return "OK"
