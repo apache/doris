@@ -447,7 +447,7 @@ Status StorageMigrationV2Handler::_generate_rowset_writer(
         writer.Key(STORAGE_NAME.c_str());
         writer.String(dst_desc.storage_name.c_str());
         writer.EndObject();
-        Status st = env_util::write_string_to_file(
+        Status st = env_util::write_string_to_file_sync(
                 Env::Default(), Slice(std::string(strbuf.GetString())), remote_file_param_path);
         // strbuf.GetString() format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
         if (!st.ok()) {

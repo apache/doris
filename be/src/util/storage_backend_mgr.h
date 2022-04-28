@@ -60,8 +60,9 @@ public:
     static std::string get_root_path_from_param(const StorageParamPB& storage_param);
 
 private:
-    Status _create_remote_storage_internal(const StorageParamPB& storage_param);
-    Status _check_exist(const StorageParamPB& storage_param_pb);
+    Status _create_remote_storage_internal_unlocked(const StorageParamPB& storage_param);
+    Status _check_exist_unlocked(const StorageParamPB& storage_param_pb);
+    Status _get_storage_param_unlocked(const std::string& storage_name, StorageParamPB* storage_param);
     Status _serialize_param(const StorageParamPB& storage_param_pb, std::string* meta_binary);
     Status _deserialize_param(const std::string& meta_binary, StorageParamPB* storage_param_pb);
 

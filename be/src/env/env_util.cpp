@@ -75,15 +75,18 @@ Status write_string_to_file_sync(Env* env, const Slice& data, const std::string&
     return do_write_string_to_file(env, data, fname, true);
 }
 
+// Support binary bytes reading.
 Status read_file_to_string(Env* env, const std::string& fname, std::string* data) {
     data->clear();
     std::unique_ptr<RandomAccessFile> file;
-    Status s = env->new_random_access_file(fname, &file);
-    if (!s.ok()) {
-        return s;
-    }
-    s = file->read_all(data);
-    return s;
+    RETURN_IF_ERROR(env->new_random_access_file(fname, &file));
+    uint64_t file_size = 0;
+    RETURN_IF_ERROR(file->size(&file_size));
+    std::unique_ptr<uint8_t[]> buf(new uint8_t[file_size]);
+    Slice slice(buf.get(), file_size);
+    RETURN_IF_ERROR(file->read_at(0, &slice));
+    *data = slice.to_string();
+    return Status::OK();
 }
 
 } // namespace env_util

@@ -30,6 +30,7 @@
 namespace doris {
 
 Status StorageBackendMgr::init(const std::string& storage_param_dir) {
+    std::unique_lock wrlock(_storage_backend_lock);
     if (_is_inited) {
         return Status::OK();
     }
@@ -47,12 +48,11 @@ Status StorageBackendMgr::init(const std::string& storage_param_dir) {
     for (auto& file_name : file_names) {
         std::string buf;
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                env_util::read_file_to_string(Env::Default(), storage_param_dir + "/" + file_name,
-                                              &buf),
+                env_util::read_file_to_string(Env::Default(), storage_param_dir + "/" + file_name, &buf),
                 strings::Substitute("load storage_name failed. $0", file_name));
         StorageParamPB storage_param_pb;
         RETURN_IF_ERROR(_deserialize_param(buf, &storage_param_pb));
-        RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
+        RETURN_IF_ERROR(_create_remote_storage_internal_unlocked(storage_param_pb));
         LOG(INFO) << "init remote_storage_param successfully. storage_name: " << file_name;
     }
     _storage_param_dir = storage_param_dir;
@@ -61,11 +61,10 @@ Status StorageBackendMgr::init(const std::string& storage_param_dir) {
 }
 
 Status StorageBackendMgr::create_remote_storage(const StorageParamPB& storage_param_pb) {
-    if (_check_exist(storage_param_pb)) {
+    std::unique_lock wrlock(_storage_backend_lock);
+    if (_check_exist_unlocked(storage_param_pb)) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(_create_remote_storage_internal(storage_param_pb));
-
     std::string storage_name = storage_param_pb.storage_name();
 
     string storage_param_path = _storage_param_dir + "/" + storage_name;
@@ -76,8 +75,8 @@ Status StorageBackendMgr::create_remote_storage(const StorageParamPB& storage_pa
     RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(storage_param_pb, &param_binary),
                                    "_serialize_param storage_param_pb failed.");
     RETURN_NOT_OK_STATUS_WITH_WARN(
-            env_util::write_string_to_file(Env::Default(), Slice(param_binary), storage_param_path),
-            strings::Substitute("write_string_to_file failed: $0", storage_param_path));
+            env_util::write_string_to_file_sync(Env::Default(), Slice(param_binary), storage_param_path),
+            strings::Substitute("write_string_to_file_sync failed: $0", storage_param_path));
     std::string buf;
     RETURN_NOT_OK_STATUS_WITH_WARN(
             env_util::read_file_to_string(Env::Default(), storage_param_path, &buf),
@@ -87,13 +86,15 @@ Status StorageBackendMgr::create_remote_storage(const StorageParamPB& storage_pa
                    << storage_param_pb.storage_name() << "<->" << storage_name << ")";
         return Status::InternalError("storage_param written failed");
     }
+
+    RETURN_IF_ERROR(_create_remote_storage_internal_unlocked(storage_param_pb));
+
     LOG(INFO) << "create remote_storage_param successfully. storage_name: " << storage_name;
     return Status::OK();
 }
 
-Status StorageBackendMgr::_create_remote_storage_internal(const StorageParamPB& storage_param_pb) {
+Status StorageBackendMgr::_create_remote_storage_internal_unlocked(const StorageParamPB& storage_param_pb) {
     std::string storage_name = storage_param_pb.storage_name();
-    std::unique_lock wrlock(_storage_backend_lock);
     if (_storage_backend_map.size() >= doris::config::max_remote_storage_count) {
         std::map<std::string, time_t>::iterator itr = _storage_backend_active_time.begin();
         std::string timeout_key = itr->first;
@@ -146,10 +147,13 @@ std::shared_ptr<StorageBackend> StorageBackendMgr::get_storage_backend(
     _storage_backend_active_time[storage_name] = time(nullptr);
     return _storage_backend_map[storage_name];
 }
-
 Status StorageBackendMgr::get_storage_param(const std::string& storage_name,
                                             StorageParamPB* storage_param) {
     std::shared_lock rdlock(_storage_backend_lock);
+    return _get_storage_param_unlocked(storage_name, storage_param);
+}
+
+Status StorageBackendMgr::_get_storage_param_unlocked(const std::string& storage_name, StorageParamPB* storage_param) {
     if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
         return Status::InternalError("storage_name not exist: " + storage_name);
     }
@@ -176,10 +180,9 @@ std::string StorageBackendMgr::get_root_path_from_param(const StorageParamPB& st
     }
 }
 
-Status StorageBackendMgr::_check_exist(const StorageParamPB& storage_param_pb) {
+Status StorageBackendMgr::_check_exist_unlocked(const StorageParamPB& storage_param_pb) {
     StorageParamPB old_storage_param;
-    RETURN_IF_ERROR(get_storage_param(storage_param_pb.storage_name(), &old_storage_param));
-    std::shared_lock rdlock(_storage_backend_lock);
+    RETURN_IF_ERROR(_get_storage_param_unlocked(storage_param_pb.storage_name(), &old_storage_param));
     std::string old_param_binary;
     RETURN_NOT_OK_STATUS_WITH_WARN(_serialize_param(old_storage_param, &old_param_binary),
                                    "_serialize_param old_storage_param_pb failed.");

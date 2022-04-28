@@ -814,7 +814,7 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     // 4. move remote file to trash if needed
     if (is_remote()) {
         std::string trash_storage_name_path = trash_root_desc_s.path_desc().filepath + "/" + STORAGE_NAME;
-        Status st = env_util::write_string_to_file(
+        Status st = env_util::write_string_to_file_sync(
                 Env::Default(), Slice(segment_path_desc.storage_name), trash_storage_name_path);
         if (!st.ok()) {
             LOG(WARNING) << "fail to write storage_name to trash path: " << trash_storage_name_path
