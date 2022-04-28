@@ -1687,7 +1687,7 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                if (tblRef.isMetaScan()) {
+                if (selectStmt.isMetaQuery()) {
                     MetaScanNode metaScanNode = new MetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
                     scanNode = metaScanNode;
                     break;
