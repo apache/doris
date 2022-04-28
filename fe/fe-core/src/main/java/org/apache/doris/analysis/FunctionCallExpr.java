@@ -333,6 +333,11 @@ public class FunctionCallExpr extends Expr {
         return fnParams.isDistinct();
     }
 
+    public boolean isGlobalDict() {
+        Preconditions.checkState(isAggregateFunction());
+        return fnName.getFunction().equals(FunctionSet.GLOBAL_DICT);
+    }
+
     public boolean isCountStar() {
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.COUNT)) {
             if (fnParams.isStar()) {

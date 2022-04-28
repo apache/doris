@@ -17,9 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
@@ -45,6 +42,10 @@ import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,7 +63,7 @@ public class MetaScanNode extends ScanNode {
 
     private static final String NODE_NAME = "META_SCAN";
 
-    private Map<Integer, Integer> slotIdToDictId = new HashMap<>();
+    private final Map<Integer, Integer> slotIdToDictId = new HashMap<>();
 
     private final OlapTable olapTable;
 
@@ -141,8 +142,11 @@ public class MetaScanNode extends ScanNode {
         List<FunctionCallExpr> funcExprList = aggInfo.getAggregateExprs();
         for (FunctionCallExpr funcExpr : funcExprList) {
             FunctionParams funcParams = funcExpr.getFnParams();
+            if (funcParams == null) {
+                continue;
+            }
             for (Expr expr : funcParams.exprs()) {
-                if (expr instanceof SlotRef && expr.isAnalyzed()) {
+                if (expr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) expr;
                     checkSlot(slotRef);
                     // We will set the value to dict id when we support incremental dict update.

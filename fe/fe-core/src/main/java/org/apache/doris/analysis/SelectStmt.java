@@ -120,6 +120,8 @@ public class SelectStmt extends QueryStmt {
     // Members that need to be reset to origin
     private SelectList originSelectList;
 
+    private boolean metaQuery;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -401,6 +403,12 @@ public class SelectStmt extends QueryStmt {
         super.analyze(analyzer);
         fromClause_.setNeedToSql(needToSql);
         fromClause_.analyze(analyzer);
+        for (TableRef tblRef : fromClause_.getTableRefs()) {
+            if (tblRef.isMetaScan()) {
+                Preconditions.checkState(fromClause_.size() == 1);
+                metaQuery = true;
+            }
+        }
 
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
@@ -1039,6 +1047,21 @@ public class SelectStmt extends QueryStmt {
                 Expr.substituteList(aggExprs, countAllMap, analyzer, false);
         aggExprs.clear();
         TreeNode.collect(substitutedAggs, Expr.isAggregatePredicate(), aggExprs);
+
+        if (metaQuery) {
+            long globalDictFuncCount = aggExprs.stream().filter(FunctionCallExpr::isGlobalDict).count();
+            if (globalDictFuncCount == 0) {
+                // simply ignore the hint
+                metaQuery = false;
+            } else if (globalDictFuncCount > 1) {
+                throw new AnalysisException("Multiple global_dict function is not supported for now");
+            } else if (aggExprs.size() > 1) {
+                throw new AnalysisException("Mix the global_dict with other aggregate function is not permitted");
+            } else if (groupByClause != null){
+                throw new AnalysisException("Cannot impose the global_dict function " +
+                        "on the SQL which have GROUP BY clause");
+            }
+        }
 
         List<TupleId> groupingByTupleIds = new ArrayList<>();
         if (groupByClause != null) {
@@ -1882,5 +1905,9 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         return this.id.equals(((SelectStmt) obj).id);
+    }
+
+    public boolean isMetaQuery() {
+        return metaQuery;
     }
 }

@@ -422,7 +422,7 @@ public class TableRef implements ParseNode, Writable {
         if (commonHints == null || commonHints.isEmpty()) {
             return;
         }
-        // Currently only 'PREAGGOPEN' is supported
+        // Currently only 'PREAGGOPEN' and 'META' is supported
         for (String hint : commonHints) {
             String normalizedHint = hint.toUpperCase();
             if (normalizedHint.equals("PREAGGOPEN")) {

@@ -1159,7 +1159,7 @@ public class SingleNodePlanner {
                     aggInfo.getSecondPhaseDistinctAggInfo());
             newRoot.init(analyzer);
             Preconditions.checkState(newRoot.hasValidStats());
-        } else if (aggInfo.isMetaScan()) {
+        } else if (selectStmt.isMetaQuery()) {
             Preconditions.checkState(root instanceof MetaScanNode);
             MetaScanNode metaScanNode = (MetaScanNode) root;
             metaScanNode.pullDictSlots(aggInfo);

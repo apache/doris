@@ -99,7 +99,7 @@ public class CreateMaterializedViewStmtTest {
         FunctionParams functionParams = new FunctionParams(true, fnChildren);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr(FunctionSet.COUNT, functionParams);
         functionCallExpr.setFn(AggregateFunction.createBuiltin(FunctionSet.COUNT,
-                new ArrayList<>(), Type.BIGINT, Type.BIGINT, false, true, true));
+                new ArrayList<>(), Type.BIGINT, Type.BIGINT, false, true, false));
         SelectListItem selectListItem2 = new SelectListItem(functionCallExpr, null);
         selectList.addItem(selectListItem2);
 
