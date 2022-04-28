@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# get_json_double
-## description
-### Syntax
+## get_json_double
+### description
+#### Syntax
 
 `DOUBLE get_json_double(VARCHAR json_str, VARCHAR json_path)`
 
@@ -37,7 +37,7 @@ Use [] to denote array subscripts, starting at 0.
 The content of path cannot contain ",[and].
 If the json_string format is incorrect, or the json_path format is incorrect, or matches cannot be found, NULL is returned.
 
-## example
+### example
 
 1. Get the value of key as "k1"
 
@@ -70,5 +70,5 @@ mysql> SELECT get_json_double('{"k1.key":{"k2":[1.1, 2.2]}}', '$."k1.key".k2[0]'
 |                                                                 1.1 |
 +---------------------------------------------------------------------+
 ```
-## keyword
+### keyword
 GET_JSON_DOUBLE,GET,JSON,DOUBLE

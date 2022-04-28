@@ -24,13 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# outer combinator
+## outer combinator
 
-## description
+### description
 
 Adding the `_outer` suffix after the function name of the table function changes the function behavior from `non-outer` to `outer`, and adds a row of `Null` data when the table function generates 0 rows of data.
 
-## example
+### example
 
 ```
 mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(0) tmp1 as e1;
@@ -43,6 +43,6 @@ mysql> select e1 from (select 1 k1) as t lateral view explode_numbers_outer(0) t
 | NULL |
 +------+
 ```
-## keyword
+### keyword
 
     outer

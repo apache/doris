@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MAX_BY
-## description
-### Syntax
+## MAX_BY
+### description
+#### Syntax
 
 `MAX_BY(expr1, expr2)`
 
 
 Returns the value of an expr1 associated with the maximum value of expr2 in a group.
 
-## example
+### example
 ```
 MySQL > select * from tbl;
 +------+------+------+------+
@@ -52,5 +52,5 @@ MySQL > select max_by(k1, k4) from tbl;
 |                  0 |
 +--------------------+ 
 ```
-## keyword
+### keyword
 MAX_BY

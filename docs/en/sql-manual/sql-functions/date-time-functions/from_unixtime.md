@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# from_unixtime
-## description
-### syntax
+## from_unixtime
+### description
+#### syntax
 
 `DATETIME FROM UNIXTIME (INT unix timestamp [, VARCHAR string format]`
 
@@ -38,7 +38,7 @@ Support `date_format`'s format, and default is `%Y-%m-%d %H:%i:%s`
 
 Other `string_format` is illegal and will returns NULL.
 
-## example
+### example
 
 ```
 mysql> select from_unixtime(1196440219);
@@ -62,6 +62,6 @@ mysql> select from_unixtime(1196440219, '%Y-%m-%d %H:%i:%s');
 | 2007-12-01 00:30:19                              |
 +--------------------------------------------------+
 
-## keyword
+### keyword
 
     FROM_UNIXTIME,FROM,UNIXTIME

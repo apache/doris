@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# to_days
-## Description
-### Syntax
+## to_days
+### Description
+#### Syntax
 
 `INT TO DAYS`
 
@@ -35,7 +35,7 @@ Days of returning date distance 0000-01-01
 
 The parameter is Date or Datetime type
 
-## example
+### example
 
 ```
 mysql> select to_days('2007-10-07');
@@ -46,5 +46,5 @@ mysql> select to_days('2007-10-07');
 +-----------------------+
 ```
 
-## keyword
+### keyword
 TO_DAYS,TO,DAYS

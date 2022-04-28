@@ -22,14 +22,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# orthogonal_bitmap_intersect_count
-## description
-### Syntax
+## orthogonal_bitmap_intersect_count
+### description
+#### Syntax
 
 `BITMAP ORTHOGONAL_BITMAP_INTERSECT_COUNT(bitmap_column, column_to_filter, filter_values)`
 The bitmap intersection count function, the first parameter is the bitmap column, the second parameter is the dimension column for filtering, and the third parameter is the variable length parameter, which means different values of the filter dimension column
 
-## example
+### example
 
 ```
 mysql> select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 1150001, 390006) from tag_map where  tag_group in ( 1150000, 1150001, 390006);
@@ -41,6 +41,6 @@ mysql> select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 115
 1 row in set (3.382 sec)
 ```
 
-## keyword
+### keyword
 
     ORTHOGONAL_BITMAP_INTERSECT_COUNT,BITMAP

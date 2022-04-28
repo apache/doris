@@ -24,10 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# TINYINT
-## Description
+## TINYINT
+### Description
 TINYINT
 1 byte signed integer, range [-128, 127]
 
-## keyword
+### keyword
 TINYINT

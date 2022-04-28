@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# not like
-## description
-### syntax
+## not like
+### description
+#### syntax
 
 `BOOLEAN not like(VARCHAR str, VARCHAR pattern)`
 
@@ -48,7 +48,7 @@ the underscore ('_') represents a single character.
 'a_'  // two digits and the initial letter is a
 'a__b'  // four digits, starting letter is a and ending letter is b
 ```
-## example
+### example
 
 ```
 // table test
@@ -81,5 +81,5 @@ mysql> select k1 from test where k1 not like 'a';
 +-------+
 ```
 
-## keyword
+### keyword
 LIKE, NOT, NOT LIKE

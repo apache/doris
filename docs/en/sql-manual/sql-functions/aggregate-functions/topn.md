@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# TOPN
-## description
-### Syntax
+## TOPN
+### description
+#### Syntax
 
 `topn(expr, INT top_num[, INT space_expand_rate])`
 
@@ -39,7 +39,7 @@ counter numbers = top_num * space_expand_rate
 ```
 The higher value of space_expand_rate, the more accurate result will be. The default value is 50
 
-## example
+### example
 ```
 MySQL [test]> select topn(keyword,10) from keyword_table where date>= '2020-06-01' and date <= '2020-06-19' ;
 +------------------------------------------------------------------------------------------------------------+
@@ -57,5 +57,5 @@ MySQL [test]> select date,topn(keyword,10,100) from keyword_table where date>= '
 | 2020-06-17 | a:9, b:8, c:8, j:8, d:7, e:7, f:7, h:7, i:7, k:7                                              |
 +------------+-----------------------------------------------------------------------------------------------+
 ```
-## keyword
+### keyword
 TOPN

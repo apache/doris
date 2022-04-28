@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-# CAST
+## CAST
 ##Description
 
 
@@ -33,9 +33,9 @@ under the License.
 cast (input as type)
 ```
 
-### BIGINT type
+#### BIGINT type
 
-### Syntax (BIGINT)
+#### Syntax (BIGINT)
 
 ``` cast (input as BIGINT) ```
 
@@ -45,7 +45,7 @@ Converts input to the specified type
 
 Converting the current column input to BIGINT type
 
-## example
+### example
 
 1. Turn constant, or a column in a table
 
@@ -79,5 +79,5 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 +----------------------------------------+
 1 row in set (0.00 sec)
 ```
-## keyword
+### keyword
 CAST

@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_empty
-## description
-### Syntax
+## bitmap_empty
+### description
+#### Syntax
 
 `BITMAP BITMAP_EMPTY()`
 
@@ -36,7 +36,7 @@ Return an empty bitmap. Mainly be used to supply default value for bitmap column
 cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,v1,v2=bitmap_empty()"   http://host:8410/api/test/testDb/_stream_load
 ```
 
-## example
+### example
 
 ```
 mysql> select bitmap_count(bitmap_empty());
@@ -47,6 +47,6 @@ mysql> select bitmap_count(bitmap_empty());
 +------------------------------+
 ```
 
-## keyword
+### keyword
 
     BITMAP_EMPTY,BITMAP

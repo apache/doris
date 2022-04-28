@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# date_sub
-## Description
-### Syntax
+## date_sub
+### Description
+#### Syntax
 
 `INT DATE_SUB(DATETIME date,INTERVAL expr type)`
 
@@ -39,7 +39,7 @@ The expr parameter is the interval you want to add.
 
 Sweet, sweet, sweet
 
-## example
+### example
 
 ```
 mysql> select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY);
@@ -49,5 +49,5 @@ mysql> select date_sub('2010-11-30 23:59:59', INTERVAL 2 DAY);
 | 2010-11-28 23:59:59                             |
 +-------------------------------------------------+
 ```
-## keyword
+### keyword
 Date, date, date

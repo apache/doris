@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# json_quote
-## Description
-### Syntax
+## json_quote
+### Description
+#### Syntax
 
 `VARCHAR json_quote(VARCHAR)`
 
 
 Enclose json_value in double quotes ("), escape special characters contained.
 
-## example
+### example
 
 ```
 MySQL> SELECT json_quote('null'), json_quote('"null"');
@@ -66,5 +66,5 @@ MySQL> select json_quote("\n\b\r\t");
 | "\n\b\r\t"             |
 +------------------------+
 ```
-## keyword
+### keyword
 json_quote

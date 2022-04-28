@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# instr
-## Description
-### Syntax
+## instr
+### Description
+#### Syntax
 
 `INSTR (VARCHAR STR, VARCHAR substrate)`
 
 
 Returns the location where substr first appeared in str (counting from 1). If substr does not appear in str, return 0.
 
-## example
+### example
 
 ```
 mysql> select instr("abc", "b");
@@ -50,5 +50,5 @@ mysql> select instr("abc", "d");
 |                 0 |
 +-------------------+
 ```
-## keyword
+### keyword
 INSTR

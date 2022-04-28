@@ -25,9 +25,9 @@ under the License.
 -->
 
 
-# datediff
-## Description
-### Syntax
+## datediff
+### Description
+#### Syntax
 
 `DATETIME DATEDIFF (DATETIME expr1,DATETIME expr2)`
 
@@ -38,7 +38,7 @@ Expr1 and expr2 parameters are valid date or date/time expressions.
 
 Note: Only the date part of the value participates in the calculation.
 
-### example
+#### example
 
 ```
 mysql> select datediff(CAST('2007-12-31 23:59:59' AS DATETIME), CAST('2007-12-30' AS DATETIME));
@@ -55,5 +55,5 @@ mysql> select datediff(CAST('2010-11-30 23:59:59' AS DATETIME), CAST('2010-12-31
 |                                                                               -31 |
 +-----------------------------------------------------------------------------------+
 ```
-## keyword
+### keyword
 DATEDIFF

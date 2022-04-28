@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# dayofweek
-## Description
-### Syntax
+## dayofweek
+### Description
+#### Syntax
 
 `INT DAYOFWEEK (DATETIME date)`
 
@@ -35,7 +35,7 @@ The DAYOFWEEK function returns the index value of the working day of the date, t
 
 The parameter is Date or Datetime type
 
-## example
+### example
 ```
 mysql> select dayofweek('2019-06-25');
 +----------------------------------+
@@ -51,5 +51,5 @@ mysql> select dayofweek(cast(20190625 as date));
 |                                 3 |
 +-----------------------------------+
 ```
-## keyword
+### keyword
 DAYOFWEEK

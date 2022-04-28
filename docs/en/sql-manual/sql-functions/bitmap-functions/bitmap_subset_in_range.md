@@ -24,17 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_subset_in_range
+## bitmap_subset_in_range
 
-## Description
+### Description
 
-### Syntax
+#### Syntax
 
 `BITMAP BITMAP_SUBSET_IN_RANGE(BITMAP src, BIGINT range_start, BIGINT range_end)`
 
 Return subset in specified range (not include the range_end).
 
-## example
+### example
 
 ```
 mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,4,5'), 0, 9)) value;
@@ -52,6 +52,6 @@ mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,
 +-------+
 ```
 
-## keyword
+### keyword
 
     BITMAP_SUBSET_IN_RANGE,BITMAP_SUBSET,BITMAP

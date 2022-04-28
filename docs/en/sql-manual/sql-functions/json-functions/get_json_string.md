@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# get_json_string
-## description
-### Syntax
+## get_json_string
+### description
+#### Syntax
 
 `VARCHAR get_json_string (VARCHAR json str, VARCHAR json path)`
 
@@ -37,7 +37,7 @@ Use [] to denote array subscripts, starting at 0.
 The content of path cannot contain ",[and].
 If the json_string format is incorrect, or the json_path format is incorrect, or matches cannot be found, NULL is returned.
 
-## example
+### example
 
 1. Get the value of key as "k1"
 
@@ -80,5 +80,5 @@ mysql> SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4
 | ["v1","v3","v4"]                                                                |
 +---------------------------------------------------------------------------------+
 ```
-## keyword
+### keyword
 GET_JSON_STRING,GET,JSON,STRING

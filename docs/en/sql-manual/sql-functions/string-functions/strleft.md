@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# strleft
-## Description
-### Syntax
+## strleft
+### Description
+#### Syntax
 
 `VARCHAR STRAIGHT (VARCHAR STR)`
 
 
 It returns the left part of a string of specified length, length is char length not the byte size.
 
-## example
+### example
 
 ```
 mysql> select strleft("Hello doris",5);
@@ -43,5 +43,5 @@ mysql> select strleft("Hello doris",5);
 | Hello                  |
 +------------------------+
 ```
-## keyword
+### keyword
 STRLEFT

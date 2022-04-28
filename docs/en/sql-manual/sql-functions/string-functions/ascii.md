@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ASCII
-## Description
-### Syntax
+## ASCII
+### Description
+#### Syntax
 
 `INT AXES (WARCHAR STR)`
 
 
 Returns the ASCII code corresponding to the first character of the string
 
-## example
+### example
 
 ```
 mysql> select ascii('1');
@@ -50,5 +50,5 @@ mysql> select ascii('234');
 |           50 |
 +--------------+
 ```
-## keyword
+### keyword
 ASCII

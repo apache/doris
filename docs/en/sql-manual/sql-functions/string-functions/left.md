@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# left
-## Description
-### Syntax
+## left
+### Description
+#### Syntax
 
 `VARCHAR left (VARCHAR str)`
 
 
 It returns the left part of a string of specified length, length is char length not the byte size.
 
-## example
+### example
 
 ```
 mysql> select left("Hello doris",5);
@@ -43,5 +43,5 @@ mysql> select left("Hello doris",5);
 | Hello                  |
 +------------------------+
 ```
-## keyword
+### keyword
 LEFT

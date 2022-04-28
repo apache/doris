@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
@@ -123,7 +122,7 @@ public class HelpModule {
                     try {
                         List<HelpTopic> topics = topicLoader.loadAll(lines);
                         updateTopic(parentPathStr, topics);
-                    } catch (DdlException e) {
+                    } catch (UserException e) {
                         LOG.warn("faild to load help topic: {}", entry.getName(), e);
                     }
                 }

@@ -25,9 +25,9 @@ under the License.
 -->
 
 
-# Dayofmonth
-## Description
-### Syntax
+## Dayofmonth
+### Description
+#### Syntax
 
 `INT DAYOFMONTH (DATETIME date)`
 
@@ -36,7 +36,7 @@ Get the day information in the date, and return values range from 1 to 31.
 
 The parameter is Date or Datetime type
 
-## example
+### example
 
 ```
 mysql> select dayofmonth('1987-01-31');
@@ -46,5 +46,5 @@ mysql> select dayofmonth('1987-01-31');
 |                                31 |
 +-----------------------------------+
 ```
-## keyword
+### keyword
 DAYOFMONTH

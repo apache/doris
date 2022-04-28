@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# current_timestamp
-## Description
-### Syntax
+## current_timestamp
+### Description
+#### Syntax
 
 `DATETIME CURRENT_TIMESTAMP()`
 
 
 Get the current time and return it in Datetime type
 
-## example
+### example
 
 ```
 mysql> select current_timestamp();
@@ -43,5 +43,5 @@ mysql> select current_timestamp();
 | 2019-05-27 15:59:33 |
 +---------------------+
 ```
-## keyword
+### keyword
 CURRENT_TIMESTAMP,CURRENT,TIMESTAMP

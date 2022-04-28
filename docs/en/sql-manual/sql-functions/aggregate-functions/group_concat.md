@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# group_concat
-## description
-### Syntax
+## group_concat
+### description
+#### Syntax
 
 `VARCHAR GROUP_CONCAT(VARCHAR str[, VARCHAR sep])`
 
 
 This function is an aggregation function similar to sum (), and group_concat links multiple rows of results in the result set to a string. The second parameter, sep, is a connection symbol between strings, which can be omitted. This function usually needs to be used with group by statements.
 
-## example
+### example
 
 ```
 mysql> select value from test;
@@ -66,5 +66,5 @@ mysql> select GROUP_CONCAT(value, NULL) from test;
 | NULL                       |
 +----------------------------+
 ```
-## keyword
+### keyword
 GROUP_CONCAT,GROUP,CONCAT

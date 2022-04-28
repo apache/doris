@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Concat_ws
-## Description
-### Syntax
+## Concat_ws
+### Description
+#### Syntax
 
 `VARCHAR concat ws (VARCHAR sep., VARCHAR str,...)`
 
@@ -35,7 +35,7 @@ Using the first parameter SEP as a connector, the second parameter and all subse
 If the separator is NULL, return NULL.
 ` The concat_ws` function does not skip empty strings, but NULL values.
 
-## example
+### example
 
 ```
 mysql> select concat_ws("or", "d", "is");
@@ -59,5 +59,5 @@ mysql> select concat_ws("or", "d", NULL,"is");
 | doris                           |
 +---------------------------------+
 ```
-## keyword
+### keyword
 CONCAT_WS,CONCAT,WS

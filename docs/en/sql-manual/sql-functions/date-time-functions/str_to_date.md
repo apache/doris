@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Str_to_date
-## Description
-### Syntax
+## Str_to_date
+### Description
+#### Syntax
 
 `DATETIME STR TWO DATES (VARCHAR STR, VARCHAR format)`
 
@@ -35,7 +35,7 @@ Convert STR to DATE type by format specified, if the conversion result does not 
 
 The format format supported is consistent with date_format
 
-## example
+### example
 
 ```
 mysql> select str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');
@@ -67,6 +67,6 @@ mysql> select str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
 +------------------------------------------------+
 1 row in set (0.01 sec)
 ```
-## keyword
+### keyword
 
     STR_TO_DATE,STR,TO,DATE

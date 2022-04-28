@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ltrim
-## Description
-### Syntax
+## ltrim
+### Description
+#### Syntax
 
 `VARCHAR ltrim (VARCHAR str)`
 
 
 Remove the space that appears continuously from the beginning of the parameter str
 
-## example
+### example
 
 ```
 mysql> SELECT ltrim('   ab d');
@@ -43,5 +43,5 @@ mysql> SELECT ltrim('   ab d');
 | ab d             |
 +------------------+
 ```
-## keyword
+### keyword
 LTRIM

@@ -22,17 +22,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# pmod
+## pmod
 
-## description
-### Syntax
+### description
+#### Syntax
 
 `BIGINT PMOD(BIGINT x, BIGINT y)`
 `DOUBLE PMOD(DOUBLE x, DOUBLE y)`
 Returns the positive result of x mod y in the residue systems.
 Formally, return `(x%y+y)%y`.
 
-## example
+### example
 
 ```
 MySQL [test]> SELECT PMOD(13,5);
@@ -50,5 +50,5 @@ MySQL [test]> SELECT PMOD(-13,5);
 +-------------+
 ```
 
-## keyword
+### keyword
 	PMOD

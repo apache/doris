@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PERCENTILE
-## Description
-### Syntax
+## PERCENTILE
+### Description
+#### Syntax
 
 `PERCENTILE(expr, DOUBLE p)`
 
@@ -36,7 +36,7 @@ Parameter Description:
 expr: required. The value is an integer (bigint at most).
 p: The exact percentile is required. The value is [0.0,1.0]
 
-## example
+### example
 ```
 MySQL > select `table`, percentile(cost_time,0.99) from log_statis group by `table`;
 +---------------------+---------------------------+
@@ -54,5 +54,5 @@ MySQL > select percentile(NULL,0.3) from table1;
 
 ```
 
-## keyword
+### keyword
 PERCENTILE

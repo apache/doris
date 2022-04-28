@@ -26,8 +26,8 @@ under the License.
 
 
 #AVG
-## Description
-### Syntax
+### Description
+#### Syntax
 
 `AVG([DISTINCT] expr)`
 
@@ -36,7 +36,7 @@ Used to return the average value of the selected field
 
 Optional field DISTINCT parameters can be used to return the weighted average
 
-## example
+### example
 
 ```
 mysql> SELECT datetime, AVG(cost_time) FROM log_statis group by datetime;
@@ -54,6 +54,6 @@ mysql> SELECT datetime, AVG(distinct cost_time) FROM log_statis group by datetim
 +---------------------+---------------------------+
 
 ```
-## keyword
+### keyword
 
 AVG

@@ -22,15 +22,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SM3
+## SM3
 
-## description
+### description
 Calculates an SM3 256-bit checksum for the string
-### Syntax
+#### Syntax
 
 `SM3(str)`
 
-## example
+### example
 
 ```
 MySQL > select sm3("abcd");
@@ -42,6 +42,6 @@ MySQL > select sm3("abcd");
 1 row in set (0.009 sec)
 ```
 
-## keyword
+### keyword
 
     SM3

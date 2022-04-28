@@ -22,15 +22,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SM3SUM
+## SM3SUM
 
-## description
+### description
 Calculates an SM3 128-bit checksum for the strings
-### Syntax
+#### Syntax
 
 `SM3SUM(str[,str])`
 
-## example
+### example
 
 ```
 MySQL > select sm3("abcd");
@@ -51,6 +51,6 @@ MySQL > select sm3sum("ab","cd");
 
 ```
 
-## keyword
+### keyword
 
     SM3SUM

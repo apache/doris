@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# lower
-## Description
-### Syntax
+## lower
+### Description
+#### Syntax
 
 `INT lower (VARCHAR str)`
 
 
 Convert all strings in parameters to lowercase
 
-## example
+### example
 
 ```
 mysql> SELECT lower("AbC123");
@@ -43,5 +43,5 @@ mysql> SELECT lower("AbC123");
 | abc123          |
 +-----------------+
 ```
-## keyword
+### keyword
 LOWER

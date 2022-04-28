@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitor
-## description
-### Syntax
+## bitor
+### description
+#### Syntax
 
 `BITOR(Integer-type lhs, Integer-type rhs)`
 
@@ -34,7 +34,7 @@ Returns the result of the OR operation of two integers.
 
 Integer range: TINYINT、SMALLINT、INT、BIGINT、LARGEINT
 
-## example
+### example
 
 ```
 mysql> select bitor(3,5) ans;
@@ -52,6 +52,6 @@ mysql> select bitand(4,7) ans;
 +------+
 ```
 
-## keyword
+### keyword
 
     BITOR

@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MIN_BY
-## description
-### Syntax
+## MIN_BY
+### description
+#### Syntax
 
 `MIN_BY(expr1, expr2)`
 
 
 Returns the value of an expr1 associated with the minimum value of expr2 in a group.
 
-## example
+### example
 ```
 MySQL > select * from tbl;
 +------+------+------+------+
@@ -52,5 +52,5 @@ MySQL > select min_by(k1, k4) from tbl;
 |                  4 |
 +--------------------+ 
 ```
-## keyword
+### keyword
 MIN_BY

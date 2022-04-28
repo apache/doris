@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# regexp
-## description
-### syntax
+## regexp
+### description
+#### syntax
 
 `BOOLEAN regexp(VARCHAR str, VARCHAR pattern)`
 
 Perform regular matching on the string str, return true if it matches, and return false if it doesn't match. pattern is a regular expression.
 
-## example
+### example
 
 ```
 // Find all data starting with 'billie' in the k1 field
@@ -52,5 +52,5 @@ mysql> select k1 from test where k1 regexp 'ok$';
 +----------+
 ```
 
-## keyword
+### keyword
 REGEXP

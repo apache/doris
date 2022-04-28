@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bit_length
-## Description
-### Syntax
+## bit_length
+### Description
+#### Syntax
 
 `INT bit_length (VARCHAR str)`
 
 
 Return length of argument in bits.
 
-## example
+### example
 
 ```
 mysql> select bit_length("abc");
@@ -50,5 +50,5 @@ mysql> select bit_length("中国");
 |                   48 |
 +----------------------+
 ```
-## keyword
+### keyword
 BIT_LENGTH

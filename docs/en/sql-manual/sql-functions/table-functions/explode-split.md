@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_split
+## explode_split
 
-## description
+### description
 
 Table functions must be used in conjunction with Lateral View.
 
@@ -38,7 +38,7 @@ grammar:
 explode_split(str, delimiter)
 ```
 
-## example
+### example
 
 Original table data:
 
@@ -107,6 +107,6 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 +------+------+
 ```
 
-## keyword
+### keyword
 
     explode_split

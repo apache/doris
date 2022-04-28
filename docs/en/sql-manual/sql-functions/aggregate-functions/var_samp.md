@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# VARIANCE_SAMP,VARIANCE_SAMP
-## Description
-### Syntax
+## VARIANCE_SAMP,VARIANCE_SAMP
+### Description
+#### Syntax
 
 `VAR SAMP (expr)`
 
 
 Returns the sample variance of the expr expression
 
-## example
+### example
 ```
 MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 +-----------------------+
@@ -42,5 +42,5 @@ MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 |    5.6227132145741789 |
 +-----------------------+
 ```
-## keyword
+### keyword
 VAR SAMP, VARIANCE SAMP,VAR,SAMP,VARIANCE

@@ -25,7 +25,7 @@ under the License.
 -->
 
 #BITMAP
-## Description
+### Description
 BITMAP
 
 BITMAP cannot be used as a key column, and the aggregation type is BITMAP_UNION when building the table.
@@ -35,7 +35,7 @@ And the BITMAP column can only be queried or used by supporting functions such a
 The use of BITMAP in offline scenarios will affect the import speed. In the case of a large amount of data, the query speed will be slower than HLL and better than Count Distinct.
 Note: If BITMAP does not use a global dictionary in real-time scenarios, using bitmap_hash() may cause an error of about one-thousandth.
 
-## example
+### example
 
     select hour, BITMAP_UNION_COUNT(pv) over(order by hour) uv from(
        select hour, BITMAP_UNION(device_id) as pv
@@ -44,5 +44,5 @@ Note: If BITMAP does not use a global dictionary in real-time scenarios, using b
     group by hour order by 1
     ) final;
     
-## keyword
+### keyword
 BITMAP

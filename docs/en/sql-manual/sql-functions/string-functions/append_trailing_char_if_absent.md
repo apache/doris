@@ -24,18 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# append_trailing_char_if_absent
+## append_trailing_char_if_absent
 
-## description
+### description
 
-### Syntax
+#### Syntax
 
 `VARCHAR append_trailing_char_if_absent(VARCHAR str, VARCHAR trailing_char)`
 
 If the @str string is non-empty and does not contain the @trailing_char character at the end, it appends the @trailing_char character to the end.
 @trailing_char contains only one character, and it will return NULL if contains more than one character
 
-## example
+### example
 
 ```
 MySQL [test]> select append_trailing_char_if_absent('a','c');
@@ -55,6 +55,6 @@ MySQL [test]> select append_trailing_char_if_absent('ac','c');
 1 row in set (0.00 sec)
 ```
 
-## keyword
+### keyword
 
 APPEND_TRAILING_CHAR_IF_ABSENT

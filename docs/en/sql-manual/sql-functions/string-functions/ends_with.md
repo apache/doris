@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ends_with
-## Description
-### Syntax
+## ends_with
+### Description
+#### Syntax
 
 `BOOLEAN ENDS_WITH (VARCHAR str, VARCHAR suffix)`
 
 It returns true if the string ends with the specified suffix, otherwise it returns false. 
 If any parameter is NULL, it returns NULL.
 
-## example
+### example
 
 ```
 mysql> select ends_with("Hello doris", "doris");
@@ -50,5 +50,5 @@ mysql> select ends_with("Hello doris", "Hello");
 |                                 0 | 
 +-----------------------------------+
 ```
-## keyword
+### keyword
 ENDS_WITH

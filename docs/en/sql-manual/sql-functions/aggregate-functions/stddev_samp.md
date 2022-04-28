@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# STDDEV_SAMP
-## Description
-### Syntax
+## STDDEV_SAMP
+### Description
+#### Syntax
 
 `STDDEV SAMP (expr)`
 
 
 Returns the sample standard deviation of the expr expression
 
-## example
+### example
 ```
 MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 +--------------------------+
@@ -42,5 +42,5 @@ MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 |        2.372044195280762 |
 +--------------------------+
 ```
-## keyword
+### keyword
 STDDEV SAMP,STDDEV,SAMP

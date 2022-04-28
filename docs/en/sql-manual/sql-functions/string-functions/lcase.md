@@ -24,14 +24,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# lcase
-## Description
-### Syntax
+## lcase
+### Description
+#### Syntax
 
 `INT lcase (VARCHAR str)`
 
 
 Consistent with `lower`.
 
-## keyword
+### keyword
 LCASE

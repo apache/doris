@@ -22,15 +22,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MD5
+## MD5
 
-## description
+### description
 Calculates an MD5 128-bit checksum for the string
-### Syntax
+#### Syntax
 
 `MD5(str)`
 
-## example
+### example
 
 ```
 MySQL [(none)]> select md5("abc");
@@ -42,6 +42,6 @@ MySQL [(none)]> select md5("abc");
 1 row in set (0.013 sec)
 ```
 
-## keyword
+### keyword
 
     MD5

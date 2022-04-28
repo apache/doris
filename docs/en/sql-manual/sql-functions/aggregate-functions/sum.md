@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SUM
-## Description
-### Syntax
+## SUM
+### Description
+#### Syntax
 
 `Sum (Expr)`
 
 
 Used to return the sum of all values of the selected field
 
-## example
+### example
 ```
 MySQL > select sum(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -42,5 +42,5 @@ MySQL > select sum(scan_rows) from log_statis group by datetime;
 |       8217360135 |
 +------------------+
 ```
-## keyword
+### keyword
 SUM

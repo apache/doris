@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_or
-## description
-### Syntax
+## bitmap_or
+### description
+#### Syntax
 
 `BITMAP BITMAP_OR(BITMAP lhs, BITMAP rhs, ...)`
 
 Compute union of two or more input bitmaps, returns the new bitmap.
 
-## example
+### example
 
 ```
 mysql> select bitmap_count(bitmap_or(to_bitmap(1), to_bitmap(2))) cnt;
@@ -78,6 +78,6 @@ MySQL> select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'
 +--------------------------------------------------------------------------------------------------------+
 ```
 
-## keyword
+### keyword
 
     BITMAP_OR,BITMAP

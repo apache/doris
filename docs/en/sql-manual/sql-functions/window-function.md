@@ -11,9 +11,9 @@
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the License for the specific language governing permissions and limitations under the License. -->
 
-# Doris Window function usage
+## Doris Window function usage
 
-## Window function introduction
+### Window function introduction
 
 Analysis functions are a special kind of built-in functions. Similar to the aggregation function, the analysis function also calculates a data value for multiple input rows. The difference is that the analysis function processes the input data in a specific window instead of grouping calculations according to group by. The data in each window can be sorted and grouped using the over() clause. The analysis function calculates a separate value for each row of the result set, instead of calculating a value for each group by group. This flexible way allows users to add additional columns in the select clause, giving users more opportunities to reorganize and filter the result set. Analysis functions can only appear in the select list and the outermost order by clause. In the query process, the analysis function will take effect at the end, that is, it will be executed after the join, where and group  by operations are completed. Analytical functions are often used in the fields of finance and scientific computing to analyze trends, calculate outliers, and perform bucket analysis on large amounts of data.
 
@@ -25,15 +25,15 @@ partition_by_clause ::= PARTITION BY expr [, expr ...]
 order_by_clause ::= ORDER BY expr [ASC | DESC] [, expr [ASC | DESC] ...]
 ```
 
-### Function
+#### Function
 
 Currently supported functions include AVG(), COUNT(), DENSE_RANK(), FIRST_VALUE(), LAG(), LAST_VALUE(), LEAD(), MAX(), MIN(), RANK(), ROW_NUMBER() and SUM ().
 
-### Partition By clause
+#### Partition By clause
 
 The Partition By clause is similar to Group By. It groups the input rows according to the specified one or more columns, and rows with the same value will be grouped into a group.
 
-### Order By clause
+#### Order By clause
 
 The Order By clause is basically the same as the outer Order By. It defines the order of the input rows. If Partition By is specified, Order By defines the order within each Partition group. The only difference with the outer Order By is that the Order By n (n is a positive integer) in the OVER clause is equivalent to doing nothing, while the outer Order By n means sorting according to the nth column.
 
@@ -48,7 +48,7 @@ c1, c2, c3, c4
 FROM events;
 ```
 
-### Window clause
+#### Window clause
 
 The Window clause is used to specify an operation range for the analysis function, based on the current behavior, and several lines before and after the analysis function as the object of operation. The methods supported by the Window clause are: AVG(), COUNT(), FIRST_VALUE(), LAST_VALUE() and SUM(). For MAX() and MIN(), the window clause can specify the start range UNBOUNDED PRECEDING
 
@@ -58,7 +58,7 @@ grammar:
 ROWS BETWEEN [ { m | UNBOUNDED } PRECEDING | CURRENT ROW] [ AND [CURRENT ROW | { UNBOUNDED | n } FOLLOWING] ]
 ```
 
-### Example:
+#### Example:
 
 Suppose we have the following stock data, the stock code is JDR, and the closing price is the daily closing price.
 
@@ -95,11 +95,11 @@ from stock_ticker;
  | JDR          | 2014-10-08 00:00:00 | 13.98         | 14.36          |
 ```
 
-## Function example
+### Function example
 
 This section introduces the methods that can be used as analysis functions in Doris.
 
-### AVG()
+#### AVG()
 
 grammar:
 
@@ -134,7 +134,7 @@ from int_t where property in ('odd','even');
  | 9  | odd      | 8              |
 ```
 
-### COUNT()
+#### COUNT()
 
 grammar:
 
@@ -169,7 +169,7 @@ from int_t where property in ('odd','even');
  | 9  | odd      | 5                |
 ```
 
-### DENSE_RANK()
+#### DENSE_RANK()
 
 The DENSE_RANK() function is used to indicate the ranking. Unlike RANK(), DENSE_RANK() does not have vacant numbers. For example, if there are two parallel ones, the third number of DENSE_RANK() is still 2, and the third number of RANK() is 3.
 
@@ -198,7 +198,7 @@ The following example shows the ranking of the x column grouped by the property 
  | 3  | 2    | 2        |
 ```
 
-### FIRST_VALUE()
+#### FIRST_VALUE()
 
 FIRST_VALUE() returns the first value in the window range.
 
@@ -240,7 +240,7 @@ over (partition by country order by name, greeting) as greeting from mail_merge;
 | USA     | Pete    | Hi        |
 ```
 
-### LAG()
+#### LAG()
 
 The LAG() method is used to calculate the value of several lines forward from the current line.
 
@@ -270,7 +270,7 @@ order by closing_date;
 | JDR          | 2014-09-19 00:00:00 | 13.98         | 14.75             |
 ```
 
-### LAST_VALUE()
+#### LAST_VALUE()
 
 LAST_VALUE() returns the last value in the window range. Contrary to FIRST_VALUE().
 
@@ -297,7 +297,7 @@ from mail_merge;
 | USA     | Pete    | Hello        |
 ```
 
-### LEAD()
+#### LEAD()
 
 The LEAD() method is used to calculate the value of several rows from the current row.
 
@@ -332,7 +332,7 @@ order by closing_date;
 | JDR          | 2014-09-19 00:00:00 | 13.98         | flat or lower |
 ```
 
-### MAX()
+#### MAX()
 
 grammar:
 
@@ -363,7 +363,7 @@ from int_t where property in ('prime','square');
 | 9 | square   | 9             |
 ```
 
-### MIN()
+#### MIN()
 
 grammar:
 
@@ -394,7 +394,7 @@ from int_t where property in ('prime','square');
 | 1 | square   | 1             |
 ```
 
-### RANK()
+#### RANK()
 
 The RANK() function is used to indicate ranking. Unlike DENSE_RANK(), RANK() will have vacant numbers. For example, if there are two parallel 1s, the third number in RANK() is 3, not 2.
 
@@ -423,7 +423,7 @@ select x, y, rank() over(partition by x order by y) as rank from int_t;
 | 3  | 2    | 3        |
 ```
 
-### ROW_NUMBER()
+#### ROW_NUMBER()
 
 For each row of each Partition, an integer that starts from 1 and increases continuously is returned. Unlike RANK() and DENSE_RANK(), the value returned by ROW_NUMBER() will not be repeated or vacant, and is continuously increasing.
 
@@ -450,7 +450,7 @@ select x, y, row_number() over(partition by x order by y) as rank from int_t;
 | 3 | 2    | 3        |
 ```
 
-### SUM()
+#### SUM()
 
 grammar:
 

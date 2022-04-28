@@ -22,17 +22,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SM4_ENCRYPT
+## SM4_ENCRYPT
 
-## description
+### description
 SM4 加密函数
-### Syntax
+#### Syntax
 
 `VARCHAR SM4_ENCRYPT(str,key_str[,init_vector])`
 
 返回加密后的结果
 
-## example
+### example
 
 ```
 MySQL > select TO_BASE64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3'));
@@ -55,17 +55,17 @@ MySQL > select to_base64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', 
 1 row in set (0.014 sec)
 ```
 
-# SM4_DECRYPT
+## SM4_DECRYPT
 
-## description
+### description
 Aes 解密函数
-### Syntax
+#### Syntax
 
 `VARCHAR AES_DECRYPT(str,key_str[,init_vector])`
 
 返回解密后的结果
 
-## example
+### example
 
 ```
 MySQL [(none)]> select SM4_DECRYPT(FROM_BASE64('aDjwRflBrDjhBZIOFNw3Tg=='),'F3229A0B371ED2D9441B830D21A390C3');
@@ -88,6 +88,6 @@ MySQL > select SM4_DECRYPT(FROM_BASE64('G7yqOKfEyxdagboz6Qf01A=='),'F3229A0B371E
 1 row in set (0.012 sec)
 ```
 
-## keyword
+### keyword
 
     SM4_ENCRYPT, SM4_DECRYPT

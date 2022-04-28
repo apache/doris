@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `ST_LineFromText`,`ST_LineStringFromText`
-## Description
-### Syntax
+## `ST_LineFromText`,`ST_LineStringFromText`
+### Description
+#### Syntax
 
 `GEOMETRY ST LineFromText (VARCHAR wkt)`
 
 
 Converting a WKT (Well Known Text) into a Line-style memory representation
 
-## example
+### example
 
 ```
 mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
 | LINESTRING (1 1, 2 2)                                   |
 +---------------------------------------------------------+
 ```
-## keyword
+### keyword
 ST_LINEFROMTEXT, ST_LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT
