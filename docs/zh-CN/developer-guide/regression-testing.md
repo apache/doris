@@ -553,7 +553,7 @@ thread, lazyCheck, events, connect, selectUnionAll
 ```
 
 ## Suite插件
-有的时候我们需要拓展Suite类，但不便于修改Suite类的源码，则可以通过插件来进行拓展。默认插件目录为`${DORIS_HOME}/regression-test/plugins`，在其中可以通过groovy脚本定义拓展方法，如`plugin_example.groovy`为例，为Suite类增加了testPlugin函数用于打印日志：
+有的时候我们需要拓展Suite类，但不便于修改Suite类的源码，则可以通过插件来进行拓展。默认插件目录为`${DORIS_HOME}/regression-test/plugins`，在其中可以通过groovy脚本定义拓展方法，以`plugin_example.groovy`为例，为Suite类增加了testPlugin函数用于打印日志：
 ```groovy
 import org.apache.doris.regression.suite.Suite
 
