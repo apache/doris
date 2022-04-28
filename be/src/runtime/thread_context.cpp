@@ -128,7 +128,9 @@ SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(
 
 SwitchThreadMemTrackerErrCallBack::~SwitchThreadMemTrackerErrCallBack() {
     tls_ctx()->_thread_mem_tracker_mgr->update_consume_err_cb(_old_tracker_cb);
+#ifndef NDEBUG
     DorisMetrics::instance()->switch_thread_mem_tracker_err_cb_count->increment(1);
+#endif
 }
 
 SwitchBthread::SwitchBthread() {
@@ -141,6 +143,7 @@ SwitchBthread::SwitchBthread() {
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, tls));
     } else {
+        tls->_thread_mem_tracker_mgr->clear_untracked_mems();
         tls->_thread_mem_tracker_mgr->init_bthread();
     }
 }
@@ -148,6 +151,7 @@ SwitchBthread::SwitchBthread() {
 SwitchBthread::~SwitchBthread() {
     DCHECK(tls != nullptr);
     tls->_thread_mem_tracker_mgr->clear_untracked_mems();
+    tls->_thread_mem_tracker_mgr->init();
 #ifndef NDEBUG
     DorisMetrics::instance()->switch_bthread_count->increment(1);
 #endif

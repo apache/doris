@@ -47,7 +47,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                               ? "BaseScanner:" + std::to_string(state->load_job_id())
                               : "BaseScanner:Select")),
 #endif
-          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
+          _mem_pool(std::make_unique<MemPool>(_mem_tracker)),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),

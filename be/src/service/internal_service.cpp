@@ -152,7 +152,6 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
                                                    const PTabletWriterAddBatchRequest* request,
                                                    PTabletWriterAddBatchResult* response,
                                                    google::protobuf::Closure* done) {
-    SCOPED_SWITCH_BTHREAD();
     VLOG_RPC << "tablet writer add batch, id=" << request->id()
              << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id()
              << ", current_queued_size=" << _tablet_worker_pool.get_queue_size();
@@ -161,6 +160,7 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
     // exhausted, so we put this to a local thread pool to process
     int64_t submit_task_time_ns = MonotonicNanos();
     _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
+        SCOPED_SWITCH_BTHREAD();
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;

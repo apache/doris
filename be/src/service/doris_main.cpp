@@ -334,7 +334,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     if (doris::config::track_new_delete) {
-        init_hook();
+        doris::TcmallocHook::init_hook();
     }
 #endif
 
@@ -484,6 +484,7 @@ int main(int argc, char** argv) {
         doris::MemInfo::refresh_current_mem();
 #endif
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
+        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
         // It should be actively triggered at the end of query/load.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);

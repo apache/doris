@@ -55,7 +55,7 @@ Status ExprContext::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     DCHECK(_pool.get() == nullptr);
     _prepared = true;
-    _pool.reset(new MemPool(_mem_tracker.get()));
+    _pool.reset(new MemPool(_mem_tracker));
     return _root->prepare(state, row_desc, this);
 }
 

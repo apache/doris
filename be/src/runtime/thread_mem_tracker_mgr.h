@@ -160,14 +160,16 @@ private:
     // NOTE: flat_hash_map, int replaces string as key, all to improve the speed of map find,
     //  the expected speed is increased by more than 10 times.
     phmap::flat_hash_map<int64_t, std::shared_ptr<MemTracker>> _mem_trackers;
-    int64_t _tracker_id;
     phmap::flat_hash_map<int64_t, int64_t> _untracked_mems;
+    // After the tracker is added to _mem_trackers, if tracker = null is found when using it,
+    // we can confirm the tracker label that was added through _mem_tracker_labels.
+    // Because for performance, all map keys are tracker id.
     phmap::flat_hash_map<int64_t, std::string> _mem_tracker_labels;
 
-    // Avoid memory allocation in functions and fall into an infinite loop
+    int64_t _tracker_id;
+    // Avoid memory allocation in functions.
     int64_t _temp_tracker_id;
     ConsumeErrCallBackInfo _temp_consume_err_cb;
-    std::shared_ptr<MemTracker> _temp_task_mem_tracker;
 
     std::string _task_id;
     TUniqueId _fragment_instance_id;
@@ -175,6 +177,8 @@ private:
 };
 
 inline void ThreadMemTrackerMgr::init() {
+    _task_id = "";
+    _consume_err_cb.init();
     _tracker_id = 0;
     _mem_trackers.clear();
     _mem_trackers[0] = MemTracker::get_process_tracker();
@@ -186,10 +190,10 @@ inline void ThreadMemTrackerMgr::init() {
 
 inline void ThreadMemTrackerMgr::init_bthread() {
     init();
-    _mem_trackers[1] = MemTracker::get_brpc_server_tracker();
-    _untracked_mems[1] = 0;
-    _mem_tracker_labels[1] = MemTracker::get_brpc_server_tracker()->label();
-    _tracker_id = 1;
+    // `is_attach_task=true` when using `SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER`.
+    // This means that trackers cached in `_mem_trackers` are expected to be emptied later,
+    // preventing trackers from being released in time.
+    _task_id = "brpc";
 }
 
 inline void ThreadMemTrackerMgr::clear_untracked_mems() {
@@ -279,7 +283,7 @@ inline void ThreadMemTrackerMgr::add_tracker(const std::shared_ptr<MemTracker>& 
     _mem_trackers[mem_tracker->id()] = mem_tracker;
     DCHECK(_mem_trackers[mem_tracker->id()]) << print_debug_string();
     _untracked_mems[mem_tracker->id()] = 0;
-    _mem_tracker_labels[_temp_tracker_id] = mem_tracker->label();
+    _mem_tracker_labels[mem_tracker->id()] = mem_tracker->label();
 }
 
 inline std::shared_ptr<MemTracker> ThreadMemTrackerMgr::mem_tracker() {

@@ -205,6 +205,9 @@ private:
 
     // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _mem_tracker;
+    // The logical memory given by sizeof is less than the actual memory allocated by tcmalloc,
+    // Because the minimum memory allocation unit of tcmalloc is page, memory fragmentation will occur.
+    std::shared_ptr<MemTracker> _mem_tracker_logic;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;
