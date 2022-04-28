@@ -495,3 +495,20 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+## 常见问题
+1. Bitmap类型写入
+```sql
+CREATE TABLE bitmap_sink (
+dt int,
+page string,
+user_id int 
+)
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'test.bitmap_test',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
+)
+```
