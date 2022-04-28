@@ -41,6 +41,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
+#include "util/file_utils.h"
 
 using std::deque;
 using std::list;
@@ -437,8 +438,8 @@ Status StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr new
 Status StorageMigrationV2Handler::_generate_rowset_writer(
         const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
         RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet) {
-    if (!src_desc.is_remote() && dst_desc.is_remote()) {
-        string remote_file_param_path = dst_desc.filepath + REMOTE_FILE_PARAM;
+    string remote_file_param_path = dst_desc.filepath + REMOTE_FILE_PARAM;
+    if (!src_desc.is_remote() && dst_desc.is_remote() && !FileUtils::check_exist(remote_file_param_path)) {
         rapidjson::StringBuffer strbuf;
         rapidjson::PrettyWriter <rapidjson::StringBuffer> writer(strbuf);
         writer.StartObject();
