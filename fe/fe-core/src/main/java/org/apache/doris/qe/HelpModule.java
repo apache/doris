@@ -123,7 +123,8 @@ public class HelpModule {
                         List<HelpTopic> topics = topicLoader.loadAll(lines);
                         updateTopic(parentPathStr, topics);
                     } catch (UserException e) {
-                        LOG.warn("faild to load help topic: {}", entry.getName(), e);
+                        LOG.warn("failed to load help topic: {}", entry.getName(), e);
+                        throw e;
                     }
                 }
             }

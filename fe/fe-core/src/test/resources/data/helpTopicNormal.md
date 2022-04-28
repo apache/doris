@@ -7,7 +7,6 @@ SYNTAX: SHOW TABLES
 ### example
 show tables
 
-
 ### url
 ### keywords
 SHOW, TABLES

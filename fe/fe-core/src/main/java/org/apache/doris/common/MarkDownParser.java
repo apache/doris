@@ -31,9 +31,9 @@ import java.util.Set;
  * <p>
  * Each topic must have following structure:
  * ## Topic Name
- * ### Description
- * ### Example
- * ### Keywords
+ * ### Description  // required
+ * ### Example      // optional
+ * ### Keywords     // required
  * other fields are optional
  * <p>
  * <p>
@@ -128,7 +128,6 @@ public class MarkDownParser {
         for (Map.Entry<String, Map<String, String>> entry : documents.entrySet()) {
             Set<String> keys = entry.getValue().keySet();
             if (!(keys.contains(HelpTopic.DESCRIPTION)
-                    // && keys.contains(HelpTopic.EXAMPLE)
                     && keys.contains(HelpTopic.KEYWORDS))) {
                 throw new DdlException("Invalid help topic structure. title: " + entry.getKey() + ", keys: " + keys);
             }
@@ -161,7 +160,7 @@ public class MarkDownParser {
                 sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
             } else {
-                // break if we meet next
+                // break if we meet next heading
                 break;
             }
         }
