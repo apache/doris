@@ -60,6 +60,9 @@ message PTabletWithPartition {
 message PTabletInfo {
     required int64 tablet_id = 1;
     required int32 schema_hash = 2;
+    // Delta Writer will write data to local disk and then check if there are new raw values not in global dict
+    // if appears, then it should add the column name to this vector
+    repeated string invalid_dict_cols = 3; 
 }
 
 // open a tablet writer
