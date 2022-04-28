@@ -56,6 +56,6 @@ mysql> select murmur_hash3_32("hello", "world");
 +-----------------------------------+
 ```
 
-## keyword
+## keywords
 
     MURMUR_HASH3_32,HASH

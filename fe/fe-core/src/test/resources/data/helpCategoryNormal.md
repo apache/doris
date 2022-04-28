@@ -1,5 +1,5 @@
-# Geographic
+## Geographic
 
-# Polygon properties
-## parent
+## Polygon properties
+### parent
 Geographic Features

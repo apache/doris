@@ -54,6 +54,6 @@ mysql> select page_id, bitmap_count(bitmap_union(user_id)) from table group by p
 mysql> select page_id, count(distinct user_id) from table group by page_id;
 ```
 
-## keyword
+## keywords
 
     BITMAP_UNION, BITMAP

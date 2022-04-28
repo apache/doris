@@ -41,6 +41,6 @@ mysql> select makedate(2021,1), makedate(2021,100), makedate(2021,400);
 +-------------------+---------------------+---------------------+
 ```
 
-## keyword
+## keywords
 
     YEARWEEK

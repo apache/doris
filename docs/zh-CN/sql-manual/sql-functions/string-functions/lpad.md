@@ -50,5 +50,5 @@ mysql> SELECT lpad("hi", 1, "xy");
 | h                   |
 +---------------------+
 ```
-## keyword
+## keywords
 LPAD

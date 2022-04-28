@@ -52,6 +52,6 @@ mysql> select bitmap_to_string(bitmap_subset_in_range(bitmap_from_string('1,2,3,
 +-------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_SUBSET_IN_RANGE,BITMAP_SUBSET,BITMAP

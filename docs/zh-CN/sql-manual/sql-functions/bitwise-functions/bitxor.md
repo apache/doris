@@ -52,6 +52,6 @@ mysql> select bitxor(1,7) ans;
 +------+
 ```
 
-## keyword
+## keywords
 
     BITXOR

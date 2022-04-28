@@ -44,5 +44,5 @@ mysql> SELECT ST_AsText(ST_Point(24.7, 56.7));
 | POINT (24.7 56.7)               |
 +---------------------------------+
 ```
-## keyword
+## keywords
 ST_POINT,ST,POINT

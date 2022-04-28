@@ -81,6 +81,6 @@ mysql> select unix_timestamp('1969-01-01 00:00:00');
 +---------------------------------------+
 ```
 
-## keyword
+## keywords
 
     UNIX_TIMESTAMP,UNIX,TIMESTAMP

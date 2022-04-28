@@ -47,6 +47,6 @@ mysql> select weekofyear('2008-02-20 00:00:00');
 +-----------------------------------+
 ```
 
-## keyword
+## keywords
 
     WEEKOFYEAR

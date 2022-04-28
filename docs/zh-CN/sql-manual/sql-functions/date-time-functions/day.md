@@ -45,5 +45,5 @@ mysql> select day('1987-01-31');
 |                         31 |
 +----------------------------+
 ```
-## keyword
+## keywords
 DAY

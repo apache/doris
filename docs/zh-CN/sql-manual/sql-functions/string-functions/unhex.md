@@ -59,5 +59,5 @@ mysql> select unhex('4142');
 | AB            |
 +---------------+
 ```
-## keyword
+## keywords
 UNHEX

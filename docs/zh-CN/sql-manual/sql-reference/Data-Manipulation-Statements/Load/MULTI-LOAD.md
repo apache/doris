@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MULTI-LOAD
+## MULTI-LOAD
 
 ### Name
 
@@ -114,7 +114,7 @@ NOTE:
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_desc?label=123
 ```
 
-### Keyword
+### Keywords
 
 ```
 MULTI, MINI, LOAD

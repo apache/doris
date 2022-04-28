@@ -51,6 +51,6 @@ digital_masking(digital_number)
     +------------------------------+
     ```
 
-## keyword
+## keywords
 
 DIGITAL_MASKING

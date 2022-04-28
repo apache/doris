@@ -103,6 +103,6 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 +------+------+
 ```
 
-## keyword
+## keywords
 
     explode_split

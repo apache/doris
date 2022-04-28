@@ -67,6 +67,6 @@ mysql> select str_to_date("2020-09-01", "%Y-%m-%d %H:%i:%s");
 1 row in set (0.01 sec)
 ```
 
-## keyword
+## keywords
 
     STR_TO_DATE,STR,TO,DATE

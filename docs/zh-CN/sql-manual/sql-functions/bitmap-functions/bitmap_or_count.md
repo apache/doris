@@ -72,6 +72,6 @@ MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3
 +-------------------------------------------------------------------------------------------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_OR_COUNT,BITMAP

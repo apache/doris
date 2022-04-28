@@ -50,6 +50,6 @@ mysql> select bitmap_to_string(bitmap_not(bitmap_from_string('2,3,5'),bitmap_fro
 +----------------------------------------------------------------------------------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_NOT,BITMAP

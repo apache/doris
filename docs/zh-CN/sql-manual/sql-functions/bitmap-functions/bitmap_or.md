@@ -78,6 +78,6 @@ MySQL> select bitmap_to_string(bitmap_or(to_bitmap(10), bitmap_from_string('1,2'
 +--------------------------------------------------------------------------------------------------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_OR,BITMAP

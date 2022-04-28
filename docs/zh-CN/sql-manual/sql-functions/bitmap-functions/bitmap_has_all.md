@@ -51,6 +51,6 @@ mysql> select bitmap_has_all(bitmap_empty(), bitmap_from_string("1, 2")) cnt;
 +------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_HAS_ALL,BITMAP

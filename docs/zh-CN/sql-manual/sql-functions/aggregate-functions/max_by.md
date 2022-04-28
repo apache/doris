@@ -52,5 +52,5 @@ MySQL > select max_by(k1, k4) from tbl;
 |                  0 |
 +--------------------+ 
 ```
-## keyword
+## keywords
 MAX_BY

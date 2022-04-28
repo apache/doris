@@ -57,6 +57,6 @@ mysql> select tag, bitmap_intersect(user_id) from (select tag, date, bitmap_unio
 mysql> select tag, bitmap_to_string(bitmap_intersect(user_id)) from (select tag, date, bitmap_union(user_id) user_id from table where date in ('2020-05-18', '2020-05-19') group by tag, date) a group by tag;
 ```
 
-## keyword
+## keywords
 
     BITMAP_INTERSECT, BITMAP

@@ -43,6 +43,6 @@ mysql> select e1 from (select 1 k1) as t lateral view explode_numbers_outer(0) t
 | NULL |
 +------+
 ```
-## keyword
+## keywords
 
     outer

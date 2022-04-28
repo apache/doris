@@ -52,5 +52,5 @@ MySQL > select min_by(k1, k4) from tbl;
 |                  4 |
 +--------------------+ 
 ```
-## keyword
+## keywords
 MIN_BY

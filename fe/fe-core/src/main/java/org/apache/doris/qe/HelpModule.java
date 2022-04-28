@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
@@ -26,8 +27,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -97,7 +98,7 @@ public class HelpModule {
         ZipFile zf = new ZipFile(path);
         Enumeration<? extends ZipEntry> entries = zf.entries();
         while (entries.hasMoreElements()) {
-            ZipEntry entry = entries.nextElement(); 
+            ZipEntry entry = entries.nextElement();
             if (entry.isDirectory()) {
                 setUpDirInZip(entry.getName());
             } else {
@@ -119,8 +120,12 @@ public class HelpModule {
                         parentPathStr = pathObj.getParent().getFileName().toString();
                     }
                     HelpObjectLoader<HelpTopic> topicLoader = HelpObjectLoader.createTopicLoader();
-                    List<HelpTopic> topics = topicLoader.loadAll(lines);
-                    updateTopic(parentPathStr, topics);
+                    try {
+                        List<HelpTopic> topics = topicLoader.loadAll(lines);
+                        updateTopic(parentPathStr, topics);
+                    } catch (DdlException e) {
+                        LOG.warn("faild to load help topic: {}", entry.getName(), e);
+                    }
                 }
             }
         }

@@ -43,5 +43,5 @@ mysql> SELECT lower("AbC123");
 | abc123          |
 +-----------------+
 ```
-## keyword
+## keywords
 LOWER

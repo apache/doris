@@ -41,6 +41,6 @@ mysql> select orthogonal_bitmap_intersect_count(members, tag_group, 1150000, 115
 1 row in set (3.382 sec)
 ```
 
-## keyword
+## keywords
 
     ORTHOGONAL_BITMAP_INTERSECT_COUNT,BITMAP

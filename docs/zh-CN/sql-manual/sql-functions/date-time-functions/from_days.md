@@ -44,6 +44,6 @@ mysql> select from_days(730669);
 +-------------------+
 ```
 
-## keyword
+## keywords
 
     FROM_DAYS,FROM,DAYS

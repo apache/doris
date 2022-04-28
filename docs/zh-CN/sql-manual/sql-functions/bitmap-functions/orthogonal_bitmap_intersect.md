@@ -42,6 +42,6 @@ mysql> select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 
 
 ```
 
-## keyword
+## keywords
 
     ORTHOGONAL_BITMAP_INTERSECT,BITMAP

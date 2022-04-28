@@ -56,6 +56,6 @@ MySQL> select bitmap_to_string(to_bitmap(-1));
 +---------------------------------+
 ```
 
-## keyword
+## keywords
 
     TO_BITMAP,BITMAP

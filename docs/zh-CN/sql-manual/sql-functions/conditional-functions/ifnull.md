@@ -50,5 +50,5 @@ mysql> select ifnull(null,10);
 |               10 |
 +------------------+
 ```
-## keyword
+## keywords
 IFNULL

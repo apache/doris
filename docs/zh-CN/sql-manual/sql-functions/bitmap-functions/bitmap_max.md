@@ -50,6 +50,6 @@ mysql> select bitmap_max(bitmap_from_string('1,9999999999')) value;
 +------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_MAX,BITMAP

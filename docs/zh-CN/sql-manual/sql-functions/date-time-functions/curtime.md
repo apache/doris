@@ -45,6 +45,6 @@ mysql> select current_time();
 +----------------+
 ```
 
-## keyword
+## keywords
 
     CURTIME,CURRENT_TIME

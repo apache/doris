@@ -48,6 +48,6 @@ mysql> select utc_timestamp(),utc_timestamp() + 1;
 +---------------------+---------------------+
 ```
 
-## keyword
+## keywords
 
     UTC_TIMESTAMP,UTC,TIMESTAMP

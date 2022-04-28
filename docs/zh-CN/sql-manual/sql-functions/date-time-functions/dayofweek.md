@@ -53,6 +53,6 @@ mysql> select dayofweek(cast(20190625 as date));
 +-----------------------------------+
 ```
 
-## keyword
+## keywords
 
     DAYOFWEEK

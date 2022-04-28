@@ -57,5 +57,5 @@ mysql> select nullif(1,0);
 |            1 |
 +--------------+
 ```
-## keyword
+## keywords
 NULLIF

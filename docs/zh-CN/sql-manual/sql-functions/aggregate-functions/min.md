@@ -42,5 +42,5 @@ MySQL > select min(scan_rows) from log_statis group by datetime;
 |                0 |
 +------------------+
 ```
-## keyword
+## keywords
 MIN

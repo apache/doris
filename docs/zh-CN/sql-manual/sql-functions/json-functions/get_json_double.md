@@ -70,5 +70,5 @@ mysql> SELECT get_json_double('{"k1.key":{"k2":[1.1, 2.2]}}', '$."k1.key".k2[0]'
 |                                                                 1.1 |
 +---------------------------------------------------------------------+
 ```
-## keyword
+## keywords
 GET_JSON_DOUBLE,GET,JSON,DOUBLE

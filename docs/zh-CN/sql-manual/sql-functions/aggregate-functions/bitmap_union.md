@@ -141,6 +141,6 @@ where page in ('meituan', 'waimai');
 ```
 
 
-## keyword
+## keywords
 
 BITMAP,BITMAP_COUNT,BITMAP_EMPTY,BITMAP_UNION,BITMAP_UNION_INT,TO_BITMAP,BITMAP_UNION_COUNT,INTERSECT_COUNT

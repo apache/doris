@@ -42,6 +42,6 @@ mysql> select coalesce(NULL, '1111', '0000');
 | 1111                           |
 +--------------------------------+
 ```
-## keyword
+## keywords
 
     COALESCE

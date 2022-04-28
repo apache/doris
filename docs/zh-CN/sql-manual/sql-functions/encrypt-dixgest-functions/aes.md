@@ -88,6 +88,6 @@ MySQL > select AES_DECRYPT(FROM_BASE64('mvZT1KJw7N0RJf27aipUpg=='),'F3229A0B371E
 1 row in set (0.012 sec)
 ```
 
-## keyword
+## keywords
 
     AES_ENCRYPT, AES_DECRYPT

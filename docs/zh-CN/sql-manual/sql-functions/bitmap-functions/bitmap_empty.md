@@ -47,6 +47,6 @@ mysql> select bitmap_count(bitmap_empty());
 +------------------------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_EMPTY,BITMAP

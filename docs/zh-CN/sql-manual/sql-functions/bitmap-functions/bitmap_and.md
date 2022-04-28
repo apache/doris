@@ -78,6 +78,6 @@ MySQL> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_fr
 +-----------------------------------------------------------------------------------------------------------------------------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_AND,BITMAP

@@ -31,6 +31,6 @@ under the License.
     
     注意：变长字符串是以UTF-8编码存储的，因此通常英文字符占1个字节，中文字符占3个字节。
 
-## keyword
+## keywords
 
     STRING

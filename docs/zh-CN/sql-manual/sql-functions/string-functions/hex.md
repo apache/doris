@@ -81,5 +81,5 @@ mysql> select hex(-1);
 | FFFFFFFFFFFFFFFF |
 +------------------+
 ```
-## keyword
+## keywords
 HEX

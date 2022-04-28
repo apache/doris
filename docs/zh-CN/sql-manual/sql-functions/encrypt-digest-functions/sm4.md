@@ -88,6 +88,6 @@ MySQL > select SM4_DECRYPT(FROM_BASE64('G7yqOKfEyxdagboz6Qf01A=='),'F3229A0B371E
 1 row in set (0.012 sec)
 ```
 
-## keyword
+## keywords
 
     SM4_ENCRYPT, SM4_DECRYPT

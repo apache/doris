@@ -44,6 +44,6 @@ mysql> select now();
 +---------------------+
 ```
 
-## keyword
+## keywords
 
     NOW

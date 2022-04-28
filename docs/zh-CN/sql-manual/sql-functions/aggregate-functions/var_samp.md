@@ -43,5 +43,5 @@ MySQL > select var_samp(scan_rows) from log_statis group by datetime;
 +-----------------------+
 ```
 
-## keyword
+## keywords
 VAR_SAMP,VARIANCE_SAMP,VAR,SAMP,VARIANCE

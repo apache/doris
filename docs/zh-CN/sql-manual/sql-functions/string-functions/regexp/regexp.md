@@ -52,5 +52,5 @@ mysql > select k1 from test where k1 regexp 'ok$';
 +----------+
 ```
 
-## keyword
+## keywords
 REGEXP

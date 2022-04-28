@@ -68,5 +68,5 @@ mysql> select user_id, case when user_id = 1 then 'user_id = 1' when user_id = 2
 | 2       | user_id = 2 |
 +---------+-------------+
 ```
-## keyword
+## keywords
 CASE

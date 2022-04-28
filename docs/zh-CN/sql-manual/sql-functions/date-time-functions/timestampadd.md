@@ -55,5 +55,5 @@ mysql> SELECT TIMESTAMPADD(WEEK,1,'2019-01-02');
 | 2019-01-09 00:00:00                          |
 +----------------------------------------------+
 ```
-## keyword
+## keywords
 TIMESTAMPADD

@@ -43,6 +43,6 @@ mysql> select bitmap_count(bitmap_and_not(bitmap_from_string('1,2,3'),bitmap_fro
 +------+
 ```
 
-## keyword
+## keywords
 
     BITMAP_AND_NOT,BITMAP

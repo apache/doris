@@ -46,6 +46,6 @@ mysql> select month('1987-01-01');
 +-----------------------------+
 ```
 
-## keyword
+## keywords
 
     MONTH

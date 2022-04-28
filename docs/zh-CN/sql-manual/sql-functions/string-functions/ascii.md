@@ -50,5 +50,5 @@ mysql> select ascii('234');
 |           50 |
 +--------------+
 ```
-## keyword
+## keywords
 ASCII

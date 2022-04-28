@@ -50,6 +50,6 @@ mysql> SELECT CURDATE() + 0;
 +---------------+
 ```
 
-## keyword
+## keywords
 
     CURDATE,CURRENT_DATE

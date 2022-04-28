@@ -49,5 +49,5 @@ MySQL [test]> SELECT PMOD(-13,5);
 +-------------+
 ```
 
-## keyword
+## keywords
 	PMOD

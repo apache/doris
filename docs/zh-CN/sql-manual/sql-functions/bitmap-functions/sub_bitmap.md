@@ -57,6 +57,6 @@ mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), 2
 +-------+
 ```
 
-## keyword
+## keywords
 
     SUB_BITMAP,BITMAP_SUBSET,BITMAP
