@@ -26,7 +26,7 @@ under the License.
 
 # C++ Code Diagnostic
 
-Doris support to use [Clangd](https://clangd.llvm.org/) and [Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/) to diagnostic code. Clangd and Clang-Tidy already has in [LDB-toolchain](https://doris.apache.org/zh-CN/installing/compilation-with-ldb-toolchain),also can install by self.
+Doris support to use [Clangd](https://clangd.llvm.org/) and [Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/) to diagnostic code. Clangd and Clang-Tidy already has in [LDB-toolchain](https://doris.apache.org/zh-CN/installing/compilation-with-ldb-toolchain)，also can install by self.
 
 ### Clang-Tidy
 Clang-Tidy can do some diagnostic cofig, config file `.clang-tidy` is in Doris root path. Compared with vscode-cpptools, clangd can provide more powerful and accurate code jumping for vscode, and integrates the analysis and quick-fix functions of clang-tidy.
