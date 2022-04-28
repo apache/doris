@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Get-Starting",
+    "title": "快速开始",
     "language": "zh-CN"
 }
 
@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris 快速入门
+# 快速开始
 
 ## 环境准备
 

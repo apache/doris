@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Get-Starting",
+    "title": "Getting-Started",
     "language": "en"
 }
 
@@ -25,7 +25,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Apache Doris Get-Starting
+# Getting Started
 
 ## Environmental preparation
 
