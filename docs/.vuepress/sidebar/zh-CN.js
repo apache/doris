@@ -969,6 +969,17 @@ module.exports = [
     ],
   },
   {
+    title: "设计文档",
+    directoryPath: "design/",
+    initialOpenGroupIndex: -1,
+    children: [
+      "doris_storage_optimization",
+      "grouping_sets_design",
+      "metadata-design",
+      "spark_load",
+    ],
+  },
+  {
     title: "Doris用户",
     directoryPath: "case-user/",
     initialOpenGroupIndex: -1,
