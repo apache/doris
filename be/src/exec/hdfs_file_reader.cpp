@@ -31,7 +31,8 @@ HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string
           _current_offset(start_offset),
           _file_size(-1),
           _hdfs_fs(nullptr),
-          _hdfs_file(nullptr) {
+          _hdfs_file(nullptr),
+          _builder(createHDFSBuilder(_hdfs_params)) {
     _namenode = _hdfs_params.fs_name;
 }
 
@@ -40,32 +41,10 @@ HdfsFileReader::~HdfsFileReader() {
 }
 
 Status HdfsFileReader::connect() {
-    hdfsBuilder* hdfs_builder = hdfsNewBuilder();
-    hdfsBuilderSetNameNode(hdfs_builder, _namenode.c_str());
-    // set hdfs user
-    if (_hdfs_params.__isset.user) {
-        hdfsBuilderSetUserName(hdfs_builder, _hdfs_params.user.c_str());
+    if (_builder.isNeedKinit()) {
+        RETURN_IF_ERROR(_builder.runKinit());
     }
-    // set kerberos conf
-    if (_hdfs_params.__isset.kerb_principal) {
-        hdfsBuilderSetPrincipal(hdfs_builder, _hdfs_params.kerb_principal.c_str());
-    }
-    if (_hdfs_params.__isset.kerb_ticket_cache_path) {
-        hdfsBuilderSetKerbTicketCachePath(hdfs_builder,
-                                          _hdfs_params.kerb_ticket_cache_path.c_str());
-    }
-    // set token
-    if (_hdfs_params.__isset.token) {
-        hdfsBuilderSetToken(hdfs_builder, _hdfs_params.token.c_str());
-    }
-    // set other conf
-    if (_hdfs_params.__isset.hdfs_conf) {
-        for (const THdfsConf& conf : _hdfs_params.hdfs_conf) {
-            hdfsBuilderConfSetStr(hdfs_builder, conf.key.c_str(), conf.value.c_str());
-        }
-    }
-    _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
-    hdfsFreeBuilder(hdfs_builder);
+    _hdfs_fs = hdfsBuilderConnect(_builder.get());
     if (_hdfs_fs == nullptr) {
         std::stringstream ss;
         ss << "connect to hdfs failed. namenode address:" << _namenode

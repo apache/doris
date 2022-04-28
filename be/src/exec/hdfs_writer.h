@@ -17,16 +17,15 @@
 
 #pragma once
 
-#include <hdfs/hdfs.h>
-
 #include <map>
 #include <string>
 
 #include "exec/file_writer.h"
+#include "exec/hdfs_builder.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 class HDFSWriter : public FileWriter {
-
 public:
     HDFSWriter(std::map<std::string, std::string>& properties, const std::string& path);
     ~HDFSWriter();
@@ -43,15 +42,13 @@ private:
     Status _parse_properties(std::map<std::string, std::string>& prop);
 
     std::map<std::string, std::string> _properties;
-    std::string _user = "";
+    HDFSCommonBuilder _builder;
+    THdfsParams _hdfs_params;
     std::string _namenode = "";
     std::string _path = "";
-    std::string _kerb_principal = "";
-    std::string _kerb_ticket_cache_path = "";
-    std::string _token = "";
     hdfsFS _hdfs_fs = nullptr;
     hdfsFile _hdfs_file = nullptr;
     bool _closed = false;
 };
 
-}
+} // namespace doris

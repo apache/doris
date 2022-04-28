@@ -69,13 +69,13 @@ public class FileSystemManager {
     private static final String KS3_SCHEME = "ks3";
     private static final String CHDFS_SCHEME = "ofs";
 
-    private static final String USER_NAME_KEY = "username";
-    private static final String PASSWORD_KEY = "password";
+    private static final String USER_NAME_KEY = "hdfs.username";
+    private static final String PASSWORD_KEY = "hdfs.password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
     private static final String AUTHENTICATION_KERBEROS = "kerberos";
-    private static final String KERBEROS_PRINCIPAL = "kerberos_principal";
-    private static final String KERBEROS_KEYTAB = "kerberos_keytab";
-    private static final String KERBEROS_KEYTAB_CONTENT = "kerberos_keytab_content";
+    private static final String KERBEROS_PRINCIPAL = "hdfs.kerberos.principal";
+    private static final String KERBEROS_KEYTAB = "hdfs.kerberos.keytab";
+    private static final String KERBEROS_KEYTAB_CONTENT = "hdfs.kerberos.keytab.base64";
     private static final String DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN =
             "dfs.namenode.kerberos.principal.pattern";
     // arguments for ha hdfs

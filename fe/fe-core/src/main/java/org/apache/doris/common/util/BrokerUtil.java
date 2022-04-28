@@ -83,11 +83,13 @@ public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
 
     private static int READ_BUFFER_SIZE_B = 1024 * 1024;
-    private static String HDFS_FS_KEY = "fs.defaultFS";
-    private static String HDFS_USER_KEY = "hdfs_user";
-    private static String HDFS_KERB_PRINCIPAL = "kerb_principal";
-    private static String HDFS_KERB_TICKET_CACHE_PATH = "kerb_ticket_cache_path";
-    private static String HDFS_KERB_TOKEN = "kerb_token";
+    public static String HDFS_FS_KEY = "fs.defaultFS";
+    // simple or kerberos
+    public static String HDFS_SECURITY_AUTHENTICATION = "hdfs.security.authentication";
+    public static String HDFS_USER_KEY = "hdfs.username";
+    public static String HDFS_KERBEROS_PRINCIPAL = "hdfs.kerberos.principal";
+    public static String HDFS_KERBEROS_KEYTAB = "hdfs.kerberos.keytab";
+    public static String HDFS_KERBEROS_KEYTAB_WITH_BASE64 = "hdfs.kerberos.keytab.base64";
 
     public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
         rangeDesc.setHdfsParams(new THdfsParams());
@@ -95,14 +97,16 @@ public class BrokerUtil {
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HDFS_FS_KEY)) {
                 rangeDesc.hdfs_params.setFsName(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HDFS_SECURITY_AUTHENTICATION)) {
+                rangeDesc.hdfs_params.setHdfsSecurityAuthentication(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HDFS_USER_KEY)) {
                 rangeDesc.hdfs_params.setUser(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_PRINCIPAL)) {
-                rangeDesc.hdfs_params.setKerbPrincipal(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_TICKET_CACHE_PATH)) {
-                rangeDesc.hdfs_params.setKerbTicketCachePath(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_KERB_TOKEN)) {
-                rangeDesc.hdfs_params.setToken(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HDFS_KERBEROS_PRINCIPAL)) {
+                rangeDesc.hdfs_params.setHdfsKerberosPrincipal(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HDFS_KERBEROS_KEYTAB)) {
+                rangeDesc.hdfs_params.setHdfsKerberosKeytab(property.getValue());
+            } else if (property.getKey().equalsIgnoreCase(HDFS_KERBEROS_KEYTAB_WITH_BASE64)) {
+                rangeDesc.hdfs_params.setHdfsKerberosKeytabWithBase64(property.getValue());
             } else {
                 THdfsConf hdfsConf = new THdfsConf();
                 hdfsConf.setKey(property.getKey());

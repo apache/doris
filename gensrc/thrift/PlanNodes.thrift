@@ -118,10 +118,11 @@ struct THdfsConf {
 struct THdfsParams {
     1: optional string fs_name
     2: optional string user
-    3: optional string kerb_principal
-    4: optional string kerb_ticket_cache_path
-    5: optional string token
-    6: optional list<THdfsConf> hdfs_conf
+    3: optional string hdfs_security_authentication
+    4: optional string hdfs_kerberos_principal
+    5: optional string hdfs_kerberos_keytab
+    6: optional string hdfs_kerberos_keytab_with_base64
+    7: optional list<THdfsConf> hdfs_conf
 }
 
 // One broker range information.

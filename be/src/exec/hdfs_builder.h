@@ -17,25 +17,32 @@
 
 #pragma once
 
+#include <hdfs/hdfs.h>
+
 #include "exec/file_reader.h"
-#include "exec/file_writer.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-// This class is used to create hdfs readers and writers.
-// Because libhdfs3 does not support the arm64 environment,
-// we use this class to shield the upper layer from the need to deal with the platform environment
-// when creating a raeder or writer.
-//
-// If in the arm64 environment, creating a reader or writer through this class will return an error.
-class HdfsReaderWriter {
-public:
-    static Status create_reader(const THdfsParams& hdfs_params, const std::string& path,
-                                int64_t start_offset, FileReader** reader);
+class HDFSCommonBuilder {
+    friend HDFSCommonBuilder createHDFSBuilder(THdfsParams hdfsParams);
 
-    static Status create_writer(std::map<std::string, std::string>& properties,
-                                const std::string& path, FileWriter** writer);
+public:
+    HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {};
+    ~HDFSCommonBuilder() { hdfsFreeBuilder(hdfs_builder); };
+
+    hdfsBuilder* get() { return hdfs_builder; };
+    bool isNeedKinit() { return needKinit; };
+    Status runKinit();
+
+private:
+    hdfsBuilder* hdfs_builder;
+    bool needKinit {false};
+    std::string hdfs_kerberos_keytab;
+    std::string hdfs_kerberos_keytab_base64;
+    std::string hdfs_kerberos_principal;
 };
+
+HDFSCommonBuilder createHDFSBuilder(THdfsParams hdfsParams);
 
 } // namespace doris

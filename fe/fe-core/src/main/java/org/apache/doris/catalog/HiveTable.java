@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -38,6 +39,7 @@ import java.util.Map;
  */
 public class HiveTable extends Table {
     private static final String PROPERTY_MISSING_MSG = "Hive %s is null. Please add properties('%s'='xxx') when create table";
+    private static final String PROPERTY_ERROR_MSG = "Hive table properties('%s'='%s') is illegal or not supported. Please check it";
 
     private static final String HIVE_DB = "database";
     private static final String HIVE_TABLE = "table";
@@ -75,7 +77,7 @@ public class HiveTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of hive table, "
-                    + "they are: database, table and 'hive.metastore.uris'");
+                + "they are: database, table and 'hive.metastore.uris'");
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
@@ -92,13 +94,47 @@ public class HiveTable extends Table {
         copiedProps.remove(HIVE_TABLE);
 
         // check hive properties
-        // hive.metastore.uris
-        String hiveMetastoreUris = copiedProps.get(HIVE_METASTORE_URIS);
-        if (Strings.isNullOrEmpty(hiveMetastoreUris)) {
+        // hive.metastore.uris 
+        String hiveMetaStoreUris = copiedProps.get(HIVE_METASTORE_URIS);
+        if (Strings.isNullOrEmpty(hiveMetaStoreUris)) {
             throw new DdlException(String.format(PROPERTY_MISSING_MSG, HIVE_METASTORE_URIS, HIVE_METASTORE_URIS));
         }
         copiedProps.remove(HIVE_METASTORE_URIS);
-        hiveProperties.put(HIVE_METASTORE_URIS, hiveMetastoreUris);
+        hiveProperties.put(HIVE_METASTORE_URIS, hiveMetaStoreUris);
+
+        // check auth type
+        String authType = copiedProps.get(BrokerUtil.HDFS_SECURITY_AUTHENTICATION);
+        if (Strings.isNullOrEmpty(authType)) {
+            authType = AuthType.SIMPLE.getDesc();
+        }
+        if (!AuthType.isSupportedAuthType(authType)) {
+            throw new DdlException(String.format(PROPERTY_ERROR_MSG, BrokerUtil.HDFS_SECURITY_AUTHENTICATION, authType));
+        }
+        copiedProps.remove(BrokerUtil.HDFS_SECURITY_AUTHENTICATION);
+        hiveProperties.put(BrokerUtil.HDFS_SECURITY_AUTHENTICATION, authType);
+
+        if (AuthType.KERBEROS.getDesc().equals(authType)) {
+            // check principal
+            String principal = copiedProps.get(BrokerUtil.HDFS_KERBEROS_PRINCIPAL);
+            if (Strings.isNullOrEmpty(principal)) {
+                throw new DdlException(String.format(PROPERTY_MISSING_MSG, BrokerUtil.HDFS_KERBEROS_PRINCIPAL, BrokerUtil.HDFS_KERBEROS_PRINCIPAL));
+            }
+            hiveProperties.put(BrokerUtil.HDFS_KERBEROS_PRINCIPAL, principal);
+            copiedProps.remove(BrokerUtil.HDFS_KERBEROS_PRINCIPAL);
+            // check keytab
+            String keytabPath = copiedProps.get(BrokerUtil.HDFS_KERBEROS_KEYTAB);
+            String keytabContent = copiedProps.get(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64);
+            if (Strings.isNullOrEmpty(keytabPath) && Strings.isNullOrEmpty(keytabContent)) {
+                throw new DdlException(String.format(PROPERTY_MISSING_MSG, BrokerUtil.HDFS_KERBEROS_KEYTAB, BrokerUtil.HDFS_KERBEROS_KEYTAB));
+            }
+            copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB);
+            hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB, keytabPath);
+            copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64);
+            hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64, keytabContent);
+        }
+
+        hiveProperties.put(BrokerUtil.HDFS_USER_KEY, copiedProps.get(BrokerUtil.HDFS_USER_KEY));
+        copiedProps.remove(BrokerUtil.HDFS_USER_KEY);
 
         if (!copiedProps.isEmpty()) {
             throw new DdlException("Unknown table properties: " + copiedProps.toString());
@@ -135,7 +171,7 @@ public class HiveTable extends Table {
     public TTableDescriptor toThrift() {
         THiveTable tHiveTable = new THiveTable(getHiveDb(), getHiveTable(), getHiveProperties());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE,
-                fullSchema.size(), 0, getName(), "");
+            fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setHiveTable(tHiveTable);
         return tTableDescriptor;
     }
