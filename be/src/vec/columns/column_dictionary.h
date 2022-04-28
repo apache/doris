@@ -67,6 +67,7 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
     using DictContainer = PaddedPODArray<StringValue>;
+    using HashValueContainer = PaddedPODArray<uint32_t>; // used for bloom filter
 
     bool is_column_dictionary() const override { return true; }
 
@@ -106,6 +107,7 @@ public:
     void clear() override {
         _codes.clear();
         _dict_code_converted = false;
+        _dict.clear_hash_values();
     }
 
     // TODO: Make dict memory usage more precise
@@ -251,6 +253,14 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
+    void generate_hash_values() {
+        _dict.generate_hash_values();
+    }
+
+    uint32_t get_hash_value(uint32_t idx) const {
+        return _dict.get_hash_value(_codes[idx]);
+    }
+
     phmap::flat_hash_set<int32_t> find_codes(
             const phmap::flat_hash_set<StringValue>& values) const {
         return _dict.find_codes(values);
@@ -297,6 +307,23 @@ public:
             return -1;
         }
 
+        inline StringValue& get_value(T code) { return _dict_data[code]; }
+        
+        inline void generate_hash_values() {
+            if (_hash_values.size() == 0) {
+                _hash_values.resize(_dict_data.size());
+                for (size_t i = 0; i < _dict_data.size(); i++) {
+                    auto& sv = _dict_data[i];
+                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, sv.len, 0);
+                    _hash_values[i] = hash_val;
+                }
+            }
+        }
+
+        inline uint32_t get_hash_value(T code) const {
+            return _hash_values[code];
+        }
+
         // For > , code takes upper_bound - 1; For >= , code takes upper_bound
         // For < , code takes upper_bound; For <=, code takes upper_bound - 1
         // For example a sorted dict: <'b',0> <'c',1> <'d',2>
@@ -336,12 +363,15 @@ public:
             return code_set;
         }
 
-        inline StringValue& get_value(T code) { return _dict_data[code]; }
-
         void clear() {
             _dict_data.clear();
             _inverted_index.clear();
             _code_convert_map.clear();
+            _hash_values.clear();
+        }
+
+        void clear_hash_values() {
+            _hash_values.clear();
         }
 
         void sort() {
@@ -365,6 +395,12 @@ public:
         phmap::flat_hash_map<StringValue, T, StringValue::HashOfStringValue> _inverted_index;
         // data page code -> sorted dict code, only used for range comparison predicate
         phmap::flat_hash_map<T, T> _code_convert_map;
+        // hash value of origin string , used for bloom filter
+        // It's a trade-off of space for performance
+        // But in TPC-DS 1GB q60,we see no significant improvement. 
+        // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
+        // So we may need more test here.
+        HashValueContainer _hash_values;
     };
 
 private:
@@ -380,5 +416,7 @@ template class ColumnDictionary<uint8_t>;
 template class ColumnDictionary<uint16_t>;
 template class ColumnDictionary<uint32_t>;
 template class ColumnDictionary<int32_t>;
+
+using ColumnDictI32 = vectorized::ColumnDictionary<doris::vectorized::Int32>;
 
 } // namespace doris::vectorized
