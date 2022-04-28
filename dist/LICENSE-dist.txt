@@ -941,23 +941,23 @@ The Apache Software License, Version 2.0
         - io.dropwizard.metrics:metrics-json:3.1.5 (http://metrics.codahale.com/metrics-json/)
         - io.dropwizard.metrics:metrics-json:4.2.7 (https://metrics.dropwizard.io/metrics-json)
     * Jackson dataformat: CBOR:
-        - com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.13.1 (http://github.com/FasterXML/jackson-dataformats-binary)
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.13.2.2 (http://github.com/FasterXML/jackson-dataformats-binary)
     * Jackson datatype: JSR310:
-        - com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jsr310)
+        - com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.13.2.2 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jsr310)
     * Jackson datatype: jdk8:
-        - com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
+        - com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.2.2 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
     * Jackson module: JAXB Annotations:
-        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.1 (https://github.com/FasterXML/jackson-modules-base)
+        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.13.2.2 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson module: Paranamer:
         - com.fasterxml.jackson.module:jackson-module-paranamer:2.7.9 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson-annotations:
-        - com.fasterxml.jackson.core:jackson-annotations:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-annotations:2.13.2.2 (http://github.com/FasterXML/jackson)
     * Jackson-core:
-        - com.fasterxml.jackson.core:jackson-core:2.12.1 (https://github.com/FasterXML/jackson-core)
+        - com.fasterxml.jackson.core:jackson-core:2.13.2.2 (https://github.com/FasterXML/jackson-core)
     * Jackson-dataformat-YAML:
-        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.1 (https://github.com/FasterXML/jackson-dataformats-text)
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.13.2.2 (https://github.com/FasterXML/jackson-dataformats-text)
     * Jackson-module-parameter-names:
-        - com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
+        - com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.2.2 (https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
     * Jakarta Bean Validation API:
         - jakarta.validation:jakarta.validation-api:2.0.2 (https://beanvalidation.org)
     * Java Authentication SPI for Containers:
@@ -1185,7 +1185,7 @@ The Apache Software License, Version 2.0
     * io.grpc:grpc-stub:
         - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
     * jackson-databind:
-        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-databind:2.13.2.2 (http://github.com/FasterXML/jackson)
     * jackson-module-scala:
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
