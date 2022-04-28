@@ -90,6 +90,7 @@ public class StatisticsJobScheduler extends MasterDaemon {
                     // TODO change to without exception
                     pendingJob.updateJobState(StatisticsJob.JobState.FAILED);
                 } catch (DdlException ddlException) {
+                    LOG.fatal(ddlException.getMessage(), e);
                 }
                 LOG.info("Failed to schedule the statistical job(id={})", pendingJob.getId(), e);
             }
