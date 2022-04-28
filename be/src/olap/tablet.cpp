@@ -698,7 +698,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (data_dir()->path_hash() != path_hash || !is_used() || !init_succeeded()) {
+    if (data_dir()->path_hash() != path_hash || !is_bad() || !init_succeeded()) {
         return false;
     }
 

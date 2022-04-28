@@ -227,7 +227,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
 
         diskTrashInfo.__set_root_path(root_path_info.path_desc.filepath);
 
-        diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
+        diskTrashInfo.__set_state(root_path_info.is_bad ? "ONLINE" : "OFFLINE");
 
         std::string lhs_trash_path = root_path_info.path_desc.filepath + TRASH_PREFIX;
         std::filesystem::path trash_path(lhs_trash_path);

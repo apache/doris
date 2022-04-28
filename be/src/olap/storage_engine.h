@@ -91,9 +91,6 @@ public:
     template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
 
-    // @brief 设置root_path是否可用
-    void set_store_used_flag(const std::string& root_path, bool is_used);
-
     // @brief 获取所有root_path信息
     Status get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos, bool need_update);
 
@@ -290,12 +287,12 @@ private:
                   disk_index(index),
                   task_running(0),
                   task_remaining(0),
-                  is_used(used) {}
+                  is_bad(used) {}
         const std::string storage_path;
         const uint32_t disk_index;
         uint32_t task_running;
         uint32_t task_remaining;
-        bool is_used;
+        bool is_bad;
     };
 
     EngineOptions _options;

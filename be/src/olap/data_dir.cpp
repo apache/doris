@@ -71,7 +71,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
           _available_bytes(0),
           _disk_capacity_bytes(0),
           _storage_medium(storage_medium),
-          _is_used(false),
+          _is_bad(false),
           _tablet_manager(tablet_manager),
           _txn_manager(txn_manager),
           _cluster_id(-1),
@@ -108,7 +108,7 @@ Status DataDir::init() {
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_capacity(), "_init_capacity failed");
     RETURN_NOT_OK_STATUS_WITH_WARN(_init_meta(), "_init_meta failed");
 
-    _is_used = true;
+    _is_bad = true;
     return Status::OK();
 }
 
@@ -232,17 +232,17 @@ Status DataDir::_write_cluster_id_to_path(const FilePathDesc& path_desc, int32_t
 
 void DataDir::health_check() {
     // check disk
-    if (_is_used) {
+    if (_is_bad) {
         Status res = _read_and_write_test_file();
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path="
                          << _path_desc.filepath;
             if (is_io_error(res)) {
-                _is_used = false;
+                _is_bad = false;
             }
         }
     }
-    disks_state->set_value(_is_used ? 1 : 0);
+    disks_state->set_value(_is_bad ? 1 : 0);
 }
 
 Status DataDir::_read_and_write_test_file() {

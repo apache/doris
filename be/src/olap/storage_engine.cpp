@@ -280,7 +280,7 @@ void StorageEngine::_update_storage_medium_type_count() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& it : _store_map) {
-        if (it.second->is_used()) {
+        if (it.second->is_bad()) {
             available_storage_medium_types.insert(it.second->storage_medium());
         }
     }
@@ -311,17 +311,6 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     return Status::OK();
 }
 
-void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
-    std::lock_guard<std::mutex> l(_store_lock);
-    auto it = _store_map.find(path);
-    if (it == _store_map.end()) {
-        LOG(WARNING) << "store not exist, path=" << path;
-    }
-
-    it->second->set_is_used(is_used);
-    _update_storage_medium_type_count();
-}
-
 template <bool include_unused>
 std::vector<DataDir*> StorageEngine::get_stores() {
     std::vector<DataDir*> stores;
@@ -334,7 +323,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
         }
     } else {
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            if (it.second->is_bad()) {
                 stores.push_back(it.second);
             }
         }
@@ -483,7 +472,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            if (it.second->is_used()) {
+            if (it.second->is_bad()) {
                 if (_available_storage_medium_type_count == 1 ||
                     it.second->storage_medium() == storage_medium ||
                     (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
@@ -539,7 +528,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
         for (auto& it : _store_map) {
             ++total_root_path_num;
-            if (it.second->is_used()) {
+            if (it.second->is_bad()) {
                 continue;
             }
             it.second->clear_tablets(&tablet_info_vec);
@@ -683,7 +672,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
         LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
-        if (!info.is_used) {
+        if (!info.is_bad) {
             continue;
         }
 
