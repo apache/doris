@@ -46,7 +46,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -103,7 +102,7 @@ public class TableRef implements ParseNode, Writable {
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
 
-    private boolean isGatheringDict;
+    private boolean isMetaScan;
 
     protected Expr onClause;
 
@@ -429,7 +428,7 @@ public class TableRef implements ParseNode, Writable {
             if (normalizedHint.equals("PREAGGOPEN")) {
                 isForcePreAggOpened = true;
             } else if (normalizedHint.equals("META")) {
-                isGatheringDict = true;
+                isMetaScan = true;
             }
         }
     }
@@ -721,8 +720,8 @@ public class TableRef implements ParseNode, Writable {
         return !getClass().equals(TableRef.class);
     }
 
-    public boolean isGatheringDict() {
-        return isGatheringDict;
+    public boolean isMetaScan() {
+        return isMetaScan;
     }
 
     /**

@@ -1311,7 +1311,7 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
-    public static final String DICT_GATHER = "dict";
+    public static final String DICT = "dict";
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1375,18 +1375,8 @@ public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionCo
                 "",
                 true, false, true, true));
 
-        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.DICT_GATHER,
-                Lists.newArrayList(Type.VARCHAR),
-                Type.VARCHAR,
-                Type.ARRAY,
-                false,
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
-                "",
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.DICT,
+                Lists.newArrayList(Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
                 true, false, false, false
             ));
 

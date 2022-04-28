@@ -1159,7 +1159,10 @@ public class SingleNodePlanner {
                     aggInfo.getSecondPhaseDistinctAggInfo());
             newRoot.init(analyzer);
             Preconditions.checkState(newRoot.hasValidStats());
-        } else if (aggInfo.isGatherDictAgg()) {
+        } else if (aggInfo.isMetaScan()) {
+            Preconditions.checkState(root instanceof MetaScanNode);
+            MetaScanNode metaScanNode = (MetaScanNode) root;
+            metaScanNode.pullDictSlots(aggInfo);
         }
         // add Having clause
         newRoot.assignConjuncts(analyzer);
@@ -1684,8 +1687,10 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                if (tblRef.isGatheringDict()) {
-
+                if (tblRef.isMetaScan()) {
+                    MetaScanNode metaScanNode = new MetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+                    scanNode = metaScanNode;
+                    break;
                 }
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
                         "OlapScanNode");

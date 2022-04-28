@@ -342,9 +342,9 @@ public final class AggregateInfo extends AggregateInfoBase {
     public boolean isMerge() { return aggPhase_.isMerge(); }
     public boolean isDistinctAgg() { return secondPhaseDistinctAggInfo_ != null; }
 
-    public boolean isGatherDictAgg() {
+    public boolean isMetaScan() {
         return aggregateExprs_.size() > 0 &&
-            aggregateExprs_.get(0).getFn().getFunctionName().getFunction().equals(FunctionSet.DICT_GATHER);
+            aggregateExprs_.get(0).getFn().getFunctionName().getFunction().equals(FunctionSet.DICT);
     }
 
     public ExprSubstitutionMap getIntermediateSmap() { return intermediateTupleSmap_; }

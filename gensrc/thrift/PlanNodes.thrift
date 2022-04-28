@@ -334,8 +334,8 @@ struct TSchemaScanNode {
 }
 
 struct TMetaScanNode {
-  1: required Types.TTupleId tuple_id
-  2: required map<Types.TSlotId,i32> slot_to_dict
+  1: optional Types.TTupleId tuple_id
+  2: optional map<Types.TSlotId, i32> slot_to_dict
 }
 
 struct TOlapScanNode {
