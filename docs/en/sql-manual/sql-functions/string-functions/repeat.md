@@ -50,5 +50,5 @@ mysql> SELECT repeat("a", -1);
 |                 |
 +-----------------+
 ```
-### keyword
+### keywords
 REPEAT,

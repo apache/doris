@@ -48,5 +48,5 @@ THE COURT OF JUSTICE OF THE EUROPEAN COMMUNITIES,
 | 17721                   |
 +-------------------------+
 ```
-### keyword
+### keywords
 HLL_UNION_AGG,HLL,UNION,AGG

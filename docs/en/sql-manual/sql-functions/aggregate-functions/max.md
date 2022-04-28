@@ -42,5 +42,5 @@ MySQL > select max(scan_rows) from log_statis group by datetime;
 |          4671587 |
 +------------------+
 ```
-### keyword
+### keywords
 MAX

@@ -42,5 +42,5 @@ mysql > select from u days (730669);
 +-------------------+
 | 2000-07-03        |
 +-------------------+
-### keyword
+### keywords
 FROM_DAYS,FROM,DAYS

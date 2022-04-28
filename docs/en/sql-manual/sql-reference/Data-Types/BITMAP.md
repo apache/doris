@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-#BITMAP
+## BITMAP
 ### Description
 BITMAP
 
@@ -44,5 +44,5 @@ Note: If BITMAP does not use a global dictionary in real-time scenarios, using b
     group by hour order by 1
     ) final;
     
-### keyword
+### keywords
 BITMAP

@@ -51,6 +51,6 @@ MySQL > select sm3sum("ab","cd");
 
 ```
 
-### keyword
+### keywords
 
     SM3SUM

@@ -51,6 +51,6 @@ Desensitizes the input `digital_number` and returns the result after masking des
     +------------------------------+
     ```
 
-### keyword
+### keywords
 
 DIGITAL_MASKING

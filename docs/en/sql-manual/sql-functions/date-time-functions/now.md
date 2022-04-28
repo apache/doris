@@ -43,5 +43,5 @@ mysql> select now();
 | 2019-05-27 15:58:25 |
 +---------------------+
 ```
-### keyword
+### keywords
 NOW

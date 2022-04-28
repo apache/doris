@@ -49,5 +49,5 @@ mysql> select date_add('2010-11-30 23:59:59', INTERVAL 2 DAY);
 | 2010-12-02 23:59:59                             |
 +-------------------------------------------------+
 ```
-### keyword
+### keywords
 DATE_ADD,DATE,ADD

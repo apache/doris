@@ -29,5 +29,5 @@ under the License.
 TINYINT
 1 byte signed integer, range [-128, 127]
 
-### keyword
+### keywords
 TINYINT

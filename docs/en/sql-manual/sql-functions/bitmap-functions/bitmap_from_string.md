@@ -58,6 +58,6 @@ mysql> select bitmap_from_string("-1, 0, 1, 2");
 +-----------------------------------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_FROM_STRING,BITMAP

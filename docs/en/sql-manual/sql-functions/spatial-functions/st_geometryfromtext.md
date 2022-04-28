@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
 | LINESTRING (1 1, 2 2)                                   |
 +---------------------------------------------------------+
 ```
-### keyword
+### keywords
 ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT

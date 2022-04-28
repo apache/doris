@@ -46,5 +46,5 @@ mysql> select  user_id, if(user_id = 1, "true", "false") test_if from test;
 | 2       | false   |
 +---------+---------+
 ```
-### keyword
+### keywords
 IF

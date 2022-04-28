@@ -50,6 +50,6 @@ mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt;
 +------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_HAS_ANY,BITMAP

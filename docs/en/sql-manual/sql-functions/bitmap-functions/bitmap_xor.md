@@ -71,6 +71,6 @@ MySQL> select bitmap_to_string(bitmap_xor(bitmap_from_string('2,3'),bitmap_from_
 +---------------------------------------------------------------------------------------------------------------------------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_XOR,BITMAP

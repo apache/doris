@@ -66,5 +66,5 @@ mysql> select GROUP_CONCAT(value, NULL) from test;
 | NULL                       |
 +----------------------------+
 ```
-### keyword
+### keywords
 GROUP_CONCAT,GROUP,CONCAT

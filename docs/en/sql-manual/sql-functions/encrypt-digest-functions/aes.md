@@ -53,6 +53,10 @@ MySQL > select to_base64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', 
 1 row in set (0.011 sec)
 ```
 
+### keywords
+
+    AES_ENCRYPT
+
 ## AES_DECRYPT
 
 ### description
@@ -83,6 +87,6 @@ MySQL > select AES_DECRYPT(FROM_BASE64('mvZT1KJw7N0RJf27aipUpg=='),'F3229A0B371E
 1 row in set (0.012 sec)
 ```
 
-### keyword
+### keywords
 
-    AES_ENCRYPT, AES_DECRYPT
+    AES_DECRYPT

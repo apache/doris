@@ -50,5 +50,5 @@ mysql> select instr("abc", "d");
 |                 0 |
 +-------------------+
 ```
-### keyword
+### keywords
 INSTR

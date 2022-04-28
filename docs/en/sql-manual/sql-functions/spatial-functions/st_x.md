@@ -43,5 +43,5 @@ mysql> SELECT ST_X(ST_Point(24.7, 56.7));
 |                       24.7 |
 +----------------------------+
 ```
-### keyword
+### keywords
 ST_X,ST,X

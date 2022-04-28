@@ -47,6 +47,6 @@ mysql> select bitmap_count(bitmap_hash('hello'));
 +------------------------------------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_HASH,BITMAP

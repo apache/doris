@@ -42,5 +42,5 @@ MySQL > select sum(scan_rows) from log_statis group by datetime;
 |       8217360135 |
 +------------------+
 ```
-### keyword
+### keywords
 SUM

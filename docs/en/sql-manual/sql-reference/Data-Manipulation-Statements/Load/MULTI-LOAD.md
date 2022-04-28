@@ -24,6 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
+## MULTI-LOAD
+
 ### Name
 
 MULTI LOAD
@@ -112,7 +114,7 @@ Import the data of 'testData2' into table 'testTbl2' in 'testDb' (user is in def
     curl --location-trusted -u root -XPOST http://host:port/api/testDb/_multi_desc?label=123
 ````
 
-### Keyword
+### Keywords
 
 ```
 MULTI, MINI, LOAD

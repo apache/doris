@@ -45,5 +45,5 @@ mysql> select find_in_set("b", "a,b,c");
 |                         2 |
 +---------------------------+
 ```
-### keyword
+### keywords
 FIND_IN_SET,FIND,IN,SET

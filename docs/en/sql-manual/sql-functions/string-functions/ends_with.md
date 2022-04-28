@@ -50,5 +50,5 @@ mysql> select ends_with("Hello doris", "Hello");
 |                                 0 | 
 +-----------------------------------+
 ```
-### keyword
+### keywords
 ENDS_WITH

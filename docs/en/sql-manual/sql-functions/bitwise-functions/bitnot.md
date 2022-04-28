@@ -52,6 +52,6 @@ mysql> select bitxor(-127) ans;
 +------+
 ```
 
-### keyword
+### keywords
 
     BITNOT

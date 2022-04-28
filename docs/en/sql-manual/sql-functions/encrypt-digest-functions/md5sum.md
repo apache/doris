@@ -51,6 +51,6 @@ MySQL > select md5sum("ab","cd");
 
 ```
 
-### keyword
+### keywords
 
     MD5SUM

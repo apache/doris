@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_LineFromText("LINESTRING (1 1, 2 2)"));
 | LINESTRING (1 1, 2 2)                                   |
 +---------------------------------------------------------+
 ```
-### keyword
+### keywords
 ST_LINEFROMTEXT, ST_LINESTRINGFROMTEXT,ST,LINEFROMTEXT,LINESTRINGFROMTEXT

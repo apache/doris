@@ -75,5 +75,5 @@ mysql> select yearweek('2024-12-30',1);
 +------------------------------------+
 ```
 
-### keyword
+### keywords
 YEARWEEK

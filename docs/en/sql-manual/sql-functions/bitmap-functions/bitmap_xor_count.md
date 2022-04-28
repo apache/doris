@@ -78,6 +78,6 @@ MySQL> select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,
 +-----------------------------------------------------------------------------------------------------------------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_XOR_COUNT,BITMAP

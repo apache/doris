@@ -52,6 +52,6 @@ mysql> select bitand(4,7) ans;
 +------+
 ```
 
-### keyword
+### keywords
 
     BITOR

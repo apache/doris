@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-#HLL (HyperLogLog)
+## HLL (HyperLogLog)
 ### Description
 HLL
 
@@ -45,5 +45,5 @@ The error of HLL is usually around 1%, sometimes up to 2%.
     group by hour order by 1
     ) final;
     
-### keyword
+### keywords
 HLL,HYPERLOGLOG

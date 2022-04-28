@@ -31,5 +31,5 @@ A variable length string, M represents the byte length of a variable length stri
 
 Note: Variable length strings are stored in UTF-8 encoding, so usually English characters occupies 1 byte, and Chinese characters occupies 3 bytes.
 
-### keyword
+### keywords
 VARCHAR

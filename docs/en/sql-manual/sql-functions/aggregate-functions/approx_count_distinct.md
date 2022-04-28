@@ -44,6 +44,6 @@ MySQL > select approx_count_distinct(query_id) from log_statis group by datetime
 | 17721           |
 +-----------------+
 ```
-### keyword
+### keywords
 
 APPROX_COUNT_DISTINCT

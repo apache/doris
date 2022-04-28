@@ -42,6 +42,6 @@ MySQL > select sm3("abcd");
 1 row in set (0.009 sec)
 ```
 
-### keyword
+### keywords
 
     SM3

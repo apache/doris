@@ -45,5 +45,5 @@ mysql> select dayname('2007-02-03 00:00:00');
 | Saturday                       |
 +--------------------------------+
 ```
-### keyword
+### keywords
 DAYNAME

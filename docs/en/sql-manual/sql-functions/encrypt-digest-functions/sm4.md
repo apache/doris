@@ -25,12 +25,12 @@ under the License.
 ## SM4_ENCRYPT
 
 ### description
-SM4 加密函数
+
 #### Syntax
 
 `VARCHAR SM4_ENCRYPT(str,key_str[,init_vector])`
 
-返回加密后的结果
+return encrypted result
 
 ### example
 
@@ -55,15 +55,19 @@ MySQL > select to_base64(SM4_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', 
 1 row in set (0.014 sec)
 ```
 
+### keywords
+
+    SM4_ENCRYPT
+
 ## SM4_DECRYPT
 
 ### description
-Aes 解密函数
+
 #### Syntax
 
-`VARCHAR AES_DECRYPT(str,key_str[,init_vector])`
+`VARCHAR SM4_DECRYPT(str,key_str[,init_vector])`
 
-返回解密后的结果
+Return the decrypted result
 
 ### example
 
@@ -88,6 +92,6 @@ MySQL > select SM4_DECRYPT(FROM_BASE64('G7yqOKfEyxdagboz6Qf01A=='),'F3229A0B371E
 1 row in set (0.012 sec)
 ```
 
-### keyword
+### keywords
 
-    SM4_ENCRYPT, SM4_DECRYPT
+    SM4_DECRYPT

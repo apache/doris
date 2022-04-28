@@ -80,5 +80,5 @@ mysql> SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4
 | ["v1","v3","v4"]                                                                |
 +---------------------------------------------------------------------------------+
 ```
-### keyword
+### keywords
 GET_JSON_STRING,GET,JSON,STRING

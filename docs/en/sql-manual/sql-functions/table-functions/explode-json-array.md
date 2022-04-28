@@ -281,6 +281,6 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_string('{"a":
 +------+------+
 ```
 
-### keyword
+### keywords
 
     explode_json_array

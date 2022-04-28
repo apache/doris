@@ -50,5 +50,5 @@ mysql> select length("中国");
 |                6 |
 +------------------+
 ```
-### keyword
+### keywords
 LENGTH

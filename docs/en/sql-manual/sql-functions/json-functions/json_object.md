@@ -67,5 +67,5 @@ MySQL> select json_object('username',null);
 | {"username": NULL}              |
 +---------------------------------+
 ```
-### keyword
+### keywords
 json_object

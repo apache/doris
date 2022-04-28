@@ -27,7 +27,11 @@ under the License.
 
 ## BITMAP_UNION
 
-### Create table
+### description
+
+### example
+
+#### Create table
 
 The aggregation model needs to be used when creating the table. The data type is bitmap and the aggregation function is bitmap_union.
 ```
@@ -47,7 +51,7 @@ Note: When the amount of data is large, it is best to create a corresponding rol
 ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 ```
 
-### Data Load
+#### Data Load
 
 `TO_BITMAP (expr)`: Convert 0 ~ 18446744073709551615 unsigned bigint to bitmap
 
@@ -55,7 +59,7 @@ ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 
 `BITMAP_HASH (expr)`: Convert any type of column to a bitmap by hashing
 
-#### Stream Load
+##### Stream Load
 
 ```
 cat data | curl --location-trusted -u user: passwd -T--H "columns: dt, page, user_id, user_id = to_bitmap (user_id)" http: // host: 8410 / api / test / testDb / _stream_load
@@ -69,7 +73,7 @@ cat data | curl --location-trusted -u user: passwd -T--H "columns: dt, page, use
 cat data | curl --location-trusted -u user: passwd -T--H "columns: dt, page, user_id, user_id = bitmap_empty ()" http: // host: 8410 / api / test / testDb / _stream_load
 ```
 
-#### Insert Into
+##### Insert Into
 
 id2's column type is bitmap
 ```
@@ -97,9 +101,9 @@ insert into bitmap_table1 select id, bitmap_hash (id_string) from table;
 ```
 
 
-### Data Query
+#### Data Query
 
-#### Syntax
+##### Syntax
 
 
 `BITMAP_UNION (expr)`: Calculate the union of two Bitmaps. The return value is the new Bitmap value.
@@ -112,7 +116,7 @@ insert into bitmap_table1 select id, bitmap_hash (id_string) from table;
 filter_column The cardinality of the intersection of multiple bitmaps of the filter.
 bitmap_column_to_count is a column of type bitmap, filter_column is a column of varying dimensions, and filter_values ​​is a list of dimension values.
 
-#### Example
+##### Example
 
 The following SQL uses the pv_bitmap table above as an example:
 
@@ -140,7 +144,6 @@ from pv_bitmap
 where page in ('meituan', 'waimai');
 ```
 
-
-### keyword
+### keywords
 
 BITMAP, BITMAP_COUNT, BITMAP_EMPTY, BITMAP_UNION, BITMAP_UNION_INT, TO_BITMAP, BITMAP_UNION_COUNT, INTERSECT_COUNT

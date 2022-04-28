@@ -54,5 +54,5 @@ MySQL > select percentile(NULL,0.3) from table1;
 
 ```
 
-### keyword
+### keywords
 PERCENTILE

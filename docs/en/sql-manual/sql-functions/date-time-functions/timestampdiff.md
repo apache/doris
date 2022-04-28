@@ -63,5 +63,5 @@ MySQL> SELECT TIMESTAMPDIFF(MINUTE,'2003-02-01','2003-05-01 12:05:55');
 +---------------------------------------------------------------------+
 
 ```
-### keyword
+### keywords
 TIMESTAMPDIFF

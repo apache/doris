@@ -50,6 +50,6 @@ mysql> select bitmap_contains(to_bitmap(1),1) cnt;
 +------+
 ```
 
-### keyword
+### keywords
 
     BITMAP_CONTAINS,BITMAP

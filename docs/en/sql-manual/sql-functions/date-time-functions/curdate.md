@@ -49,6 +49,6 @@ mysql> SELECT CURDATE() + 0;
 |      20191220 |
 +---------------+
 ```
-### keyword
+### keywords
 
     CURDATE,CURRENT_DATE

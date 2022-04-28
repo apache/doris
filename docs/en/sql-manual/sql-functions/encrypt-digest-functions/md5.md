@@ -42,6 +42,6 @@ MySQL [(none)]> select md5("abc");
 1 row in set (0.013 sec)
 ```
 
-### keyword
+### keywords
 
     MD5

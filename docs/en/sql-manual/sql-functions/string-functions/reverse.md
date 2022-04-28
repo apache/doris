@@ -52,5 +52,5 @@ mysql> SELECT REVERSE('你好');
 +------------------+
 1 row in set (0.00 sec)
 ```
-### keyword
+### keywords
 REVERSE

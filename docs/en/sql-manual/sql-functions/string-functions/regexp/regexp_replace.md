@@ -50,5 +50,5 @@ mysql> SELECT regexp_replace('a b c','(b)','<\\1>');
 | a <b> c                                |
 +----------------------------------------+
 ```
-### keyword
+### keywords
 REGEXP_REPLACE,REGEXP,REPLACE

@@ -50,6 +50,6 @@ mysql> select convert_tz('2019-08-01 13:21:03', '+08:00', 'America/Los_Angeles')
 +--------------------------------------------------------------------+
 ```
 
-### keyword
+### keywords
 
     CONVERT_TZ

@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-#AVG
+## AVG
 ### Description
 #### Syntax
 
@@ -54,6 +54,6 @@ mysql> SELECT datetime, AVG(distinct cost_time) FROM log_statis group by datetim
 +---------------------+---------------------------+
 
 ```
-### keyword
+### keywords
 
 AVG

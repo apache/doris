@@ -54,6 +54,6 @@ When the user_id field is int, the above query semantics is equivalent to
 mysql> select page_id, count(distinct user_id) from table group by page_id;
 ```
 
-### keyword
+### keywords
 
     BITMAP_UNION, BITMAP

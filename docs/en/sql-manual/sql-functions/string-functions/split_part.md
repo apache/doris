@@ -65,5 +65,5 @@ mysql> select split_part("abca", "a", 1);
 |                            |
 +----------------------------+
 ```
-### keyword
+### keywords
 SPLIT_PART,SPLIT,PART

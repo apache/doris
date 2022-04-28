@@ -43,5 +43,5 @@ mysql> select current_timestamp();
 | 2019-05-27 15:59:33 |
 +---------------------+
 ```
-### keyword
+### keywords
 CURRENT_TIMESTAMP,CURRENT,TIMESTAMP

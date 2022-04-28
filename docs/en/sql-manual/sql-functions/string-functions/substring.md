@@ -73,5 +73,5 @@ mysql> select substring('abc1def', 2, 2);
 +-----------------------------+
 ```
 
-### keyword
+### keywords
 SUBSTRING

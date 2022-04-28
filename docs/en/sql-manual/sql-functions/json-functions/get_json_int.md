@@ -70,5 +70,5 @@ mysql> SELECT get_json_int('{"k1.key":{"k2":[1, 2]}}', '$."k1.key".k2[0]');
 |                                                            1 |
 +--------------------------------------------------------------+
 ```
-### keyword
+### keywords
 GET_JSON_INT,GET,JSON,INT

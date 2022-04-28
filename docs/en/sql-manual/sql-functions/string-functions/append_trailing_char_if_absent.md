@@ -55,6 +55,6 @@ MySQL [test]> select append_trailing_char_if_absent('ac','c');
 1 row in set (0.00 sec)
 ```
 
-### keyword
+### keywords
 
 APPEND_TRAILING_CHAR_IF_ABSENT

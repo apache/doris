@@ -41,6 +41,6 @@ mysql> select orthogonal_bitmap_union_count(members) from tag_map where  tag_gro
 1 row in set (2.645 sec)
 ```
 
-### keyword
+### keywords
 
     ORTHOGONAL_BITMAP_UNION_COUNT,BITMAP

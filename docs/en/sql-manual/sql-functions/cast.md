@@ -24,9 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-
 ## CAST
-##Description
+### Description
 
 
 ```
@@ -79,5 +78,5 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 +----------------------------------------+
 1 row in set (0.00 sec)
 ```
-### keyword
+### keywords
 CAST
