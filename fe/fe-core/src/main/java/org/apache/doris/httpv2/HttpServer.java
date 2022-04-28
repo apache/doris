@@ -45,11 +45,11 @@ public class HttpServer extends SpringBootServletInitializer {
     private int minThreads;
     private int maxThreads;
 
-    public int getMaxHttpHeaderSize () {
+    public int getMaxHttpHeaderSize() {
         return maxHttpHeaderSize;
     }
 
-    public void setMaxHttpHeaderSize ( int maxHttpHeaderSize ) {
+    public void setMaxHttpHeaderSize(int maxHttpHeaderSize) {
         this.maxHttpHeaderSize = maxHttpHeaderSize;
     }
 
