@@ -1,0 +1,5 @@
+name: dbt_doris
+version: 1.0
+config-version: 2
+
+macro-paths: ["macros"]

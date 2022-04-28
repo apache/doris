@@ -1,0 +1,17 @@
+target:
+  type: doris
+  host: 127.0.0.1
+  port: 9030
+  username: root
+  schema: "dbt_{{ var('_dbt_random_suffix') }}"
+
+sequences:
+  test_dbt_empty: empty
+  test_dbt_base: base
+  test_dbt_ephemeral: ephemeral
+  test_dbt_incremental: incremental
+  test_dbt_snapshot_strategy_timestamp: snapshot_strategy_timestamp
+  test_dbt_snapshot_strategy_check_cols: snapshot_strategy_check_cols
+  test_dbt_data_test: data_test
+  test_dbt_schema_test: schema_test
+  test_dbt_ephemeral_data_tests: data_test_ephemeral_models

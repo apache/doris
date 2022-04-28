@@ -1,0 +1,10 @@
+default:
+  outputs:
+    dev:
+      type: doris
+        host: <host>
+        port: <port_num>
+        username: <user>
+        password: <pass>
+        database: <db>
+  target: dev
