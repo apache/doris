@@ -85,6 +85,8 @@ class RegressionTest {
         scriptExecutors = Executors.newFixedThreadPool(config.parallel)
         suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel)
         actionExecutors = Executors.newFixedThreadPool(config.actionParallel)
+
+        loadPlugins(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -269,6 +271,30 @@ class RegressionTest {
         } else {
             printPassed()
             return true
+        }
+    }
+
+    static void loadPlugins(Config config) {
+        if (config.pluginPath.is(null) || config.pluginPath.isEmpty()) {
+            return
+        }
+        def pluginPath = new File(config.pluginPath)
+        if (!pluginPath.exists() && !pluginPath.isDirectory()) {
+            return
+        }
+        pluginPath.eachFileRecurse { it ->
+            if (it.name.endsWith(".groovy")) {
+                ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
+                        config, [], { name -> true })
+                SuiteScript pluginScript = new GroovyFileSource(it).toScript(context, shell)
+                try {
+                    log.info("Begin to load plugin: ${it.getCanonicalPath()}")
+                    pluginScript.run()
+                    log.info("Loaded plugin: ${it.getCanonicalPath()}")
+                } catch (Throwable t) {
+                    log.error("Load plugin failed: ${it.getCanonicalPath()}", t)
+                }
+            }
         }
     }
 
