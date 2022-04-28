@@ -59,7 +59,7 @@ The overall release process is as follows.
 3. verify the branch
 	1. stability testing
 	2. verify the compilation flow of the branch code
-	3. Prepare Release Nodes
+	3. Prepare Release Notes
 4. prepare release materials
     1. Tagging
     2. upload the content to be released to the [Apache Dev SVN repository](https://dist.apache.org/repos/dist/dev/incubator/doris)
@@ -196,6 +196,13 @@ Enter passphrase, twice, more than 8 characters.
 
 **The secret key here must be remembered, it will be used later when signing. It will also be used for publishing other components**
 
+>**Notice:**
+>
+>If the generation is stuck when it can be generated and cannot be completed for a long time, the following solutions can be used to solve it:
+>
+>Install the rng-tools tool by `yum install rng-tools` to complete the installation.
+>Then open a new window and execute the command: rngd -r /dev/urandom, and the key generation can be completed instantly.
+
 ##### View and output
 
 The first line shows the public key file name (pubring.gpg), the second line shows the public key characteristics (4096 bits, hash string and generation time), the third line shows the "user ID", comments, emails, and the fourth line shows the private key characteristics.
@@ -315,12 +322,12 @@ For components such as the Doris Connector, you need to use maven for the releas
 
 
     `mvn --encrypt-password <password>`
-
+    
     The password is the password for the apache account. The output is similar to `{GRKbCylpwysHfV...}`
     
     Add in `~/.m2/settings.xml`
-
-	```
+    
+    ```
     <servers>
       <!-- To publish a snapshot of your project -->
       <server>
@@ -335,8 +342,8 @@ For components such as the Doris Connector, you need to use maven for the releas
         <password>{GRKbCylpwysHfV...}</password>
       </server>
     </servers>
-	```
-	
+    ```
+
 ## Initiating DISCUSS in the community
 
 DISCUSS is not a required process before a release, but it is highly recommended to start a discussion in the dev@doris mail group before a major release. Content includes, but is not limited to, descriptions of important features, bug fixes, etc.

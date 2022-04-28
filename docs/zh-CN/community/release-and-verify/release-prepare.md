@@ -59,7 +59,7 @@ Apache 项目的版本发布主要有以下三种形式：
 3. 验证分支
 	1. QA 稳定性测试
 	2. 验证分支代码的编译流程
-	3. 准备 Release Nodes
+	3. 准备 Release Notes
 4. 准备发布材料
     1. 打 Tag
     2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
@@ -194,6 +194,13 @@ Email address 为 apache 的邮箱。
 输入 passphrase, 一共要输入两遍，超过8个字符即可。
 
 **这里的秘钥一定要记住，后面签名的时候会用到。同时也会用于其他组件的发布**
+
+>**注意：**
+>
+>如果在生成可以的时候出现卡住，长时间不能完成的时候，可以通过下面的方案解决：
+>
+>安装 rng-tools 这个工具，通过 `yum install rng-tools` 完成安装。
+>之后再打开一个新的窗口执行命令：rngd -r /dev/urandom，生成密钥就能瞬间完成了。
 
 ##### 查看和输出
 

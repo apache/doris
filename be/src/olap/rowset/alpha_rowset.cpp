@@ -100,7 +100,7 @@ Status AlphaRowset::link_files_to(const FilePathDesc& dir_desc, RowsetId new_row
     return Status::OK();
 }
 
-Status AlphaRowset::copy_files_to(const std::string& dir) {
+Status AlphaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
     for (auto& segment_group : _segment_groups) {
         Status status = segment_group->copy_files_to(dir);
         if (!status.ok()) {

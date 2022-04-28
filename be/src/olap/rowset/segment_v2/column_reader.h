@@ -171,7 +171,8 @@ private:
     uint64_t _num_rows;
     FilePathDesc _path_desc;
 
-    const TypeInfo* _type_info = nullptr; // initialized in init(), may changed by subclasses.
+    TypeInfoPtr _type_info =
+            TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
     const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
@@ -350,7 +351,7 @@ public:
             ordinal_t start_offset_in_this_page =
                     _length_iterator->get_current_page()->first_array_item_ordinal;
             ColumnBlock ordinal_block(_length_batch.get(), nullptr);
-            ordinal_t size_to_read = ord - start_offset_in_this_page;
+            ordinal_t size_to_read = ord - _length_iterator->get_current_ordinal();
             bool has_null = false;
             ordinal_t item_ordinal = start_offset_in_this_page;
             while (size_to_read > 0) {
@@ -359,7 +360,7 @@ public:
                                            : size_to_read;
                 ColumnBlockView ordinal_view(&ordinal_block);
                 RETURN_IF_ERROR(_length_iterator->next_batch(&this_read, &ordinal_view, &has_null));
-                auto* ordinals = reinterpret_cast<ordinal_t*>(_length_batch->data());
+                auto* ordinals = reinterpret_cast<uint32_t*>(_length_batch->data());
                 for (int i = 0; i < this_read; ++i) {
                     item_ordinal += ordinals[i];
                 }
@@ -386,12 +387,11 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, const TypeInfo* type_info,
-                               size_t schema_length)
+                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
-              _type_info(type_info),
+              _type_info(std::move(type_info)),
               _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
@@ -426,7 +426,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    const TypeInfo* _type_info;
+    TypeInfoPtr _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;

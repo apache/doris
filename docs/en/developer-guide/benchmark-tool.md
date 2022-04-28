@@ -33,7 +33,7 @@ It can be used to test the performance of some parts of the BE storage layer (fo
 
 ## Compilation
 
-1. To ensure that the environment has been able to successfully compile the Doris ontology, you can refer to [Installation and deployment] (https://doris.apache.org/master/en/installing/compilation.html)。
+1. To ensure that the environment has been able to successfully compile the Doris ontology, you can refer to [Installation and deployment] (https://doris.apache.org/master/en/installing/compilation.html).
 
 2. Execute`run-be-ut.sh`
 
@@ -53,9 +53,9 @@ The data set is generated according to the following rules.
 >int: Random in [1,1000000]. 
 
 The data character set of string type is uppercase and lowercase English letters, and the length varies according to the type. 
-> char: Length random in [1,8]。
-> varchar: Length random in [1,128]。 
-> string: Length random in [1,100000]。
+> char: Length random in [1,8].
+> varchar: Length random in [1,128].
+> string: Length random in [1,100000].
 
 `rows_number` indicates the number of rows of data, the default value is `10000`. 
 

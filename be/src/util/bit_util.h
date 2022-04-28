@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/bit-util.h
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
@@ -22,7 +25,6 @@
 
 #include "common/compiler_util.h"
 #include "gutil/bits.h"
-#include "gutil/port.h"
 #include "util/cpu_info.h"
 #ifdef __aarch64__
 #include "sse2neon.h"

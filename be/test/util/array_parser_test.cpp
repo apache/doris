@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 
+#include "olap/tablet_schema.h"
 #include "olap/types.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/string_value.h"
@@ -43,7 +44,7 @@ ColumnPB create_column_pb(const std::string& type, const Ts&... sub_column_types
     return column;
 }
 
-static const TypeInfo* get_type_info(const ColumnPB& column_pb) {
+static TypeInfoPtr get_type_info(const ColumnPB& column_pb) {
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
     return get_type_info(&tablet_column);

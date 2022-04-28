@@ -223,7 +223,7 @@ Users can load data into temporary partitions or specify temporary partitions fo
     ```
     LOAD LABEL example_db.label1
     (
-    DATA INFILE ("hdfs: // hdfs_host: hdfs_port / user / palo / data / input / file")
+    DATA INFILE ("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
     INTO TABLE `my_table`
     TEMPORARY PARTITION (tp1, tp2, ...)
     ...

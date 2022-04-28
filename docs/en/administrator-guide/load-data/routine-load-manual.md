@@ -85,7 +85,7 @@ Currently we only support routine load from the Kafka system. This section detai
 
 1. Support unauthenticated Kafka access and Kafka clusters certified by SSL.
 2. The supported message format is csv text or json format. Each message is a line in csv format, and the end of the line does not contain a ** line break.
-3. Kafka 0.10.0.0 (inclusive) or above is supported by default. If you want to use Kafka versions below 0.10.0.0 (0.9.0, 0.8.2, 0.8.1, 0.8.0), you need to modify the configuration of be, set the value of kafka_broker_version_fallback to be the older version, or directly set the value of property.broker.version.fallback to the old version when creating routine load. The cost of the old version is that some of the new features of routine load may not be available, such as setting the offset of the kafka partition by time.
+3. Kafka 0.10.0 (inclusive) or above is supported by default. If you want to use Kafka versions below 0.10.0 (0.9.0, 0.8.2, 0.8.1, 0.8.0), you need to modify the configuration of be, set the value of kafka_broker_version_fallback to be the older version, or directly set the value of property.broker.version.fallback to the old version when creating routine load. The cost of the old version is that some of the new features of routine load may not be available, such as setting the offset of the kafka partition by time.
 
 ### Create a routine load task
 
@@ -93,7 +93,7 @@ The detailed syntax for creating a routine load task can be connected to Doris a
 
 * columns_mapping
 
-    `columns_mapping` is mainly used to specify the column structure of the table structure and message, as well as the conversion of some columns. If not specified, Doris will default to the columns in the message and the columns of the table structure in a one-to-one correspondence. Although under normal circumstances, if the source data is exactly one-to-one, normal data load can be performed without specifying. However, we still strongly recommend that users ** explicitly specify column mappings**. This way, when the table structure changes (such as adding a nullable column), or the source file changes (such as adding a column), the load task can continue. Otherwise, after the above changes occur, the load will report an error because the column mapping relationship is no longer one-to-one.
+    `columns_mapping` is mainly used to specify the column structure of the table structure and message, as well as the conversion of some columns. If not specified, Doris will default to the columns in the message and the columns of the table structure in a one-to-one correspondence. Although under normal circumstances, if the source data is exactly one-to-one, normal data load can be performed without specifying. However, we still strongly recommend that users **explicitly specify column mappings**. This way, when the table structure changes (such as adding a nullable column), or the source file changes (such as adding a column), the load task can continue. Otherwise, after the above changes occur, the load will report an error because the column mapping relationship is no longer one-to-one.
 
     In `columns_mapping` we can also use some built-in functions for column conversion. But you need to pay attention to the actual column type corresponding to the function parameters. for example:
 
@@ -199,7 +199,7 @@ Here the column type is Decimal(1,0)
 
 #### Accessing SSL-certified Kafka clusters
 
-Accessing the SSL-certified Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If the Kafka cluster has both client authentication enabled, you will also need to provide the client's public key (client.pem), key file (client.key), and key password. The files needed here need to be uploaded to Doris via the `CREAE FILE` command, ** and the catalog name is `kafka`**. See `HELP CREATE FILE;` for specific help on the `CREATE FILE` command. Here is an example:
+Accessing the SSL-certified Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If the Kafka cluster has both client authentication enabled, you will also need to provide the client's public key (client.pem), key file (client.key), and key password. The files needed here need to be uploaded to Doris via the `CREAE FILE` command, **and the catalog name is `kafka`**. See `HELP CREATE FILE;` for specific help on the `CREATE FILE` command. Here is an example:
 
 1. Upload file
 
@@ -235,7 +235,7 @@ Accessing the SSL-certified Kafka cluster requires the user to provide a certifi
 
 ### Viewing the status of the load job
 
-Specific commands and examples for viewing the status of the ** job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
+Specific commands and examples for viewing the status of the **job** can be viewed with the `HELP SHOW ROUTINE LOAD;` command.
 
 Specific commands and examples for viewing the **Task** status can be viewed with the `HELP SHOW ROUTINE LOAD TASK;` command.
 
@@ -272,7 +272,7 @@ The user can control the stop, pause and restart of the job by the three command
     * If the broker of the user kafka cluster has `auto.create.topics.enable = true` set, `kafka_topic` will be automatically created first, and the number of partitions created automatically will be in the kafka cluster** of the user side. The broker is configured with `num.partitions`. The routine job will continue to read the data of the topic continuously.
     * If the broker of the user kafka cluster has `auto.create.topics.enable = false` set, topic will not be created automatically, and the routine will be paused before any data is read, with the status `PAUSED`.
 
-    So, if the user wants to be automatically created by the routine when the kafka topic does not exist, just set the broker in the kafka cluster** of the user's side to set auto.create.topics.enable = true` .
+    So, if the user wants to be automatically created by the routine when the kafka topic does not exist, just set the broker in **the kafka cluster of the user's side** to set auto.create.topics.enable = true` .
     
 5. Problems that may occur in the some environment
      In some environments, there are isolation measures for network segment and domain name resolution. So should pay attention to:
@@ -301,7 +301,7 @@ The user can control the stop, pause and restart of the job by the three command
    
  7. The difference between STOP and PAUSE
 
-    the FE will automatically clean up stopped ROUTINE LOAD，while paused ROUTINE LOAD can be resumed
+    the FE will automatically clean up stopped ROUTINE LOAD,while paused ROUTINE LOAD can be resumed
 
 ## Related parameters
 

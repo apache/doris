@@ -51,10 +51,9 @@ Segment::Segment(const FilePathDesc& path_desc, uint32_t segment_id,
                  const TabletSchema* tablet_schema)
         : _path_desc(path_desc), _segment_id(segment_id), _tablet_schema(tablet_schema) {
 #ifndef BE_TEST
-    _mem_tracker = MemTracker::create_virtual_tracker(
-            -1, "Segment", StorageEngine::instance()->tablet_mem_tracker());
+    _mem_tracker = StorageEngine::instance()->tablet_mem_tracker();
 #else
-    _mem_tracker = MemTracker::create_virtual_tracker(-1, "Segment");
+    _mem_tracker = MemTracker::get_process_tracker();
 #endif
 }
 
@@ -212,7 +211,7 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
                 new DefaultValueColumnIterator(
                         tablet_column.has_default_value(), tablet_column.default_value(),
-                        tablet_column.is_nullable(), type_info, tablet_column.length()));
+                        tablet_column.is_nullable(), std::move(type_info), tablet_column.length()));
         ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));

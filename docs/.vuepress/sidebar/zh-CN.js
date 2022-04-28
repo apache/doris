@@ -558,7 +558,8 @@ module.exports = [
               "explode-bitmap",
               "explode-split",
               "explode-json-array",
-              "explode-numbers"
+              "explode-numbers",
+              "outer-combinator"
             ],
           },
           "window-function",
@@ -606,6 +607,7 @@ module.exports = [
               "ADMIN SHOW REPLICA DISTRIBUTION",
               "ADMIN SHOW REPLICA STATUS",
               "ADMIN-DIAGNOSE-TABLET",
+              "ADMIN SHOW TABLET STORAGE FORMAT",
               "ALTER CLUSTER",
               "ALTER SYSTEM",
               "CANCEL DECOMMISSION",

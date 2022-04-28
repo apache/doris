@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/row-batch.cc
+// and modified by Doris
 
 #include "runtime/row_batch.h"
 
@@ -41,7 +44,7 @@ const int RowBatch::AT_CAPACITY_MEM_USAGE = 8 * 1024 * 1024;
 const int RowBatch::FIXED_LEN_BUFFER_LIMIT = AT_CAPACITY_MEM_USAGE / 2;
 
 RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
-        : _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()),
+        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(0),
           _num_uncommitted_rows(0),
@@ -67,7 +70,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
 // to allocated string data in special mempool
 // (change via python script that runs over Data_types.cc)
 RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
-        : _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()),
+        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows()),
           _num_uncommitted_rows(0),

@@ -175,6 +175,10 @@ public:
         return _remote_storage_name;
     }
 
+    StorageMediumPB storage_medium() const {
+        return _storage_medium;
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
     void _init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn, ColumnPB* column);
@@ -209,6 +213,7 @@ private:
     bool _in_restore_mode = false;
     RowsetTypePB _preferred_rowset_type = BETA_ROWSET;
     std::string _remote_storage_name;
+    StorageMediumPB _storage_medium;
 
     std::shared_mutex _meta_lock;
 };

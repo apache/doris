@@ -187,7 +187,8 @@ enum TTaskType {
     ALTER,
     INSTALL_PLUGIN,
     UNINSTALL_PLUGIN,
-    COMPACTION
+    COMPACTION,
+    STORAGE_MEDIUM_MIGRATE_V2
 }
 
 enum TStmtType {

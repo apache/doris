@@ -441,8 +441,9 @@ public class GlobalTransactionMgr implements Writable {
             long runningNum = 0;
             try {
                 DatabaseTransactionMgr dbMgr = getDatabaseTransactionMgr(dbId);
-                runningNum = dbMgr.getRunningTxnNums();
+                runningNum = dbMgr.getRunningTxnNums() + dbMgr.getRunningRoutineLoadTxnNums();
             } catch (AnalysisException e) {
+                LOG.warn("get database running transaction num failed", e);
             }
             info.add(runningNum);
             infos.add(info);

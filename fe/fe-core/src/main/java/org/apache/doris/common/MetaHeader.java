@@ -75,10 +75,15 @@ public class MetaHeader {
     }
 
     public static long write(File imageFile) throws IOException {
+        if (imageFile.length() != 0) {
+            throw new IOException("Meta header has to be written to an empty file.");
+        }
+
         try (RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             raf.seek(0);
             MetaMagicNumber.write(raf);
             MetaJsonHeader.write(raf);
+            raf.getChannel().force(true);
             return raf.getFilePointer();
         }
     }

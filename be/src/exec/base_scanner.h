@@ -58,12 +58,13 @@ public:
 
     // Close this scanner
     virtual void close() = 0;
-    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
+    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+    
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
@@ -106,6 +107,9 @@ protected:
     // Used to record whether a row of data is successfully read.
     bool _success = false;
     bool _scanner_eof = false;
+
+private:
+    Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 
 } /* namespace doris */

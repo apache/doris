@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr.cc
+// and modified by Doris
 
 #include "runtime/disk_io_mgr.h"
 
@@ -217,7 +220,7 @@ void DiskIoMgr::BufferDescriptor::reset(RequestContext* reader, ScanRange* range
     _eosr = false;
     _status = Status::OK();
     // Consume in the tls mem tracker when the buffer is allocated.
-    _buffer_mem_tracker = thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
+    _buffer_mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get();
 }
 
 void DiskIoMgr::BufferDescriptor::return_buffer() {
@@ -736,7 +739,7 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
         buffer = new char[*buffer_size];
     } else {
         // This means the buffer's memory ownership is transferred from DiskIoMgr to tls tracker.
-        _mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), *buffer_size);
+        _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), *buffer_size);
         buffer = _free_buffers[idx].front();
         _free_buffers[idx].pop_front();
     }
@@ -764,7 +767,7 @@ void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
     // The deleted buffer is released in the tls mem tracker, the deleted buffer belongs to DiskIoMgr,
     // so the freed memory should be recorded in the DiskIoMgr mem tracker. So if the tls mem tracker
     // and the DiskIoMgr tracker are different, transfer memory ownership.
-    _mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), bytes_freed);
+    _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), bytes_freed);
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
@@ -790,7 +793,7 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size, MemTracker
         // The deleted buffer is released in the tls mem tracker. When the buffer was allocated,
         // it was consumed in BufferDescriptor->buffer_mem_tracker, so if the tls mem tracker and
         // the tracker in the parameters are different, transfer memory ownership.
-        tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), buffer_size);
+        tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), buffer_size);
     }
 }
 

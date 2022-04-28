@@ -1991,8 +1991,8 @@ public class QueryPlanTest {
     public void testExplainInsertInto() throws Exception {
         ExplainTest explainTest = new ExplainTest();
         explainTest.before(connectContext);
-        explainTest.testExplainInsertInto();
         explainTest.testExplainSelect();
+        explainTest.testExplainInsertInto();
         explainTest.testExplainVerboseSelect();
         explainTest.testExplainConcatSelect();
         explainTest.testExplainVerboseConcatSelect();
@@ -2097,7 +2097,8 @@ public class QueryPlanTest {
                 "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
+        System.out.println(explainString);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
     }
 
     @Test
@@ -2119,4 +2120,38 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
     }
+
+    @Test
+    public void testOutJoinWithOnFalse() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("create table out_join_1\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    v int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");");
+
+        createTable("create table out_join_2\n" +
+                "(\n" +
+                "    k1 int,\n" +
+                "    v int\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(k1) BUCKETS 10\n" +
+                "PROPERTIES(\"replication_num\" = \"1\");");
+
+        String sql = "explain select * from out_join_1 left join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertFalse(explainString.contains("non-equal LEFT OUTER JOIN is not supported"));
+
+        sql = "explain select * from out_join_1 right join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertFalse(explainString.contains("non-equal RIGHT OUTER JOIN is not supported"));
+
+        sql = "explain select * from out_join_1 full join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertFalse(explainString.contains("non-equal FULL OUTER JOIN is not supported"));
+
+    }
+
 }

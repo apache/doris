@@ -154,6 +154,8 @@ struct TBrokerRangeDesc {
     17: optional bool read_json_by_line;
     // Whether read line by column defination, only for Hive
     18: optional bool read_by_column_def;
+    // csv with header type
+    19: optional string header_type;
 }
 
 struct TBrokerScanRangeParams {

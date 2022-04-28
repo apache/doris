@@ -108,10 +108,20 @@ This works for most Linux distributions (CentOS, Ubuntu, etc.).
 
 ## Compiling Doris
 
-Go to the Doris source code directory and execute.
+Enter the Doris source code directory and execute:
 
 ```
-sh build.sh
+$ cat /proc/cpuinfo | grep avx2
 ```
+
+Check whether the compilation machine supports the avx2 instruction set
+
+If it is not supported, use the following command to compile
+
+```
+$ USE_AVX2=0 sh build.sh
+```
+
+If supported, execute `sh build.sh` directly
 
 This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output is in the `output/` directory.

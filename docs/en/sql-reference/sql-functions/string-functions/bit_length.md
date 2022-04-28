@@ -31,7 +31,7 @@ under the License.
 `INT bit_length (VARCHAR str)`
 
 
-Return length of argument in bits。
+Return length of argument in bits.
 
 ## example
 

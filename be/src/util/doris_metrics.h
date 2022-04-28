@@ -76,6 +76,8 @@ public:
     IntCounter* create_rollup_requests_total;
     IntCounter* create_rollup_requests_failed;
     IntCounter* storage_migrate_requests_total;
+    IntCounter* storage_migrate_v2_requests_total;
+    IntCounter* storage_migrate_v2_requests_failed;
     IntCounter* delete_requests_total;
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
@@ -128,6 +130,8 @@ public:
     IntCounter* attach_task_thread_count;
     IntCounter* switch_thread_mem_tracker_count;
     IntCounter* switch_thread_mem_tracker_err_cb_count;
+    // brpc server response count
+    IntCounter* switch_bthread_count;
 
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
@@ -190,6 +194,7 @@ public:
     UIntGauge* load_channel_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
+    UIntGauge* storage_migration_mem_consumption;
     UIntGauge* tablet_meta_mem_consumption;
 
     // Cache metrics

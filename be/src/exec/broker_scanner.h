@@ -86,7 +86,7 @@ private:
     // Convert one row to one tuple
     //  'ptr' and 'len' is csv text line
     //  output is tuple
-    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool);
+    Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple);
 
     Status _line_to_src_tuple(const Slice& line);
 
@@ -109,9 +109,10 @@ private:
     int _next_range;
     bool _cur_line_reader_eof;
 
-    // When we fetch range doesn't start from 0,
-    // we will read to one ahead, and skip the first line
-    bool _skip_next_line;
+    // When we fetch range start from 0, header_type="csv_with_names" skip first line
+    // When we fetch range start from 0, header_type="csv_with_names_and_types" skip first two line
+    // When we fetch range doesn't start from 0 will always skip the first line
+    int _skip_lines;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;

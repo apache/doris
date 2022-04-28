@@ -29,7 +29,7 @@ under the License.
 
     The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently supports export to remote storage through Broker process, or directly through S3, HDFS  protocol such as HDFS, S3, BOS and COS(Tencent Cloud) through the Broker process. The syntax is as follows:
 
-    Grammar：
+    Grammar:
         query_stmt
         INTO OUTFILE "file_path"
         [format_as]
@@ -50,7 +50,7 @@ under the License.
     3. properties
         Specify the relevant attributes. Currently it supports exporting through the Broker process, or through the S3, HDFS protocol.
 
-        Grammar：
+        Grammar:
         [PROPERTIES ("key"="value", ...)]
         The following parameters can be specified:
           column_separator: Specifies the exported column separator, defaulting to t. Supports invisible characters, such as'\x07'.
@@ -173,7 +173,7 @@ under the License.
         "AWS_SECRET_KEY" = "xxx",
         "AWS_REGION" = "bd"
     )
-    The final generated file prefix is `my_file_{fragment_instance_id}_`。
+    The final generated file prefix is `my_file_{fragment_instance_id}_`.
 
     7. Use the s3 protocol to export to bos, and enable concurrent export of session variables.
     set enable_parallel_outfile = true;

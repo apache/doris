@@ -178,7 +178,7 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
                          << " origin_type="                                                     \
                          << ref_block->tablet_schema().column(ref_column).type()                \
                          << ", alter_type=" << mutable_block->tablet_schema().column(i).type(); \
-            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID);                                         \
+            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_CHANGE_INFO_INVALID);              \
         }                                                                                       \
         break;                                                                                  \
     }
@@ -431,8 +431,7 @@ bool count_field(RowCursor* read_helper, RowCursor* write_helper, const TabletCo
 }
 
 Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data_version,
-                                             RowBlock* mutable_block,
-                                             uint64_t* filtered_rows) const {
+                                         RowBlock* mutable_block, uint64_t* filtered_rows) const {
     if (mutable_block == nullptr) {
         LOG(FATAL) << "mutable block is uninitialized.";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
@@ -584,7 +583,8 @@ Status RowBlockChanger::change_row_block(const RowBlock* ref_block, int32_t data
                         write_helper.set_not_null(i);
                         const Field* ref_field = read_helper.column_schema(ref_column);
                         char* ref_value = read_helper.cell_ptr(ref_column);
-                        Status st = write_helper.convert_from(i, ref_value, ref_field->type_info(), mem_pool);
+                        Status st = write_helper.convert_from(i, ref_value, ref_field->type_info(),
+                                                              mem_pool);
                         if (!st) {
                             LOG(WARNING)
                                     << "the column type which was altered from was unsupported."
@@ -919,8 +919,8 @@ void RowBlockMerger::_pop_heap() {
 }
 
 Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader,
-                                       RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
-                                       TabletSharedPtr base_tablet) {
+                                   RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
+                                   TabletSharedPtr base_tablet) {
     // In some cases, there may be more than one type of rowset in a tablet,
     // in which case the conversion cannot be done directly by linked schema change,
     // but requires direct schema change to rewrite the data.
@@ -969,7 +969,7 @@ bool SchemaChangeDirectly::_write_row_block(RowsetWriter* rowset_writer, RowBloc
 }
 
 Status reserve_block(std::unique_ptr<RowBlock, RowBlockDeleter>* block_handle_ptr, int row_num,
-                         RowBlockAllocator* allocator) {
+                     RowBlockAllocator* allocator) {
     auto& block_handle = *block_handle_ptr;
     if (block_handle == nullptr || block_handle->capacity() < row_num) {
         // release old block and alloc new block
@@ -987,8 +987,8 @@ Status reserve_block(std::unique_ptr<RowBlock, RowBlockDeleter>* block_handle_pt
 }
 
 Status SchemaChangeDirectly::process(RowsetReaderSharedPtr rowset_reader,
-                                         RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
-                                         TabletSharedPtr base_tablet) {
+                                     RowsetWriter* rowset_writer, TabletSharedPtr new_tablet,
+                                     TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
         _row_block_allocator = new RowBlockAllocator(new_tablet->tablet_schema(), 0);
         if (_row_block_allocator == nullptr) {
@@ -1106,9 +1106,8 @@ SchemaChangeWithSorting::~SchemaChangeWithSorting() {
 }
 
 Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
-                                            RowsetWriter* new_rowset_writer,
-                                            TabletSharedPtr new_tablet,
-                                            TabletSharedPtr base_tablet) {
+                                        RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet,
+                                        TabletSharedPtr base_tablet) {
     if (_row_block_allocator == nullptr) {
         _row_block_allocator =
                 new (nothrow) RowBlockAllocator(new_tablet->tablet_schema(), _memory_limitation);
@@ -1167,9 +1166,8 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
     while (ref_row_block != nullptr && ref_row_block->has_remaining()) {
-        if (!_row_block_allocator->allocate(&new_row_block,
-                                                           ref_row_block->row_block_info().row_num,
-                                                           true)) {
+        if (!_row_block_allocator->allocate(&new_row_block, ref_row_block->row_block_info().row_num,
+                                            true)) {
             LOG(WARNING) << "failed to allocate RowBlock.";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         } else {
@@ -1385,7 +1383,8 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
 
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
@@ -1411,14 +1410,16 @@ Status SchemaChangeHandler::process_alter_tablet_v2(const TAlterTabletReqV2& req
 // Should delete the old code after upgrade finished.
 Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2& request) {
     Status res = Status::OK();
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // new tablet has to exist
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
+    TabletSharedPtr new_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
                      << " new_tablet=" << request.new_tablet_id;
@@ -1460,8 +1461,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
     {
         std::lock_guard<std::mutex> base_tablet_lock(base_tablet->get_push_lock());
         std::lock_guard<std::mutex> new_tablet_lock(new_tablet->get_push_lock());
-        std::lock_guard<std::shared_mutex> base_tablet_rdlock(base_tablet->get_header_lock());
-        std::lock_guard<std::shared_mutex> new_tablet_rdlock(new_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> base_tablet_wlock(base_tablet->get_header_lock());
+        std::lock_guard<std::shared_mutex> new_tablet_wlock(new_tablet->get_header_lock());
         // check if the tablet has alter task
         // if it has alter task, it means it is under old alter process
         size_t num_cols = base_tablet->tablet_schema().num_columns();
@@ -1531,11 +1532,11 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 }
             }
 
-            res = delete_handler.init(base_tablet->tablet_schema(), base_tablet->delete_predicates(),
-                                      end_version);
+            res = delete_handler.init(base_tablet->tablet_schema(),
+                                      base_tablet->delete_predicates(), end_version);
             if (!res.ok()) {
-                LOG(WARNING) << "init delete handler failed. base_tablet=" << base_tablet->full_name()
-                             << ", end_version=" << end_version;
+                LOG(WARNING) << "init delete handler failed. base_tablet="
+                             << base_tablet->full_name() << ", end_version=" << end_version;
 
                 // release delete handlers which have been inited successfully.
                 delete_handler.finalize();
@@ -1634,9 +1635,9 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
 }
 
 Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
-                                                       TabletSharedPtr new_tablet,
-                                                       RowsetSharedPtr* base_rowset,
-                                                       RowsetSharedPtr* new_rowset) {
+                                                   TabletSharedPtr new_tablet,
+                                                   RowsetSharedPtr* base_rowset,
+                                                   RowsetSharedPtr* new_rowset) {
     Status res = Status::OK();
     LOG(INFO) << "begin to convert delta version for schema changing. "
               << "base_tablet=" << base_tablet->full_name()
@@ -1649,8 +1650,8 @@ Status SchemaChangeHandler::schema_version_convert(TabletSharedPtr base_tablet,
     bool sc_directly = false;
 
     const std::unordered_map<std::string, AlterMaterializedViewParam> materialized_function_map;
-    if (!(res = _parse_request(base_tablet, new_tablet, &rb_changer, &sc_sorting,
-                                              &sc_directly, materialized_function_map))) {
+    if (!(res = _parse_request(base_tablet, new_tablet, &rb_changer, &sc_sorting, &sc_directly,
+                               materialized_function_map))) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
         return res;
     }
@@ -1803,7 +1804,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
 
     // a.Parse the Alter request and convert it into an internal representation
     Status res = _parse_request(sc_params.base_tablet, sc_params.new_tablet, &rb_changer,
-                                    &sc_sorting, &sc_directly, sc_params.materialized_params_map);
+                                &sc_sorting, &sc_directly, sc_params.materialized_params_map);
     if (!res.ok()) {
         LOG(WARNING) << "failed to parse the request. res=" << res;
         goto PROCESS_ALTER_EXIT;
@@ -1993,7 +1994,7 @@ Status SchemaChangeHandler::_parse_request(
         }
         res = _init_column_mapping(column_mapping, new_column, new_column.default_value());
         if (!res) {
-           return res;
+            return res;
         }
 
         VLOG_TRACE << "A column with default value will be added after schema changing. "
@@ -2093,8 +2094,8 @@ Status SchemaChangeHandler::_parse_request(
 }
 
 Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
-                                                     const TabletColumn& column_schema,
-                                                     const std::string& value) {
+                                                 const TabletColumn& column_schema,
+                                                 const std::string& value) {
     column_mapping->default_value = WrapperField::create(column_schema);
 
     if (column_mapping->default_value == nullptr) {
@@ -2111,7 +2112,7 @@ Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
 }
 
 Status SchemaChangeHandler::_validate_alter_result(TabletSharedPtr new_tablet,
-                                                       const TAlterTabletReqV2& request) {
+                                                   const TAlterTabletReqV2& request) {
     Version max_continuous_version = {-1, 0};
     new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()

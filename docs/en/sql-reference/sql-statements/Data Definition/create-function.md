@@ -79,6 +79,8 @@ CREATE [AGGREGATE] [ALIAS] FUNCTION function_name
 >           "prepare_fn": Function signature of the prepare function for finding the entry from the dynamic library. This option is optional for custom functions
 > 
 >           "close_fn": Function signature of the close function for finding the entry from the dynamic library. This option is optional for custom functions
+>           "type": Function type, RPC for remote udf, NATIVE for c++ native udf
+
 
 
 This statement creates a custom function. Executing this command requires that the user have `ADMIN` privileges.
@@ -138,6 +140,13 @@ If the `function_name` contains the database name, the custom function will be c
     CREATE ALIAS FUNCTION string(ALL, INT) WITH PARAMETER(col, length) 
         AS CAST(col AS varchar(length));
     ```
-
+6. Create a remote UDF
+    ```
+   CREATE FUNCTION rpc_add(INT, INT) RETURNS INT PROPERTIES (
+    "SYMBOL"="add_int",
+    "OBJECT_FILE"="127.0.0.1:9999",
+    "TYPE"="RPC"
+    );
+    ```
 ## keyword
 CREATE,FUNCTION

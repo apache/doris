@@ -27,75 +27,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
-struct FunctionEsqueryImpl {
-    static constexpr auto name = "esquery";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeUInt8>();
-    }
-};
-
-struct FunctionExplodeSplitImpl {
-    static constexpr auto name = "explode_split";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeString>();
-    }
-};
-
-struct FunctionExplodeNumbersImpl {
-    static constexpr auto name = "explode_numbers";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeInt32>();
-    }
-};
-
-struct FunctionExplodeJsonArrayIntImpl {
-    static constexpr auto name = "explode_json_array_int";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeInt64>();
-    }
-};
-
-struct FunctionExplodeJsonArrayStringImpl {
-    static constexpr auto name = "explode_json_array_string";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeString>();
-    }
-};
-
-struct FunctionExplodeJsonArrayDoubleImpl {
-    static constexpr auto name = "explode_json_array_double";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeFloat64>();
-    }
-};
-
-struct FunctionExplodeBitmapImpl {
-    static constexpr auto name = "explode_bitmap";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        return std::make_shared<DataTypeInt64>();
-    }
-};
-
-struct FunctionExplodeImpl {
-    static constexpr auto name = "explode";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
-        return make_nullable(
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
-    }
-};
-
-struct FunctionExplodeOuterImpl {
-    static constexpr auto name = "explode_outer";
-    static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
-        DCHECK(is_array(arguments[0])) << arguments[0]->get_name() << " not supported";
-        return make_nullable(
-                check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
-    }
-};
-
-//FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
+// FunctionFake is use for some function call expr only work at prepare/open phase, do not support execute().
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:

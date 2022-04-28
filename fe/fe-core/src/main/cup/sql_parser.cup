@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/fe/src/main/cup/sql-parser.y
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -3080,9 +3083,9 @@ describe_stmt ::=
         query.setIsExplain(options);
         RESULT = query;
     :}   
-    | describe_command insert_stmt:stmt
+    | describe_command opt_explain_options:options insert_stmt:stmt
     {:
-        stmt.getQueryStmt().setIsExplain(new ExplainOptions(true, false));
+        stmt.getQueryStmt().setIsExplain(options);
         RESULT = stmt;
     :}
     ;
@@ -5328,6 +5331,14 @@ admin_stmt ::=
     | KW_ADMIN KW_DIAGNOSE KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new AdminDiagnoseTabletStmt(tabletId);
+    :}
+    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT
+    {:
+        RESULT = new AdminShowTabletStorageFormatStmt(false);
+    :}
+    | KW_ADMIN KW_TABLET KW_STORAGE KW_FORMAT KW_VERBOSE
+    {:
+        RESULT = new AdminShowTabletStorageFormatStmt(true);
     :}
     ;
 

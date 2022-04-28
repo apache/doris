@@ -64,6 +64,8 @@ DEFINE_ENGINE_COUNTER_METRIC(schema_change_requests_failed, schema_change, faile
 DEFINE_ENGINE_COUNTER_METRIC(create_rollup_requests_total, create_rollup, total);
 DEFINE_ENGINE_COUNTER_METRIC(create_rollup_requests_failed, create_rollup, failed);
 DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_requests_total, storage_migrate, total);
+DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_v2_requests_total, storage_migrate_v2, total);
+DEFINE_ENGINE_COUNTER_METRIC(storage_migrate_v2_requests_failed, storage_migrate_v2, failed);
 DEFINE_ENGINE_COUNTER_METRIC(delete_requests_total, delete, total);
 DEFINE_ENGINE_COUNTER_METRIC(delete_requests_failed, delete, failed);
 DEFINE_ENGINE_COUNTER_METRIC(clone_requests_total, clone, total);
@@ -135,6 +137,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MIC
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(attach_task_thread_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_thread_mem_tracker_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_thread_mem_tracker_err_cb_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(switch_bthread_count, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(memory_pool_bytes_total, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(process_thread_num, MetricUnit::NOUNIT);
@@ -208,6 +211,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_v2_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, storage_migrate_v2_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, delete_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clone_requests_total);
@@ -282,6 +287,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, attach_task_thread_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_thread_mem_tracker_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_thread_mem_tracker_err_cb_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, switch_bthread_count);
 
     _server_metric_entity->register_hook(_s_hook_name, std::bind(&DorisMetrics::_update, this));
 

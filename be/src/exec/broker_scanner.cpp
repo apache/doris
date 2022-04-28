@@ -40,6 +40,7 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
+#include "common/consts.h"
 
 namespace doris {
 
@@ -57,7 +58,7 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_decompressor(nullptr),
           _next_range(0),
           _cur_line_reader_eof(false),
-          _skip_next_line(false) {
+          _skip_lines(0) {
     if (params.__isset.column_separator_length && params.column_separator_length > 1) {
         _value_separator = params.column_separator_str;
         _value_separator_length = params.column_separator_length;
@@ -102,8 +103,8 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         const uint8_t* ptr = nullptr;
         size_t size = 0;
         RETURN_IF_ERROR(_cur_line_reader->read_line(&ptr, &size, &_cur_line_reader_eof));
-        if (_skip_next_line) {
-            _skip_next_line = false;
+        if (_skip_lines > 0) {
+            _skip_lines--;
             continue;
         }
         if (size == 0) {
@@ -113,13 +114,7 @@ Status BrokerScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, boo
         {
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), tuple, tuple_pool));
-            if (_success) {
-                free_expr_local_allocations();
-                *fill_tuple = true;
-            } else {
-                *fill_tuple = false;
-            }
+            RETURN_IF_ERROR(_convert_one_row(Slice(ptr, size), tuple, tuple_pool, fill_tuple));
             break; // break always
         }
     }
@@ -159,6 +154,15 @@ Status BrokerScanner::open_file_reader() {
     int64_t start_offset = range.start_offset;
     if (start_offset != 0) {
         start_offset -= 1;
+    }
+    //means first range, skip
+    if (start_offset == 0 && range.header_type.size() > 0) {
+        std::string header_type = to_lower(range.header_type);
+        if (header_type == BeConsts::CSV_WITH_NAMES) {
+            _skip_lines = 1;
+        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+            _skip_lines = 2;
+        }
     }
     switch (range.file_type) {
     case TFileType::FILE_LOCAL: {
@@ -268,9 +272,8 @@ Status BrokerScanner::open_line_reader() {
             return Status::InternalError(ss.str());
         }
         size += 1;
-        _skip_next_line = true;
-    } else {
-        _skip_next_line = false;
+        // not  first range will always skip one line
+        _skip_lines = 1;
     }
 
     // create decompressor.
@@ -460,14 +463,15 @@ bool is_null(const Slice& slice) {
 }
 
 // Convert one row to this tuple
-Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool) {
+Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple) {
     RETURN_IF_ERROR(_line_to_src_tuple(line));
     if (!_success) {
         // If not success, which means we met an invalid row, return.
+        *fill_tuple = false;
         return Status::OK();
     }
 
-    return fill_dest_tuple(tuple, tuple_pool);
+    return fill_dest_tuple(tuple, tuple_pool, fill_tuple);
 }
 
 // Convert one row to this tuple

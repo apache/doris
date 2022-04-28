@@ -54,7 +54,7 @@ public:
 template <FieldType type>
 void write_index_file(std::string& filename, const void* values, size_t value_count,
                       size_t null_count, ColumnIndexMetaPB* meta) {
-    const auto* type_info = get_scalar_type_info(type);
+    const auto* type_info = get_scalar_type_info<type>();
     {
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts(filename);

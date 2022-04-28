@@ -28,7 +28,7 @@ under the License.
 
 Bucket Shuffle Join is a new function officially added in Doris 0.14. The purpose is to provide local optimization for some join queries to reduce the time-consuming of data transmission between nodes and speed up the query.
 
-It's design, implementation can be referred to [ISSUE 4394](https://github.com/apache/incubator-doris/issues/4394)。
+It's design, implementation can be referred to [ISSUE 4394](https://github.com/apache/incubator-doris/issues/4394).
 
 ## Noun Interpretation
 
@@ -40,7 +40,7 @@ It's design, implementation can be referred to [ISSUE 4394](https://github.com/a
 ## Principle
 The conventional distributed join methods supported by Doris is: `Shuffle Join, Broadcast Join`. Both of these join will lead to some network overhead.
 
-For example, there are join queries for table A and table B. the join method is hashjoin. The cost of different join types is as follows：
+For example, there are join queries for table A and table B. the join method is hashjoin. The cost of different join types is as follows:
 * **Broadcast Join**: If table a has three executing hashjoinnodes according to the data distribution, table B needs to be sent to the three HashJoinNode. Its network overhead is `3B `, and its memory overhead is `3B`. 
 * **Shuffle Join**: Shuffle join will distribute the data of tables A and B to the nodes of the cluster according to hash calculation, so its network overhead is `A + B` and memory overhead is `B`.
 
@@ -50,9 +50,9 @@ The data distribution information of each Doris table is saved in FE. If the joi
 
 The picture above shows how the Bucket Shuffle Join works. The SQL query is A table join B table. The equivalent expression of join hits the data distribution column of A. According to the data distribution information of table A. Bucket Shuffle Join sends the data of table B to the corresponding data storage and calculation node of table A. The cost of Bucket Shuffle Join is as follows:
 
-* network cost： ``` B < min(3B, A + B) ```
+* network cost: ``` B < min(3B, A + B) ```
 
-* memory cost： ``` B <= min(3B, B) ```
+* memory cost: ``` B <= min(3B, B) ```
 
 Therefore, compared with Broadcast Join and Shuffle Join, Bucket shuffle join has obvious performance advantages. It reduces the time-consuming of data transmission between nodes and the memory cost of join. Compared with Doris's original join method, it has the following advantages
 
@@ -91,7 +91,7 @@ You can use the `explain` command to check whether the join is a Bucket Shuffle 
 |   |  equal join conjunct: `test`.`k1` = `baseall`.`k1`                                         
 ```
 
-The join type indicates that the join method to be used is：`BUCKET_SHUFFLE`。
+The join type indicates that the join method to be used is:`BUCKET_SHUFFLE`.
 
 ## Planning rules of Bucket Shuffle Join
 

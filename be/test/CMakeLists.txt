@@ -230,7 +230,6 @@ set(RUNTIME_TEST_FILES
     # runtime/export_task_mgr_test.cpp
     # runtime/minidump_test.cpp
     runtime/mem_pool_test.cpp
-    runtime/free_list_test.cpp
     runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
@@ -331,6 +330,7 @@ set(VEC_TEST_FILES
     vec/aggregate_functions/agg_test.cpp
     vec/aggregate_functions/agg_min_max_test.cpp
     vec/aggregate_functions/vec_window_funnel_test.cpp
+    vec/aggregate_functions/agg_min_max_by_test.cpp
     vec/core/block_test.cpp
     vec/core/column_array_test.cpp
     vec/core/column_complex_test.cpp

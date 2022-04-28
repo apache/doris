@@ -50,7 +50,7 @@ NodeChannel::NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int
         _tuple_data_buffer_ptr = &_tuple_data_buffer;
     }
     _node_channel_tracker =
-            MemTracker::create_tracker(-1, "NodeChannel" + thread_local_ctx.get()->thread_id_str());
+            MemTracker::create_tracker(-1, "NodeChannel" + tls_ctx()->thread_id_str());
 }
 
 NodeChannel::~NodeChannel() noexcept {
@@ -65,6 +65,7 @@ NodeChannel::~NodeChannel() noexcept {
         delete _add_batch_closure;
         _add_batch_closure = nullptr;
     }
+    _cur_add_batch_request.release_id();
 }
 
 // if "_cancelled" is set to true,
@@ -143,6 +144,8 @@ void NodeChannel::open() {
     }
     _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
+    request.release_id();
+    request.release_schema();
 }
 
 void NodeChannel::_cancel_with_msg(const std::string& msg) {
@@ -443,13 +446,16 @@ void NodeChannel::cancel(const std::string& cancel_msg) {
     auto closure = new RefCountClosure<PTabletWriterCancelResult>();
 
     closure->ref();
-    int remain_ms = std::max(_rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS,
-                             (unsigned long long)config::min_load_rpc_timeout_ms);
+    int remain_ms = _rpc_timeout_ms - _timeout_watch.elapsed_time() / NANOS_PER_MILLIS;
+    if (UNLIKELY(remain_ms < config::min_load_rpc_timeout_ms)) {
+        remain_ms = config::min_load_rpc_timeout_ms;
+    }
     closure->cntl.set_timeout_ms(remain_ms);
     if (config::tablet_writer_ignore_eovercrowded) {
         closure->cntl.ignore_eovercrowded();
     }
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
+    request.release_id();
 }
 
 int NodeChannel::try_send_and_fetch_status(RuntimeState* state,
@@ -648,6 +654,7 @@ void IndexChannel::add_row(BlockRow& block_row, int64_t tablet_id) {
 
 void IndexChannel::mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
                                   int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
     const auto& it = _tablets_by_channel.find(node_id);
     if (it == _tablets_by_channel.end()) {
         return;

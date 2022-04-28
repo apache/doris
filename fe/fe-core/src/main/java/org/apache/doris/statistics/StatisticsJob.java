@@ -18,62 +18,253 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.AnalyzeStmt;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.glassfish.jersey.internal.guava.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import com.clearspring.analytics.util.Lists;
-
-/*
-Used to store statistics job info,
-including job status, progress, etc.
+/***
+ * Used to store statistics job info,
+ * including job status, progress, etc.
  */
 public class StatisticsJob {
+    private static final Logger LOG = LogManager.getLogger(StatisticsJob.class);
 
     public enum JobState {
         PENDING,
         SCHEDULING,
         RUNNING,
         FINISHED,
+        FAILED,
         CANCELLED
     }
 
-    private long id = -1;
-    private JobState jobState = JobState.PENDING;
-    // optional
-    // to be collected table stats
-    private List<Long> tableId = Lists.newArrayList();
-    // to be collected column stats
-    private Map<Long, List<String>> tableIdToColumnName = Maps.newHashMap();
-    private Map<String, String> properties;
-    // end
+    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    private List<StatisticsTask> taskList = Lists.newArrayList();
+    private final long id = Catalog.getCurrentCatalog().getNextId();
+
+    /**
+     * to be collected database stats.
+     */
+    private final long dbId;
+
+    /**
+     * to be collected table stats.
+     */
+    private final Set<Long> tblIds;
+
+    /**
+     * to be collected column stats.
+     */
+    private final Map<Long, List<String>> tableIdToColumnName;
+
+    private final Map<String, String> properties;
+
+    /**
+     * to be executed tasks.
+     */
+    private final List<StatisticsTask> tasks = Lists.newArrayList();
+
+    private JobState jobState = JobState.PENDING;
+    private final List<String> errorMsgs = Lists.newArrayList();
+
+    private final long createTime = System.currentTimeMillis();
+    private long startTime = -1L;
+    private long finishTime = -1L;
+    private int progress = 0;
+
+    public StatisticsJob(Long dbId,
+                         Set<Long> tblIds,
+                         Map<Long, List<String>> tableIdToColumnName,
+                         Map<String, String> properties) {
+        this.dbId = dbId;
+        this.tblIds = tblIds;
+        this.tableIdToColumnName = tableIdToColumnName;
+        this.properties = properties == null ? Maps.newHashMap() : properties;
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
 
     public long getId() {
-        return id;
+        return this.id;
     }
 
-    /*
-        AnalyzeStmt: Analyze t1(c1), t2
-        StatisticsJob:
-          tableId [t1, t2]
-          tableIdToColumnName <t1, [c1]> <t2, [c1,c2,c3]>
-         */
-    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) {
-        // TODO
-        return new StatisticsJob();
+    public long getDbId() {
+        return this.dbId;
     }
 
-    public Set<Long> relatedTableId() {
-        Set<Long> relatedTableId = Sets.newHashSet();
-        relatedTableId.addAll(tableId);
-        relatedTableId.addAll(tableIdToColumnName.keySet());
-        return relatedTableId;
+    public Set<Long> getTblIds() {
+        return this.tblIds;
+    }
+
+    public Map<Long, List<String>> getTableIdToColumnName() {
+        return this.tableIdToColumnName;
+    }
+
+    public Map<String, String> getProperties() {
+        return this.properties;
+    }
+
+    public List<StatisticsTask> getTasks() {
+        return this.tasks;
+    }
+
+    public List<String> getErrorMsgs() {
+        return this.errorMsgs;
+    }
+
+    public JobState getJobState() {
+        return this.jobState;
+    }
+
+    public long getCreateTime() {
+        return this.createTime;
+    }
+
+    public long getStartTime() {
+        return this.startTime;
+    }
+
+    public long getFinishTime() {
+        return this.finishTime;
+    }
+
+    public int getProgress() {
+        return this.progress;
+    }
+
+    public void updateJobState(JobState newState) throws IllegalStateException {
+        LOG.info("To change statistics job(id={}) state from {} to {}", id, jobState, newState);
+        writeLock();
+
+        try {
+            // PENDING -> SCHEDULING/FAILED/CANCELLED
+            if (jobState == JobState.PENDING) {
+                if (newState == JobState.SCHEDULING) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from PENDING to " + newState);
+                }
+                return;
+            }
+
+            // SCHEDULING -> RUNNING/FAILED/CANCELLED
+            if (jobState == JobState.SCHEDULING) {
+                if (newState == JobState.RUNNING) {
+                    this.jobState = newState;
+                    // job start running, set start time
+                    this.startTime = System.currentTimeMillis();
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from SCHEDULING to " + newState);
+                }
+                return;
+            }
+
+            // RUNNING -> FINISHED/FAILED/CANCELLED
+            if (jobState == JobState.RUNNING) {
+                if (newState == JobState.FINISHED) {
+                    // set finish time
+                    this.finishTime = System.currentTimeMillis();
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.FAILED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                } else if (newState == JobState.CANCELLED) {
+                    this.jobState = newState;
+                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
+                }  else {
+                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
+                    throw new IllegalStateException("Invalid job state transition from RUNNING to " + newState);
+                }
+                return;
+            }
+
+            // unsupported transition
+            LOG.info("Invalid job(id={}) state transition from {} to {}", id, jobState, newState);
+            throw new IllegalStateException("Invalid job state transition from " + jobState + " to " + newState);
+        } finally {
+            writeUnlock();
+            LOG.info("Statistics job(id={}) current state is {} ", id, jobState);
+        }
+    }
+
+    public void updateJobInfoByTaskId(Long taskId, String errorMsg) {
+        writeLock();
+
+        try {
+            for (StatisticsTask task : this.tasks) {
+                if (taskId == task.getId()) {
+                    if (Strings.isNullOrEmpty(errorMsg)) {
+                        this.progress += 1;
+                        if (this.progress == this.tasks.size()) {
+                            updateJobState(StatisticsJob.JobState.FINISHED);
+                        }
+                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
+                    } else {
+                        this.errorMsgs.add(errorMsg);
+                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
+                        updateJobState(StatisticsJob.JobState.FAILED);
+                    }
+                    return;
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    /**
+     * get statisticsJob from analyzeStmt.
+     * AnalyzeStmt: analyze t1(c1,c2,c3)
+     * tableId: [t1]
+     * tableIdToColumnName <t1, [c1,c2,c3]>
+     */
+    public static StatisticsJob fromAnalyzeStmt(AnalyzeStmt analyzeStmt) throws AnalysisException {
+        long dbId = analyzeStmt.getDbId();
+        Map<Long, List<String>> tableIdToColumnName = analyzeStmt.getTableIdToColumnName();
+        Set<Long> tblIds = analyzeStmt.getTblIds();
+        Map<String, String> properties = analyzeStmt.getProperties();
+        return new StatisticsJob(dbId, tblIds, tableIdToColumnName, properties);
     }
 }

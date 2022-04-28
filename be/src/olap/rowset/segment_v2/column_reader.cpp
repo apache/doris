@@ -103,7 +103,7 @@ Status ColumnReader::init() {
         return Status::NotSupported(
                 strings::Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
-    RETURN_IF_ERROR(EncodingInfo::get(_type_info, _meta.encoding(), &_encoding_info));
+    RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), _meta.encoding(), &_encoding_info));
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
 
     for (int i = 0; i < _meta.indexes_size(); i++) {
@@ -417,7 +417,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
     array_batch->get_offset_by_length(dst->current_offset(), *n);
 
     // 2. read null
-    if (dst->is_nullable()) {
+    if (_array_reader->is_nullable()) {
+        DCHECK(dst->is_nullable());
         auto null_batch = array_batch->get_null_as_batch();
         ColumnBlock null_block(&null_batch, nullptr);
         ColumnBlockView null_view(&null_block, dst->current_offset());

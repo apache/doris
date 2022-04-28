@@ -28,6 +28,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 
 #include "env/env.h"
 #include "env/env_util.h"
@@ -86,7 +89,7 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, 
+Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force) {
     Status res = Status::OK();
     VLOG_NOTICE << "begin to add tablet to TabletManager. "
@@ -171,9 +174,8 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
 }
 
 Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
-                                                      const TabletSharedPtr& tablet,
-                                                      bool update_meta, bool keep_files,
-                                                      bool drop_old) {
+                                                  const TabletSharedPtr& tablet, bool update_meta,
+                                                  bool keep_files, bool drop_old) {
     // check if new tablet's meta is in store and add new tablet's meta to meta store
     Status res = Status::OK();
     if (update_meta) {
@@ -212,13 +214,26 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
     return tablet_map.find(tablet_id) != tablet_map.end();
 }
 
-Status TabletManager::create_tablet(const TCreateTabletReq& request,
-                                        std::vector<DataDir*> stores) {
+Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
     LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id;
+
+    if (FilePathDesc::is_remote(request.storage_medium)) {
+        FilePathDesc path_desc;
+        path_desc.storage_medium = request.storage_medium;
+        path_desc.storage_name = request.storage_param.storage_name;
+        StorageParamPB storage_param;
+        Status st = StorageBackendMgr::instance()->get_storage_param(request.storage_param.storage_name, &storage_param);
+        if (!st.ok() || storage_param.DebugString() != fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
+            LOG(INFO) << "remote storage need to change, create it. storage_name: " << request.storage_param.storage_name;
+            RETURN_NOT_OK_STATUS_WITH_WARN(StorageBackendMgr::instance()->create_remote_storage(
+                    fs::fs_util::get_storage_param_pb(request.storage_param)),
+                            "remote storage create failed. storage_name: " + request.storage_param.storage_name);
+        }
+    }
 
     std::lock_guard<std::shared_mutex> wrlock(_get_tablets_shard_lock(tablet_id));
     TRACE("got tablets shard lock");
@@ -250,8 +265,11 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request,
         // If we are doing schema-change, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        stores.clear();
-        stores.push_back(base_tablet->data_dir());
+        if (request.storage_medium == base_tablet->data_dir()->path_desc().storage_medium
+                || (FilePathDesc::is_remote(request.storage_medium) && base_tablet->data_dir()->is_remote())) {
+            stores.clear();
+            stores.push_back(base_tablet->data_dir());
+        }
     }
 
     // set alter type to schema-change. it is useless
@@ -394,8 +412,8 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 
         TabletMetaSharedPtr tablet_meta;
         // if create meta failed, do not need to clean dir, because it is only in memory
-        Status res = _create_tablet_meta_unlocked(request, data_dir, is_schema_change,
-                                                      base_tablet, &tablet_meta);
+        Status res = _create_tablet_meta_unlocked(request, data_dir, is_schema_change, base_tablet,
+                                                  &tablet_meta);
         if (!res.ok()) {
             LOG(WARNING) << "fail to create tablet meta. res=" << res
                          << ", root=" << data_dir->path();
@@ -423,12 +441,15 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         }
 
         StorageParamPB storage_param;
-        Status status = _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param);
+        Status status =
+                _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param);
         if (!status.ok()) {
-            LOG(WARNING) << "fail to _get_storage_param. storage_name: " << tablet_meta->remote_storage_name();
+            LOG(WARNING) << "fail to _get_storage_param. storage_name: "
+                         << tablet_meta->remote_storage_name();
             return nullptr;
         }
-        TabletSharedPtr new_tablet = Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
+        TabletSharedPtr new_tablet =
+                Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
         DCHECK(new_tablet != nullptr);
         return new_tablet;
     }
@@ -537,7 +558,8 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
     return tablet;
 }
 
-TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, TabletUid tablet_uid, bool include_deleted, string* err) {
+TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
+                                          bool include_deleted, string* err) {
     std::shared_lock rdlock(_get_tablets_shard_lock(tablet_id));
     TabletSharedPtr tablet = _get_tablet_unlocked(tablet_id, include_deleted, err);
     if (tablet != nullptr && tablet->tablet_uid() == tablet_uid) {
@@ -674,9 +696,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
 }
 
 Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-                                                TSchemaHash schema_hash, const string& meta_binary,
-                                                bool update_meta, bool force, bool restore,
-                                                bool check_path) {
+                                            TSchemaHash schema_hash, const string& meta_binary,
+                                            bool update_meta, bool force, bool restore,
+                                            bool check_path) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status status = tablet_meta->deserialize(meta_binary);
@@ -708,8 +730,9 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
     }
 
     StorageParamPB storage_param;
-    RETURN_NOT_OK_LOG(_get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param),
-                      "fail to _get_storage_param. storage_name: " + tablet_meta->remote_storage_name());
+    RETURN_NOT_OK_LOG(
+            _get_storage_param(data_dir, tablet_meta->remote_storage_name(), &storage_param),
+            "fail to _get_storage_param. storage_name: " + tablet_meta->remote_storage_name());
 
     TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, storage_param, data_dir);
     if (tablet == nullptr) {
@@ -761,9 +784,8 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 }
 
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
-                                               SchemaHash schema_hash,
-                                               const string& schema_hash_path, bool force,
-                                               bool restore) {
+                                           SchemaHash schema_hash, const string& schema_hash_path,
+                                           bool force, bool restore) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
@@ -822,8 +844,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
     return res;
 }
 
-Status TabletManager::build_all_report_tablets_info(
-        std::map<TTabletId, TTablet>* tablets_info) {
+Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
     LOG(INFO) << "begin to build all report tablets info";
 
@@ -911,7 +932,7 @@ Status TabletManager::start_trash_sweep() {
             }
             TabletMetaSharedPtr tablet_meta(new TabletMeta());
             Status check_st = TabletMetaManager::get_meta((*it)->data_dir(), (*it)->tablet_id(),
-                                                              (*it)->schema_hash(), tablet_meta);
+                                                          (*it)->schema_hash(), tablet_meta);
             if (check_st.ok()) {
                 if (tablet_meta->tablet_state() != TABLET_SHUTDOWN ||
                     tablet_meta->tablet_uid() != (*it)->tablet_uid()) {
@@ -931,10 +952,12 @@ Status TabletManager::start_trash_sweep() {
                     string meta_file_path = path_util::join_path_segments(
                             tablet_path_desc.filepath, std::to_string((*it)->tablet_id()) + ".hdr");
                     (*it)->tablet_meta()->save(meta_file_path);
-                    LOG(INFO) << "start to move tablet to trash. " << tablet_path_desc.debug_string();
+                    LOG(INFO) << "start to move tablet to trash. "
+                              << tablet_path_desc.debug_string();
                     Status rm_st = (*it)->data_dir()->move_to_trash(tablet_path_desc);
                     if (rm_st != Status::OK()) {
-                        LOG(WARNING) << "fail to move dir to trash. " << tablet_path_desc.debug_string();
+                        LOG(WARNING)
+                                << "fail to move dir to trash. " << tablet_path_desc.debug_string();
                         ++it;
                         continue;
                     }
@@ -998,8 +1021,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
 
     // check if meta already exists
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
-    Status check_st =
-            TabletMetaManager::get_meta(data_dir, tablet_id, schema_hash, tablet_meta);
+    Status check_st = TabletMetaManager::get_meta(data_dir, tablet_id, schema_hash, tablet_meta);
     if (check_st.ok()) {
         LOG(INFO) << "tablet meta exist is meta store, skip delete the path " << schema_hash_path;
         return;
@@ -1014,8 +1036,49 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     if (Env::Default()->path_exists(schema_hash_path).ok()) {
         LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
         FilePathDesc segment_desc(schema_hash_path);
+        string remote_file_param_path = schema_hash_path + REMOTE_FILE_PARAM;
+        if (data_dir->is_remote() && FileUtils::check_exist(remote_file_param_path)) {
+            // it means you must remove remote file for this segment first
+            string json_buf;
+            Status s = env_util::read_file_to_string(Env::Default(), remote_file_param_path, &json_buf);
+            if (!s.ok()) {
+                LOG(WARNING) << "delete unused file error when read remote_file_param_path: "
+                             << remote_file_param_path;
+                return;
+            }
+            // json_buf format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
+            std::string storage_name = nullptr;
+            std::string tablet_uid = nullptr;
+            rapidjson::Document dom;
+            if (!dom.Parse(json_buf.c_str()).HasParseError()) {
+                if (dom.HasMember(TABLET_UID.c_str()) && dom[TABLET_UID.c_str()].IsString()
+                    && dom.HasMember(STORAGE_NAME.c_str()) && dom[STORAGE_NAME.c_str()].IsString()) {
+                    storage_name = dom[STORAGE_NAME.c_str()].GetString();
+                    tablet_uid = dom[TABLET_UID.c_str()].GetString();
+                }
+            }
+            if (!tablet_uid.empty() && !storage_name.empty()) {
+                segment_desc.storage_name = storage_name;
+                StorageParamPB storage_param;
+                if (StorageBackendMgr::instance()->get_storage_param(storage_name, &storage_param) != OLAP_SUCCESS) {
+                    LOG(WARNING) << "storage_name is invalid: " << storage_name;
+                    return;
+                }
+
+                // remote file may be exist, check and mv it to trash
+                std::filesystem::path local_segment_path(schema_hash_path);
+                std::stringstream remote_file_stream;
+                remote_file_stream << data_dir->path_desc().remote_path << DATA_PREFIX
+                                   << "/" << local_segment_path.parent_path().parent_path().filename().string()  // shard
+                                   << "/" << local_segment_path.parent_path().filename().string()                // tablet_path
+                                   << "/" << local_segment_path.filename().string()                             // segment_path
+                                   << "/" << tablet_uid;
+                segment_desc.storage_medium = fs::fs_util::get_t_storage_medium(storage_param.storage_medium());
+                segment_desc.remote_path = remote_file_stream.str();
+            }
+        }
         Status rm_st = data_dir->move_to_trash(segment_desc);
-        if (rm_st != Status::OK()) {
+        if (!rm_st.ok()) {
             LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
         } else {
             LOG(INFO) << "move path " << schema_hash_path << " to trash successfully";
@@ -1086,7 +1149,7 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
 }
 
 Status TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq& request,
-                                                          Tablet* tablet) {
+                                                      Tablet* tablet) {
     Status res = Status::OK();
     if (request.version < 1) {
         LOG(WARNING) << "init version of tablet should at least 1. req.ver=" << request.version;
@@ -1155,10 +1218,10 @@ Status TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq& re
     return res;
 }
 
-Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& request,
-                                                       DataDir* store, const bool is_schema_change,
-                                                       const Tablet* base_tablet,
-                                                       TabletMetaSharedPtr* tablet_meta) {
+Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
+                                                   const bool is_schema_change,
+                                                   const Tablet* base_tablet,
+                                                   TabletMetaSharedPtr* tablet_meta) {
     uint32_t next_unique_id = 0;
     std::unordered_map<uint32_t, uint32_t> col_idx_to_unique_id;
     if (!is_schema_change) {
@@ -1193,7 +1256,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
     uint64_t shard_id = 0;
     RETURN_NOT_OK_LOG(store->get_shard(&shard_id), "fail to get root path shard");
     Status res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
-                                        col_idx_to_unique_id, tablet_meta);
+                                    col_idx_to_unique_id, tablet_meta);
 
     if (request.__isset.storage_format && request.storage_format != TStorageFormat::V1) {
         (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
@@ -1327,15 +1390,35 @@ void TabletManager::get_tablets_distribution_on_different_disks(
     }
 }
 
-Status TabletManager::_get_storage_param(
-        DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param) {
+Status TabletManager::_get_storage_param(DataDir* data_dir, const std::string& storage_name,
+                                         StorageParamPB* storage_param) {
     if (data_dir->is_remote()) {
-        RETURN_WITH_WARN_IF_ERROR(StorageBackendMgr::instance()->get_storage_param(storage_name, storage_param),
-                                  Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR), "get_storage_param failed for storage_name: " + storage_name);
+        RETURN_WITH_WARN_IF_ERROR(
+                StorageBackendMgr::instance()->get_storage_param(storage_name, storage_param),
+                Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR),
+                "get_storage_param failed for storage_name: " + storage_name);
     } else {
-        storage_param->set_storage_medium(fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));
+        storage_param->set_storage_medium(
+                fs::fs_util::get_storage_medium_pb(data_dir->storage_medium()));
     }
     return Status::OK();
+}
+
+void TabletManager::get_all_tablets_storage_format(TCheckStorageFormatResult* result) {
+    DCHECK(result != nullptr);
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& item : tablets_shard.tablet_map) {
+            uint64_t tablet_id = item.first;
+            if (item.second->all_beta()) {
+                result->v2_tablets.push_back(tablet_id);
+            } else {
+                result->v1_tablets.push_back(tablet_id);
+            }
+        }
+    }
+    result->__isset.v1_tablets = true;
+    result->__isset.v2_tablets = true;
 }
 
 } // end namespace doris

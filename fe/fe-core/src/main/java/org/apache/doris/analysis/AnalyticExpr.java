@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -476,13 +479,17 @@ public class AnalyticExpr extends Expr {
 
         standardize(analyzer);
 
-        // min/max is not currently supported on sliding windows (i.e. start bound is not
-        // unbounded).
-        if (window != null && isMinMax(fn) &&
-                window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
-            throw new AnalysisException(
-                "'" + getFnCall().toSql() + "' is only supported with an "
-                + "UNBOUNDED PRECEDING start bound.");
+        // But in Vectorized mode, after calculate a window, will be call reset() to reset state,
+        // And then restarted calculate next new window; 
+        if (!VectorizedUtil.isVectorized()) {
+            // min/max is not currently supported on sliding windows (i.e. start bound is not
+            // unbounded).
+            if (window != null && isMinMax(fn) &&
+                    window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
+                throw new AnalysisException(
+                    "'" + getFnCall().toSql() + "' is only supported with an "
+                    + "UNBOUNDED PRECEDING start bound.");
+            }
         }
 
         setChildren();

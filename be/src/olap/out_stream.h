@@ -141,7 +141,6 @@ public:
 
 private:
     std::map<StreamName, OutStream*> _streams; // All created streams
-    CompressKind _compress_kind;
     Compressor _compressor;
     uint32_t _stream_buffer_size;
 

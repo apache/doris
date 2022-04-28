@@ -260,7 +260,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     }
                     partitionInfo.add(sb.toString());
                 } else {
-                    partitionInfo.add("ALL KEY");
+                    partitionInfo.add("RANDOM");
                 }
 
                 partitionInfo.add(distributionInfo.getBucketNum());

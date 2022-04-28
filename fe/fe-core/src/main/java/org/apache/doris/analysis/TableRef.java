@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TableRef.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -214,6 +217,7 @@ public class TableRef implements ParseNode, Writable {
         ErrorReport.reportAnalysisException(ErrorCode.ERR_UNRESOLVED_TABLE_REF, tableRefToSql());
         return null;
     }
+
 
     public JoinOperator getJoinOp() {
         // if it's not explicitly set, we're doing an inner join
@@ -572,7 +576,15 @@ public class TableRef implements ParseNode, Writable {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkState(isAnalyzed);
-        if (onClause != null) onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+        if (onClause != null) {
+            Expr expr = onClause.clone();
+            onClause = rewriter.rewrite(onClause, analyzer, ExprRewriter.ClauseType.ON_CLAUSE);
+            if (joinOp.isOuterJoin() || joinOp.isSemiAntiJoin()) {
+                if (onClause instanceof BoolLiteral && !((BoolLiteral) onClause).getValue()) {
+                    onClause = expr;
+                }
+            }
+        }
     }
 
     private String joinOpToSql() {

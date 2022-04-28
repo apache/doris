@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/partitioned-aggregation-node.cc
+// and modified by Doris
 
 #include "exec/partitioned_aggregation_node.h"
 
@@ -171,10 +174,10 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
         SlotDescriptor* intermediate_slot_desc = intermediate_tuple_desc_->slots()[j];
         SlotDescriptor* output_slot_desc = output_tuple_desc_->slots()[j];
         AggFn* agg_fn;
-        RETURN_IF_ERROR(AggFn::Create(tnode.agg_node.aggregate_functions[i], row_desc,
+        RETURN_IF_ERROR(AggFn::create(tnode.agg_node.aggregate_functions[i], row_desc,
                                       *intermediate_slot_desc, *output_slot_desc, state, &agg_fn));
         agg_fns_.push_back(agg_fn);
-        needs_serialize_ |= agg_fn->SupportsSerialize();
+        needs_serialize_ |= agg_fn->supports_serialize();
     }
     return Status::OK();
 }
@@ -716,7 +719,7 @@ Status PartitionedAggregationNode::close(RuntimeState* state) {
     }
     Expr::close(grouping_exprs_);
     Expr::close(build_exprs_);
-    AggFn::Close(agg_fns_);
+    AggFn::close(agg_fns_);
     return ExecNode::close(state);
 }
 
@@ -1102,7 +1105,7 @@ void PartitionedAggregationNode::DebugString(int indentation_level, stringstream
          << "intermediate_tuple_id=" << intermediate_tuple_id_
          << " output_tuple_id=" << output_tuple_id_ << " needs_finalize=" << needs_finalize_
          << " grouping_exprs=" << Expr::debug_string(grouping_exprs_)
-         << " agg_exprs=" << AggFn::DebugString(agg_fns_);
+         << " agg_exprs=" << AggFn::debug_string(agg_fns_);
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
 }
