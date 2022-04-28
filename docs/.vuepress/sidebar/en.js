@@ -531,7 +531,7 @@ module.exports = [
       },
       {
         title: "SQL Reference",
-        directoryPath: "sql-reference-v2/",
+        directoryPath: "sql-reference/",
         initialOpenGroupIndex: -1,
         children: [
           {
