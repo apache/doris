@@ -223,6 +223,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
 
+        // tableInfo == null means tableId is not in image. replayEraseTable is used to drop this table.
+        // If it is not exist, table is already dropped, this replay operation is duplicate, so nothing to do.
         if (tableInfo == null) {
             LOG.warn("replayEraseTable, idToTable has no tableId: {}, ignore it", tableId);
             return;
