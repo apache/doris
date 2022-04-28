@@ -44,10 +44,10 @@ https://dist.apache.org/repos/dist/release/incubator/doris/
 For the first release, you need to copy the KEYS file as well. Then add it to the svn release.
 
 ```
-After add succeeds, you can see the files you published on the following website
+add 成功后就可以在下面网址上看到你发布的文件
 https://dist.apache.org/repos/dist/release/incubator/doris/0.xx.0-incubating/
 
-After a while, you can see on the official website of Apache:
+稍等一段时间后，能在 apache 官网看到：
 http://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 ```
 
@@ -150,7 +150,7 @@ Title:
 [ANNOUNCE] Apache Doris (incubating) 0.9.0 Release
 ```
 
-To mail:
+To mail：
 
 ```
 dev@doris.apache.org
