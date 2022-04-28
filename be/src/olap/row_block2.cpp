@@ -457,11 +457,11 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
             if (!nullable_mark_array[j]) {
                 uint32_t row_idx = j + start;
                 auto slice = reinterpret_cast<const Slice*>(batch->cell_ptr(row_idx));
-                if (LIKELY(slice->size <= MAX_SIZE_OF_VEC_STRING)) {
+                if (LIKELY(slice->size <= config::string_type_length_soft_limit_bytes)) {
                     column_string->insert_data(slice->data, slice->size);
                 } else {
                     return Status::NotSupported(
-                            "Not support string len over than 1MB in vec engine.");
+                            "Not support string len over than `string_type_length_soft_limit_bytes` in vec engine.");
                 }
             } else {
                 column_string->insert_default();

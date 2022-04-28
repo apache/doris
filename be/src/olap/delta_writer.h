@@ -105,7 +105,7 @@ private:
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
     std::unique_ptr<RowsetWriter> _rowset_writer;
-    // TODO: Recheck the lifttime of _mem_table, Look only should use unique_ptr
+    // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
     const TabletSchema* _tablet_schema;

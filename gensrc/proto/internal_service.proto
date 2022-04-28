@@ -116,7 +116,7 @@ message PTabletWriterAddBlockRequest {
     // If this is the last batch from this sender
     optional bool eos = 4;
 
-    required int64 packet_seq = 5;
+    optional int64 packet_seq = 5;
     repeated int64 tablet_ids = 6;
     // unset if and only if when eos is true
     optional PBlock block = 7;

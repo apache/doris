@@ -453,9 +453,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
                 slice->size = *offset_cur - string_offset - 1;
-                if (UNLIKELY(slice->size > MAX_SIZE_OF_VEC_STRING && _check_length)) {
+                if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes && _check_length)) {
                     return Status::NotSupported(
-                            "Not support string len over than 1MB in vec engine.");
+                            "Not support string len over than `string_type_length_soft_limit_bytes` in vec engine.");
                 }
             } else {
                 // TODO: this may not be neccessary, check and remove later
@@ -472,8 +472,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
             slice->size = *offset_cur - string_offset - 1;
-            if (UNLIKELY(slice->size > MAX_SIZE_OF_VEC_STRING && _check_length)) {
-                return Status::NotSupported("Not support string len over than 1MB in vec engine.");
+            if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes && _check_length)) {
+                return Status::NotSupported("Not support string len over than `string_type_length_soft_limit_bytes`"
+                                            " in vec engine.");
             }
             string_offset = *offset_cur;
             ++slice;
