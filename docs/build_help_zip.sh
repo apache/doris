@@ -30,7 +30,7 @@ ROOT=`cd "$ROOT"; pwd`
 BUILD_DIR=build
 HELP_DIR=contents
 HELP_ZIP_FILE=help-resource.zip
-SQL_REF_DOC_DIR=zh-CN/sql-reference/
+SQL_REF_DOC_DIR=zh-CN/sql-manual/
 
 cd $ROOT
 rm -rf $BUILD_DIR $HELP_DIR $HELP_ZIP_FILE
