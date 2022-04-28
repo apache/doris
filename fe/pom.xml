@@ -110,6 +110,11 @@ under the License.
                         </execution>
                     </executions>
                 </plugin>
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>3.9.1.2184</version>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
@@ -125,7 +130,9 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        
+        <sonar.organization>apache</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-codec.version>1.9</commons-codec.version>
@@ -243,6 +250,10 @@ under the License.
                 </repository>
             </repositories>
             <pluginRepositories>
+                <pluginRepository>
+                    <id>central</id>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>cloudera-public</id>
