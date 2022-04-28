@@ -1,0 +1,23 @@
+name: FE Code Style Checker
+on:
+  pull_request:
+jobs:
+  java-checkstyle:
+    name: "CheckStyle"
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: "Run java checkstyle"
+        uses: dbelyaev/action-checkstyle@master
+        with:
+          checkstyle_config: "check/checkstyle/checkstyle.xml"
+          checkstyle_version: 9.3
+          workdir: "./fe"
+          reporter: 'github-pr-review'
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_error: true
+
