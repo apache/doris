@@ -38,22 +38,24 @@ PROPERTIES (
 )
 """
 
-    sql "insert into ${table1} values(9,10,11,12)"
-    sql "insert into ${table1} values(9,10,11,12)"
-    sql "insert into ${table1} values(21,null,23,null)"
-    sql "insert into ${table1} values(1,2,3,4)"
-    sql "insert into ${table1} values(1,2,3,4)"
-    sql "insert into ${table1} values(13,14,15,16)"
-    sql "insert into ${table1} values(13,21,22,16)"
-    sql "insert into ${table1} values(13,14,15,16)"
-    sql "insert into ${table1} values(13,21,22,16)"
-    sql "insert into ${table1} values(17,18,19,20)"
-    sql "insert into ${table1} values(17,18,19,20)"
-    sql "insert into ${table1} values(null,21,null,23)"
-    sql "insert into ${table1} values(22,null,24,25)"
-    sql "insert into ${table1} values(26,27,null,29)"
-    sql "insert into ${table1} values(5,6,7,8)"
-    sql "insert into ${table1} values(5,6,7,8)"
+    sql """insert into ${table1} values
+        (9,10,11,12),
+        (9,10,11,12),
+        (21,null,23,null),
+        (1,2,3,4),
+        (1,2,3,4),
+        (13,14,15,16),
+        (13,21,22,16),
+        (13,14,15,16),
+        (13,21,22,16),
+        (17,18,19,20),
+        (17,18,19,20),
+        (null,21,null,23),
+        (22,null,24,25),
+        (26,27,null,29),
+        (5,6,7,8),
+        (5,6,7,8)
+"""
 
     test {
         // siteid column not contain null

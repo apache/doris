@@ -37,14 +37,15 @@ suite("test_dup_tab_basic_varchar_nullable") {
     "storage_format" = "V2"
     )
     """
-    sql "insert into ${table1} values(null,'qie3','yy','lj')"
-    sql "insert into ${table1} values(null,'hehe',null,'lala')"
-    sql "insert into ${table1} values('beijing','xuanwu','wugui',null)"
-    sql "insert into ${table1} values('beijing','fengtai','fengtai1','fengtai2')"
-    sql "insert into ${table1} values('beijing','chaoyang','wangjing','donghuqu')"
-    sql "insert into ${table1} values('shanghai','hehe',null,'haha')"
-    sql "insert into ${table1} values('tengxun','qie','gg','lj')"
-    sql "insert into ${table1} values('tengxun2','qie',null,'lj')"
+    sql """insert into ${table1} values(null,'qie3','yy','lj'),
+        (null,'hehe',null,'lala'),
+        ('beijing','xuanwu','wugui',null),
+        ('beijing','fengtai','fengtai1','fengtai2'),
+        ('beijing','chaoyang','wangjing','donghuqu'),
+        ('shanghai','hehe',null,'haha'),
+        ('tengxun','qie','gg','lj'),
+        ('tengxun2','qie',null,'lj')
+"""
 
     // read single column
     test {

@@ -42,13 +42,14 @@ PROPERTIES (
 )
 """
 
-    sql "insert into ${table1} values(1,2,3.1,4.2,5.3,5.4,'a1','a2')"
-    sql "insert into ${table1} values(2,3,4.1,5.2,6.3,7.4,'b1','b2')"
-    sql "insert into ${table1} values(3,4,5.1,6.2,7.3,8.4,'c1','c2')"
-    sql "insert into ${table1} values(4,5,6.1,7.2,8.3,9.4,'d1','d2')"
-    sql "insert into ${table1} values(5,6,7.1,8.2,9.3,10.4,'d1','e2')"
-    sql "insert into ${table1} values(5,6,5.1,8.2,6.3,11.4,'e1','e2')"
-    sql "insert into ${table1} values(null,7,null,8,null,9,null,'e3')"
+    sql """insert into ${table1} values(1,2,3.1,4.2,5.3,5.4,'a1','a2'),
+            (2,3,4.1,5.2,6.3,7.4,'b1','b2'),
+            (3,4,5.1,6.2,7.3,8.4,'c1','c2'),
+            (4,5,6.1,7.2,8.3,9.4,'d1','d2'),
+            (5,6,7.1,8.2,9.3,10.4,'d1','e2'),
+            (5,6,5.1,8.2,6.3,11.4,'e1','e2'),
+            (null,7,null,8,null,9,null,'e3')
+        """
 
     // read int and string
     test {

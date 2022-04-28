@@ -38,18 +38,20 @@ PROPERTIES (
 )
 
 """
-    sql "insert into ${table1} values(9,10,11,12)"
-    sql "insert into ${table1} values(9,10,11,12)"
-    sql "insert into ${table1} values(1,2,3,4)"
-    sql "insert into ${table1} values(13,21,22,16)"
-    sql "insert into ${table1} values(13,14,15,16)"
-    sql "insert into ${table1} values(17,18,19,20)"
-    sql "insert into ${table1} values(1,2,3,4)"
-    sql "insert into ${table1} values(13,21,22,16)"
-    sql "insert into ${table1} values(13,14,15,16)"
-    sql "insert into ${table1} values(17,18,19,20)"
-    sql "insert into ${table1} values(5,6,7,8)"
-    sql "insert into ${table1} values(5,6,7,8)"
+    sql """insert into ${table1} values
+        (9,10,11,12),
+        (9,10,11,12),
+        (1,2,3,4),
+        (13,21,22,16),
+        (13,14,15,16),
+        (17,18,19,20),
+        (1,2,3,4),
+        (13,21,22,16),
+        (13,14,15,16),
+        (17,18,19,20),
+        (5,6,7,8),
+        (5,6,7,8)
+"""
 
     // read key column
     test {
@@ -129,9 +131,9 @@ PROPERTIES (
 
     test {
         sql """
-            select siteid,citycode from ${table1} where siteid = 13
+            select siteid,citycode from ${table1} where siteid = 13 order by siteid,citycode
         """
-        result([[13, 21], [13, 14], [13, 21], [13, 14]])
+        result([[13, 14], [13, 14], [13, 21], [13, 21]])
     }
 
     test {
