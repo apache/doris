@@ -1449,4 +1449,24 @@ void TabletManager::get_tablets_distribution_on_different_disks(
     }
 }
 
+void TabletManager::get_all_tablets_storage_format(TCheckStorageFormatResult* result) {
+    DCHECK(result != nullptr);
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& item : tablets_shard.tablet_map) {
+            uint64_t tablet_id = item.first;
+            for (auto& tablet : item.second.table_arr) {
+                if (tablet->all_beta()) {
+                    result->v2_tablets.push_back(tablet_id);
+                } else {
+                    result->v1_tablets.push_back(tablet_id);
+                }
+                break;
+            }
+        }
+    }
+    result->__isset.v1_tablets = true;
+    result->__isset.v2_tablets = true;
+}
+
 } // end namespace doris

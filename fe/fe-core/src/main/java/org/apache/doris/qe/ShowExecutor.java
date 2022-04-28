@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AdminDiagnoseTabletStmt;
 import org.apache.doris.analysis.AdminShowConfigStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
+import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.PartitionNames;
@@ -158,13 +159,14 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Diagnoser;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentClient;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.apache.commons.lang3.tuple.Triple;
@@ -183,7 +185,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -335,6 +336,8 @@ public class ShowExecutor {
             handleShowTableCreation();
         } else if (stmt instanceof ShowLastInsertStmt) {
             handleShowLastInsert();
+        } else if (stmt instanceof AdminShowTabletStorageFormatStmt) {
+            handleAdminShowTabletStorageFormat();
         } else if (stmt instanceof AdminDiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
         } else {
@@ -659,7 +662,6 @@ public class ShowExecutor {
         ShowTableStmt showTableStmt = (ShowTableStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
         Database db = ctx.getCatalog().getDbOrAnalysisException(showTableStmt.getDb());
-        Map<String, String> tableMap = Maps.newTreeMap();
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
             matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
@@ -675,14 +677,14 @@ public class ShowExecutor {
                     PrivPredicate.SHOW)) {
                 continue;
             }
-            tableMap.put(tbl.getName(), tbl.getMysqlType());
-        }
-
-        for (Map.Entry<String, String> entry : tableMap.entrySet()) {
             if (showTableStmt.isVerbose()) {
-                rows.add(Lists.newArrayList(entry.getKey(), entry.getValue()));
+                String storageFormat = "NONE";
+                if (tbl instanceof OlapTable) {
+                    storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
+                }
+                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat));
             } else {
-                rows.add(Lists.newArrayList(entry.getKey()));
+                rows.add(Lists.newArrayList(tbl.getName()));
             }
         }
         resultSet = new ShowResultSet(showTableStmt.getMetaData(), rows);
@@ -2129,6 +2131,43 @@ public class ShowExecutor {
             }
         }
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleAdminShowTabletStorageFormat() throws AnalysisException {
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
+            if (be.isQueryAvailable() && be.isLoadAvailable()) {
+                AgentClient client = new AgentClient(be.getHost(), be.getBePort());
+                TCheckStorageFormatResult result = client.checkStorageFormat();
+                if (result == null) {
+                    throw new AnalysisException("get tablet data from backend: " + be.getId() + "error.");
+                }
+                if (stmt.isVerbose()) {
+                    for (long tabletId : result.getV1Tablets()) {
+                        List<String> row = new ArrayList<>();
+                        row.add(String.valueOf(be.getId()));
+                        row.add(String.valueOf(tabletId));
+                        row.add("V1");
+                        resultRowSet.add(row);
+                    }
+                    for (long tabletId : result.getV2Tablets()) {
+                        List<String> row = new ArrayList<>();
+                        row.add(String.valueOf(be.getId()));
+                        row.add(String.valueOf(tabletId));
+                        row.add("V2");
+                        resultRowSet.add(row);
+                    }
+                } else {
+                    List<String> row = new ArrayList<>();
+                    row.add(String.valueOf(be.getId()));
+                    row.add(String.valueOf(result.getV1Tablets().size()));
+                    row.add(String.valueOf(result.getV2Tablets().size()));
+                    resultRowSet.add(row);
+                }
+            }
+        }
+        ShowResultSetMetaData showMetaData = stmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
