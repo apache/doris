@@ -223,6 +223,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         RecycleTableInfo tableInfo = idToTable.remove(tableId);
         idToRecycleTime.remove(tableId);
 
+        if (tableInfo == null) {
+            LOG.warn("replayEraseTable, idToTable has no tableId: {}, ignore it", tableId);
+            return;
+        }
+
         Table table = tableInfo.getTable();
         if (table.getType() == TableType.OLAP && !Catalog.isCheckpointThread()) {
             Catalog.getCurrentCatalog().onEraseOlapTable((OlapTable) table, true);
