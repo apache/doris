@@ -57,9 +57,9 @@ import java.util.Map;
 import java.util.StringJoiner;
 
 
-public class MetaScanNode extends ScanNode {
+public class OlapMetaScanNode extends ScanNode {
 
-    private static final Logger LOG = LogManager.getLogger(MetaScanNode.class);
+    private static final Logger LOG = LogManager.getLogger(OlapMetaScanNode.class);
 
     private static final String NODE_NAME = "META_SCAN";
 
@@ -67,8 +67,8 @@ public class MetaScanNode extends ScanNode {
 
     private final OlapTable olapTable;
 
-    public MetaScanNode(PlanNodeId id,
-                        TupleDescriptor tupleDesc) {
+    public OlapMetaScanNode(PlanNodeId id,
+                            TupleDescriptor tupleDesc) {
         super(id, tupleDesc, NODE_NAME);
         this.olapTable = (OlapTable) tupleDesc.getTable();
     }

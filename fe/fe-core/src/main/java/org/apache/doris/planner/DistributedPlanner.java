@@ -284,7 +284,7 @@ public class DistributedPlanner {
             OlapScanNode olapScanNode = (OlapScanNode) node;
             return new PlanFragment(ctx_.getNextFragmentId(), node,
                     olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
-        } else if (node instanceof MetaScanNode) {
+        } else if (node instanceof OlapMetaScanNode) {
             return new PlanFragment(ctx_.getNextFragmentId(), node, DataPartition.RANDOM);
         } else {
             // other scan nodes are random partitioned: es, broker

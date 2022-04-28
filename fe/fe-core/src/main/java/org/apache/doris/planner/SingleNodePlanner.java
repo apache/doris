@@ -1160,9 +1160,9 @@ public class SingleNodePlanner {
             newRoot.init(analyzer);
             Preconditions.checkState(newRoot.hasValidStats());
         } else if (selectStmt.isMetaQuery()) {
-            Preconditions.checkState(root instanceof MetaScanNode);
-            MetaScanNode metaScanNode = (MetaScanNode) root;
-            metaScanNode.pullDictSlots(aggInfo);
+            Preconditions.checkState(root instanceof OlapMetaScanNode);
+            OlapMetaScanNode olapMetaScanNode = (OlapMetaScanNode) root;
+            olapMetaScanNode.pullDictSlots(aggInfo);
         }
         // add Having clause
         newRoot.assignConjuncts(analyzer);
@@ -1688,8 +1688,8 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 if (selectStmt.isMetaQuery()) {
-                    MetaScanNode metaScanNode = new MetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
-                    scanNode = metaScanNode;
+                    OlapMetaScanNode olapMetaScanNode = new OlapMetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+                    scanNode = olapMetaScanNode;
                     break;
                 }
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
