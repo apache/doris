@@ -50,9 +50,8 @@ static inline int string_compare(const char* s1, int64_t n1, const char* s2, int
     while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
         __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
         __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
-        int chars_match =
-                _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
-                             sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
+        int chars_match = _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
+                                       sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
         if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
             return (unsigned char)s1[chars_match] - (unsigned char)s2[chars_match];
         }
@@ -193,9 +192,7 @@ struct StringValue {
     };
 
     struct HashOfStringValue {
-        size_t operator()(const StringValue& v) const {
-            return HashUtil::hash(v.ptr, v.len, 0);
-        }
+        size_t operator()(const StringValue& v) const { return HashUtil::hash(v.ptr, v.len, 0); }
     };
 };
 

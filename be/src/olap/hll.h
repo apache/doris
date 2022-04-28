@@ -214,9 +214,9 @@ public:
 
     size_t memory_consumed() const {
         size_t size = sizeof(*this);
-        if (_type == HLL_DATA_EXPLICIT) 
+        if (_type == HLL_DATA_EXPLICIT)
             size += _hash_set.size() * sizeof(uint64_t);
-        else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL) 
+        else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL)
             size += HLL_REGISTERS_COUNT;
         return size;
     }
@@ -275,7 +275,6 @@ private:
     uint8_t* _registers = nullptr;
 
 private:
-
     void _convert_explicit_to_register();
 
     // update one hash value into this registers
@@ -381,4 +380,3 @@ public:
 };
 
 } // namespace doris
-

@@ -67,8 +67,8 @@ struct ParsedPage {
         return Status::OK();
     }
 
-    ~ParsedPage() { 
-        delete data_decoder; 
+    ~ParsedPage() {
+        delete data_decoder;
         data_decoder = nullptr;
     }
 

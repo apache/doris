@@ -32,16 +32,16 @@ public:
     static void topn_update(FunctionContext*, const T& src, const IntVal& topn, StringVal* dst);
 
     template <typename T>
-    static void topn_update(FunctionContext*, const T& src, const IntVal& topn, const IntVal& space_expand_rate,
-            StringVal* dst);
+    static void topn_update(FunctionContext*, const T& src, const IntVal& topn,
+                            const IntVal& space_expand_rate, StringVal* dst);
 
-    static void topn_merge(FunctionContext*,const StringVal& src, StringVal* dst);
+    static void topn_merge(FunctionContext*, const StringVal& src, StringVal* dst);
 
     static StringVal topn_serialize(FunctionContext* ctx, const StringVal& src);
 
     static StringVal topn_finalize(FunctionContext*, const StringVal& src);
 };
 
-}
+} // namespace doris
 
 #endif //DORIS_BE_SRC_EXPRS_TOPN_FUNCTION_H

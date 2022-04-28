@@ -88,7 +88,8 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
                                               MemTracker::get_process_tracker(),
                                               MemTrackerLevel::OVERVIEW);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    REGISTER_HOOK_METRIC(load_channel_mem_consumption, [this]() { return _mem_tracker->consumption(); });
+    REGISTER_HOOK_METRIC(load_channel_mem_consumption,
+                         [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();

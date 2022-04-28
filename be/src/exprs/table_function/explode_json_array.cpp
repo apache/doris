@@ -28,127 +28,126 @@ std::string ParsedData::false_value = "false";
 int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& document) {
     int size = document.GetArray().Size();
     switch (type) {
-        case ExplodeJsonArrayType::INT: {
-            _data.resize(size);
-            _backup_int.resize(size);
-            int i = 0;
-            for (auto& v : document.GetArray()) {
-                if (v.IsInt64()) {
-                    _backup_int[i] = v.GetInt64();
-                    _data[i] = &_backup_int[i];
+    case ExplodeJsonArrayType::INT: {
+        _data.resize(size);
+        _backup_int.resize(size);
+        int i = 0;
+        for (auto& v : document.GetArray()) {
+            if (v.IsInt64()) {
+                _backup_int[i] = v.GetInt64();
+                _data[i] = &_backup_int[i];
+            } else {
+                _data[i] = nullptr;
+            }
+            ++i;
+        }
+        break;
+    }
+    case ExplodeJsonArrayType::DOUBLE: {
+        _data.resize(size);
+        _backup_double.resize(size);
+        int i = 0;
+        for (auto& v : document.GetArray()) {
+            if (v.IsDouble()) {
+                _backup_double[i] = v.GetDouble();
+                _data[i] = &_backup_double[i];
+            } else {
+                _data[i] = nullptr;
+            }
+            ++i;
+        }
+        break;
+    }
+    case ExplodeJsonArrayType::STRING: {
+        _data_string.clear();
+        _backup_string.clear();
+        _string_nulls.clear();
+        int32_t wbytes = 0;
+        int i = 0;
+        for (auto& v : document.GetArray()) {
+            switch (v.GetType()) {
+            case rapidjson::Type::kStringType:
+                _backup_string.emplace_back(v.GetString(), v.GetStringLength());
+                _string_nulls.push_back(false);
+                // do not set _data_string here.
+                // Because the address of the string stored in `_backup_string` may
+                // change each time `emplace_back()` is called.
+                break;
+            case rapidjson::Type::kNumberType:
+                if (v.IsUint()) {
+                    wbytes = sprintf(tmp_buf, "%u", v.GetUint());
+                } else if (v.IsInt()) {
+                    wbytes = sprintf(tmp_buf, "%d", v.GetInt());
+                } else if (v.IsUint64()) {
+                    wbytes = sprintf(tmp_buf, "%lu", v.GetUint64());
+                } else if (v.IsInt64()) {
+                    wbytes = sprintf(tmp_buf, "%ld", v.GetInt64());
                 } else {
-                    _data[i] = nullptr;
+                    wbytes = sprintf(tmp_buf, "%f", v.GetDouble());
                 }
-                ++i;
+                _backup_string.emplace_back(tmp_buf, wbytes);
+                _string_nulls.push_back(false);
+                // do not set _data_string here.
+                // Because the address of the string stored in `_backup_string` may
+                // change each time `emplace_back()` is called.
+                break;
+            case rapidjson::Type::kFalseType:
+                _data_string.emplace_back(true_value);
+                _string_nulls.push_back(false);
+                break;
+            case rapidjson::Type::kTrueType:
+                _data_string.emplace_back(false_value);
+                _string_nulls.push_back(false);
+                break;
+            case rapidjson::Type::kNullType:
+                _data_string.push_back({});
+                _string_nulls.push_back(true);
+                break;
+            default:
+                _data_string.push_back({});
+                _string_nulls.push_back(true);
+                break;
             }
-            break;
+            ++i;
         }
-        case ExplodeJsonArrayType::DOUBLE: {
-            _data.resize(size);
-            _backup_double.resize(size);
-            int i = 0;
-            for (auto& v : document.GetArray()) {
-                if (v.IsDouble()) {
-                    _backup_double[i] = v.GetDouble();
-                    _data[i] = &_backup_double[i];
-                } else {
-                    _data[i] = nullptr;
-                }
-                ++i;
-            }
-            break;
+        // Must set _data_string at the end, so that we can
+        // save the real addr of string in `_backup_string` to `_data_string`.
+        for (auto& str : _backup_string) {
+            _data_string.emplace_back(str);
         }
-        case ExplodeJsonArrayType::STRING: {
-            _data_string.clear();
-            _backup_string.clear();
-            _string_nulls.clear();
-            int32_t wbytes = 0;
-            int i = 0;
-            for (auto& v : document.GetArray()) {
-                switch (v.GetType()) {
-                    case rapidjson::Type::kStringType:
-                        _backup_string.emplace_back(v.GetString(), v.GetStringLength());
-                        _string_nulls.push_back(false);
-                        // do not set _data_string here.
-                        // Because the address of the string stored in `_backup_string` may
-                        // change each time `emplace_back()` is called.
-                        break;
-                    case rapidjson::Type::kNumberType:
-                        if (v.IsUint()) {
-                            wbytes = sprintf(tmp_buf, "%u", v.GetUint());
-                        } else if (v.IsInt()) {
-                            wbytes = sprintf(tmp_buf, "%d", v.GetInt());
-                        } else if (v.IsUint64()) {
-                            wbytes = sprintf(tmp_buf, "%lu", v.GetUint64());
-                        } else if (v.IsInt64()) {
-                            wbytes = sprintf(tmp_buf, "%ld", v.GetInt64());
-                        } else {
-                            wbytes = sprintf(tmp_buf, "%f", v.GetDouble());
-                        }
-                        _backup_string.emplace_back(tmp_buf, wbytes);
-                        _string_nulls.push_back(false);
-                        // do not set _data_string here.
-                        // Because the address of the string stored in `_backup_string` may
-                        // change each time `emplace_back()` is called.
-                        break;
-                    case rapidjson::Type::kFalseType:
-                        _data_string.emplace_back(true_value);
-                        _string_nulls.push_back(false);
-                        break;
-                    case rapidjson::Type::kTrueType:
-                        _data_string.emplace_back(false_value);
-                        _string_nulls.push_back(false);
-                        break;
-                    case rapidjson::Type::kNullType:
-                        _data_string.push_back({});
-                        _string_nulls.push_back(true);
-                        break;
-                    default:
-                        _data_string.push_back({});
-                        _string_nulls.push_back(true);
-                        break;
-                }
-                ++i;
-            }
-            // Must set _data_string at the end, so that we can
-            // save the real addr of string in `_backup_string` to `_data_string`.
-            for (auto& str : _backup_string) {
-                _data_string.emplace_back(str);
-            }
-            break;
-        }
-        default:
-            CHECK(false) << type;
-            break;
+        break;
+    }
+    default:
+        CHECK(false) << type;
+        break;
     }
     return size;
 }
 
 /////////////////////////
 ExplodeJsonArrayTableFunction::ExplodeJsonArrayTableFunction(ExplodeJsonArrayType type)
-    : _type(type) {
-    
+        : _type(type) {
     switch (type) {
-        case ExplodeJsonArrayType::INT:
-            _fn_name = "explode_json_array_int";
-            break;
-        case ExplodeJsonArrayType::DOUBLE:
-            _fn_name = "explode_json_array_double";
-            break;
-        case ExplodeJsonArrayType::STRING:
-            _fn_name = "explode_json_array_string";
-            break;
-        default:
-            _fn_name = "unknown";
-            break;
+    case ExplodeJsonArrayType::INT:
+        _fn_name = "explode_json_array_int";
+        break;
+    case ExplodeJsonArrayType::DOUBLE:
+        _fn_name = "explode_json_array_double";
+        break;
+    case ExplodeJsonArrayType::STRING:
+        _fn_name = "explode_json_array_string";
+        break;
+    default:
+        _fn_name = "unknown";
+        break;
     }
 }
 
-ExplodeJsonArrayTableFunction::~ExplodeJsonArrayTableFunction() {
-}
+ExplodeJsonArrayTableFunction::~ExplodeJsonArrayTableFunction() {}
 
 Status ExplodeJsonArrayTableFunction::process(TupleRow* tuple_row) {
-    CHECK(1 == _expr_context->root()->get_num_children()) << _expr_context->root()->get_num_children();
+    CHECK(1 == _expr_context->root()->get_num_children())
+            << _expr_context->root()->get_num_children();
     _is_current_empty = false;
     _eos = false;
 
@@ -157,8 +156,9 @@ Status ExplodeJsonArrayTableFunction::process(TupleRow* tuple_row) {
         _is_current_empty = true;
     } else {
         rapidjson::Document document;
-        document.Parse((char*) text.ptr, text.len);
-        if (UNLIKELY(document.HasParseError()) || !document.IsArray() || document.GetArray().Size() == 0) {
+        document.Parse((char*)text.ptr, text.len);
+        if (UNLIKELY(document.HasParseError()) || !document.IsArray() ||
+            document.GetArray().Size() == 0) {
             _is_current_empty = true;
         } else {
             _cur_size = _parsed_data.set_output(_type, document);

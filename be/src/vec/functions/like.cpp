@@ -50,14 +50,15 @@ static const re2::RE2 LIKE_STARTS_WITH_RE("(((\\\\%)|(\\\\_)|([^%_]))+)(?:%+)");
 static const re2::RE2 LIKE_EQUALS_RE("(((\\\\%)|(\\\\_)|([^%_]))+)");
 
 Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const StringValue& val,
-                                          const StringValue& pattern, unsigned char* result) {
+                                                 const StringValue& pattern,
+                                                 unsigned char* result) {
     *result = (val.len >= state->search_string_sv.len) &&
               (state->search_string_sv == val.substring(0, state->search_string_sv.len));
     return Status::OK();
 }
 
 Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const StringValue& val,
-                                        const StringValue& pattern, unsigned char* result) {
+                                               const StringValue& pattern, unsigned char* result) {
     *result = (val.len >= state->search_string_sv.len) &&
               (state->search_string_sv ==
                val.substring(val.len - state->search_string_sv.len, state->search_string_sv.len));
@@ -65,13 +66,13 @@ Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const Str
 }
 
 Status FunctionLikeBase::constant_equals_fn(LikeSearchState* state, const StringValue& val,
-                                     const StringValue& pattern, unsigned char* result) {
+                                            const StringValue& pattern, unsigned char* result) {
     *result = (val == state->search_string_sv);
     return Status::OK();
 }
 
 Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const StringValue& val,
-                                        const StringValue& pattern, unsigned char* result) {
+                                               const StringValue& pattern, unsigned char* result) {
     if (state->search_string_sv.len == 0) {
         *result = true;
         return Status::OK();
@@ -82,8 +83,8 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Str
 }
 
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
-                               size_t /*input_rows_count*/) {
+                                      const ColumnNumbers& arguments, size_t result,
+                                      size_t /*input_rows_count*/) {
     // values and patterns
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -123,11 +124,11 @@ Status FunctionLikeBase::close(FunctionContext* context,
 }
 
 Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
-                                const ColumnString::Offsets& value_offsets,
-                                const ColumnString::Chars& patterns,
-                                const ColumnString::Offsets& pattern_offsets,
-                                ColumnUInt8::Container& result, const LikeFn& function,
-                                LikeSearchState* search_state) {
+                                       const ColumnString::Offsets& value_offsets,
+                                       const ColumnString::Chars& patterns,
+                                       const ColumnString::Offsets& pattern_offsets,
+                                       ColumnUInt8::Container& result, const LikeFn& function,
+                                       LikeSearchState* search_state) {
     const auto size = value_offsets.size();
 
     for (int i = 0; i < size; ++i) {
@@ -143,7 +144,7 @@ Status FunctionLikeBase::vector_vector(const ColumnString::Chars& values,
 }
 
 Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
-                              const StringValue& pattern, unsigned char* result) {
+                             const StringValue& pattern, unsigned char* result) {
     std::string re_pattern;
     RE2::Options opts;
     opts.set_never_nl(false);
@@ -159,13 +160,13 @@ Status FunctionLike::like_fn(LikeSearchState* state, const StringValue& val,
 }
 
 Status FunctionLike::constant_regex_full_fn(LikeSearchState* state, const StringValue& val,
-                                             const StringValue& pattern, unsigned char* result) {
+                                            const StringValue& pattern, unsigned char* result) {
     *result = RE2::FullMatch(re2::StringPiece(val.ptr, val.len), *state->regex.get());
     return Status::OK();
 }
 
 void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::string& pattern,
-                                         std::string* re_pattern) {
+                                        std::string* re_pattern) {
     re_pattern->clear();
     bool is_escaped = false;
     for (size_t i = 0; i < pattern.size(); ++i) {
@@ -256,7 +257,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
 }
 
 Status FunctionRegexp::prepare(FunctionContext* context,
-                                FunctionContext::FunctionStateScope scope) {
+                               FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
@@ -297,8 +298,8 @@ Status FunctionRegexp::prepare(FunctionContext* context,
 }
 
 Status FunctionRegexp::constant_regex_partial_fn(LikeSearchState* state, const StringValue& val,
-                                                  const StringValue& pattern,
-                                                  unsigned char* result) {
+                                                 const StringValue& pattern,
+                                                 unsigned char* result) {
     *result = RE2::PartialMatch(re2::StringPiece(val.ptr, val.len), *state->regex);
     return Status::OK();
 }

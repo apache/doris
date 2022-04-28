@@ -225,7 +225,8 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
             LOG(INFO) << "kafka consume timeout: " << _id;
             break;
         case RdKafka::ERR__TRANSPORT:
-            LOG(INFO) << "kafka consume Disconnected: " << _id << ", retry times: " << retry_times++;
+            LOG(INFO) << "kafka consume Disconnected: " << _id
+                      << ", retry times: " << retry_times++;
             if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 break;

@@ -132,9 +132,7 @@ public:
         return _packet_in_flight.compare_exchange_strong(value, true);
     }
 
-    void clear_in_flight() {
-        _packet_in_flight = false;
-    }
+    void clear_in_flight() { _packet_in_flight = false; }
 
     bool is_packet_in_flight() { return _packet_in_flight; }
 

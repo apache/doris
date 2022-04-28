@@ -204,7 +204,7 @@ class AssociativeGenericApplierImpl {
 public:
     /// Remembers the last N columns from `in`.
     AssociativeGenericApplierImpl(const ColumnRawPtrs& in)
-            : val_getter{ValueGetterBuilder::build(in[in.size() - N])}, next{in} {}
+            : val_getter {ValueGetterBuilder::build(in[in.size() - N])}, next {in} {}
 
     /// Returns a combination of values in the i-th row of all columns stored in the constructor.
     ResultValueType apply(const size_t i) const {
@@ -227,7 +227,7 @@ class AssociativeGenericApplierImpl<Op, 1> {
 public:
     /// Remembers the last N columns from `in`.
     AssociativeGenericApplierImpl(const ColumnRawPtrs& in)
-            : val_getter{ValueGetterBuilder::build(in[in.size() - 1])} {}
+            : val_getter {ValueGetterBuilder::build(in[in.size() - 1])} {}
 
     inline ResultValueType apply(const size_t i) const { return val_getter(i); }
 

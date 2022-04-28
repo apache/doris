@@ -55,7 +55,7 @@ static uint32_t calc_days_in_year(uint32_t year) {
 RE2 VecDateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 
 bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint16_t type) {
+                                   uint32_t minute, uint32_t second, uint16_t type) {
     bool time = hour > (type == TIME_TIME ? TIME_MAX_HOUR : 23) || minute > 59 || second > 59;
     return time || check_date(year, month, day);
 }
@@ -182,8 +182,8 @@ bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
     }
 
     if (num_field < 3) return false;
-    return check_range_and_set_time(date_val[0], date_val[1], date_val[2],
-            date_val[3], date_val[4], date_val[5], _type);
+    return check_range_and_set_time(date_val[0], date_val[1], date_val[2], date_val[3], date_val[4],
+                                    date_val[5], _type);
 }
 
 // [0, 101) invalid
@@ -267,7 +267,7 @@ bool VecDateTimeValue::from_date_int64(int64_t value) {
     uint64_t date = value / 1000000;
     uint64_t time = value % 1000000;
 
-    auto [year, month, day, hour, minute, second] = std::tuple{0,0,0,0,0,0};
+    auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     year = date / 10000;
     date %= 10000;
     month = date / 100;
@@ -388,14 +388,14 @@ char* VecDateTimeValue::to_time_buffer(char* to) const {
 
 int32_t VecDateTimeValue::to_buffer(char* buffer) const {
     switch (_type) {
-        case TIME_TIME:
-            return to_time_buffer(buffer) - buffer;
-        case TIME_DATE:
-            return to_date_buffer(buffer) - buffer;
-        case TIME_DATETIME:
-            return to_datetime_buffer(buffer) - buffer;
-        default:
-            break;
+    case TIME_TIME:
+        return to_time_buffer(buffer) - buffer;
+    case TIME_DATE:
+        return to_date_buffer(buffer) - buffer;
+    case TIME_DATETIME:
+        return to_datetime_buffer(buffer) - buffer;
+    default:
+        break;
     }
     return 0;
 }
@@ -407,7 +407,8 @@ char* VecDateTimeValue::to_string(char* to) const {
 }
 
 int64_t VecDateTimeValue::to_datetime_int64() const {
-    return (_year * 10000L + _month * 100 + _day) * 1000000L + _hour * 10000 + _minute * 100 + _second;
+    return (_year * 10000L + _month * 100 + _day) * 1000000L + _hour * 10000 + _minute * 100 +
+           _second;
 }
 
 int64_t VecDateTimeValue::to_date_int64() const {
@@ -437,7 +438,7 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
         return false;
     }
 
-    auto [year, month, day] = std::tuple{0, 0, 0};
+    auto [year, month, day] = std::tuple {0, 0, 0};
     year = daynr / 365;
     uint32_t days_befor_year = 0;
     while (daynr < (days_befor_year = calc_daynr(year, 1, 1))) {
@@ -1046,7 +1047,7 @@ static int check_word(const char* lib[], const char* str, const char* end, const
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
-                                         int value_len, const char** sub_val_end) {
+                                            int value_len, const char** sub_val_end) {
     const char* ptr = format;
     const char* end = format + format_len;
     const char* val = value;
@@ -1068,7 +1069,7 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     int strict_week_number_year = -1;
     bool usa_time = false;
 
-    auto [year, month, day, hour, minute, second] = std::tuple{0,0,0,0,0,0};
+    auto [year, month, day, hour, minute, second] = std::tuple {0, 0, 0, 0, 0, 0};
     while (ptr < end && val < val_end) {
         // Skip space character
         while (val < val_end && isspace(*val)) {
@@ -1284,14 +1285,14 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
                 }
                 val = tmp;
                 time_part_used = true;
-                    already_set_time_part = true;
+                already_set_time_part = true;
                 break;
             case 'T':
                 if (!from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                     return false;
                 }
                 time_part_used = true;
-                    already_set_time_part = true;
+                already_set_time_part = true;
                 val = tmp;
                 break;
             case '.':
@@ -1421,9 +1422,10 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     // 3. if both are true, means all part of date_time be set, no need check_range_and_set_time
     bool already_set_date_part = yearday > 0 || (week_num >= 0 && weekday > 0);
     if (already_set_date_part && already_set_time_part) return true;
-    if (already_set_date_part) return check_range_and_set_time(_year, _month, _day, hour, minute, second, _type);
-    if (already_set_time_part) return check_range_and_set_time(year, month, day,
-                                                               _hour, _minute, _second, _type);
+    if (already_set_date_part)
+        return check_range_and_set_time(_year, _month, _day, hour, minute, second, _type);
+    if (already_set_time_part)
+        return check_range_and_set_time(year, month, day, _hour, _minute, _second, _type);
 
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
@@ -1574,7 +1576,7 @@ VecDateTimeValue VecDateTimeValue::local_time() {
 }
 
 void VecDateTimeValue::set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second) {
+                                uint32_t minute, uint32_t second) {
     _year = year;
     _month = month;
     _day = day;
@@ -1583,7 +1585,8 @@ void VecDateTimeValue::set_time(uint32_t year, uint32_t month, uint32_t day, uin
     _second = second;
 }
 
-void VecDateTimeValue::convert_vec_dt_to_dt(doris::DateTimeValue* dt) {  //use convert VecDateTimeValue to DateTimeValue  
+void VecDateTimeValue::convert_vec_dt_to_dt(
+        doris::DateTimeValue* dt) { //use convert VecDateTimeValue to DateTimeValue
     dt->_neg = this->_neg;
     dt->_type = this->_type;
     dt->_hour = this->_hour;
@@ -1595,7 +1598,8 @@ void VecDateTimeValue::convert_vec_dt_to_dt(doris::DateTimeValue* dt) {  //use c
     dt->_microsecond = 0;
 }
 
-void VecDateTimeValue::convert_dt_to_vec_dt(doris::DateTimeValue* dt) {  //use convert DateTimeValue to VecDateTimeValue
+void VecDateTimeValue::convert_dt_to_vec_dt(
+        doris::DateTimeValue* dt) { //use convert DateTimeValue to VecDateTimeValue
     this->_neg = dt->_neg;
     this->_type = dt->_type;
     this->_hour = dt->_hour;
@@ -1622,4 +1626,4 @@ std::size_t hash_value(VecDateTimeValue const& value) {
     return HashUtil::hash(&value, sizeof(VecDateTimeValue), 0);
 }
 
-} // namespace doris
+} // namespace doris::vectorized

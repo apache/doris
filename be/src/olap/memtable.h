@@ -207,4 +207,3 @@ inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
 }
 
 } // namespace doris
-

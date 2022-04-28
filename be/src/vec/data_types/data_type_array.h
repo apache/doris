@@ -33,13 +33,13 @@ private:
 public:
     static constexpr bool is_parametric = true;
 
-    DataTypeArray(const DataTypePtr & nested_);
+    DataTypeArray(const DataTypePtr& nested_);
 
     TypeIndex get_type_id() const override { return TypeIndex::Array; }
 
     std::string do_get_name() const override { return "Array(" + nested->get_name() + ")"; }
 
-    const char * get_family_name() const override { return "Array"; }
+    const char* get_family_name() const override { return "Array"; }
 
     bool can_be_inside_nullable() const override { return true; }
 
@@ -47,14 +47,20 @@ public:
 
     Field get_default() const override;
 
-    bool equals(const IDataType & rhs) const override;
+    bool equals(const IDataType& rhs) const override;
 
     bool get_is_parametric() const override { return true; }
     bool have_subtypes() const override { return true; }
-    bool cannot_be_stored_in_tables() const override { return nested->cannot_be_stored_in_tables(); }
-    bool text_can_contain_only_valid_utf8() const override { return nested->text_can_contain_only_valid_utf8(); }
+    bool cannot_be_stored_in_tables() const override {
+        return nested->cannot_be_stored_in_tables();
+    }
+    bool text_can_contain_only_valid_utf8() const override {
+        return nested->text_can_contain_only_valid_utf8();
+    }
     bool is_comparable() const override { return nested->is_comparable(); }
-    bool can_be_compared_with_collation() const override { return nested->can_be_compared_with_collation(); }
+    bool can_be_compared_with_collation() const override {
+        return nested->can_be_compared_with_collation();
+    }
 
     bool is_value_unambiguously_represented_in_contiguous_memory_region() const override {
         return nested->is_value_unambiguously_represented_in_contiguous_memory_region();
@@ -62,7 +68,7 @@ public:
 
     //SerializationPtr doGetDefaultSerialization() const override;
 
-    const DataTypePtr & get_nested_type() const { return nested; }
+    const DataTypePtr& get_nested_type() const { return nested; }
 
     /// 1 for plain array, 2 for array of arrays and so on.
     size_t get_number_of_dimensions() const;

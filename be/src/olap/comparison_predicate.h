@@ -58,4 +58,3 @@ COMPARISON_PRED_CLASS_DEFINE(GreaterPredicate, GT)
 COMPARISON_PRED_CLASS_DEFINE(GreaterEqualPredicate, GE)
 
 } //namespace doris
-

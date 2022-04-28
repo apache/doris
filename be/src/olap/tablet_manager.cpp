@@ -226,12 +226,18 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         path_desc.storage_medium = request.storage_medium;
         path_desc.storage_name = request.storage_param.storage_name;
         StorageParamPB storage_param;
-        Status st = StorageBackendMgr::instance()->get_storage_param(request.storage_param.storage_name, &storage_param);
-        if (!st.ok() || storage_param.DebugString() != fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
-            LOG(INFO) << "remote storage need to change, create it. storage_name: " << request.storage_param.storage_name;
-            RETURN_NOT_OK_STATUS_WITH_WARN(StorageBackendMgr::instance()->create_remote_storage(
-                    fs::fs_util::get_storage_param_pb(request.storage_param)),
-                            "remote storage create failed. storage_name: " + request.storage_param.storage_name);
+        Status st = StorageBackendMgr::instance()->get_storage_param(
+                request.storage_param.storage_name, &storage_param);
+        if (!st.ok() ||
+            storage_param.DebugString() !=
+                    fs::fs_util::get_storage_param_pb(request.storage_param).DebugString()) {
+            LOG(INFO) << "remote storage need to change, create it. storage_name: "
+                      << request.storage_param.storage_name;
+            RETURN_NOT_OK_STATUS_WITH_WARN(
+                    StorageBackendMgr::instance()->create_remote_storage(
+                            fs::fs_util::get_storage_param_pb(request.storage_param)),
+                    "remote storage create failed. storage_name: " +
+                            request.storage_param.storage_name);
         }
     }
 
@@ -265,8 +271,9 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         // If we are doing schema-change, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        if (request.storage_medium == base_tablet->data_dir()->path_desc().storage_medium
-                || (FilePathDesc::is_remote(request.storage_medium) && base_tablet->data_dir()->is_remote())) {
+        if (request.storage_medium == base_tablet->data_dir()->path_desc().storage_medium ||
+            (FilePathDesc::is_remote(request.storage_medium) &&
+             base_tablet->data_dir()->is_remote())) {
             stores.clear();
             stores.push_back(base_tablet->data_dir());
         }
@@ -1040,7 +1047,8 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
         if (data_dir->is_remote() && FileUtils::check_exist(remote_file_param_path)) {
             // it means you must remove remote file for this segment first
             string json_buf;
-            Status s = env_util::read_file_to_string(Env::Default(), remote_file_param_path, &json_buf);
+            Status s = env_util::read_file_to_string(Env::Default(), remote_file_param_path,
+                                                     &json_buf);
             if (!s.ok()) {
                 LOG(WARNING) << "delete unused file error when read remote_file_param_path: "
                              << remote_file_param_path;
@@ -1051,8 +1059,8 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
             std::string tablet_uid = nullptr;
             rapidjson::Document dom;
             if (!dom.Parse(json_buf.c_str()).HasParseError()) {
-                if (dom.HasMember(TABLET_UID.c_str()) && dom[TABLET_UID.c_str()].IsString()
-                    && dom.HasMember(STORAGE_NAME.c_str()) && dom[STORAGE_NAME.c_str()].IsString()) {
+                if (dom.HasMember(TABLET_UID.c_str()) && dom[TABLET_UID.c_str()].IsString() &&
+                    dom.HasMember(STORAGE_NAME.c_str()) && dom[STORAGE_NAME.c_str()].IsString()) {
                     storage_name = dom[STORAGE_NAME.c_str()].GetString();
                     tablet_uid = dom[TABLET_UID.c_str()].GetString();
                 }
@@ -1060,7 +1068,8 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
             if (!tablet_uid.empty() && !storage_name.empty()) {
                 segment_desc.storage_name = storage_name;
                 StorageParamPB storage_param;
-                if (StorageBackendMgr::instance()->get_storage_param(storage_name, &storage_param) != OLAP_SUCCESS) {
+                if (StorageBackendMgr::instance()->get_storage_param(
+                            storage_name, &storage_param) != OLAP_SUCCESS) {
                     LOG(WARNING) << "storage_name is invalid: " << storage_name;
                     return;
                 }
@@ -1068,12 +1077,18 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
                 // remote file may be exist, check and mv it to trash
                 std::filesystem::path local_segment_path(schema_hash_path);
                 std::stringstream remote_file_stream;
-                remote_file_stream << data_dir->path_desc().remote_path << DATA_PREFIX
-                                   << "/" << local_segment_path.parent_path().parent_path().filename().string()  // shard
-                                   << "/" << local_segment_path.parent_path().filename().string()                // tablet_path
-                                   << "/" << local_segment_path.filename().string()                             // segment_path
-                                   << "/" << tablet_uid;
-                segment_desc.storage_medium = fs::fs_util::get_t_storage_medium(storage_param.storage_medium());
+                remote_file_stream
+                        << data_dir->path_desc().remote_path << DATA_PREFIX << "/"
+                        << local_segment_path.parent_path()
+                                   .parent_path()
+                                   .filename()
+                                   .string() // shard
+                        << "/"
+                        << local_segment_path.parent_path().filename().string() // tablet_path
+                        << "/" << local_segment_path.filename().string()        // segment_path
+                        << "/" << tablet_uid;
+                segment_desc.storage_medium =
+                        fs::fs_util::get_t_storage_medium(storage_param.storage_medium());
                 segment_desc.remote_path = remote_file_stream.str();
             }
         }

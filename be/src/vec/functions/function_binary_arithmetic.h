@@ -456,7 +456,7 @@ template <template <typename, typename> class Op, typename Name,
 class FunctionBinaryArithmetic : public IFunction {
     bool check_decimal_overflow = true;
     static constexpr bool has_variadic_argument =
-            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op<int,int>>()))>;
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op<int, int>>()))>;
 
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {

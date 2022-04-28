@@ -76,8 +76,7 @@ private:
 // @param separator 分隔符
 // @param result 切分结果
 template <typename T>
-Status split_string(const std::string& base, const T separator,
-                        std::vector<std::string>* result) {
+Status split_string(const std::string& base, const T separator, std::vector<std::string>* result) {
     if (!result) {
         return Status::OLAPInternalError(OLAP_ERR_OTHER_ERROR);
     }
@@ -117,10 +116,10 @@ void _destruct_array(const void* array, void*) {
 // 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
 // 通过指针返回的written_len是实际写入的长度。
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                         size_t* written_len, OLAPCompressionType compression_type);
+                     size_t* written_len, OLAPCompressionType compression_type);
 
 Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                           size_t* written_len, OLAPCompressionType compression_type);
+                       size_t* written_len, OLAPCompressionType compression_type);
 
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
@@ -219,9 +218,13 @@ private:
 };
 
 inline bool is_io_error(Status status) {
-    return (((Status::OLAPInternalError(OLAP_ERR_IO_ERROR) == status || Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH) == status) && errno == EIO) ||
-            Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR) == status || Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR) == status || Status::OLAPInternalError(OLAP_ERR_ROWBLOCK_READ_INFO_ERROR) == status);
+    return (((Status::OLAPInternalError(OLAP_ERR_IO_ERROR) == status ||
+              Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH) == status) &&
+             errno == EIO) ||
+            Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR) == status ||
+            Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR) == status ||
+            Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR) == status ||
+            Status::OLAPInternalError(OLAP_ERR_ROWBLOCK_READ_INFO_ERROR) == status);
 }
 
 #define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
@@ -314,4 +317,3 @@ bool valid_bool(const std::string& value_str);
     } while (0)
 
 } // namespace doris
-

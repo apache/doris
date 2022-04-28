@@ -41,7 +41,7 @@ public:
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                   const SchemaMapping& schema_mapping) override;
+                                               const SchemaMapping& schema_mapping) override;
 
     Status add_rowset_for_migration(RowsetSharedPtr rowset) override;
     Status flush() override;

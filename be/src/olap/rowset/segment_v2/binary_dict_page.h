@@ -105,7 +105,7 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override;
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
 
     size_t count() const override { return _data_page_decoder->count(); }
 
