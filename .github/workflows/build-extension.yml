@@ -57,5 +57,5 @@ jobs:
 
     - name: Build docs
       run: |
-        cd docs &&  /bash/bash build_help_zip.sh && npm install && npm run build
+        cd docs &&  /bin/bash build_help_zip.sh && npm install && npm run build
 
