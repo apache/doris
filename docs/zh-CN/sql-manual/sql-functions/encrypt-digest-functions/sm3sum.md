@@ -22,15 +22,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SM3SUM
+## SM3SUM
 
-## description
+### description
 计算 多个字符串 SM3 256-bit
-### Syntax
+#### Syntax
 
 `SM3SUM(str[,str])`
 
-## example
+### example
 
 ```
 MySQL > select sm3("abcd");
@@ -51,6 +51,6 @@ MySQL > select sm3sum("ab","cd");
 
 ```
 
-## keywords
+### keywords
 
     SM3SUM

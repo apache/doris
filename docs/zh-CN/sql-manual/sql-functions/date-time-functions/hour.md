@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# hour
-## description
-### Syntax
+## hour
+### description
+#### Syntax
 
 `INT HOUR(DATETIME date)`
 
@@ -35,7 +35,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select hour('2018-12-31 23:59:59');
@@ -45,5 +45,5 @@ mysql> select hour('2018-12-31 23:59:59');
 |                          23 |
 +-----------------------------+
 ```
-## keywords
+### keywords
 HOUR

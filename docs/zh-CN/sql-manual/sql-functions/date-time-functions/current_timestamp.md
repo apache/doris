@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# current_timestamp
-## description
-### Syntax
+## current_timestamp
+### description
+#### Syntax
 
 `DATETIME CURRENT_TIMESTAMP()`
 
 
 获得当前的时间，以Datetime类型返回
 
-## example
+### example
 
 ```
 mysql> select current_timestamp();
@@ -44,6 +44,6 @@ mysql> select current_timestamp();
 +---------------------+
 ```
 
-## keywords
+### keywords
 
     CURRENT_TIMESTAMP,CURRENT,TIMESTAMP

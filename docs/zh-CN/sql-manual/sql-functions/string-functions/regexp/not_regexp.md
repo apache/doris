@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# not regexp
-## description
-### syntax
+## not regexp
+### description
+#### syntax
 
 `BOOLEAN not regexp(VARCHAR str, VARCHAR pattern)`
 
 对字符串 str 进行正则匹配，匹配上的则返回 false，没匹配上则返回 true。pattern 为正则表达式。
 
-## example
+### example
 
 ```
 // 查找 k1 字段中不以 'billie' 为开头的所有数据
@@ -52,5 +52,5 @@ mysql > select k1 from test where k1 not regexp 'ok$';
 +------------+
 ```
 
-## keywords
+### keywords
 REGEXP, NOT, NOT REGEXP

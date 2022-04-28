@@ -24,17 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CAST
-## description
-### Syntax
+## CAST
+### description
+#### Syntax
 
 ```
 cast (input as type)
 ```
 
-### BIGINT type 
+#### BIGINT type 
 
-### Syntax(BIGINT)
+#### Syntax(BIGINT)
 
 ``` cast (input as BIGINT) ```
 
@@ -44,7 +44,7 @@ cast (input as type)
 
 将当前列 input 转换为 BIGINT 类型
 
-## example
+### example
 
 1. 转常量，或表中某列
 
@@ -78,5 +78,5 @@ mysql> select cast(cast ("11.2" as double) as bigint);
 +----------------------------------------+
 1 row in set (0.00 sec)
 ```
-## keywords
+### keywords
 CAST

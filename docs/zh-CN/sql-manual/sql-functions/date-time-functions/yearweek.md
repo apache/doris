@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# yearweek
-## description
-### Syntax
+## yearweek
+### description
+#### Syntax
 
 `INT YEARWEEK(DATE date)`
 `INT YEARWEEK(DATE date, INT mode)`
@@ -48,7 +48,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select yearweek('2021-1-1');
@@ -75,6 +75,6 @@ mysql> select yearweek('2024-12-30',1);
 +------------------------------------+
 ```
 
-## keywords
+### keywords
 
     YEARWEEK

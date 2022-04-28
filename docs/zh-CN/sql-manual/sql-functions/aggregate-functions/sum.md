@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SUM
-## description
-### Syntax
+## SUM
+### description
+#### Syntax
 
 `SUM(expr)`
 
 
 用于返回选中字段所有值的和
 
-## example
+### example
 ```
 MySQL > select sum(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -42,5 +42,5 @@ MySQL > select sum(scan_rows) from log_statis group by datetime;
 |       8217360135 |
 +------------------+
 ```
-## keywords
+### keywords
 SUM

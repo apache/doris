@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_subset_limit
+## bitmap_subset_limit
 
-## Description
+### Description
 
-### Syntax
+#### Syntax
 
 `BITMAP BITMAP_SUBSET_LIMIT(BITMAP src, BIGINT range_start, BIGINT cardinality_limit)`
 
@@ -36,7 +36,7 @@ under the License.
 range_start：范围起始点（含）
 cardinality_limit：子BIGMAP基数上限
 
-## example
+### example
 
 ```
 mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5'), 0, 3)) value;
@@ -54,6 +54,6 @@ mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5
 +-------+
 ```
 
-## keywords
+### keywords
 
     BITMAP_SUBSET_LIMIT,BITMAP_SUBSET,BITMAP

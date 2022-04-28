@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# not like
-## description
-### syntax
+## not like
+### description
+#### syntax
 
 `BOOLEAN not like(VARCHAR str, VARCHAR pattern)`
 
@@ -48,7 +48,7 @@ like 匹配/模糊匹配，会与 % 和 _ 结合使用。
 'a_'     // 两位且开头字母是 a 的数据
 'a__b'  // 四位且以字符a开头、b结尾的数据
 ```
-## example
+### example
 
 ```
 // table test
@@ -81,5 +81,5 @@ mysql > select k1 from test where k1 not like 'a';
 +-------+
 ```
 
-## keywords
+### keywords
 LIKE, NOT, NOT LIKE

@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curdate,current_date
-## description
-### Syntax
+## curdate,current_date
+### description
+#### Syntax
 
 `DATE CURDATE()`
 
 获取当前的日期，以DATE类型返回
 
-## Examples
+### Examples
 
 ```
 mysql> SELECT CURDATE();
@@ -50,6 +50,6 @@ mysql> SELECT CURDATE() + 0;
 +---------------+
 ```
 
-## keywords
+### keywords
 
     CURDATE,CURRENT_DATE

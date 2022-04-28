@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# timediff
-## description
-### Syntax
+## timediff
+### description
+#### Syntax
 
 `TIME TIMEDIFF(DATETIME expr1, DATETIME expr2)`
 
@@ -35,7 +35,7 @@ TIMEDIFF返回两个DATETIME之间的差值
 
 TIMEDIFF函数返回表示为时间值的expr1 - expr2的结果，返回值为TIME类型
 
-## example
+### example
 
 ```
 mysql> SELECT TIMEDIFF(now(),utc_timestamp());
@@ -60,6 +60,6 @@ mysql> SELECT TIMEDIFF('2019-01-01 00:00:00', NULL);
 +---------------------------------------+
 ```
 
-## keywords
+### keywords
 
     TIMEDIFF

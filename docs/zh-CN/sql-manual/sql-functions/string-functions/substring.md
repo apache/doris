@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# substring
-## description
-### Syntax
+## substring
+### description
+#### Syntax
 
 `VARCHAR substring(VARCHAR str, INT pos[, INT len])`
 
@@ -37,7 +37,7 @@ under the License.
 
 对于所有形式的 SUBSTRING()，要从中提取子字符串的字符串中第一个字符的位置为1。
 
-## example
+### example
 
 ```
 mysql> select substring('abc1', 2);
@@ -68,5 +68,5 @@ mysql> select substring('abc1def', 2, 2);
 | bc                          |
 +-----------------------------+
 ```
-## keywords
+### keywords
 SUBSTRING

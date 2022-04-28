@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# concat
-## description
-### Syntax
+## concat
+### description
+#### Syntax
 
 `VARCHAR concat(VARCHAR,...)`
 
 
 将多个字符串连接起来, 如果参数中任意一个值是 NULL，那么返回的结果就是 NULL
 
-## example
+### example
 
 ```
 mysql> select concat("a", "b");
@@ -57,5 +57,5 @@ mysql> select concat("a", null, "c");
 | NULL                   |
 +------------------------+
 ```
-## keywords
+### keywords
 CONCAT

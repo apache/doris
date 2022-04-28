@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitand
-## description
-### Syntax
+## bitand
+### description
+#### Syntax
 
 `BITAND(Integer-type lhs, Integer-type rhs)`
 
@@ -34,7 +34,7 @@ under the License.
 
 整数范围：TINYINT、SMALLINT、INT、BIGINT、LARGEINT
 
-## example
+### example
 
 ```
 mysql> select bitand(3,5) ans;
@@ -52,6 +52,6 @@ mysql> select bitand(4,7) ans;
 +------+
 ```
 
-## keywords
+### keywords
 
     BITAND

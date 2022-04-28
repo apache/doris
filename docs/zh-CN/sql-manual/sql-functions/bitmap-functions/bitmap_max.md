@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_max
-## description
-### Syntax
+## bitmap_max
+### description
+#### Syntax
 
 `BIGINT BITMAP_MAX(BITMAP input)`
 
 计算并返回 bitmap 中的最大值.
 
-## example
+### example
 
 ```
 mysql> select bitmap_max(bitmap_from_string('')) value;
@@ -50,6 +50,6 @@ mysql> select bitmap_max(bitmap_from_string('1,9999999999')) value;
 +------------+
 ```
 
-## keywords
+### keywords
 
     BITMAP_MAX,BITMAP

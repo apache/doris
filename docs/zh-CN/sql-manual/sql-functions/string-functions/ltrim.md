@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ltrim
-## description
-### Syntax
+## ltrim
+### description
+#### Syntax
 
 `VARCHAR ltrim(VARCHAR str)`
 
 
 将参数 str 中从开始部分连续出现的空格去掉
 
-## example
+### example
 
 ```
 mysql> SELECT ltrim('   ab d');
@@ -43,5 +43,5 @@ mysql> SELECT ltrim('   ab d');
 | ab d             |
 +------------------+
 ```
-## keywords
+### keywords
 LTRIM

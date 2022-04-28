@@ -524,7 +524,6 @@ module.exports = [
               "outer-combinator"
             ],
           },
-          "window-function",
           "cast",
           "digital-masking",
         ],

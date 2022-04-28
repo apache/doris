@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# replace
-## description
-### Syntax
+## replace
+### description
+#### Syntax
 
 `VARCHAR REPLACE (VARCHAR str, VARCHAR old, VARCHAR new)`
 
 将str字符串中的old子串全部替换为new串
 
-## example
+### example
 
 ```
 mysql> select replace("http://www.baidu.com:9090", "9090", "");
@@ -42,5 +42,5 @@ mysql> select replace("http://www.baidu.com:9090", "9090", "");
 | http://www.baidu.com:                                |
 +------------------------------------------------------+
 ```
-## keywords
+### keywords
 REPLACE

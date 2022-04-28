@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# right
-## description
-### Syntax
+## right
+### description
+#### Syntax
 
 `VARCHAR right(VARCHAR str)`
 
 
 它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符
 
-## example
+### example
 
 ```
 mysql> select right("Hello doris",5);
@@ -43,5 +43,5 @@ mysql> select right("Hello doris",5);
 | doris                   |
 +-------------------------+
 ```
-## keywords
+### keywords
 RIGHT

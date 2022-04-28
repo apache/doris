@@ -128,7 +128,7 @@ public class MarkDownParser {
         for (Map.Entry<String, Map<String, String>> entry : documents.entrySet()) {
             Set<String> keys = entry.getValue().keySet();
             if (!(keys.contains(HelpTopic.DESCRIPTION)
-                    && keys.contains(HelpTopic.EXAMPLE)
+                    // && keys.contains(HelpTopic.EXAMPLE)
                     && keys.contains(HelpTopic.KEYWORDS))) {
                 throw new DdlException("Invalid help topic structure. title: " + entry.getKey() + ", keys: " + keys);
             }

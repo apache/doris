@@ -22,14 +22,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# orthogonal_bitmap_intersect
-## description
-### Syntax
+## orthogonal_bitmap_intersect
+### description
+#### Syntax
 
 `BITMAP ORTHOGONAL_BITMAP_INTERSECT(bitmap_column, column_to_filter, filter_values)`
 求bitmap交集函数, 第一个参数是Bitmap列，第二个参数是用来过滤的维度列，第三个参数是变长参数，含义是过滤维度列的不同取值
 
-## example
+### example
 
 ```
 mysql> select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 390006) from tag_map where  tag_group in ( 1150000, 1150001, 390006);
@@ -42,6 +42,6 @@ mysql> select orthogonal_bitmap_intersect(members, tag_group, 1150000, 1150001, 
 
 ```
 
-## keywords
+### keywords
 
     ORTHOGONAL_BITMAP_INTERSECT,BITMAP

@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_and
-## description
-### Syntax
+## bitmap_and
+### description
+#### Syntax
 
 `BITMAP BITMAP_AND(BITMAP lhs, BITMAP rhs)`
 
 计算两个及以上输入bitmap的交集，返回新的bitmap.
 
-## example
+### example
 
 ```
 mysql> select bitmap_count(bitmap_and(to_bitmap(1), to_bitmap(2))) cnt;
@@ -78,6 +78,6 @@ MySQL> select bitmap_to_string(bitmap_and(bitmap_from_string('1,2,3'), bitmap_fr
 +-----------------------------------------------------------------------------------------------------------------------------+
 ```
 
-## keywords
+### keywords
 
     BITMAP_AND,BITMAP

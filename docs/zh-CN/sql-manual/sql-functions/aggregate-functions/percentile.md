@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PERCENTILE
-## description
-### Syntax
+## PERCENTILE
+### description
+#### Syntax
 
 `PERCENTILE(expr, DOUBLE p)`
 
@@ -36,7 +36,7 @@ under the License.
 expr：必填。值为整数（最大为bigint） 类型的列。
 p：必填。需要精确的百分位数。取值为 [0.0,1.0]。
 
-## example
+### example
 ```
 MySQL > select `table`, percentile(cost_time,0.99) from log_statis group by `table`;
 +---------------------+---------------------------+
@@ -53,5 +53,5 @@ MySQL > select percentile(NULL,0.3) from table1;
 +-----------------------+
 ```
 
-## keywords
+### keywords
 PERCENTILE

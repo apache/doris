@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# lower
-## description
-### Syntax
+## lower
+### description
+#### Syntax
 
 `INT lower(VARCHAR str)`
 
 
 将参数中所有的字符串都转换成小写
 
-## example
+### example
 
 ```
 mysql> SELECT lower("AbC123");
@@ -43,5 +43,5 @@ mysql> SELECT lower("AbC123");
 | abc123          |
 +-----------------+
 ```
-## keywords
+### keywords
 LOWER

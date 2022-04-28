@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# reverse
-## description
-### Syntax
+## reverse
+### description
+#### Syntax
 
 `VARCHAR reverse(VARCHAR str)`
 
 
 将字符串反转，返回的字符串的顺序和源字符串的顺序相反。
 
-## example
+### example
 
 ```
 mysql> SELECT REVERSE('hello');
@@ -52,5 +52,5 @@ mysql> SELECT REVERSE('你好');
 +------------------+
 1 row in set (0.00 sec)
 ```
-## keywords
+### keywords
 REVERSE

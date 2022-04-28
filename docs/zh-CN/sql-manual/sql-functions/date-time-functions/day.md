@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# day
-## description
-### Syntax
+## day
+### description
+#### Syntax
 
 `INT DAY(DATETIME date)`
 
@@ -35,7 +35,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select day('1987-01-31');
@@ -45,5 +45,5 @@ mysql> select day('1987-01-31');
 |                         31 |
 +----------------------------+
 ```
-## keywords
+### keywords
 DAY

@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# like
-## description
-### syntax
+## like
+### description
+#### syntax
 
 `BOOLEAN like(VARCHAR str, VARCHAR pattern)`
 
@@ -48,7 +48,7 @@ like 匹配/模糊匹配，会与 % 和 _ 结合使用。
 'a_'     // 两位且开头字符是 a的数据
 'a__b'  // 四位且以字符a开头、b结尾的数据
 ```
-## example
+### example
 
 ```
 // table test
@@ -79,5 +79,5 @@ mysql > select k1 from test where k1 like 'a';
 +-------+
 ```
 
-## keywords
+### keywords
 LIKE

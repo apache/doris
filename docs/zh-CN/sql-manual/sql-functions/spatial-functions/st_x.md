@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `ST_X`
-## description
-### Syntax
+## `ST_X`
+### description
+#### Syntax
 
 `DOUBLE ST_X(POINT point)`
 
 
 当point是一个合法的POINT类型时，返回对应的X坐标值
 
-## example
+### example
 
 ```
 mysql> SELECT ST_X(ST_Point(24.7, 56.7));
@@ -43,5 +43,5 @@ mysql> SELECT ST_X(ST_Point(24.7, 56.7));
 |                       24.7 |
 +----------------------------+
 ```
-## keywords
+### keywords
 ST_X,ST,X

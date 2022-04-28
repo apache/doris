@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# timestampdiff
-## description
-### Syntax
+## timestampdiff
+### description
+#### Syntax
 
 `INT TIMESTAMPDIFF(unit,DATETIME datetime_expr1, DATETIME datetime_expr2)`
 
@@ -36,7 +36,7 @@ under the License.
                    
 SECOND, MINUTE, HOUR, DAY, WEEK, MONTH, or YEAR。
 
-## example
+### example
 
 ```
 
@@ -63,5 +63,5 @@ MySQL> SELECT TIMESTAMPDIFF(MINUTE,'2003-02-01','2003-05-01 12:05:55');
 +---------------------------------------------------------------------+
 
 ```
-## keywords
+### keywords
 TIMESTAMPDIFF

@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# now
-## description
-### Syntax
+## now
+### description
+#### Syntax
 
 `DATETIME NOW()`
 
 
 获得当前的时间，以Datetime类型返回
 
-## example
+### example
 
 ```
 mysql> select now();
@@ -44,6 +44,6 @@ mysql> select now();
 +---------------------+
 ```
 
-## keywords
+### keywords
 
     NOW

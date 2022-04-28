@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# dayname
-## description
-### Syntax
+## dayname
+### description
+#### Syntax
 
 `VARCHAR DAYNAME(DATE)`
 
@@ -35,7 +35,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select dayname('2007-02-03 00:00:00');
@@ -46,5 +46,5 @@ mysql> select dayname('2007-02-03 00:00:00');
 +--------------------------------+
 ```
 
-## keywords
+### keywords
     DAYNAME

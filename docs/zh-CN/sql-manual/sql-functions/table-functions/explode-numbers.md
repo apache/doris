@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_numbers
+## explode_numbers
 
-## description
+### description
 
 表函数，需配合 Lateral View 使用。
 
@@ -38,7 +38,7 @@ under the License.
 explode_numbers(n)
 ```
 
-## example
+### example
 
 ```
 mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1;
@@ -52,6 +52,6 @@ mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as
 |    4 |
 +------+
 ```
-## keywords
+### keywords
 
     explode_numbers

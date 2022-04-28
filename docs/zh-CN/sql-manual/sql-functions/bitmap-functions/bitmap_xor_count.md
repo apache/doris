@@ -22,17 +22,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_xor_count
+## bitmap_xor_count
 
-## description
+### description
 
-### Syntax
+#### Syntax
 
 `BIGINT BITMAP_XOR_COUNT(BITMAP lhs, BITMAP rhs, ...)`
 
 将两个及以上bitmap集合进行异或操作并返回结果集的大小
 
-## example
+### example
 
 ```
 mysql> select bitmap_xor_count(bitmap_from_string('1,2,3'),bitmap_from_string('3,4,5'));
@@ -78,7 +78,7 @@ MySQL> select (bitmap_xor_count(bitmap_from_string('2,3'),bitmap_from_string('1,
 +-----------------------------------------------------------------------------------------------------------------+
 ```
 
-## keywords
+### keywords
 
     BITMAP_XOR_COUNT,BITMAP
 

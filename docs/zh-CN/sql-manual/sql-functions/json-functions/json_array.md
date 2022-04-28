@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# json_array
-## description
-### Syntax
+## json_array
+### description
+#### Syntax
 
 `VARCHAR json_array(VARCHAR,...)`
 
 
 生成一个包含指定元素的json数组,未指定时返回空数组
 
-## example
+### example
 
 ```
 MySQL> select json_array();
@@ -66,5 +66,5 @@ MySQL> select json_array("a", null, "c");
 | ["a", NULL, "c"]             |
 +------------------------------+
 ```
-## keywords
+### keywords
 json_array

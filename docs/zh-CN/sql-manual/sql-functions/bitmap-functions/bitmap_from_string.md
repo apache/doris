@@ -22,10 +22,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_from_string
+## bitmap_from_string
 
-## description
-### Syntax
+### description
+#### Syntax
 
 `BITMAP BITMAP_FROM_STRING(VARCHAR input)`
 
@@ -33,7 +33,7 @@ under the License.
 比如"0, 1, 2"字符串会转化为一个Bitmap，其中的第0, 1, 2位被设置.
 当输入字段不合法时，返回NULL
 
-## example
+### example
 
 ```
 mysql> select bitmap_to_string(bitmap_empty());
@@ -58,6 +58,6 @@ mysql> select bitmap_from_string("-1, 0, 1, 2");
 +-----------------------------------+
 ```
 
-## keywords
+### keywords
 
     BITMAP_FROM_STRING,BITMAP
