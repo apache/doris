@@ -207,6 +207,12 @@ workers 线程池默认不做设置，根据自己需要进行设置
 
 这个是 put 或 post 方法上传文件的最大字节数，默认值：100MB
 
+### jetty_server_max_http_header_size
+
+默认值：10240  （10K）
+
+http header size 配置参数
+
 ### `default_max_filter_ratio`
 
 默认值：0
