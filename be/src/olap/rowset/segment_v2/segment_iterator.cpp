@@ -858,6 +858,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         return;
     }
 
+    uint16_t original_size = *selected_size_ptr;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -869,10 +870,13 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         }
         predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
+    _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
 
     // evaluate delete condition
+    original_size = *selected_size_ptr;
     _opts.delete_condition_predicates->evaluate(_current_return_columns, vec_sel_rowid_idx,
                                                 selected_size_ptr);
+    _opts.stats->rows_vec_del_cond_filtered += original_size - *selected_size_ptr;
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
