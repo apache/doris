@@ -33,9 +33,9 @@ github:
     master:
       required_status_checks:
       # if strict is true, means "Require branches to be up to date before merging".
-        strict: true
+        strict: false
         contexts:
-          # - Clang Formatter
+          - Clang Formatter
           - Build Extensions
           - License Check
           - P0 regression (Doris P0 regression)
