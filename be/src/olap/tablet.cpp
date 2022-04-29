@@ -65,7 +65,7 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
                DataDir* data_dir, const std::string& cumulative_compaction_type)
         : BaseTablet(tablet_meta, storage_param, data_dir),
-          _bad(false),
+          _is_bad(false),
           _last_cumu_compaction_failure_millis(0),
           _last_base_compaction_failure_millis(0),
           _last_cumu_compaction_success_millis(0),
