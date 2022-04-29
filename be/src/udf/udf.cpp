@@ -178,7 +178,7 @@ doris_udf::FunctionContext* FunctionContextImpl::create_context(
         const doris_udf::FunctionContext::TypeDesc& return_type,
         const std::vector<doris_udf::FunctionContext::TypeDesc>& arg_types, int varargs_buffer_size,
         bool debug) {
-    doris_udf::FunctionContext* ctx = new doris_udf::FunctionContext();
+    auto* ctx = new doris_udf::FunctionContext();
     ctx->_impl->_state = state;
     ctx->_impl->_pool = new FreePool(pool);
     ctx->_impl->_intermediate_type = intermediate_type;
