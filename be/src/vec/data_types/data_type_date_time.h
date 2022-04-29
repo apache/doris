@@ -66,7 +66,7 @@ public:
 
     static void cast_to_date_time(Int64& x);
 
-	MutableColumnPtr create_column() const override;
+    MutableColumnPtr create_column() const override;
 };
 
 template <typename DataType>
