@@ -33,6 +33,7 @@ public:
     VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VBrokerScanNode() override = default;
 
+    using BrokerScanNode::get_next;
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Close the scanner, and report errors.
