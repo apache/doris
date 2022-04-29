@@ -147,7 +147,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
 
 // todo(zeno) define interface in IColumn to simplify code
-#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP)                                                 \
+#define COMPARISON_PRED_COLUMN_EVALUATE(CLASS, OP, IS_RANGE)                                       \
     template <class T>                                                                             \
     void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {    \
         uint16_t new_size = 0;                                                                     \
@@ -163,11 +163,14 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
                     auto& data_array = nested_col_ptr->get_data();                                 \
+                    auto dict_code =                                                               \
+                            IS_RANGE ? nested_col_ptr->find_code_by_bound(_value, 0 OP 1, 1 OP 1)  \
+                                     : nested_col_ptr->find_code(_value);                          \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
                         sel[new_size] = idx;                                                       \
                         const auto& cell_value = data_array[idx];                                  \
-                        bool ret = !null_bitmap[idx] && (cell_value OP _dict_code);                \
+                        bool ret = !null_bitmap[idx] && (cell_value OP dict_code);                 \
                         new_size += _opposite ? !ret : ret;                                        \
                     }                                                                              \
                 }                                                                                  \
@@ -184,20 +187,20 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                     new_size += _opposite ? !ret : ret;                                            \
                 }                                                                                  \
             }                                                                                      \
-            *size = new_size;                                                                      \
         } else if (column.is_column_dictionary()) {                                                \
             if constexpr (std::is_same_v<T, StringValue>) {                                        \
                 auto& dict_col =                                                                   \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(column);\
                 auto& data_array = dict_col.get_data();                                            \
+                auto dict_code = IS_RANGE ? dict_col.find_code_by_bound(_value, 0 OP 1, 1 OP 1)    \
+                                          : dict_col.find_code(_value);                            \
                 for (uint16_t i = 0; i < *size; ++i) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = data_array[idx];                                      \
-                    bool ret = cell_value OP _dict_code;                                           \
+                    bool ret = cell_value OP dict_code;                                           \
                     new_size += _opposite ? !ret : ret;                                            \
                 }                                                                                  \
-                *size = new_size;                                                                  \
             }                                                                                      \
         } else {                                                                                   \
             auto& pred_column_ref =                                                                \
@@ -210,17 +213,17 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE(GreaterEqualPredicate, >=)
                 auto ret = cell_value OP _value;                                                   \
                 new_size += _opposite ? !ret : ret;                                                \
             }                                                                                      \
-            *size = new_size;                                                                      \
         }                                                                                          \
+        *size = new_size;                                                                          \
     }
 
 
-COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==)
-COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=)
-COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <)
-COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >)
-COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=)
+COMPARISON_PRED_COLUMN_EVALUATE(EqualPredicate, ==, false)
+COMPARISON_PRED_COLUMN_EVALUATE(NotEqualPredicate, !=, false)
+COMPARISON_PRED_COLUMN_EVALUATE(LessPredicate, <, true)
+COMPARISON_PRED_COLUMN_EVALUATE(LessEqualPredicate, <=, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterPredicate, >, true)
+COMPARISON_PRED_COLUMN_EVALUATE(GreaterEqualPredicate, >=, true)
 
 #define COMPARISON_PRED_COLUMN_EVALUATE_VEC(CLASS, OP)                                         \
     template <class T>                                                                         \
@@ -502,65 +505,6 @@ COMPARISON_PRED_BITMAP_EVALUATE(LessEqualPredicate, <=)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterPredicate, >)
 COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
 
-
-#define COMPARISON_PRED_SET_DICT_CODE(CLASS)                                                   \
-    template <class T>                                                                         \
-    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
-        if (_dict_code_inited) {                                                               \
-            return;                                                                            \
-        }                                                                                      \
-        if constexpr (std::is_same_v<T, StringValue>) {                                        \
-            auto* col_ptr = column.get_ptr().get();                                            \
-            if (column.is_nullable()) {                                                        \
-                auto nullable_col =                                                            \
-                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
-                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
-            }                                                                                  \
-            if (col_ptr->is_column_dictionary()) {                                             \
-                auto& dict_col =                                                               \
-                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
-                                *col_ptr);                                                     \
-                _dict_code = dict_col.find_code(_value);                                       \
-                _dict_code_inited = true;                                                      \
-            }                                                                                  \
-        }                                                                                      \
-    }
-
-COMPARISON_PRED_SET_DICT_CODE(EqualPredicate)
-COMPARISON_PRED_SET_DICT_CODE(NotEqualPredicate)
-
-// If 1 OP 0 returns true, it means the predicate is > or >=
-// If 1 OP 1 returns true, it means the predicate is >= or <=
-// by this way, avoid redundant code
-#define RAMGE_COMPARISON_PRED_SET_DICT_CODE(CLASS, OP)                                         \
-    template <class T>                                                                         \
-    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
-        if (_dict_code_inited) {                                                               \
-            return;                                                                            \
-        }                                                                                      \
-        if constexpr (std::is_same_v<T, StringValue>) {                                        \
-            auto* col_ptr = column.get_ptr().get();                                            \
-            if (column.is_nullable()) {                                                        \
-                auto nullable_col =                                                            \
-                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
-                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
-            }                                                                                  \
-                                                                                               \
-            if (col_ptr->is_column_dictionary()) {                                             \
-                auto& dict_col =                                                               \
-                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
-                                *col_ptr);                                                     \
-                _dict_code = dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1);              \
-                _dict_code_inited = true;                                                      \
-            }                                                                                  \
-        }                                                                                      \
-    }
-
-RAMGE_COMPARISON_PRED_SET_DICT_CODE(LessPredicate, <)
-RAMGE_COMPARISON_PRED_SET_DICT_CODE(LessEqualPredicate, <=)
-RAMGE_COMPARISON_PRED_SET_DICT_CODE(GreaterPredicate, >)
-RAMGE_COMPARISON_PRED_SET_DICT_CODE(GreaterEqualPredicate, >=)
-
 #define COMPARISON_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                         \
     template CLASS<int8_t>::CLASS(uint32_t column_id, const int8_t& value, bool opposite);     \
     template CLASS<int16_t>::CLASS(uint32_t column_id, const int16_t& value, bool opposite);   \
@@ -744,15 +688,5 @@ COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(LessPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(LessEqualPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(GreaterPredicate)
 COMPARISON_PRED_COLUMN_EVALUATE_VEC_DECLARATION(GreaterEqualPredicate)
-
-#define COMPARISON_PRED_SET_DICT_CODE_DECLARATION(CLASS) \
-template void CLASS<StringValue>::set_dict_code_if_necessary(vectorized::IColumn& column);
-
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(EqualPredicate)
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(NotEqualPredicate)
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(LessPredicate)
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(LessEqualPredicate)
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(GreaterPredicate)
-COMPARISON_PRED_SET_DICT_CODE_DECLARATION(GreaterEqualPredicate)
 
 } //namespace doris
