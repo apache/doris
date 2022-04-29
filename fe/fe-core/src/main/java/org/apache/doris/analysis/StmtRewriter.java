@@ -1157,14 +1157,17 @@ public class StmtRewriter {
         for (int i = 0; i < selectStmt.fromClause_.size(); i++) {
             TableRef tableRef = selectStmt.fromClause_.get(i);
             if (tableRef instanceof InlineViewRef) {
-                rewriteByPolicy(((InlineViewRef) tableRef).getQueryStmt(), analyzer);
+                InlineViewRef viewRef = (InlineViewRef) tableRef;
+                if (viewRef.getAlias().startsWith("policy_rewrite")) {
+                    continue;
+                }
+                rewriteByPolicy(viewRef.getQueryStmt(), analyzer);
             }
             // has been rewrite
             if (tableRef instanceof InlineViewRef) {
                 continue;
             }
             Table table = tableRef.getTable();
-            String tableName = table.getName();
             String dbName = tableRef.getName().getDb();
             if (dbName == null) {
                 dbName = analyzer.getDefaultDb();
@@ -1179,6 +1182,7 @@ public class StmtRewriter {
             }
             SelectList selectList = new SelectList();
             selectList.addItem(SelectListItem.createStarItem(tableRef.getName()));
+
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
                     matchPolicy.getWherePredicate(),
@@ -1186,9 +1190,12 @@ public class StmtRewriter {
                     null,
                     null,
                     LimitElement.NO_LIMIT);
-            selectStmt.fromClause_.set(i, new InlineViewRef(String.format("policy_rewrite_%s_%s", tableName, matchPolicy.getPolicyName()), stmt));
+            selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().toSql(), stmt));
+            String sql = selectStmt.toSql();
+            LOG.info("child sql={}", sql);
         }
-        
+        String sql = selectStmt.toSql();
+        LOG.info("sql={}", sql);
     }
 }
 

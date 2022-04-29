@@ -35,6 +35,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
@@ -676,9 +677,15 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
             }
-            if (parsedStmt instanceof SelectStmt) {
-                StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
-                LOG.info("parseStmt={}", parsedStmt.toSql());
+            if (parsedStmt instanceof SelectStmt || parsedStmt instanceof SetOperationStmt) {
+                if (parsedStmt instanceof SelectStmt) {
+                    StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
+                } else {
+                    List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
+                    for (SetOperationStmt.SetOperand operand : operands) {
+                        StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer);
+                    }
+                }
                 reAnalyze = true;
             }
             if (reAnalyze) {

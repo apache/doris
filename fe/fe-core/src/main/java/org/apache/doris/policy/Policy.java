@@ -21,19 +21,16 @@ import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -54,44 +51,44 @@ import lombok.Data;
 @AllArgsConstructor
 public class Policy implements Writable {
     private static final Logger LOG = LogManager.getLogger(Policy.class);
-    
+
     public static final String ROW_POLICY = "ROW";
-    
+
     @SerializedName(value = "dbId")
     private long dbId;
-    
+
     @SerializedName(value = "tableId")
     private long tableId;
-    
+
     @SerializedName(value = "policyName")
     private String policyName;
-    
+
     /**
      * ROW
      **/
     @SerializedName(value = "type")
     private String type;
-    
+
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails
      **/
     @SerializedName(value = "filterType")
     private final FilterType filterType;
-    
+
     private Expr wherePredicate;
-    
+
     /**
      * bind user
      **/
     @SerializedName(value = "user")
     private final UserIdentity user;
-    
+
     /**
      * use for Serialization/deserialization
      **/
     @SerializedName(value = "originStmt")
     private String originStmt;
-    
+
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
         String curDb = stmt.getTableName().getDb();
         if (curDb == null) {
@@ -103,34 +100,36 @@ public class Policy implements Writable {
         userIdent.analyze(ConnectContext.get().getClusterName());
         return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent, stmt.getOrigStmt().originStmt);
     }
-    
+
     public List<String> getShowInfo() throws AnalysisException {
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type, this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-    
+
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
         Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
+        parseOriginStmt(policy);
+        return policy;
+    }
+
+    public static void parseOriginStmt(Policy policy) {
         try {
             SqlScanner input = new SqlScanner(new StringReader(policy.getOriginStmt()), 0L);
             SqlParser parser = new SqlParser(input);
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
             policy.setWherePredicate(stmt.getWherePredicate());
-            LOG.info("policy={}", policy);
-            return policy;
         } catch (Exception e) {
             LOG.warn("parse originStmt error", e);
-            return null;
         }
     }
-    
+
     @Override
     public Policy clone() {
         return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.wherePredicate, this.user, this.originStmt);

@@ -200,6 +200,9 @@ public class PolicyMgr implements Writable {
             Map<String, Policy> andMap = new HashMap<>();
             Map<String, Policy> orMap = new HashMap<>();
             for (Policy policy : policies) {
+                if (policy.getWherePredicate() == null) {
+                    Policy.parseOriginStmt(policy);
+                }
                 // read from json, need set isAnalyzed
                 policy.getUser().setIsAnalyzed();
                 String key = Joiner.on("-").join(policy.getTableId(), policy.getType(), policy.getUser().getQualifiedUser());
@@ -209,9 +212,6 @@ public class PolicyMgr implements Writable {
                     if (frontPolicy == null) {
                         andMap.put(key, policy.clone());
                     } else {
-                        if (frontPolicy.getWherePredicate() == null || policy.getWherePredicate() == null) {
-                            continue;
-                        }
                         frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND, frontPolicy.getWherePredicate(), policy.getWherePredicate()));
                         andMap.put(key, frontPolicy.clone());
                     }
