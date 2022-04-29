@@ -918,9 +918,11 @@ void StorageEngine::_parse_default_rowset_type() {
         _default_rowset_type = BETA_ROWSET;
     } else if (default_rowset_type_config == "ALPHA") {
         _default_rowset_type = ALPHA_ROWSET;
-        LOG(WARNING) << "default_rowset_type in be.conf should be set to beta, alpha is not supported any more";
+        LOG(WARNING) << "default_rowset_type in be.conf should be set to beta, alpha is not "
+                        "supported any more";
     } else {
-        LOG(FATAL) << "unknown value " << default_rowset_type_config << " in default_rowset_type in be.conf";
+        LOG(FATAL) << "unknown value " << default_rowset_type_config
+                   << " in default_rowset_type in be.conf";
     }
 }
 
