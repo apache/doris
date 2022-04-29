@@ -53,6 +53,7 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         // TODO: Support ZOrderComparator in the future
         _vec_skip_list = std::make_unique<VecTable>(
                 _vec_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+        _init_profile();
     } else {
         _vec_skip_list = nullptr;
         if (_keys_type == KeysType::DUP_KEYS) {
@@ -98,6 +99,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
+    print_profile();
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -115,55 +117,61 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 }
 
 void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows) {
-    if (_is_first_insertion) {
-        _is_first_insertion = false;
-        auto cloneBlock = block->clone_without_columns();
-        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        _vec_row_comparator->set_block(&_input_mutable_block);
-        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-        if (_keys_type != KeysType::DUP_KEYS) {
-            _init_agg_functions(block);
+    {
+        SCOPED_TIMER(_insert_time);
+        if (_is_first_insertion) {
+            _is_first_insertion = false;
+            auto cloneBlock = block->clone_without_columns();
+            _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+            _vec_row_comparator->set_block(&_input_mutable_block);
+            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+            if (_keys_type != KeysType::DUP_KEYS) {
+                _init_agg_functions(block);
+            }
         }
-    }
-    size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    size_t oldsize = _input_mutable_block.allocated_bytes();
-    _input_mutable_block.add_rows(block, row_pos, num_rows);
-    size_t newsize = _input_mutable_block.allocated_bytes();
-    _mem_usage += newsize - oldsize;
-    _mem_tracker->consume(newsize - oldsize);
-    // when new data inserted, the mem_usage of memtable should be re-shrunk again.
-    _is_shrunk_by_agg = false;
+        size_t cursor_in_mutableblock = _input_mutable_block.rows();
+        size_t oldsize = _input_mutable_block.allocated_bytes();
+        _input_mutable_block.add_rows(block, row_pos, num_rows);
+        size_t newsize = _input_mutable_block.allocated_bytes();
+        _mem_usage += newsize - oldsize;
+        _mem_tracker->consume(newsize - oldsize);
+        // when new data inserted, the mem_usage of memtable should be re-shrunk again.
+        _is_shrunk_by_agg = false;
 
-    for (int i = 0; i < num_rows; i++) {
-        _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
-        _insert_one_row_from_block(_row_in_blocks.back());
+        for (int i = 0; i < num_rows; i++) {
+            _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
+            _insert_one_row_from_block(_row_in_blocks.back());
+        }
     }
 }
 
 void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
-    _rows++;
-    bool overwritten = false;
-    if (_keys_type == KeysType::DUP_KEYS) {
-        // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
-        _vec_skip_list->Insert(row_in_block, &overwritten);
-        DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
-        return;
-    }
-
-    bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
-    if (is_exist) {
-        _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
-    } else {
-        row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
-        for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
-            auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-            auto place = row_in_block->_agg_places[cid];
-            _agg_functions[cid]->add(place,
-                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                     row_in_block->_row_pos, nullptr);
+    {
+        SCOPED_TIMER(_sort_agg_time);
+        _rows++;
+        bool overwritten = false;
+        if (_keys_type == KeysType::DUP_KEYS) {
+            // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
+            _vec_skip_list->Insert(row_in_block, &overwritten);
+            DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
+            return;
         }
 
-        _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
+        bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
+        if (is_exist) {
+            _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
+        } else {
+            row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
+            for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
+                auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+                auto place = row_in_block->_agg_places[cid];
+                _agg_functions[cid]->add(place,
+                                        const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                        row_in_block->_row_pos, nullptr);
+            }
+
+            _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
+        }
     }
 }
 
@@ -284,16 +292,19 @@ void MemTable::_collect_vskiplist_to_output(bool final) {
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    if (_is_shrunk_by_agg) {
-        return;
+    {
+        SCOPED_TIMER(_shrunk_agg_time);
+        if (_is_shrunk_by_agg) {
+            return;
+        }
+        size_t old_size = _input_mutable_block.allocated_bytes();
+        _collect_vskiplist_to_output(false);
+        size_t new_size = _input_mutable_block.allocated_bytes();
+        // shrink mem usage of memetable after agged.
+        _mem_usage += new_size - old_size;
+        _mem_tracker->consume(new_size - old_size);
+        _is_shrunk_by_agg = true;
     }
-    size_t old_size = _input_mutable_block.allocated_bytes();
-    _collect_vskiplist_to_output(false);
-    size_t new_size = _input_mutable_block.allocated_bytes();
-    // shrink mem usage of memetable after agged.
-    _mem_usage += new_size - old_size;
-    _mem_tracker->consume(new_size - old_size);
-    _is_shrunk_by_agg = true;
 }
 
 bool MemTable::is_full() {
@@ -301,14 +312,18 @@ bool MemTable::is_full() {
 }
 
 Status MemTable::flush() {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
+    clock_t now = clock();
+    LOG(INFO) << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     RETURN_NOT_OK(_do_flush(duration_ns));
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
-                  << ", flushsize: " << _flush_size;
+    LOG(INFO) << "after flush memtable for tablet: " << _tablet_id
+                  << ", flushsize: " << _flush_size
+                  << ", duration(ms): " << duration_ns / (1000*1000);
+    double flush_waiting_time = (now - _flush_submit_time) / (CLOCKS_PER_SEC/1000);
+    LOG(INFO) << "flush waiting time(ms): " << flush_waiting_time;
     return Status::OK();
 }
 

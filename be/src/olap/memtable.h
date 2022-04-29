@@ -18,11 +18,13 @@
 #pragma once
 
 #include <ostream>
+#include <time.h>
 
 #include "common/object_pool.h"
 #include "olap/olap_define.h"
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
+#include "util/runtime_profile.h"
 #include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
@@ -151,6 +153,23 @@ private:
     void _insert_one_row_from_block(RowInBlock* row_in_block);
     void _aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist);
 
+    void _init_profile() {
+        _profile.reset(new RuntimeProfile("Memtable"));
+        _insert_time = ADD_TIMER(_profile, "insert total time");
+        _sort_agg_time = ADD_TIMER(_profile, "sort and agg time");
+        _shrunk_agg_time = ADD_TIMER(_profile, "shrunk by agg time");
+    }
+
+    void print_profile() {
+        std::stringstream ss;
+        _profile->pretty_print(&ss);
+        LOG(INFO) << ss.str();
+    }
+
+    void on_flush_submit() {
+        _flush_submit_time = clock();
+    }
+
     int64_t _tablet_id;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
@@ -208,6 +227,14 @@ private:
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
     std::vector<RowInBlock*> _row_in_blocks;
     size_t _mem_usage;
+
+    std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile::Counter* _insert_time;
+    RuntimeProfile::Counter* _sort_agg_time;
+    RuntimeProfile::Counter* _shrunk_agg_time;
+    clock_t _flush_submit_time;
+
+    
 }; // class MemTable
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
