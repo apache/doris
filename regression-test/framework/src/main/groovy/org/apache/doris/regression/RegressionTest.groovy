@@ -279,7 +279,7 @@ class RegressionTest {
             return
         }
         def pluginPath = new File(config.pluginPath)
-        if (!pluginPath.exists() && !pluginPath.isDirectory()) {
+        if (!pluginPath.exists() || !pluginPath.isDirectory()) {
             return
         }
         pluginPath.eachFileRecurse { it ->
