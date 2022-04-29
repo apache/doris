@@ -53,7 +53,7 @@ struct WriteRequest {
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer);
+    static Status open(WriteRequest* req, DeltaWriter** writer, bool is_vec = false);
 
     ~DeltaWriter();
 
@@ -61,6 +61,8 @@ public:
 
     Status write(Tuple* tuple);
     Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
+    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
+
     // flush the last memtable to flush queue, must call it before close_wait()
     Status close();
     // wait for all memtables to be flushed.
@@ -88,7 +90,7 @@ public:
     int64_t tablet_id() { return _tablet->tablet_id(); }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -97,13 +99,13 @@ private:
 
     void _reset_mem_table();
 
-private:
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
     TabletSharedPtr _tablet;
     RowsetSharedPtr _cur_rowset;
     std::unique_ptr<RowsetWriter> _rowset_writer;
+    // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
     const TabletSchema* _tablet_schema;
@@ -117,6 +119,9 @@ private:
     int64_t _segment_counter = 0;
 
     std::mutex _lock;
+
+    // use in vectorized load
+    bool _is_vec;
 };
 
 } // namespace doris
