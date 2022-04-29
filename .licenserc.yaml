@@ -33,6 +33,7 @@ header:
     - '**/*.patch'
     - '**/*.log'
     - '**/*.sql'
+    - '**/*.lock'
     - 'tsan_suppressions'
     - 'docs/.markdownlintignore'
     - 'fe/fe-core/src/test/resources/data/net_snmp_normal'
