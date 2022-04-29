@@ -56,7 +56,7 @@ public class MysqlScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public MysqlScanNode(PlanNodeId id, TupleDescriptor desc, MysqlTable tbl) {
-        super(id, desc, "SCAN MYSQL");
+        super(id, desc, "SCAN MYSQL", NodeType.MYSQL_SCAN_NODE);
         tblName = "`" + tbl.getMysqlTableName() + "`";
     }
 
