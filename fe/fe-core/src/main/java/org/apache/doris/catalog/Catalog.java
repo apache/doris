@@ -2113,6 +2113,8 @@ public class Catalog {
             alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
+        } else {
+            throw new IOException("Invalid alter job type: " + type.name());
         }
 
         // alter jobs == 0
