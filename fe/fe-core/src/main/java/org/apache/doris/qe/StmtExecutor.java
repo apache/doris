@@ -677,7 +677,8 @@ public class StmtExecutor implements ProfileWriter {
                 reAnalyze = true;
             }
             if (parsedStmt instanceof SelectStmt) {
-                StmtRewriter.rewriteByPolicy((SelectStmt) parsedStmt, analyzer);
+                StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
+                LOG.info("parseStmt={}", parsedStmt.toSql());
                 reAnalyze = true;
             }
             if (reAnalyze) {

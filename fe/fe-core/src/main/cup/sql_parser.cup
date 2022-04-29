@@ -2068,7 +2068,7 @@ drop_stmt ::=
     {:
         RESULT = new DropPolicyStmt("ROW", ifExists, policyName, tbl, null);
     :}
-    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
+    | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_TO user_identity:user
     {:
         RESULT = new DropPolicyStmt("ROW", ifExists, policyName, tbl, user);
     :}

@@ -50,25 +50,25 @@ public class CreatePolicyStmt extends DdlStmt {
     private final FilterType filterType;
 
     @Getter
-    private final UserIdentity userIdent;
+    private final UserIdentity user;
 
     @Getter
     private Expr wherePredicate;
 
-    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity userIdent, Expr wherePredicate) {
+    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity user, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
         this.tableName = tableName;
         this.filterType = FilterType.of(filterType);
-        this.userIdent = userIdent;
+        this.user = user;
         this.wherePredicate = wherePredicate;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        tableName.analyze(analyzer);
+        this.tableName.analyze(analyzer);
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -83,7 +83,7 @@ public class CreatePolicyStmt extends DdlStmt {
             sb.append("IF NOT EXISTS");
         }
         sb.append(policyName).append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-            .append(" TO ").append(userIdent.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+            .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
         return sb.toString();
     }
 }

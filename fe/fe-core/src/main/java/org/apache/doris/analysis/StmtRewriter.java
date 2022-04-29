@@ -1148,10 +1148,21 @@ public class StmtRewriter {
         return exprWithSubquery.substitute(smap, analyzer, false);
     }
     
-    public static void rewriteByPolicy(SelectStmt selectStmt, Analyzer analyzer) throws UserException {
+    public static void rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Catalog currentCatalog = Catalog.getCurrentCatalog();
+        if (!(statementBase instanceof SelectStmt)) {
+            return;
+        }
+        SelectStmt selectStmt = (SelectStmt) statementBase;
         for (int i = 0; i < selectStmt.fromClause_.size(); i++) {
             TableRef tableRef = selectStmt.fromClause_.get(i);
+            if (tableRef instanceof InlineViewRef) {
+                rewriteByPolicy(((InlineViewRef) tableRef).getQueryStmt(), analyzer);
+            }
+            // has been rewrite
+            if (tableRef instanceof InlineViewRef) {
+                continue;
+            }
             Table table = tableRef.getTable();
             String tableName = table.getName();
             String dbName = tableRef.getName().getDb();

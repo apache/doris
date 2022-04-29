@@ -2223,6 +2223,9 @@ public class ShowExecutor {
             policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(currentDbId, showStmt.getUser().getQualifiedUser());
         }
         for (Policy policy : policies) {
+            if (policy.getWherePredicate() == null) {
+                continue;
+            }
             rows.add(policy.getShowInfo());
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);

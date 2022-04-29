@@ -41,6 +41,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,34 +50,34 @@ import java.util.stream.Collectors;
 
 public class PolicyMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(PolicyMgr.class);
-    
+
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-    
+
     @SerializedName(value = "dbIdToPolicyMap")
     private Map<Long, List<Policy>> dbIdToPolicyMap = Maps.newConcurrentMap();
-    
+
     /**
      * cache merge policy for match
      * key：dbId:tableId-type-user
      **/
     private Map<Long, Map<String, Policy>> dbIdToMergePolicyMap = Maps.newConcurrentMap();
-    
+
     private void writeLock() {
         lock.writeLock().lock();
     }
-    
+
     private void writeUnlock() {
         lock.writeLock().unlock();
     }
-    
+
     private void readLock() {
         lock.readLock().lock();
     }
-    
+
     private void readUnlock() {
         lock.readLock().unlock();
     }
-    
+
     public void createPolicy(CreatePolicyStmt stmt) throws UserException {
         writeLock();
         try {
@@ -93,7 +94,7 @@ public class PolicyMgr implements Writable {
             writeUnlock();
         }
     }
-    
+
     public void dropPolicy(DropPolicyStmt stmt) throws DdlException {
         writeLock();
         try {
@@ -110,31 +111,31 @@ public class PolicyMgr implements Writable {
             writeUnlock();
         }
     }
-    
+
     private boolean existPolicy(long dbId, long tableId, String type, String policyName, UserIdentity user) {
         List<Policy> policies = getDbPolicies(dbId);
-        return policies.stream().anyMatch(policy -> matchPolicy(policy, tableId, type, policyName, user.getQualifiedUser()));
+        return policies.stream().anyMatch(policy -> matchPolicy(policy, tableId, type, policyName, user));
     }
-    
+
     public List<Policy> getDbPolicies(long dbId) {
         if (dbIdToPolicyMap == null) {
             return new ArrayList<>();
         }
         return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>());
     }
-    
+
     public List<Policy> getDbUserPolicies(long dbId, String user) {
         if (dbIdToPolicyMap == null) {
             return new ArrayList<>();
         }
-        return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>()).stream().filter(p -> p.getUser().equals(user)).collect(Collectors.toList());
+        return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>()).stream().filter(p -> p.getUser().getQualifiedUser().equals(user)).collect(Collectors.toList());
     }
-    
+
     public void replayCreate(Policy policy) {
         unprotectedAdd(policy);
         LOG.info("replay create policy: {}", policy);
     }
-    
+
     public void unprotectedAdd(Policy policy) {
         if (policy == null) {
             return;
@@ -145,27 +146,27 @@ public class PolicyMgr implements Writable {
         dbIdToPolicyMap.put(dbId, dbPolicies);
         updateMergePolicyMap(dbId);
     }
-    
+
     public void replayDrop(DropPolicyLog log) {
         unprotectedDrop(log);
         LOG.info("replay drop policy log: {}", log);
     }
-    
+
     public void unprotectedDrop(DropPolicyLog log) {
         long dbId = log.getDbId();
         List<Policy> policies = getDbPolicies(dbId);
-        policies.removeIf(p -> matchPolicy(p, log.getTableId(), log.getType(), log.getPolicyName(), log.getUser().getQualifiedUser()));
+        policies.removeIf(p -> matchPolicy(p, log.getTableId(), log.getType(), log.getPolicyName(), log.getUser()));
         dbIdToPolicyMap.put(dbId, policies);
         updateMergePolicyMap(dbId);
     }
-    
-    private boolean matchPolicy(Policy policy, long tableId, String type, String policyName, String user) {
+
+    private boolean matchPolicy(Policy policy, long tableId, String type, String policyName, UserIdentity user) {
         return policy.getTableId() == tableId
-                && StringUtils.equals(policy.getType(), type)
-                && StringUtils.equals(policy.getPolicyName(), policyName)
-                && StringUtils.equals(policy.getUser().getQualifiedUser(), user);
+            && StringUtils.equals(policy.getType(), type)
+            && StringUtils.equals(policy.getPolicyName(), policyName)
+            && (user == null || StringUtils.equals(policy.getUser().getQualifiedUser(), user.getQualifiedUser()));
     }
-    
+
     public Policy getMatchRowPolicy(long dbId, long tableId, String user) {
         readLock();
         try {
@@ -181,11 +182,11 @@ public class PolicyMgr implements Writable {
             readUnlock();
         }
     }
-    
+
     private void updateAllMergePolicyMap() {
         dbIdToPolicyMap.forEach((dbId, policy) -> updateMergePolicyMap(dbId));
     }
-    
+
     /**
      * The merge policy cache needs to be regenerated after the update
      **/
@@ -198,15 +199,21 @@ public class PolicyMgr implements Writable {
             List<Policy> policies = dbIdToPolicyMap.get(dbId);
             Map<String, Policy> andMap = new HashMap<>();
             Map<String, Policy> orMap = new HashMap<>();
-            policies.forEach(policy -> {
-                String key = Joiner.on("-").join(policy.getTableId(), policy.getType(), policy.getUser());
+            for (Policy policy : policies) {
+                // read from json, need set isAnalyzed
+                policy.getUser().setIsAnalyzed();
+                String key = Joiner.on("-").join(policy.getTableId(), policy.getType(), policy.getUser().getQualifiedUser());
+                // merge wherePredicate
                 if (CompoundPredicate.Operator.AND.equals(policy.getFilterType().getOp())) {
                     Policy frontPolicy = andMap.get(key);
                     if (frontPolicy == null) {
                         andMap.put(key, policy.clone());
                     } else {
+                        if (frontPolicy.getWherePredicate() == null || policy.getWherePredicate() == null) {
+                            continue;
+                        }
                         frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.AND, frontPolicy.getWherePredicate(), policy.getWherePredicate()));
-                        andMap.put(key, frontPolicy);
+                        andMap.put(key, frontPolicy.clone());
                     }
                 } else {
                     Policy frontPolicy = orMap.get(key);
@@ -214,12 +221,13 @@ public class PolicyMgr implements Writable {
                         orMap.put(key, policy.clone());
                     } else {
                         frontPolicy.setWherePredicate(new CompoundPredicate(CompoundPredicate.Operator.OR, frontPolicy.getWherePredicate(), policy.getWherePredicate()));
-                        orMap.put(key, frontPolicy);
+                        orMap.put(key, frontPolicy.clone());
                     }
                 }
-            });
+            }
             Map<String, Policy> mergeMap = new HashMap<>();
-            Set<String> policyKeys = andMap.keySet();
+            Set<String> policyKeys = new HashSet<>();
+            policyKeys.addAll(andMap.keySet());
             policyKeys.addAll(orMap.keySet());
             policyKeys.forEach(key -> {
                 if (andMap.containsKey(key) && orMap.containsKey(key)) {
@@ -229,7 +237,8 @@ public class PolicyMgr implements Writable {
                 }
                 if (!andMap.containsKey(key)) {
                     mergeMap.put(key, orMap.get(key));
-                } else {
+                }
+                if (!orMap.containsKey(key)) {
                     mergeMap.put(key, andMap.get(key));
                 }
             });
@@ -238,12 +247,12 @@ public class PolicyMgr implements Writable {
             readUnlock();
         }
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-    
+
     public static PolicyMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);

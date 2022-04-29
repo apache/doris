@@ -19,6 +19,9 @@ package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -30,6 +33,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -40,6 +44,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.List;
 
 import lombok.AllArgsConstructor;
@@ -75,20 +80,6 @@ public class Policy implements Writable {
     
     private Expr wherePredicate;
     
-    public Expr getWherePredicate() {
-        if (wherePredicate == null) {
-            try {
-                // todo npe
-                CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.parseAndAnalyzeStmt(this.originStmt, ConnectContext.get());
-                return stmt.getWherePredicate();
-            } catch (UserException e) {
-                LOG.warn("parse originStmt error", e);
-                return null;
-            }
-        }
-        return wherePredicate;
-    }
-    
     /**
      * bind user
      **/
@@ -108,7 +99,7 @@ public class Policy implements Writable {
         }
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-        UserIdentity userIdent = stmt.getUserIdent();
+        UserIdentity userIdent = stmt.getUser();
         userIdent.analyze(ConnectContext.get().getClusterName());
         return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent, stmt.getOrigStmt().originStmt);
     }
@@ -126,7 +117,18 @@ public class Policy implements Writable {
     
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Policy.class);
+        Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
+        try {
+            SqlScanner input = new SqlScanner(new StringReader(policy.getOriginStmt()), 0L);
+            SqlParser parser = new SqlParser(input);
+            CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
+            policy.setWherePredicate(stmt.getWherePredicate());
+            LOG.info("policy={}", policy);
+            return policy;
+        } catch (Exception e) {
+            LOG.warn("parse originStmt error", e);
+            return null;
+        }
     }
     
     @Override
