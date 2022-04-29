@@ -430,7 +430,7 @@ public:
     }
 
     void add(std::vector<Centroid>::const_iterator iter,
-                    std::vector<Centroid>::const_iterator end) {
+             std::vector<Centroid>::const_iterator end) {
         while (iter != end) {
             const size_t diff = std::distance(iter, end);
             const size_t room = _max_unprocessed - _unprocessed.size();

@@ -42,10 +42,9 @@ protected:
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
 private:
-    Version _last_delete_version{-1, -1};
+    Version _last_delete_version {-1, -1};
 
     DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
 };
 
 } // namespace doris
-

@@ -78,12 +78,10 @@ public:
         return (char*)pool->allocate(_type_info->size());
     }
 
-    virtual char* allocate_zone_map_value(MemPool* pool) const {
-        return allocate_value(pool);
-    }
+    virtual char* allocate_zone_map_value(MemPool* pool) const { return allocate_value(pool); }
 
     void agg_update(RowCursorCell* dest, const RowCursorCell& src,
-                           MemPool* mem_pool = nullptr) const {
+                    MemPool* mem_pool = nullptr) const {
         if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr && !src.is_null()) {
             auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
             auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
@@ -235,7 +233,7 @@ public:
 
     //convert and copy field from src to desc
     Status convert_from(char* dest, const char* src, const TypeInfo* src_type,
-                                   MemPool* mem_pool) const {
+                        MemPool* mem_pool) const {
         return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
     }
 
@@ -790,4 +788,3 @@ public:
 };
 
 } // namespace doris
-

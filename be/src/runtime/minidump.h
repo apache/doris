@@ -41,11 +41,11 @@ public:
 
 private:
     // The callback after writing the minidump file
-    static bool _minidump_cb(const google_breakpad::MinidumpDescriptor& descriptor,
-                      void* context, bool succeeded);
+    static bool _minidump_cb(const google_breakpad::MinidumpDescriptor& descriptor, void* context,
+                             bool succeeded);
     // The handle function when receiving SIGUSR1 signal.
     static void _usr1_sigaction(int signum, siginfo_t* info, void* context);
-    
+
     // try clean old minidump files periodically.
     // To keep at most config::max_minidump_number files.
     void _clean_old_minidump();

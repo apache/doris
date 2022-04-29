@@ -317,10 +317,10 @@ private:
     bool _is_convertible;
 };
 
-typedef std::variant<
-        ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
-        ColumnValueRange<int64_t>, ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
-        ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
+typedef std::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
+                     ColumnValueRange<int64_t>, ColumnValueRange<__int128>,
+                     ColumnValueRange<StringValue>, ColumnValueRange<DateTimeValue>,
+                     ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
         ColumnValueRangeType;
 
 template <class T>

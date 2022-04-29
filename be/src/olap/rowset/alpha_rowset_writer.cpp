@@ -112,8 +112,8 @@ Status AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-Status AlphaRowsetWriter::add_rowset_for_linked_schema_change(
-        RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) {
+Status AlphaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+                                                              const SchemaMapping& schema_mapping) {
     _need_column_data_writer = false;
     // this api is for LinkedSchemaChange
     // use create hard link to copy rowset for performance
@@ -263,8 +263,7 @@ Status AlphaRowsetWriter::_init() {
         _cur_segment_group = new (std::nothrow) SegmentGroup(
                 _rowset_writer_context.tablet_id, _rowset_writer_context.rowset_id,
                 _rowset_writer_context.tablet_schema, _rowset_writer_context.path_desc.filepath,
-                _rowset_writer_context.version, false,
-                _segment_group_id, 0);
+                _rowset_writer_context.version, false, _segment_group_id, 0);
     }
     DCHECK(_cur_segment_group != nullptr) << "failed to malloc SegmentGroup";
     _cur_segment_group->acquire();

@@ -81,7 +81,7 @@ Status VResultSink::prepare(RuntimeState* state) {
         // TODO:
         /*      _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,*/
         /*_profile, _sender.get()));*/
-//        break;
+        //        break;
     default:
         return Status::InternalError("Unknown result sink type");
     }
@@ -103,7 +103,7 @@ Status VResultSink::send(RuntimeState* state, Block* block) {
 }
 
 Status VResultSink::close(RuntimeState* state, Status exec_status) {
-    if (_closed || _writer == nullptr|| _sender == nullptr) {
+    if (_closed || _writer == nullptr || _sender == nullptr) {
         return Status::OK();
     }
 

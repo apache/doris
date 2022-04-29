@@ -91,7 +91,6 @@ private:
 TDataSink get_data_sink(TDescriptorTable* desc_tbl);
 TDataSink get_decimal_sink(TDescriptorTable* desc_tbl);
 
-
 class VTestInternalService : public PBackendService {
 public:
     VTestInternalService() {}
@@ -244,10 +243,9 @@ TEST_F(VOlapTableSinkTest, normal) {
     vectorized::Block block;
     col_idx = 0;
     for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(
-            std::move(columns[col_idx++]),
-            slot_desc->get_data_type_ptr(),
-            slot_desc->col_name()));
+        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
+                                                       slot_desc->get_data_type_ptr(),
+                                                       slot_desc->col_name()));
     }
 
     // send
@@ -373,10 +371,9 @@ TEST_F(VOlapTableSinkTest, convert) {
     vectorized::Block block;
     col_idx = 0;
     for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(
-            std::move(columns[col_idx++]),
-            slot_desc->get_data_type_ptr(),
-            slot_desc->col_name()));
+        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
+                                                       slot_desc->get_data_type_ptr(),
+                                                       slot_desc->col_name()));
     }
     st = sink.send(&state, &block);
     ASSERT_TRUE(st.ok());
@@ -490,10 +487,9 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     vectorized::Block block;
     col_idx = 0;
     for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(
-            std::move(columns[col_idx++]),
-            slot_desc->get_data_type_ptr(),
-            slot_desc->col_name()));
+        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
+                                                       slot_desc->get_data_type_ptr(),
+                                                       slot_desc->col_name()));
     }
     // Channels will be cancelled internally, coz brpc returns k_add_batch_status.
     k_add_batch_status = Status::InternalError("dummy failed");
@@ -586,10 +582,9 @@ TEST_F(VOlapTableSinkTest, decimal) {
     vectorized::Block block;
     col_idx = 0;
     for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(
-            std::move(columns[col_idx++]),
-            slot_desc->get_data_type_ptr(),
-            slot_desc->col_name()));
+        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
+                                                       slot_desc->get_data_type_ptr(),
+                                                       slot_desc->col_name()));
     }
     st = sink.send(&state, &block);
     ASSERT_TRUE(st.ok());
@@ -604,4 +599,3 @@ TEST_F(VOlapTableSinkTest, decimal) {
 }
 } // namespace stream_load
 } // namespace doris
-

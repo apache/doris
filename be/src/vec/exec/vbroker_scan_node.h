@@ -43,8 +43,7 @@ private:
 
     void scanner_worker(int start_idx, int length);
     // Scan one range
-    Status scanner_scan(const TBrokerScanRange& scan_range,
-                        ScannerCounter* counter);
+    Status scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter);
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
 };

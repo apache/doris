@@ -114,8 +114,7 @@ Status VBrokerScanNode::close(RuntimeState* state) {
     return status;
 }
 
-Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
-                                     ScannerCounter* counter) {
+Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter) {
     //create scanner object and open
     std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
@@ -225,4 +224,4 @@ void VBrokerScanNode::scanner_worker(int start_idx, int length) {
     }
 }
 
-}
+} // namespace doris::vectorized

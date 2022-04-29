@@ -28,11 +28,11 @@
 
 namespace doris {
 
-#define RETURN_ERROR_IF_EXC(env) \
-  do { \
-    jthrowable exc = (env)->ExceptionOccurred(); \
-    if (exc != nullptr) return JniUtil::GetJniExceptionMsg(env);\
-  } while (false)
+#define RETURN_ERROR_IF_EXC(env)                                     \
+    do {                                                             \
+        jthrowable exc = (env)->ExceptionOccurred();                 \
+        if (exc != nullptr) return JniUtil::GetJniExceptionMsg(env); \
+    } while (false)
 
 class JniUtil {
 public:
@@ -48,8 +48,8 @@ public:
         return GetJNIEnvSlowPath(env);
     }
 
-    static Status GetGlobalClassRef(
-            JNIEnv* env, const char* class_str, jclass* class_ref) WARN_UNUSED_RESULT;
+    static Status GetGlobalClassRef(JNIEnv* env, const char* class_str,
+                                    jclass* class_ref) WARN_UNUSED_RESULT;
 
     static Status LocalToGlobalRef(JNIEnv* env, jobject local_ref,
                                    jobject* global_ref) WARN_UNUSED_RESULT;
@@ -95,6 +95,7 @@ public:
 
     /// Get the char sequence. Returns nullptr if the guard does hold a char sequence.
     const char* get() { return utf_chars; }
+
 private:
     JNIEnv* env;
     jstring jstr;
@@ -104,13 +105,12 @@ private:
 
 class JniLocalFrame {
 public:
-    JniLocalFrame(): env_(nullptr) {}
-    ~JniLocalFrame() { if (env_ != nullptr) env_->PopLocalFrame(nullptr); }
-
-    JniLocalFrame(JniLocalFrame&& other) noexcept
-            : env_(other.env_) {
-        other.env_ = nullptr;
+    JniLocalFrame() : env_(nullptr) {}
+    ~JniLocalFrame() {
+        if (env_ != nullptr) env_->PopLocalFrame(nullptr);
     }
+
+    JniLocalFrame(JniLocalFrame&& other) noexcept : env_(other.env_) { other.env_ = nullptr; }
 
     /// Pushes a new JNI local frame. The frame can support max_local_ref local references.
     /// The number of local references created inside the frame might exceed max_local_ref,
@@ -126,7 +126,7 @@ private:
 
 template <class T>
 Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
-    int buffer_size = 100 * 1024;  // start out with 100KB
+    int buffer_size = 100 * 1024; // start out with 100KB
     ThriftSerializer serializer(false, buffer_size);
 
     uint8_t* buffer = NULL;

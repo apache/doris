@@ -23,7 +23,7 @@
 
 namespace doris::vectorized {
 
-template<typename Impl>
+template <typename Impl>
 class FunctionDateTimeFloorCeil : public IFunction {
 public:
     static constexpr auto name = Impl::name;
@@ -42,10 +42,11 @@ public:
         return make_nullable(std::make_shared<DataTypeDateTime>());
     }
 
-    Status execute_impl(FunctionContext *context, Block &block, const ColumnNumbers &arguments,
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (const auto *sources = check_and_get_column<ColumnVector<Int64>>(source_col.get())) {
+        const ColumnPtr source_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (const auto* sources = check_and_get_column<ColumnVector<Int64>>(source_col.get())) {
             auto col_to = ColumnVector<Int64>::create();
             col_to->resize(input_rows_count);
             auto null_map = ColumnVector<UInt8>::create();
@@ -55,21 +56,25 @@ public:
                 Impl::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
             } else if (arguments.size() == 2) {
                 const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
-                if (const auto *delta_const_column = typeid_cast<const ColumnConst *>(&delta_column)) {
-                    if (block.get_by_position(arguments[1]).type->get_type_id() != TypeIndex::Int32) {
-                        Impl::vector_constant(sources->get_data(), delta_const_column->get_field().get<Int64>(),
+                if (const auto* delta_const_column =
+                            typeid_cast<const ColumnConst*>(&delta_column)) {
+                    if (block.get_by_position(arguments[1]).type->get_type_id() !=
+                        TypeIndex::Int32) {
+                        Impl::vector_constant(sources->get_data(),
+                                              delta_const_column->get_field().get<Int64>(),
                                               col_to->get_data(), null_map->get_data());
                     } else {
-                        Impl::vector_constant(sources->get_data(), delta_const_column->get_field().get<Int32>(),
+                        Impl::vector_constant(sources->get_data(),
+                                              delta_const_column->get_field().get<Int32>(),
                                               col_to->get_data(), null_map->get_data());
                     }
                 } else {
-                    if (const auto *delta_vec_column0 =
-                            check_and_get_column<ColumnVector<Int64>>(delta_column)) {
+                    if (const auto* delta_vec_column0 =
+                                check_and_get_column<ColumnVector<Int64>>(delta_column)) {
                         Impl::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
                                             col_to->get_data(), null_map->get_data());
                     } else {
-                        const auto *delta_vec_column1 =
+                        const auto* delta_vec_column1 =
                                 check_and_get_column<ColumnVector<Int32>>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         Impl::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
@@ -77,21 +82,24 @@ public:
                     }
                 }
             } else {
-                auto arg1_column_ptr = block.get_by_position(
-                        arguments[1]).column->convert_to_full_column_if_const();
-                auto arg2_column_ptr = block.get_by_position(
-                        arguments[2]).column->convert_to_full_column_if_const();
+                auto arg1_column_ptr = block.get_by_position(arguments[1])
+                                               .column->convert_to_full_column_if_const();
+                auto arg2_column_ptr = block.get_by_position(arguments[2])
+                                               .column->convert_to_full_column_if_const();
 
-                const auto arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_column_ptr);
-                const auto arg2_column = check_and_get_column<ColumnVector<Int64>>(*arg2_column_ptr);
+                const auto arg1_column =
+                        check_and_get_column<ColumnVector<Int32>>(*arg1_column_ptr);
+                const auto arg2_column =
+                        check_and_get_column<ColumnVector<Int64>>(*arg2_column_ptr);
                 DCHECK(arg1_column != nullptr);
                 DCHECK(arg2_column != nullptr);
-                Impl::vector_vector(sources->get_data(), arg1_column->get_data(), arg2_column->get_data(),
-                                    col_to->get_data(), null_map->get_data());
+                Impl::vector_vector(sources->get_data(), arg1_column->get_data(),
+                                    arg2_column->get_data(), col_to->get_data(),
+                                    null_map->get_data());
             }
 
             block.get_by_position(result).column =
-                        ColumnNullable::create(std::move(col_to), std::move(null_map));
+                    ColumnNullable::create(std::move(col_to), std::move(null_map));
         } else {
             return Status::RuntimeError(fmt::format(
                     "Illegal column {} of first argument of function {}",
@@ -105,41 +113,46 @@ template <typename Impl>
 struct FloorCeilImpl {
     static constexpr auto name = Impl::name;
 
-    static void vector(const PaddedPODArray<Int64>& dates, PaddedPODArray<Int64>& res, NullMap& null_map) {
+    static void vector(const PaddedPODArray<Int64>& dates, PaddedPODArray<Int64>& res,
+                       NullMap& null_map) {
         vector_constant(dates, Int32(1), res, null_map);
     }
 
-    static void vector_constant(const PaddedPODArray<Int64>& dates, Int64 origin_date, PaddedPODArray<Int64>& res,
-            NullMap& null_map) {
-        for (int i = 0; i < dates.size() ; ++i) {
+    static void vector_constant(const PaddedPODArray<Int64>& dates, Int64 origin_date,
+                                PaddedPODArray<Int64>& res, NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
             Impl::time_round(dates[i], Int32(1), origin_date, res[i], null_map[i]);
         }
     }
 
-    static void vector_constant(const PaddedPODArray<Int64>& dates, Int32 period, PaddedPODArray<Int64>& res,
-            NullMap& null_map) {
-        for (int i = 0; i < dates.size() ; ++i) {
+    static void vector_constant(const PaddedPODArray<Int64>& dates, Int32 period,
+                                PaddedPODArray<Int64>& res, NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
             Impl::time_round(dates[i], period, res[i], null_map[i]);
         }
     }
 
-    static void vector_vector(const PaddedPODArray<Int64>& dates, const PaddedPODArray<Int64>& origin_dates,
-                       PaddedPODArray<Int64>& res, NullMap& null_map) {
-        for (int i = 0; i < dates.size() ; ++i) {
+    static void vector_vector(const PaddedPODArray<Int64>& dates,
+                              const PaddedPODArray<Int64>& origin_dates, PaddedPODArray<Int64>& res,
+                              NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
             Impl::time_round(dates[i], Int32(1), origin_dates[i], res[i], null_map[i]);
         }
     }
 
-    static void vector_vector(const PaddedPODArray<Int64>& dates, const PaddedPODArray<Int32>& periods,
-                       PaddedPODArray<Int64>& res, NullMap& null_map) {
-        for (int i = 0; i < dates.size() ; ++i) {
+    static void vector_vector(const PaddedPODArray<Int64>& dates,
+                              const PaddedPODArray<Int32>& periods, PaddedPODArray<Int64>& res,
+                              NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
             Impl::time_round(dates[i], periods[i], res[i], null_map[i]);
         }
     }
 
-    static void vector_vector(const PaddedPODArray<Int64>& dates, const PaddedPODArray<Int32>& periods,
-                       const PaddedPODArray<Int64>& origin_dates, PaddedPODArray<Int64>& res, NullMap& null_map) {
-        for (int i = 0; i < dates.size() ; ++i) {
+    static void vector_vector(const PaddedPODArray<Int64>& dates,
+                              const PaddedPODArray<Int32>& periods,
+                              const PaddedPODArray<Int64>& origin_dates, PaddedPODArray<Int64>& res,
+                              NullMap& null_map) {
+        for (int i = 0; i < dates.size(); ++i) {
             Impl::time_round(dates[i], periods[i], origin_dates[i], res[i], null_map[i]);
         }
     }
@@ -152,7 +165,7 @@ struct TimeRound {
     static constexpr uint64_t FIRST_SUNDAY = 19700104000000;
 
     static void time_round(const doris::vectorized::VecDateTimeValue& ts2, Int32 period,
-            doris::vectorized::VecDateTimeValue& ts1, UInt8& is_null) {
+                           doris::vectorized::VecDateTimeValue& ts1, UInt8& is_null) {
         if (period < 1) {
             is_null = true;
             return;
@@ -201,17 +214,18 @@ struct TimeRound {
         return;
     }
 
-    static void time_round(Int64 date, Int32 period, Int64 origin_date, Int64& res, UInt8& is_null) {
+    static void time_round(Int64 date, Int32 period, Int64 origin_date, Int64& res,
+                           UInt8& is_null) {
         res = origin_date;
         auto ts2 = binary_cast<Int64, VecDateTimeValue>(date);
-        auto& ts1 = (doris::vectorized::VecDateTimeValue &) (res);
+        auto& ts1 = (doris::vectorized::VecDateTimeValue&)(res);
 
         time_round(ts2, period, ts1, is_null);
     }
 
     static void time_round(Int64 date, Int32 period, Int64& res, UInt8& is_null) {
         auto ts2 = binary_cast<Int64, VecDateTimeValue>(date);
-        auto& ts1 = (doris::vectorized::VecDateTimeValue&) (res);
+        auto& ts1 = (doris::vectorized::VecDateTimeValue&)(res);
         if constexpr (Impl::Unit != WEEK) {
             ts1.from_olap_datetime(FIRST_DAY);
         } else {
@@ -223,14 +237,13 @@ struct TimeRound {
     }
 };
 
-#define TIME_ROUND(CLASS, NAME, UNIT, TYPE)                                 \
-    struct CLASS {                                                          \
-        static constexpr auto name = #NAME;                                 \
-        static constexpr TimeUnit Unit = UNIT;                              \
-        static constexpr auto Type = TYPE;                                  \
-    };                                                                      \
+#define TIME_ROUND(CLASS, NAME, UNIT, TYPE)    \
+    struct CLASS {                             \
+        static constexpr auto name = #NAME;    \
+        static constexpr TimeUnit Unit = UNIT; \
+        static constexpr auto Type = TYPE;     \
+    };                                         \
     using Function##CLASS = FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>>;
-
 
 TIME_ROUND(YearFloor, year_floor, YEAR, false);
 TIME_ROUND(MonthFloor, month_floor, MONTH, false);
@@ -247,7 +260,6 @@ TIME_ROUND(DayCeil, day_ceil, DAY, true);
 TIME_ROUND(HourCeil, hour_ceil, HOUR, true);
 TIME_ROUND(MinuteCeil, minute_ceil, MINUTE, true);
 TIME_ROUND(SecondCeil, second_ceil, SECOND, true);
-
 
 void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionYearFloor>();
@@ -266,6 +278,4 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinuteCeil>();
     factory.register_function<FunctionSecondCeil>();
 }
-}
-
-
+} // namespace doris::vectorized

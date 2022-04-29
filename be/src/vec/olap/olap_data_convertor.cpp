@@ -256,8 +256,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     }
 
     assert(column_hll);
-    HyperLogLog* hll_value_cur =
-            const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
+    HyperLogLog* hll_value_cur = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
     HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
     size_t slice_size;
     size_t old_size;
@@ -327,8 +326,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data() cons
     return _slice.data();
 }
 
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(
-        size_t offset) const {
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorChar::get_data_at(size_t offset) const {
     assert(offset < _num_rows && _num_rows == _slice.size());
     UInt8 null_flag = 0;
     if (_nullmap) {
@@ -453,9 +451,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
             if (!*nullmap_cur) {
                 slice->data = const_cast<char*>(char_data + string_offset);
                 slice->size = *offset_cur - string_offset - 1;
-                if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes && _check_length)) {
+                if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
+                             _check_length)) {
                     return Status::NotSupported(
-                            "Not support string len over than `string_type_length_soft_limit_bytes` in vec engine.");
+                            "Not support string len over than "
+                            "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
             } else {
                 // TODO: this may not be neccessary, check and remove later
@@ -472,9 +472,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
         while (offset_cur != offset_end) {
             slice->data = const_cast<char*>(char_data + string_offset);
             slice->size = *offset_cur - string_offset - 1;
-            if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes && _check_length)) {
-                return Status::NotSupported("Not support string len over than `string_type_length_soft_limit_bytes`"
-                                            " in vec engine.");
+            if (UNLIKELY(slice->size > config::string_type_length_soft_limit_bytes &&
+                         _check_length)) {
+                return Status::NotSupported(
+                        "Not support string len over than `string_type_length_soft_limit_bytes`"
+                        " in vec engine.");
             }
             string_offset = *offset_cur;
             ++slice;
@@ -497,8 +499,7 @@ const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data() cons
     return _values.data();
 }
 
-const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data_at(
-        size_t offset) const {
+const void* OlapBlockDataConvertor::OlapColumnDataConvertorDate::get_data_at(size_t offset) const {
     assert(offset < _num_rows && _num_rows == _values.size());
     UInt8 null_flag = 0;
     if (_nullmap) {

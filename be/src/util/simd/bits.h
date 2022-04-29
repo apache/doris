@@ -31,8 +31,8 @@ namespace simd {
 inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
 #ifdef __AVX2__
     auto zero32 = _mm256_setzero_si256();
-    uint32_t mask = static_cast<uint32_t>(_mm256_movemask_epi8(_mm256_cmpgt_epi8(
-            _mm256_loadu_si256(reinterpret_cast<const __m256i*>(data)), zero32)));
+    uint32_t mask = static_cast<uint32_t>(_mm256_movemask_epi8(
+            _mm256_cmpgt_epi8(_mm256_loadu_si256(reinterpret_cast<const __m256i*>(data)), zero32)));
 #elif __SSE2__
     auto zero16 = _mm_setzero_si128();
     uint32_t mask =
@@ -51,10 +51,9 @@ inline uint32_t bytes32_mask_to_bits32_mask(const uint8_t* data) {
     return mask;
 }
 
-inline uint32_t bytes32_mask_to_bits32_mask(const bool * data) {
+inline uint32_t bytes32_mask_to_bits32_mask(const bool* data) {
     return bytes32_mask_to_bits32_mask(reinterpret_cast<const uint8_t*>(data));
 }
-
 
 } // namespace simd
 } // namespace doris

@@ -36,13 +36,12 @@ public:
     // return OLAP_SUCCESS and set statistics into `*stats_output`.
     // return others on error
     static Status merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                    const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                    RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+                                const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 
     static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                     const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                     RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 };
 
 } // namespace doris
-
