@@ -57,16 +57,16 @@ The principle is the same as that of the reading process during Cumulative Compa
 The principle is the same as the reading process during Base Compaction.
 
 ### Syntax
-When the Sequence column creates a table, an attribute is added to the property, which is used to identify the type import of `__DORIS_SEQUENCE_COL__`. The grammar design is mainly to add a mapping from the sequence column to other columns. The settings of each seed method will be described below introduce
+When the Sequence column creates a table, an attribute is added to the property, which is used to identify the type import of `__DORIS_SEQUENCE_COL__`. The grammar design is mainly to add a mapping from the sequence column to other columns. The settings of each seed method will be described below introduce.
 
 #### Create Table
-When you create the Uniq table, you can specify the sequence column type
+When you create the Uniq table, you can specify the sequence column type.
 ```text
 PROPERTIES (
     "function_column.sequence_type" = 'Date',
 );
 ```
-The sequence_type is used to specify the type of the sequence column, which can be integral and time
+The sequence_type is used to specify the type of the sequence column, which can be integral and time (DATE / DATETIME).
 
 #### Stream Load
 
