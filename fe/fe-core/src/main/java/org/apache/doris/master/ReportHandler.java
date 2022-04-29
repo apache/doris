@@ -703,8 +703,8 @@ public class ReportHandler extends Daemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        LOG.info("delete {} tablet(s) from backend[{}]", deleteFromBackendCounter, backendId);
-        LOG.info("add {} replica(s) to meta. backend[{}]", addToMetaCounter, backendId);
+        LOG.info("delete {} tablet(s) and add {} replica(s) to meta from backend[{}]",
+                deleteFromBackendCounter, addToMetaCounter, backendId);
     }
 
     // replica is used and no version missing
@@ -828,9 +828,9 @@ public class ReportHandler extends Daemon {
                             }
 
                             if (tTabletInfo.isSetVersionMiss() && tTabletInfo.isVersionMiss()) {
-                                // The absolute value is meaningless, as long as it is greater than 0.
-                                // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
-                                // it will be considered a version missing replica and will be handled accordingly.
+                                // If the origin last failed version is larger than 0, not change it.
+                                // Otherwise, we set last failed version to replica'version + 1.
+                                // Because last failed version should always larger than replica's version.
                                 long newLastFailedVersion = replica.getLastFailedVersion();
                                 if (newLastFailedVersion < 0) {
                                     newLastFailedVersion = replica.getVersion() + 1;

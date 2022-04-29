@@ -867,9 +867,15 @@ public class DatabaseTransactionMgr {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId())
-                                        && replica.getLastFailedVersion() < 0
-                                        && replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                if (!errorReplicaIds.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
+                                    if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
+                                        ++healthReplicaNum;
+                                    }
+                                } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
+                                    // the replica's version is larger than or equal to current transaction partition's version
+                                    // the replica is normal, then remove it from error replica ids
+                                    // TODO(cmy): actually I have no idea why we need this check
+                                    errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 }
                             }
