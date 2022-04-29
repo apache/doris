@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220429
+- Modified: s2geometry 0.9.0 -> 0.10.0
+- Add Abseil, it is dependency of new s2geometry.
+
 ## v20220321
 - Add libbacktrace, it is used by boost stacktrace to print exception stack.
 
