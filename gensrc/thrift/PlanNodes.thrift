@@ -51,8 +51,7 @@ enum TPlanNodeType {
   INTERSECT_NODE,
   EXCEPT_NODE,
   ODBC_SCAN_NODE,
-  TABLE_FUNCTION_NODE,
-  META_GATHER_NODE
+  TABLE_FUNCTION_NODE
 }
 
 // phases of an execution node
