@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# regexp_extract
-## Description
-### Syntax
+## regexp_extract
+### Description
+#### Syntax
 
 'VARCHAR regexp 'extract (VARCHAR str, VARCHAR pattern, int pos)
 
 
 The string STR is matched regularly and the POS matching part which conforms to pattern is extracted. Patterns need to match exactly some part of the STR to return to the matching part of the pattern. If there is no match, return an empty string.
 
-## example
+### example
 
 ```
 mysql> SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 1);
@@ -50,5 +50,5 @@ mysql> SELECT regexp_extract('AbCdE', '([[:lower:]]+)C([[:lower:]]+)', 2);
 | d                                                           |
 +-------------------------------------------------------------+
 ```
-## keyword
+### keywords
 REGEXP_EXTRACT,REGEXP,EXTRACT

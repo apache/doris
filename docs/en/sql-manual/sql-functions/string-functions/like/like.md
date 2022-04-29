@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# like
-## description
-### syntax
+## like
+### description
+#### syntax
 
 `BOOLEAN like(VARCHAR str, VARCHAR pattern)`
 
@@ -48,7 +48,7 @@ the underscore ('_') represents a single character.
 'a_'  // two digits and the initial letter is a
 'a__b'  // four digits, starting letter is a and ending letter is b
 ```
-## example
+### example
 
 ```
 // table test
@@ -79,5 +79,5 @@ mysql> select k1 from test where k1 like 'a';
 +-------+
 ```
 
-## keyword
+### keywords
 LIKE

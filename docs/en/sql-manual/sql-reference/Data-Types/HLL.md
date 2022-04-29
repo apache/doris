@@ -24,8 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-#HLL (HyperLogLog)
-## Description
+## HLL (HyperLogLog)
+### Description
 HLL
 
 HLL cannot be used as a key column, and the aggregation type is HLL_UNION when create table.
@@ -36,7 +36,7 @@ And HLL columns can only be queried or used through the matching hll_union_agg, 
 HLL is approximate count of distinct elements, and its performance is better than Count Distinct when the amount of data is large.
 The error of HLL is usually around 1%, sometimes up to 2%.
 
-## example
+### example
 
     select hour, HLL_UNION_AGG(pv) over(order by hour) uv from(
        select hour, HLL_RAW_AGG(device_id) as pv
@@ -45,5 +45,5 @@ The error of HLL is usually around 1%, sometimes up to 2%.
     group by hour order by 1
     ) final;
     
-## keyword
+### keywords
 HLL,HYPERLOGLOG

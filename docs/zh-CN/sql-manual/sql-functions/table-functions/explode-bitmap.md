@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_bitmap
+## explode_bitmap
 
-## description
+### description
 
 表函数，需配合 Lateral View 使用。
 
@@ -38,7 +38,7 @@ under the License.
 explode_bitmap(bitmap)
 ```
 
-## example
+### example
 
 原表数据：
 
@@ -143,6 +143,6 @@ lateral view explode_split("a,b", ",") tmp2 as e2 order by k1, e1, e2;
 +------+------+------+
 ```
 
-## keyword
+### keywords
 
     explode_bitmap

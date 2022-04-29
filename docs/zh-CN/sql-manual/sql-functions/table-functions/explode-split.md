@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_split
+## explode_split
 
-## description
+### description
 
 表函数，需配合 Lateral View 使用。
 
@@ -38,7 +38,7 @@ under the License.
 explode_split(str, delimiter)
 ```
 
-## example
+### example
 
 原表数据：
 
@@ -103,6 +103,6 @@ mysql> select k1, e1 from example1 lateral view explode_split(k2, ',') tmp1 as e
 +------+------+
 ```
 
-## keyword
+### keywords
 
     explode_split

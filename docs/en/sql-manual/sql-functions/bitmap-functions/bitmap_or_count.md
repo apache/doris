@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_or_count
-## description
-### Syntax
+## bitmap_or_count
+### description
+#### Syntax
 
 `BigIntVal bitmap_or_count(BITMAP lhs, BITMAP rhs)`
 
 Calculates the union of two or more input bitmaps and returns the number of union sets.
 
-## example
+### example
 
 ```
 MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'),bitmap_empty());
@@ -72,6 +72,6 @@ MySQL> select bitmap_or_count(bitmap_from_string('1,2,3'), bitmap_from_string('3
 +-------------------------------------------------------------------------------------------------+
 ```
 
-## keyword
+### keywords
 
     BITMAP_OR_COUNT,BITMAP

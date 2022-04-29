@@ -70,6 +70,8 @@ illustrate:
 
 ### Example
 
+### Keywords
+
     SHOW, LASR ,INSERT
 
 ### Best Practice

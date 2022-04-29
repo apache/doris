@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# null_or_empty
-## description
-### Syntax
+## null_or_empty
+### description
+#### Syntax
 
 `BOOLEAN NULL_OR_EMPTY (VARCHAR str)`
 
 It returns true if the string is an empty string or NULL. Otherwise it returns false.
 
-## example
+### example
 
 ```
 MySQL [(none)]> select null_or_empty(null);
@@ -56,5 +56,5 @@ MySQL [(none)]> select null_or_empty("a");
 |                  0 |
 +--------------------+
 ```
-## keyword
+### keywords
 NULL_OR_EMPTY

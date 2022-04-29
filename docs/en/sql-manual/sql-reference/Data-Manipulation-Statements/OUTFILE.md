@@ -24,12 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# OUTFILE
+## OUTFILE
 ### Name
 
 OURFILE
 
-##description
+### description
 
 This statement is used to export query results to a file using the `SELECT INTO OUTFILE` command. Currently, it supports exporting to remote storage, such as HDFS, S3, BOS, COS (Tencent Cloud), through the Broker process, through the S3 protocol, or directly through the HDFS protocol.
     
@@ -87,7 +87,7 @@ illustrate:
        AWS_SECRET_KEY
        AWS_REGION
 
-## example
+### example
 
 1. Use the broker method to export, and export the simple query results to the file `hdfs://path/to/result.txt`. Specifies that the export format is CSV. Use `my_broker` and set kerberos authentication information. Specify the column separator as `,` and the row separator as `\n`.
 
@@ -249,11 +249,9 @@ illustrate:
    If the final generated file is not larger than 100MB, it will be: `result_0.csv`.
    If larger than 100MB, it may be `result_0.csv, result_1.csv, ...`.
 
-## keyword
+### keywords
 
-```
 OUTFILE
-```
 
 ### Best Practice
 

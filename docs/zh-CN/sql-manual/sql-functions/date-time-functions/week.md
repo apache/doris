@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# week
-## description
-### Syntax
+## week
+### description
+#### Syntax
 
 `INT WEEK(DATE date)`
 `INT WEEK(DATE date, INT mode)`
@@ -46,7 +46,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 ```
 mysql> select week('2020-1-1');
 +------------------+
@@ -64,5 +64,5 @@ mysql> select week('2020-7-1',1);
 +---------------------+
 ```
 
-## keyword
+### keywords
     WEEK

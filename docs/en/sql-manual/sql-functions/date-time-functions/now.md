@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# now
-## Description
-### Syntax
+## now
+### Description
+#### Syntax
 
 `DATETIME NOW ()`
 
 
 Get the current time and return it in Datetime type
 
-## example
+### example
 
 ```
 mysql> select now();
@@ -43,5 +43,5 @@ mysql> select now();
 | 2019-05-27 15:58:25 |
 +---------------------+
 ```
-## keyword
+### keywords
 NOW

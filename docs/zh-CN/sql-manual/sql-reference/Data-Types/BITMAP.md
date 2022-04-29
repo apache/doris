@@ -24,8 +24,8 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# BITMAP
-## description
+## BITMAP
+### description
     BITMAP
     BITMAP不能作为key列使用，建表时配合聚合类型为BITMAP_UNION。
     用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
@@ -34,7 +34,7 @@ under the License.
     离线场景下使用BITMAP会影响导入速度，在数据量大的情况下查询速度会慢于HLL，并优于Count Distinct。
     注意：实时场景下BITMAP如果不使用全局字典，使用了bitmap_hash()可能会导致有千分之一左右的误差。
 
-## example
+### example
 
     select hour, BITMAP_UNION_COUNT(pv) over(order by hour) uv from(
        select hour, BITMAP_UNION(device_id) as pv
@@ -43,6 +43,6 @@ under the License.
     group by hour order by 1
     ) final;
 
-## keyword
+### keywords
 
     BITMAP

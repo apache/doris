@@ -1,3 +1,3 @@
 # or
-## keyword
+## keywords
 LOGICAL
