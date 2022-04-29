@@ -136,4 +136,8 @@ public class StatisticsManager {
         Table table = db.getTableOrAnalysisException(tableName);
         return table;
     }
+
+    public Statistics getStatistics() {
+        return statistics;
+    }
 }

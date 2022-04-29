@@ -1725,7 +1725,6 @@ public class SingleNodePlanner {
         scanNodeList.add(scanNode);
 
         scanNode.init(analyzer);
-
         return scanNode;
     }
 

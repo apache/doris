@@ -54,7 +54,11 @@ public abstract class LoadScanNode extends ScanNode {
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
 
     public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName);
+        super(id, desc, planNodeName, NodeType.LOAD_SCAN_NODE);
+    }
+
+    public LoadScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, NodeType nodeType) {
+        super(id, desc, planNodeName, nodeType);
     }
 
     protected void initAndSetWhereExpr(Expr whereExpr, TupleDescriptor tupleDesc, Analyzer analyzer) throws UserException {
