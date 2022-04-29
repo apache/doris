@@ -139,44 +139,48 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     // please retain job lock firstly
     public void updateTaskState(TaskState newState) throws DdlException {
         LOG.info("To change statistics task(id={}) state from {} to {}", id, taskState, newState);
+        writeLock();
+        TaskState fromState = taskState;
         try {
-            // PENDING -> RUNNING/FAILED
-            if (taskState == TaskState.PENDING) {
-                if (newState == TaskState.RUNNING) {
-                    taskState = newState;
-                    // task start running, set start time
-                    startTime = System.currentTimeMillis();
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else if (newState == TaskState.FAILED) {
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else {
-                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new DdlException("Invalid task state transition from PENDING to " + newState);
-                }
-                return;
-            }
-
-            // RUNNING -> FINISHED/FAILED
-            if (taskState == TaskState.RUNNING) {
-                if (newState == TaskState.FINISHED) {
-                    // set finish time
-                    finishTime = System.currentTimeMillis();
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else if (newState == TaskState.FAILED) {
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else {
-                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new DdlException("Invalid task state transition from RUNNING to " + newState);
-                }
-            }
-
-            LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-            throw new DdlException("Invalid task state transition from " + taskState + " to " + newState);
+            unprotectedUpdateTaskState(newState);
+        } catch (DdlException e) {
+            LOG.warn(e.getMessage(), e);
+            throw e;
         } finally {
-            LOG.info("Statistics task(id={}) current state is {}", id, taskState);
+            writeUnlock();
         }
+        LOG.info("Statistics job(id={}) state changed from {} to {}", id, fromState, newState);
+    }
+
+    private void unprotectedUpdateTaskState(TaskState newState) throws DdlException {
+        // PENDING -> RUNNING/FAILED
+        if (taskState == TaskState.PENDING) {
+            switch (newState) {
+                case RUNNING:
+                    startTime = System.currentTimeMillis();
+                    break;
+                case FAILED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid statistics task state transition from " + taskState + " to " + newState);
+            }
+        }
+        // RUNNING -> FINISHED/FAILED
+        else if (taskState == TaskState.RUNNING) {
+            switch (newState) {
+                case FINISHED:
+                case FAILED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid statistics task state transition from " + taskState + " to " + newState);
+            }
+        }
+        // unsupported state transition
+        else {
+            throw new DdlException("Invalid statistics task state transition from " + taskState + " to " + newState);
+        }
+        taskState = newState;
     }
 }
