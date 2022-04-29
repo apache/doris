@@ -126,7 +126,7 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    1 row in set (0.01 sec)
    ```
 
-RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-Statements/RESTORE.html)。
+RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference/Show-Statements/RESTORE.html)。
 
 ## 相关命令
 
@@ -134,7 +134,7 @@ RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-
 
 1. CREATE REPOSITORY
 
-   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.html)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
+   创建一个远端仓库路径，用于备份或恢复。该命令需要借助 Broker 进程访问远端存储，不同的 Broker 需要提供不同的参数，具体请参阅 [Broker文档](../../advanced/broker.html)，也可以直接通过S3 协议备份到支持AWS S3协议的远程存储上去，具体参考 [创建远程仓库文档](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/CREATE-REPOSITORY.md)
 
 2. RESTORE
 
@@ -180,5 +180,5 @@ RESTORE的更多用法可参考 [这里](../../sql-manual/sql-reference-v2/Show-
 
 ## 更多帮助
 
-关于 RESTORE 使用的更多详细语法及最佳实践，请参阅 [RESTORE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RESTORE` 获取更多帮助信息。
+关于 RESTORE 使用的更多详细语法及最佳实践，请参阅 [RESTORE](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RESTORE.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RESTORE` 获取更多帮助信息。
 

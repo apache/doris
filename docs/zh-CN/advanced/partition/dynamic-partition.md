@@ -455,4 +455,4 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
 ## 更多帮助
 
-关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。
+关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。

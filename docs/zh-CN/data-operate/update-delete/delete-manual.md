@@ -30,7 +30,7 @@ Delete不同于其他导入方式，它是一个同步过程，与Insert into相
 
 ## 语法
 
-delete操作的语法详见官网 [DELETE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) 语法。
+delete操作的语法详见官网 [DELETE](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) 语法。
 
 ## 返回结果
 
@@ -152,5 +152,5 @@ mysql> show delete from test_db;
 
 ## 更多帮助
 
-关于 **delete** 使用的更多详细语法，请参阅 [delete](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP DELETE` 获取更多帮助信息。
+关于 **delete** 使用的更多详细语法，请参阅 [delete](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP DELETE` 获取更多帮助信息。
 

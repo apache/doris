@@ -48,7 +48,7 @@ Please note the following usage restrictions:
 
 The routine import feature supports unauthenticated Kafka clusters, as well as SSL-authenticated Kafka clusters.
 
-Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Plao through the `CREAE FILE` command, and the catalog name is `kafka`. The specific help of the `CREATE FILE` command can be found in the [CREATE FILE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html) command manual . Here is an example:
+Accessing an SSL-authenticated Kafka cluster requires the user to provide a certificate file (ca.pem) for authenticating the Kafka Broker public key. If client authentication is also enabled in the Kafka cluster, the client's public key (client.pem), key file (client.key), and key password must also be provided. The files required here need to be uploaded to Plao through the `CREAE FILE` command, and the catalog name is `kafka`. The specific help of the `CREATE FILE` command can be found in the [CREATE FILE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.html) command manual . Here is an example:
 
 - upload files
 
@@ -58,11 +58,11 @@ Accessing an SSL-authenticated Kafka cluster requires the user to provide a cert
   CREATE FILE "client.pem" PROPERTIES("url" = "https://example_url/kafka-key/client.pem", "catalog" = "kafka");
   ````
 
-After the upload is complete, you can view the uploaded files through the [SHOW FILES](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.html) command.
+After the upload is complete, you can view the uploaded files through the [SHOW FILES](../../../sql-manual/sql-reference/Show-Statements/SHOW-FILE.html) command.
 
 ### Create a routine import job
 
-For specific commands to create routine import tasks, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html ) command manual. Here is an example:
+For specific commands to create routine import tasks, see [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html ) command manual. Here is an example:
 
 1. Access the Kafka cluster without authentication
 
@@ -112,22 +112,22 @@ For specific commands to create routine import tasks, see [ROUTINE LOAD](../../.
 
 ### View import job status
 
-See [SHOW ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD.html) for specific commands and examples for checking the status of a **job** ) command documentation.
+See [SHOW ROUTINE LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD.html) for specific commands and examples for checking the status of a **job** ) command documentation.
 
-See [SHOW ROUTINE LOAD TASK](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-ROUTINE-LOAD-TASK.html) command documentation.
+See [SHOW ROUTINE LOAD TASK](../../../sql-manual/sql-reference/Show-Statements/SHOW-ROUTINE-LOAD-TASK.html) command documentation.
 
 Only the currently running tasks can be viewed, and the completed and unstarted tasks cannot be viewed.
 
 ### Modify job properties
 
-The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html) command manual.
+The user can modify some properties of the job that has been created. For details, please refer to the [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html) command manual.
 
 ### Job Control
 
 The user can control the stop, pause and restart of the job through the `STOP/PAUSE/RESUME` three commands.
 
-For specific commands, please refer to [STOP ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD.html) , [PAUSE ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD.html), [RESUME ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD.html) command documentation.
+For specific commands, please refer to [STOP ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-ROUTINE-LOAD.html) , [PAUSE ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-ROUTINE-LOAD.html), [RESUME ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-ROUTINE-LOAD.html) command documentation.
 
 ## more help
 
-For more detailed syntax and best practices for ROUTINE LOAD, see [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) command manual.
+For more detailed syntax and best practices for ROUTINE LOAD, see [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) command manual.

@@ -37,7 +37,7 @@ Support SQL block rule by user level:
 ## Rule
 
 SQL block rule CRUD
-- create SQL block rule,For more creation syntax see[CREATE SQL BLOCK RULE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE.html)
+- create SQL block rule,For more creation syntax see[CREATE SQL BLOCK RULE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE.html)
     - sql：Regex pattern，Special characters need to be translated, "NULL" by default
     - sqlHash: Sql hash value, Used to match exactly, We print it in fe.audit.log, This parameter is the only choice between sql and sql, "NULL" by default
     - partition_num: Max number of partitions will be scanned by a scan node, 0L by default
@@ -65,12 +65,12 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule:
 CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "30", "cardinality"="10000000000","global"="false","enable"="true")
 ```
 
-- show configured SQL block rules, or show all rules if you do not specify a rule name,Please see the specific grammar [SHOW SQL BLOCK RULE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-SQL-BLOCK-RULE.html)
+- show configured SQL block rules, or show all rules if you do not specify a rule name,Please see the specific grammar [SHOW SQL BLOCK RULE](../sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE.html)
 
 ```sql
 SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
 ```
-- alter SQL block rule，Allows changes sql/sqlHash/global/enable/partition_num/tablet_num/cardinality anyone,Please see the specific grammar[ALTER SQL BLOCK  RULE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE.html)
+- alter SQL block rule，Allows changes sql/sqlHash/global/enable/partition_num/tablet_num/cardinality anyone,Please see the specific grammar[ALTER SQL BLOCK  RULE](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE.html)
     - sql and sqlHash cannot be set both. It means if sql or sqlHash is set in a rule, another property will never be allowed to be altered
     - sql/sqlHash and partition_num/tablet_num/cardinality cannot be set together. For example, partition_num is set in a rule, then sql or sqlHash will never be allowed to be altered.
 ```sql
@@ -81,7 +81,7 @@ ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","en
 ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
-- drop SQL block rule，Support multiple rules, separated by `,`,Please see the specific grammar[DROP SQL BLOCK RULR](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.html)
+- drop SQL block rule，Support multiple rules, separated by `,`,Please see the specific grammar[DROP SQL BLOCK RULR](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.html)
 ```sql
 DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ```

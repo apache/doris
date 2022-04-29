@@ -49,7 +49,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 
 1. 创建一张表
 
-   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。示例如下：
+   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。示例如下：
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_hdfs_file_test
@@ -86,7 +86,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
   
 3. 查看导入状态
    
-   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD.html#show-load)命令查看
+   Broker load 是一个异步的导入方式，具体导入结果可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.html#show-load)命令查看
    
    ```
    mysql> show load order by createtime desc limit 1\G;
