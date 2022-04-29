@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `ST_GeometryFromText`,`ST GeomFromText`
-## Description
-### Syntax
+## `ST_GeometryFromText`,`ST GeomFromText`
+### Description
+#### Syntax
 
 `GEOMETRY ST_GeometryFromText (VARCHAR wkt)`
 
 
 Converting a WKT (Well Known Text) into a corresponding memory geometry
 
-## example
+### example
 
 ```
 mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
 | LINESTRING (1 1, 2 2)                                   |
 +---------------------------------------------------------+
 ```
-## keyword
+### keywords
 ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT

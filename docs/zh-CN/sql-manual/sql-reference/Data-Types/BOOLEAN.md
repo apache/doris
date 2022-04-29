@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# BOOLEAN
-## description
+## BOOLEAN
+### description
     BOOL, BOOLEAN
     与TINYINT一样，0代表false，1代表true
 
-## keyword
+### keywords
 
     BOOLEAN

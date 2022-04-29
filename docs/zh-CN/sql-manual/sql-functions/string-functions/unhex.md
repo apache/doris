@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# unhex
-## description
-### Syntax
+## unhex
+### description
+#### Syntax
 
 `VARCHAR unhex(VARCHAR str)`
 
@@ -35,7 +35,7 @@ under the License.
 其他情况每两个字符为一组转化为16进制后的字符，然后拼接成字符串输出
 
 
-## example
+### example
 
 ```
 mysql> select unhex('@');
@@ -59,5 +59,5 @@ mysql> select unhex('4142');
 | AB            |
 +---------------+
 ```
-## keyword
+### keywords
 UNHEX

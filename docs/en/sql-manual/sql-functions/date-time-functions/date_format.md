@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# date_format
-## Description
-### Syntax
+## date_format
+### Description
+#### Syntax
 
 `VARCHAR DATE' FORMAT (DATETIME DATE, VARCHAR Format)`
 
@@ -110,7 +110,7 @@ yyyy-MM-dd
 
 yyyy-MM-dd HH:mm:ss
 
-## example
+### example
 
 ```
 mysql> select date_format('2009-10-04 22:23:00', '%W %M %Y');
@@ -162,5 +162,5 @@ mysql> select date_format('2006-06-01', '%%%d');
 | %01                                        |
 +--------------------------------------------+
 ```
-## keyword
+### keywords
 DATE_FORMAT,DATE,FORMAT

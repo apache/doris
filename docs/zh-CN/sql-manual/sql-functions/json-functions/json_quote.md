@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# json_quote
-## description
-### Syntax
+## json_quote
+### description
+#### Syntax
 
 `VARCHAR json_quote(VARCHAR)`
 
 
 将json_value用双引号（"）括起来，跳过其中包含的特殊转义字符
 
-## example
+### example
 
 ```
 MySQL> SELECT json_quote('null'), json_quote('"null"');
@@ -66,5 +66,5 @@ MySQL> select json_quote("\n\b\r\t");
 | "\n\b\r\t"             |
 +------------------------+
 ```
-## keyword
+### keywords
 json_quote

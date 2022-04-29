@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# regexp_replace
-## description
-### Syntax
+## regexp_replace
+### description
+#### Syntax
 
 `VARCHAR regexp_replace(VARCHAR str, VARCHAR pattern, VARCHAR repl)`
 
 
 Regular matching of STR strings, replacing the part hitting pattern with repl
 
-## example
+### example
 
 ```
 mysql> SELECT regexp_replace('a b c', " ", "-");
@@ -50,5 +50,5 @@ mysql> SELECT regexp_replace('a b c','(b)','<\\1>');
 | a <b> c                                |
 +----------------------------------------+
 ```
-## keyword
+### keywords
 REGEXP_REPLACE,REGEXP,REPLACE

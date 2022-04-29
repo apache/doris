@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# STDDEV,STDDEV_POP
-## description
-### Syntax
+## STDDEV,STDDEV_POP
+### description
+#### Syntax
 
 `STDDEV(expr)`
 
 
 返回expr表达式的标准差
 
-## example
+### example
 ```
 MySQL > select stddev(scan_rows) from log_statis group by datetime;
 +---------------------+
@@ -49,5 +49,5 @@ MySQL > select stddev_pop(scan_rows) from log_statis group by datetime;
 |      2.3722760595994914 |
 +-------------------------+
 ```
-## keyword
+### keywords
 STDDEV,STDDEV_POP,POP

@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# split_part
-## Description
-### Syntax
+## split_part
+### Description
+#### Syntax
 
 `VARCHAR split party (VARCHAR content, VARCHAR delimiter, INT field)`
 
 
 Returns the specified partition (counting from the beginning) by splitting the string according to the partitioner.
 
-## example
+### example
 
 ```
 mysql> select split_part("hello world", " ", 1);
@@ -65,5 +65,5 @@ mysql> select split_part("abca", "a", 1);
 |                            |
 +----------------------------+
 ```
-## keyword
+### keywords
 SPLIT_PART,SPLIT,PART

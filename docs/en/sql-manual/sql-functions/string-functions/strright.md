@@ -25,16 +25,16 @@ under the License.
 -->
 
 
-# strright
-## Description
-### Syntax
+## strright
+### Description
+#### Syntax
 
 `VARCHAR strright (VARCHAR str)`
 
 
 It returns the right part of a string of specified length, length is char length not the byte size.
 
-## example
+### example
 
 ```
 mysql> select strright("Hello doris",5);
@@ -44,5 +44,5 @@ mysql> select strright("Hello doris",5);
 | doris                   |
 +-------------------------+
 ```
-## keyword
+### keywords
 STRRIGHT

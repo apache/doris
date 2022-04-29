@@ -24,18 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_intersect
-## description
+## bitmap_intersect
+### description
 
 聚合函数，用于计算分组后的 bitmap 交集。常见使用场景如：计算用户留存率。
 
-### Syntax
+#### Syntax
 
 `BITMAP BITMAP_INTERSECT(BITMAP value)`
 
 输入一组 bitmap 值，求这一组 bitmap 值的交集，并返回。
 
-## example
+### example
 
 表结构
 
@@ -57,6 +57,6 @@ mysql> select tag, bitmap_intersect(user_id) from (select tag, date, bitmap_unio
 mysql> select tag, bitmap_to_string(bitmap_intersect(user_id)) from (select tag, date, bitmap_union(user_id) user_id from table where date in ('2020-05-18', '2020-05-19') group by tag, date) a group by tag;
 ```
 
-## keyword
+### keywords
 
     BITMAP_INTERSECT, BITMAP

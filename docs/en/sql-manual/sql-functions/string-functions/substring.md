@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# substring
-## description
-### Syntax
+## substring
+### description
+#### Syntax
 
 `VARCHAR substring(VARCHAR str, INT pos[, INT len])`
 
@@ -41,7 +41,7 @@ For all forms of SUBSTRING(),
 the position of the first character in the string from which the substring is to be extracted is reckoned as 1.
 
 If len is less than 1, the result is the empty string.
-## example
+### example
 
 ```
 mysql> select substring('abc1', -2);
@@ -73,5 +73,5 @@ mysql> select substring('abc1def', 2, 2);
 +-----------------------------+
 ```
 
-## keyword
+### keywords
 SUBSTRING

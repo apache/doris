@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# day
-## Description
-### Syntax
+## day
+### Description
+#### Syntax
 
 `INT DAY(DATETIME date)`
 
@@ -35,7 +35,7 @@ Get the day information in the date, and return values range from 1 to 31.
 
 The parameter is Date or Datetime type
 
-## example
+### example
 
 ```
 mysql> select day('1987-01-31');
@@ -45,5 +45,5 @@ mysql> select day('1987-01-31');
 |                         31 |
 +----------------------------+
 ```
-## keyword
+### keywords
 DAY

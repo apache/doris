@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# time_round
-## description
-### Syntax
+## time_round
+### description
+#### Syntax
 
 `DATETIME TIME_ROUND(DATETIME expr)`
 
@@ -46,7 +46,7 @@ Returns the upper/lower bound of `expr`.
 - `origin` specifies the start time of the period, the default is `1970-01-01T00:00:00`, the start time of `WEEK` is Sunday, which is `1970-01-04T00:00:00`. Could be larger than `expr`.
 - Please try to choose common `period`, such as 3 `MONTH`, 90 `MINUTE`. If you set a uncommon `period`, please also specify `origin`.
 
-## example
+### example
 
 ```
 
@@ -82,5 +82,5 @@ MySQL> SELECT MONTH_CEIL(CAST('2020-02-02 13:09:20' AS DATETIME), 3, CAST('1970-
 +-------------------------------------------------------------------------------------------------+
 
 ```
-## keyword
+### keywords
 TIME_ROUND

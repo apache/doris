@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# json_array
-## Description
-### Syntax
+## json_array
+### Description
+#### Syntax
 
 `VARCHAR json_array(VARCHAR,...)`
 
 
 Generate a json array containing the specified values, return empty if no values
 
-## example
+### example
 
 ```
 MySQL> select json_array();
@@ -66,5 +66,5 @@ MySQL> select json_array("a", null, "c");
 | ["a", NULL, "c"]             |
 +------------------------------+
 ```
-## keyword
+### keywords
 json_array

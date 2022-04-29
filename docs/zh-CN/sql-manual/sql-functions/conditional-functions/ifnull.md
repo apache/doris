@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ifnull
-## description
-### Syntax
+## ifnull
+### description
+#### Syntax
 
 `ifnull(expr1, expr2)`
 
 
 如果 expr1 的值不为 NULL 则返回 expr1，否则返回 expr2
 
-## example
+### example
 
 ```
 mysql> select ifnull(1,0);
@@ -50,5 +50,5 @@ mysql> select ifnull(null,10);
 |               10 |
 +------------------+
 ```
-## keyword
+### keywords
 IFNULL

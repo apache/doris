@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# to_date
-## description
-### Syntax
+## to_date
+### description
+#### Syntax
 
 `DATE TO_DATE(DATETIME)`
 
 返回 DATETIME 类型中的日期部分。
 
-## example
+### example
 
 ```
 mysql> select to_date("2020-02-02 00:00:00");
@@ -43,6 +43,6 @@ mysql> select to_date("2020-02-02 00:00:00");
 +--------------------------------+
 ```
 
-## keyword
+### keywords
 
     TO_DATE

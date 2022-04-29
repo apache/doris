@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_contains
-## description
-### Syntax
+## bitmap_contains
+### description
+#### Syntax
 
 `B00LEAN BITMAP_CONTAINS(BITMAP bitmap, BIGINT input)`
 
 计算输入值是否在Bitmap列中，返回值是Boolean值.
 
-## example
+### example
 
 ```
 mysql> select bitmap_contains(to_bitmap(1),2) cnt;
@@ -50,6 +50,6 @@ mysql> select bitmap_contains(to_bitmap(1),1) cnt;
 +------+
 ```
 
-## keyword
+### keywords
 
     BITMAP_CONTAINS,BITMAP

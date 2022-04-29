@@ -17,13 +17,14 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.MarkDownParser;
+import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
@@ -46,6 +47,7 @@ public abstract class HelpObjectLoader<HelpTypeT extends HelpObjectIface> {
         List<HelpTypeT> topics = Lists.newArrayList();
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> docs = parser.parse();
+
         for (Map.Entry<String, Map<String, String>> doc : docs.entrySet()) {
             HelpTypeT topic = newInstance();
             topic.loadFrom(doc);

@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# utc_timestamp
-## Description
-### Syntax
+## utc_timestamp
+### Description
+#### Syntax
 
 `DATETIME UTC_TIMESTAMP()`
 
@@ -37,7 +37,7 @@ A Value of "YYYYMMDDHMMSS" Format
 
 Depending on whether the function is used in a string or numeric context
 
-## example
+### example
 
 ```
 mysql> select utc_timestamp(),utc_timestamp() + 1;
@@ -46,5 +46,5 @@ mysql> select utc_timestamp(),utc_timestamp() + 1;
 +---------------------+---------------------+
 | 2019-07-10 12:31:18 |      20190710123119 |
 +---------------------+---------------------+
-## keyword
+### keywords
 UTC_TIMESTAMP,UTC,TIMESTAMP

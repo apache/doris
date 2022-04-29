@@ -24,13 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ADMIN SHOW TABLET STORAGE FORMAT
-## description
+## ADMIN SHOW TABLET STORAGE FORMAT
+### description
     该语句用于显示Backend上的存储格式信息（仅管理员使用）
     语法：
         ADMIN SHOW TABLET STORAGE FORMAT [VERBOSE]
 
-## example
+### example
     MySQL [(none)]> admin show tablet storage format;
     +-----------+---------+---------+
     | BackendId | V1Count | V2Count |
@@ -48,6 +48,7 @@ under the License.
     | 10002     | 39199    | V2            |
     +-----------+----------+---------------+
     4 rows in set (0.034 sec)
-## keyword
+
+### keywords
     ADMIN,SHOW,TABLET,STORAGE,FORMAT
 

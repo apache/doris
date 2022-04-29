@@ -502,7 +502,7 @@ module.exports = [
           },
           {
             title: "加密和信息摘要函数",
-            directoryPath: "encrypt-dixgest-functions/",
+            directoryPath: "encrypt-digest-functions/",
             initialOpenGroupIndex: -1,
             children: [
               "aes",
@@ -524,7 +524,6 @@ module.exports = [
               "outer-combinator"
             ],
           },
-          "window-function",
           "cast",
           "digital-masking",
         ],

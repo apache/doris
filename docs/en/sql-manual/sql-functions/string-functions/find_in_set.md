@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# find_in_set
-## description
-### Syntax
+## find_in_set
+### description
+#### Syntax
 
 `INT find_in_set(VARCHAR str, VARCHAR strlist)`
 
@@ -35,7 +35,7 @@ under the License.
 
 Return to the location where the str first appears in strlist (counting from 1). Strlist is a comma-separated string. If not, return 0. Any parameter is NULL, returning NULL.
 
-## example
+### example
 
 ```
 mysql> select find_in_set("b", "a,b,c");
@@ -45,5 +45,5 @@ mysql> select find_in_set("b", "a,b,c");
 |                         2 |
 +---------------------------+
 ```
-## keyword
+### keywords
 FIND_IN_SET,FIND,IN,SET

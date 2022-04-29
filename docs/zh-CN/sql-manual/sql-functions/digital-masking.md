@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# DIGITAL_MASKING
+## DIGITAL_MASKING
 
-## description
+### description
 
-### Syntax
+#### Syntax
 
 ```
 digital_masking(digital_number)
@@ -38,7 +38,7 @@ digital_masking(digital_number)
 
 将输入的 `digital_number` 进行脱敏处理，返回遮盖脱敏后的结果。`digital_number` 为 `BIGINT` 数据类型。
 
-## example
+### example
 
 1. 将手机号码进行脱敏处理
 
@@ -51,6 +51,6 @@ digital_masking(digital_number)
     +------------------------------+
     ```
 
-## keyword
+### keywords
 
 DIGITAL_MASKING

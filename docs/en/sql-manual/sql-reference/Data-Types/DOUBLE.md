@@ -24,10 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Double
-## Description
+## Double
+### Description
 DOUBLE
 8-byte floating point number
 
-## keyword
+### keywords
 DOUBLE

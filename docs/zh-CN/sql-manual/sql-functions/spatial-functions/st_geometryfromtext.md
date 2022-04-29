@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `ST_GeometryFromText`,`ST_GeomFromText`
-## description
-### Syntax
+## `ST_GeometryFromText`,`ST_GeomFromText`
+### description
+#### Syntax
 
 `GEOMETRY ST_GeometryFromText(VARCHAR wkt)`
 
 
 将一个WKT（Well Known Text）转化为对应的内存的几何形式
 
-## example
+### example
 
 ```
 mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
@@ -43,5 +43,5 @@ mysql> SELECT ST_AsText(ST_GeometryFromText("LINESTRING (1 1, 2 2)"));
 | LINESTRING (1 1, 2 2)                                   |
 +---------------------------------------------------------+
 ```
-## keyword
+### keywords
 ST_GEOMETRYFROMTEXT,ST_GEOMFROMTEXT,ST,GEOMETRYFROMTEXT,GEOMFROMTEXT
