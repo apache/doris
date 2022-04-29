@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# STDDEV_SAMP
-## description
-### Syntax
+## STDDEV_SAMP
+### description
+#### Syntax
 
 `STDDEV_SAMP(expr)`
 
 
 返回expr表达式的样本标准差
 
-## example
+### example
 ```
 MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 +--------------------------+
@@ -42,5 +42,5 @@ MySQL > select stddev_samp(scan_rows) from log_statis group by datetime;
 |        2.372044195280762 |
 +--------------------------+
 ```
-## keyword
+### keywords
 STDDEV_SAMP,STDDEV,SAMP

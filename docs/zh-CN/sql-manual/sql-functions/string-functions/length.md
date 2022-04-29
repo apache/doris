@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# length
-## description
-### Syntax
+## length
+### description
+#### Syntax
 
 `INT length(VARCHAR str)`
 
 
 返回字符串的字节。
 
-## example
+### example
 
 ```
 mysql> select length("abc");
@@ -50,5 +50,5 @@ mysql> select length("中国");
 |                6 |
 +------------------+
 ```
-## keyword
+### keywords
 LENGTH

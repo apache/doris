@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# get_json_string
-## description
-### Syntax
+## get_json_string
+### description
+#### Syntax
 
 `VARCHAR get_json_string(VARCHAR json_str, VARCHAR json_path)`
 
@@ -37,7 +37,7 @@ under the License.
 path 的内容不能包含 ", [ 和 ]。
 如果 json_string 格式不对，或 json_path 格式不对，或无法找到匹配项，则返回 NULL。
 
-## example
+### example
 
 1. 获取 key 为 "k1" 的 value
 
@@ -80,5 +80,5 @@ mysql> SELECT get_json_string('[{"k1":"v1"}, {"k2":"v2"}, {"k1":"v3"}, {"k1":"v4
 | ["v1","v3","v4"]                                                                |
 +---------------------------------------------------------------------------------+
 ```
-## keyword
+### keywords
 GET_JSON_STRING,GET,JSON,STRING

@@ -22,16 +22,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# sub_bitmap
+## sub_bitmap
 
-## description
-### Syntax
+### description
+#### Syntax
 
 `BITMAP SUB_BITMAP(BITMAP src, BIGINT offset, BIGINT cardinality_limit)`
 
 Starting from the position specified by offset, intercept cardinality_limit bitmap elements and return a bitmap subset.
 
-## example
+### example
 
 ```
 mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), 0, 3)) value;
@@ -56,6 +56,6 @@ mysql> select bitmap_to_string(sub_bitmap(bitmap_from_string('1,0,1,2,3,1,5'), 2
 +-------+
 ```
 
-## keyword
+### keywords
 
     SUB_BITMAP,BITMAP_SUBSET,BITMAP

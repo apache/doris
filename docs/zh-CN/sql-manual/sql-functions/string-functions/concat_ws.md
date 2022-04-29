@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# concat_ws
-## description
-### Syntax
+## concat_ws
+### description
+#### Syntax
 
 `VARCHAR concat_ws(VARCHAR sep, VARCHAR str,...)`
 
@@ -35,7 +35,7 @@ under the License.
 如果分隔符是 NULL，返回 NULL。
 `concat_ws`函数不会跳过空字符串，会跳过 NULL 值
 
-## example
+### example
 
 ```
 mysql> select concat_ws("or", "d", "is");
@@ -59,5 +59,5 @@ mysql> select concat_ws("or", "d", NULL,"is");
 | doris                           |
 +---------------------------------+
 ```
-## keyword
+### keywords
 CONCAT_WS,CONCAT,WS

@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
-## Description
-### Syntax
+## `ST_Polygon`,`ST_PolyFromText`,`ST_PolygonFromText`
+### Description
+#### Syntax
 
 `GEOMETRY ST_Polygon (VARCHAR wkt)`
 
@@ -34,7 +34,7 @@ under the License.
 Converting a WKT (Well Known Text) into a corresponding polygon memory form
 
 
-### example
+#### example
 
 ```
 mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
@@ -44,5 +44,5 @@ mysql> SELECT ST_AsText(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"));
 | POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))                          |
 +------------------------------------------------------------------+
 ```
-## keyword
+### keywords
 ST_POLYGON,ST_POLYFROMTEXT,ST_POLYGONFROMTEXT,ST,POLYGON,POLYFROMTEXT,POLYGONFROMTEXT

@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# TINYINT
-## description
+## TINYINT
+### description
     TINYINT
     1字节有符号整数，范围[-128, 127]
 
-## keyword
+### keywords
 
     TINYINT

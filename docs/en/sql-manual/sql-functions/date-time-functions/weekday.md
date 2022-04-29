@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# weekday
-## Description
-### Syntax
+## weekday
+### Description
+#### Syntax
 
 `INT WEEKDAY (DATETIME date)`
 
@@ -46,7 +46,7 @@ dayofweek |  1  |  2  |  3  |  4  |  5  |  6  |  7  |
           +-----+-----+-----+-----+-----+-----+-----+
 ```
 
-## example
+### example
 ```
 mysql> select weekday('2019-06-25');
 +--------------------------------+
@@ -62,5 +62,5 @@ mysql> select weekday(cast(20190625 as date));
 |                               1 |
 +---------------------------------+
 ```
-## keyword
+### keywords
 WEEKDAY

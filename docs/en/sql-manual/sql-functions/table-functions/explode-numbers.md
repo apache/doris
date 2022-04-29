@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# explode_numbers
+## explode_numbers
 
-## description
+### description
 
 Table functions must be used in conjunction with Lateral View.
 
@@ -38,7 +38,7 @@ grammar:
 explode_numbers(n)
 ```
 
-## example
+### example
 ```
 mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as e1;
 +------+
@@ -51,6 +51,6 @@ mysql> select e1 from (select 1 k1) as t lateral view explode_numbers(5) tmp1 as
 |    4 |
 +------+
 ```
-## keyword
+### keywords
 
     explode_numbers

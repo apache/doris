@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# repeat
-## Description
-### Syntax
+## repeat
+### Description
+#### Syntax
 
 `VARCHAR repeat (VARCHAR str, INT count)`
 
 
 Repeat the str of the string count times, return empty string when count is less than 1, return NULL when str, count is any NULL
 
-## example
+### example
 
 ```
 mysql> SELECT repeat("a", 3);
@@ -50,5 +50,5 @@ mysql> SELECT repeat("a", -1);
 |                 |
 +-----------------+
 ```
-## keyword
+### keywords
 REPEAT,

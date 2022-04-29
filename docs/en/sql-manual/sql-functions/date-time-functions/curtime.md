@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# curtime,current_time
-## Description
-### Syntax
+## curtime,current_time
+### Description
+#### Syntax
 
 `TIME CURTIME()`
 
 Get the current date and return it in Time type
 
-## Examples
+### Examples
 
 ```
 mysql> select current_time();
@@ -43,6 +43,6 @@ mysql> select current_time();
 +----------------+
 ```
 
-## keyword
+### keywords
 
     CURTIME,CURRENT_TIME
