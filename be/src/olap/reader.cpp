@@ -310,6 +310,17 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
+    } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == READER_BASE_COMPACTION) &&
+               !read_params.return_columns.empty()) {
+        _return_columns = read_params.return_columns;
+        for (auto id : read_params.return_columns) {
+            if (_tablet->tablet_schema().column(id).is_key()) {
+                _key_cids.push_back(id);
+            } else {
+                _value_cids.push_back(id);
+            }
+        }
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {

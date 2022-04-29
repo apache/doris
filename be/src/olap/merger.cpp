@@ -22,6 +22,7 @@
 
 #include "olap/olap_define.h"
 #include "olap/tuple_reader.h"
+#include "vec/olap/block_reader.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet.h"
 #include "util/trace.h"
@@ -84,6 +85,55 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK_LOG(
             dst_rowset_writer->flush(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+    return Status::OK();
+}
+
+Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                  RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
+    TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
+
+    vectorized::BlockReader reader;
+    TabletReader::ReaderParams reader_params;
+    reader_params.tablet = tablet;
+    reader_params.reader_type = reader_type;
+    reader_params.rs_readers = src_rowset_readers;
+    reader_params.version = dst_rowset_writer->version();
+
+    const auto& schema = tablet->tablet_schema();
+    reader_params.return_columns.resize(schema.num_columns());
+    std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
+    reader_params.origin_return_columns = &reader_params.return_columns;
+    RETURN_NOT_OK(reader.init(reader_params));
+    
+    vectorized::Block block = schema.create_block(reader_params.return_columns);
+    size_t output_rows = 0;
+    while (true) {
+        bool eof = false;
+        // Read one block from block reader
+        RETURN_NOT_OK_LOG(
+                reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
+                "failed to read next block when merging rowsets of tablet " + tablet->full_name());
+        if (eof) {
+            break;
+        }
+        RETURN_NOT_OK_LOG(
+                dst_rowset_writer->add_block(&block),
+                "failed to write block when merging rowsets of tablet " + tablet->full_name());
+        output_rows += block.rows();
+        block.clear_column_data();
+    }
+
+    if (stats_output != nullptr) {
+        stats_output->output_rows = output_rows;
+        stats_output->merged_rows = reader.merged_rows();
+        stats_output->filtered_rows = reader.filtered_rows();
+    }
+
+    RETURN_NOT_OK_LOG(
+            dst_rowset_writer->flush(),
+            "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+
     return Status::OK();
 }
 

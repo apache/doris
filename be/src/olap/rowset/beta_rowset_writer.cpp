@@ -38,10 +38,6 @@
 
 namespace doris {
 
-// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
-const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
-                                                        OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
-
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
           _num_segment(0),
@@ -96,6 +92,41 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
 
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_segment_writer == nullptr)) {
+        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+    }
+    size_t block_size_in_bytes = block->bytes();
+    size_t block_row_num = block->rows();
+    size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
+    size_t row_offset = 0;
+
+    do {
+        auto max_row_add = _segment_writer->max_row_to_add(row_avg_size_in_bytes);
+        if (UNLIKELY(max_row_add < 1)) {
+            // no space for another signle row, need flush now
+            RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+            RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
+            max_row_add = _segment_writer->max_row_to_add(row_avg_size_in_bytes);
+            DCHECK(max_row_add > 0);
+        }
+
+        size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
+        auto s = _segment_writer->append_block(block, row_offset, input_row_num);
+        if (UNLIKELY(!s.ok())) {
+            LOG(WARNING) << "failed to append block: " << s.to_string();
+            return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
+        }
+        row_offset += input_row_num;
+    } while (row_offset < block_row_num);
+
+    _num_rows_written += block_row_num;
     return Status::OK();
 }
 
@@ -270,7 +301,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
-                                                _context.data_dir, writer_options));
+                                                _context.data_dir, _context.max_rows_per_segment, writer_options));
     {
         std::lock_guard<SpinLock> l(_lock);
         _wblocks.push_back(std::move(wblock));

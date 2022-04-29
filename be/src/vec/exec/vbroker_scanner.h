@@ -17,20 +17,23 @@
 
 #pragma once
 
-namespace doris {
+#include <exec/broker_scanner.h>
 
-struct RowCursorCell {
-    RowCursorCell(void* ptr) : _ptr(ptr) {}
-    RowCursorCell(const void* ptr) : _ptr((void*)ptr) {}
-    bool is_null() const { return *reinterpret_cast<bool*>(_ptr); }
-    void set_is_null(bool is_null) const { *reinterpret_cast<bool*>(_ptr) = is_null; }
-    void set_null() const { *reinterpret_cast<bool*>(_ptr) = true; }
-    void set_not_null() const { *reinterpret_cast<bool*>(_ptr) = false; }
-    const void* cell_ptr() const { return (char*)_ptr + 1; }
-    void* mutable_cell_ptr() const { return (char*)_ptr + 1; }
+
+namespace doris::vectorized {
+class VBrokerScanner final : public BrokerScanner {
+public:
+    VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
+                  const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
+                  const std::vector<TNetworkAddress>& broker_addresses,
+                  const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+    ~VBrokerScanner() override = default;
+
+    Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
 
 private:
-    void* _ptr;
-};
+    Status _convert_one_row(const Slice& line, std::vector<MutableColumnPtr>& columns);
+    Status _fill_dest_columns(std::vector<MutableColumnPtr>& columns);
 
-} // namespace doris
+};
+} // namespace doris::vectorized

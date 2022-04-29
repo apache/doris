@@ -91,7 +91,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
                         .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
                         .aggregation();
         std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + agg_reader_suffix;
+                TabletColumn::get_string_by_aggregation_type(agg_method) + AGG_READER_SUFFIX;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 

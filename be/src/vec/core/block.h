@@ -357,6 +357,29 @@ public:
 
     DataTypes& data_types() { return _data_types; }
 
+    MutableColumnPtr& get_column_by_position(size_t position) { return _columns[position]; }
+    const MutableColumnPtr& get_column_by_position(size_t position) const { return _columns[position]; }
+
+    DataTypePtr& get_datatype_by_position(size_t position) { return _data_types[position]; }
+    const DataTypePtr& get_datatype_by_position(size_t position) const { return _data_types[position]; }
+
+    int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
+                   int nan_direction_hint) const {
+        DCHECK_GE(columns(), num_columns);
+        DCHECK_GE(rhs.columns(), num_columns);
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (size_t i = 0; i < num_columns; ++i) {
+            DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+            auto res = get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
     template <typename T>
     void merge(T&& block) {
         if (_columns.size() == 0 && _data_types.size() == 0) {
@@ -400,6 +423,7 @@ public:
 
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
+    void add_rows(const Block* block, size_t row_begin, size_t length);
 
     std::string dump_data(size_t row_limit = 100) const;
 
@@ -407,6 +431,7 @@ public:
         _columns.clear();
         _data_types.clear();
     }
+    size_t allocated_bytes() const;
 };
 
 } // namespace vectorized

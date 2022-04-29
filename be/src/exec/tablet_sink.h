@@ -54,6 +54,10 @@ class TupleDescriptor;
 class ExprContext;
 class TExpr;
 
+namespace vectorized {
+class Block;
+class MutableBlock;
+}
 namespace stream_load {
 
 class OlapTableSink;
@@ -87,18 +91,18 @@ struct AddBatchCounter {
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
 template <typename T>
-class ReusableClosure : public google::protobuf::Closure {
+class ReusableClosure final: public google::protobuf::Closure {
 public:
     ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
-    ~ReusableClosure() {
+    ~ReusableClosure() override {
         // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
         join();
     }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
 
-    void addFailedHandler(std::function<void(bool)> fn) { failed_handler = fn; }
-    void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
+    void addFailedHandler(const std::function<void(bool)>& fn) { failed_handler = fn; }
+    void addSuccessHandler(const std::function<void(const T&, bool)>& fn) { success_handler = fn; }
 
     void join() {
         // We rely on in_flight to assure one rpc is running,
@@ -166,25 +170,27 @@ class IndexChannel;
 class NodeChannel {
 public:
     NodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id);
-    ~NodeChannel() noexcept;
+    virtual ~NodeChannel() noexcept;
 
     // called before open, used to add tablet located in this backend
     void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
 
-    Status init(RuntimeState* state);
+    virtual Status init(RuntimeState* state);
 
     // we use open/open_wait to parallel
     void open();
-    Status open_wait();
+    virtual Status open_wait();
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
-
-    Status add_row(BlockRow& block_row, int64_t tablet_id);
+    virtual Status add_row(const BlockRow& block_row, int64_t tablet_id) {
+        LOG(FATAL) << "add block row to NodeChannel not supported";
+        return Status::OK();
+    }
 
     // two ways to stop channel:
     // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
-    void mark_close();
+    virtual void mark_close();
     Status close_wait(RuntimeState* state);
 
     void cancel(const std::string& cancel_msg);
@@ -194,8 +200,8 @@ public:
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     // plz make sure, this func should be called after open_wait().
-    int try_send_and_fetch_status(RuntimeState* state,
-                                  std::unique_ptr<ThreadPoolToken>& thread_pool_token);
+    virtual int try_send_and_fetch_status(RuntimeState* state,
+                                          std::unique_ptr<ThreadPoolToken>& thread_pool_token);
 
     void try_send_batch(RuntimeState* state);
 
@@ -223,15 +229,21 @@ public:
 
     void clear_all_batches();
 
+    virtual void clear_all_blocks() {
+        LOG(FATAL) << "NodeChannel::clear_all_blocks not supported";
+    }
+
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
                            _node_info.brpc_port);
     }
 
-private:
+protected:
     void _cancel_with_msg(const std::string& msg);
+    virtual void _close_check();
 
-private:
+protected:
+    bool _is_vectorized = false;
     OlapTableSink* _parent = nullptr;
     IndexChannel* _index_channel = nullptr;
     int64_t _node_id = -1;
@@ -248,6 +260,9 @@ private:
     int64_t _next_packet_seq = 0;
     MonotonicStopWatch _timeout_watch;
 
+    // the timestamp when this node channel be marked closed and finished closed
+    uint64_t _close_time_ms = 0;
+
     // user cancel or get some errors
     std::atomic<bool> _cancelled {false};
     SpinLock _cancel_msg_lock;
@@ -257,26 +272,21 @@ private:
     std::atomic<bool> _send_finished {false};
 
     // add batches finished means the last rpc has be response, used to check whether this channel can be closed
-    std::atomic<bool> _add_batches_finished {false};
+    std::atomic<bool> _add_batches_finished {false}; // reuse for vectorized
 
     bool _eos_is_produced {false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
     int _batch_size = 0;
-    std::unique_ptr<RowBatch> _cur_batch;
-    PTabletWriterAddBatchRequest _cur_add_batch_request;
 
-    std::mutex _pending_batches_lock;
-    using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
-    std::queue<AddBatchReq> _pending_batches;
-    std::atomic<int> _pending_batches_num {0};
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
     size_t _max_pending_batches_bytes {10 * 1024 * 1024};
+    std::mutex _pending_batches_lock; // reuse for vectorized
+    std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
     RefCountClosure<PTabletWriterOpenResult>* _open_closure = nullptr;
-    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
@@ -286,18 +296,6 @@ private:
     std::atomic<int64_t> _mem_exceeded_block_ns {0};
     std::atomic<int64_t> _queue_push_lock_ns {0};
     std::atomic<int64_t> _actual_consume_ns {0};
-
-    // buffer for saving serialized row batch data.
-    // In the non-attachment approach, we need to use two PRowBatch structures alternately
-    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
-    // This is not necessary with the attachment approach, because the memory structures
-    // are already copied into attachment memory before sending, and will wait for
-    // the previous RPC to be fully completed before the next copy.
-    std::string _tuple_data_buffer;
-    std::string* _tuple_data_buffer_ptr = nullptr;
-
-    // the timestamp when this node channel be marked closed and finished closed
-    uint64_t _close_time_ms = 0;
 
     // lock to protect _is_closed.
     // The methods in the IndexChannel are called back in the RpcClosure in the NodeChannel.
@@ -309,20 +307,36 @@ private:
     // The IndexChannel is definitely accessible until the NodeChannel is closed.
     std::mutex _closed_lock;
     bool _is_closed = false;
+
+private:
+    // buffer for saving serialized row batch data.
+    // In the non-attachment approach, we need to use two PRowBatch structures alternately
+    // so that when one PRowBatch is sent, the other PRowBatch can be used for the serialization of the next RowBatch.
+    // This is not necessary with the attachment approach, because the memory structures
+    // are already copied into attachment memory before sending, and will wait for
+    // the previous RPC to be fully completed before the next copy.
+    std::string _tuple_data_buffer;
+    std::string* _tuple_data_buffer_ptr = nullptr;
+
+    std::unique_ptr<RowBatch> _cur_batch;
+    PTabletWriterAddBatchRequest _cur_add_batch_request;
+    using AddBatchReq = std::pair<std::unique_ptr<RowBatch>, PTabletWriterAddBatchRequest>;
+    std::queue<AddBatchReq> _pending_batches;
+    ReusableClosure<PTabletWriterAddBatchResult>* _add_batch_closure = nullptr;
 };
 
 class IndexChannel {
 public:
-    IndexChannel(OlapTableSink* parent, int64_t index_id) : _parent(parent), _index_id(index_id) {
+    IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec) :
+        _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
         _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
     }
-    ~IndexChannel();
+    ~IndexChannel() = default;
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
 
-    void add_row(Tuple* tuple, int64_t tablet_id);
-
-    void add_row(BlockRow& block_row, int64_t tablet_id);
+    template <typename Row>
+    void add_row(const Row& tuple, int64_t tablet_id);
 
     void for_each_node_channel(
             const std::function<void(const std::shared_ptr<NodeChannel>&)>& func) {
@@ -343,9 +357,11 @@ public:
 
 private:
     friend class NodeChannel;
+    friend class VNodeChannel;
 
     OlapTableSink* _parent;
     int64_t _index_id;
+    bool _is_vectorized = false;
 
     // from backend channel to tablet_id
     // ATTN: must be placed before `_node_channels` and `_channels_by_tablet`.
@@ -369,6 +385,21 @@ private:
 
     std::shared_ptr<MemTracker> _index_channel_tracker;
 };
+
+template <typename Row>
+void IndexChannel::add_row(const Row& tuple, int64_t tablet_id) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_index_channel_tracker);
+    auto it = _channels_by_tablet.find(tablet_id);
+    DCHECK(it != _channels_by_tablet.end()) << "unknown tablet, tablet_id=" << tablet_id;
+    for (const auto& channel : it->second) {
+        // if this node channel is already failed, this add_row will be skipped
+        auto st = channel->add_row(tuple, tablet_id);
+        if (!st.ok()) {
+            mark_as_failed(channel->node_id(), channel->host(), st.get_error_msg(), tablet_id);
+            // continue add row to other node, the error will be checked for every batch outside
+        }
+    }
+}
 
 // Write data to Olap Table.
 // When OlapTableSink::open() called, there will be a consumer thread running in the background.
@@ -414,7 +445,10 @@ private:
 
 protected:
     friend class NodeChannel;
+    friend class VNodeChannel;
     friend class IndexChannel;
+
+    bool _is_vectorized = false;
 
     std::shared_ptr<MemTracker> _mem_tracker;
 
@@ -430,8 +464,6 @@ protected:
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
     RowDescriptor* _output_row_desc = nullptr;
-    std::vector<ExprContext*> _output_expr_ctxs;
-    std::unique_ptr<RowBatch> _output_batch;
 
     bool _need_validate_data = false;
 
@@ -444,7 +476,6 @@ protected:
 
     // TODO(zc): think about cache this data
     std::shared_ptr<OlapTableSchemaParam> _schema;
-    OlapTablePartitionParam* _partition = nullptr;
     OlapTableLocationParam* _location = nullptr;
     DorisNodesInfo* _nodes_info = nullptr;
 
@@ -470,7 +501,6 @@ protected:
     int64_t _convert_batch_ns = 0;
     int64_t _validate_data_ns = 0;
     int64_t _send_data_ns = 0;
-    int64_t _serialize_batch_ns = 0;
     int64_t _number_input_rows = 0;
     int64_t _number_output_rows = 0;
     int64_t _number_filtered_rows = 0;
@@ -513,6 +543,11 @@ protected:
     // only compute tablet index in the corresponding partition once for the whole time in olap table sink
     enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
+
+private:
+    OlapTablePartitionParam* _partition = nullptr;
+    std::vector<ExprContext*> _output_expr_ctxs;
+    std::unique_ptr<RowBatch> _output_batch;
 };
 
 } // namespace stream_load
