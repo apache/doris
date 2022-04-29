@@ -55,7 +55,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 
 public class PaloFe {
-    private static final Logger LOG = LogManager.getLogger(PaloFe.class);
+    private final static Logger LOG = LogManager.getLogger(PaloFe.class);
 
     public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
     public static final String PID_DIR = System.getenv("PID_DIR");
