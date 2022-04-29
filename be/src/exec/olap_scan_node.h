@@ -249,7 +249,7 @@ protected:
 
     TResourceInfo* _resource_info;
 
-    int64_t _buffered_bytes;
+    std::atomic<int64_t> _buffered_bytes;
     EvalConjunctsFn _eval_conjuncts_fn;
 
     bool _need_agg_finalize = true;
