@@ -26,52 +26,44 @@ namespace doris::vectorized {
 
 /// Implements the function is_null which returns true if a value
 /// is null, false otherwise.
-class FunctionIsNull : public IFunction
-{
+class FunctionIsNull : public IFunction {
 public:
     static constexpr auto name = "is_null_pred";
 
-    static FunctionPtr create()
-    {
-        return std::make_shared<FunctionIsNull>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionIsNull>(); }
 
-    std::string get_name() const override
-    {
-        return name;
-    }
+    std::string get_name() const override { return name; }
 
     size_t get_number_of_arguments() const override { return 1; }
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_constants() const override { return true; }
-    ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(size_t /*number_of_arguments*/) const override { return {0}; }
+    ColumnNumbers get_arguments_that_dont_imply_nullable_return_type(
+            size_t /*number_of_arguments*/) const override {
+        return {0};
+    }
 
-    DataTypePtr get_return_type_impl(const DataTypes &) const override
-    {
+    DataTypePtr get_return_type_impl(const DataTypes&) const override {
         return std::make_shared<DataTypeUInt8>();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const ColumnWithTypeAndName & elem = block.get_by_position(arguments[0]);
-        if (auto * nullable = check_and_get_column<ColumnNullable>(*elem.column))
-        {
+        const ColumnWithTypeAndName& elem = block.get_by_position(arguments[0]);
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*elem.column)) {
             /// Merely return the embedded null map.
             block.get_by_position(result).column = nullable->get_null_map_column_ptr();
-        }
-        else
-        {
+        } else {
             /// Since no element is nullable, return a zero-constant column representing
             /// a zero-filled null map.
-            block.get_by_position(result).column = DataTypeUInt8().create_column_const(elem.column->size(), 0u);
+            block.get_by_position(result).column =
+                    DataTypeUInt8().create_column_const(elem.column->size(), 0u);
         }
         return Status::OK();
     }
 };
 
-void register_function_is_null(SimpleFunctionFactory& factory)
-{
+void register_function_is_null(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsNull>();
 }
 
-}
+} // namespace doris::vectorized

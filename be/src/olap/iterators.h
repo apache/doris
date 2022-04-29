@@ -71,7 +71,8 @@ public:
     // delete conditions used by column index to filter pages
     std::vector<const Conditions*> delete_conditions;
 
-    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates = std::make_shared<AndBlockColumnPredicate>();
+    std::shared_ptr<AndBlockColumnPredicate> delete_condition_predicates =
+            std::make_shared<AndBlockColumnPredicate>();
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     // TODO(hkp): refactor the column predicate framework
@@ -101,9 +102,13 @@ public:
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
-    virtual Status next_batch(RowBlockV2* block) { return Status::NotSupported("to be implemented"); }
+    virtual Status next_batch(RowBlockV2* block) {
+        return Status::NotSupported("to be implemented");
+    }
 
-    virtual Status next_batch(vectorized::Block* block) { return Status::NotSupported("to be implemented"); }
+    virtual Status next_batch(vectorized::Block* block) {
+        return Status::NotSupported("to be implemented");
+    }
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;

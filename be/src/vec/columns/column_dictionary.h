@@ -55,6 +55,7 @@ namespace doris::vectorized {
 template <typename T>
 class ColumnDictionary final : public COWHelper<IColumn, ColumnDictionary<T>> {
     static_assert(IsNumber<T>);
+
 private:
     friend class COWHelper<IColumn, ColumnDictionary>;
 
@@ -253,13 +254,9 @@ public:
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
-    void generate_hash_values() {
-        _dict.generate_hash_values();
-    }
+    void generate_hash_values() { _dict.generate_hash_values(); }
 
-    uint32_t get_hash_value(uint32_t idx) const {
-        return _dict.get_hash_value(_codes[idx]);
-    }
+    uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
     phmap::flat_hash_set<int32_t> find_codes(
             const phmap::flat_hash_set<StringValue>& values) const {
@@ -308,7 +305,7 @@ public:
         }
 
         inline StringValue& get_value(T code) { return _dict_data[code]; }
-        
+
         inline void generate_hash_values() {
             if (_hash_values.size() == 0) {
                 _hash_values.resize(_dict_data.size());
@@ -320,9 +317,7 @@ public:
             }
         }
 
-        inline uint32_t get_hash_value(T code) const {
-            return _hash_values[code];
-        }
+        inline uint32_t get_hash_value(T code) const { return _hash_values[code]; }
 
         // For > , code takes upper_bound - 1; For >= , code takes upper_bound
         // For < , code takes upper_bound; For <=, code takes upper_bound - 1
@@ -370,9 +365,7 @@ public:
             _hash_values.clear();
         }
 
-        void clear_hash_values() {
-            _hash_values.clear();
-        }
+        void clear_hash_values() { _hash_values.clear(); }
 
         void sort() {
             size_t dict_size = _dict_data.size();
@@ -397,7 +390,7 @@ public:
         phmap::flat_hash_map<T, T> _code_convert_map;
         // hash value of origin string , used for bloom filter
         // It's a trade-off of space for performance
-        // But in TPC-DS 1GB q60,we see no significant improvement. 
+        // But in TPC-DS 1GB q60,we see no significant improvement.
         // This may because the magnitude of the data is not large enough(in q60, only about 80k rows data is filtered for largest table)
         // So we may need more test here.
         HashValueContainer _hash_values;

@@ -58,8 +58,8 @@ std::string DataTypeString::to_string(const IColumn& column, size_t row_num) con
     return s.to_string();
 }
 
-void DataTypeString::to_string(const class doris::vectorized::IColumn & column, size_t row_num,
-        class doris::vectorized::BufferWritable & ostr) const {
+void DataTypeString::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
+                               class doris::vectorized::BufferWritable& ostr) const {
     const StringRef& s =
             assert_cast<const ColumnString&>(*column.convert_to_full_column_if_const().get())
                     .get_data_at(row_num);
@@ -84,7 +84,8 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnString&>(*ptr.get());
-    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) + data_column.get_chars().size();
+    return sizeof(uint32_t) * (column.size() + 1) + sizeof(uint64_t) +
+           data_column.get_chars().size();
 }
 
 char* DataTypeString::serialize(const IColumn& column, char* buf) const {
@@ -121,7 +122,7 @@ const char* DataTypeString::deserialize(const char* buf, IColumn* column) const 
     memcpy(offsets.data(), buf, sizeof(uint32_t) * row_num);
     buf += sizeof(uint32_t) * row_num;
     // total length
-    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf); 
+    uint64_t value_len = *reinterpret_cast<const uint64_t*>(buf);
     buf += sizeof(uint64_t);
     // values
     data.resize(value_len);

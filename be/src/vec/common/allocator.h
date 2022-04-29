@@ -101,9 +101,7 @@ template <bool clear_memory_, bool mmap_populate>
 class Allocator {
 public:
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
-        return alloc_no_track(size, alignment);
-    }
+    void* alloc(size_t size, size_t alignment = 0) { return alloc_no_track(size, alignment); }
 
     /// Free memory range.
     void free(void* buf, size_t size) {
@@ -143,7 +141,7 @@ public:
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
-            if (MAP_FAILED == buf){
+            if (MAP_FAILED == buf) {
                 RELEASE_THREAD_LOCAL_MEM_TRACKER(new_size - old_size);
                 doris::vectorized::throwFromErrno("Allocator: Cannot mremap memory chunk from " +
                                                           std::to_string(old_size) + " to " +

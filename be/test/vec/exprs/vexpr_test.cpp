@@ -125,7 +125,6 @@ TEST(TEST_VEXPR, ABSTEST2) {
     int ts = -1;
     context->execute(&block, &ts);
     context->close(&runtime_stat);
-
 }
 
 namespace doris {

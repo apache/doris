@@ -205,7 +205,8 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     if (bytes_limit > MemTracker::get_process_tracker()->limit()) {
         VLOG_NOTICE << "Query memory limit " << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                     << " exceeds process memory limit of "
-                    << PrettyPrinter::print(MemTracker::get_process_tracker()->limit(), TUnit::BYTES)
+                    << PrettyPrinter::print(MemTracker::get_process_tracker()->limit(),
+                                            TUnit::BYTES)
                     << ". Using process memory limit instead";
         bytes_limit = MemTracker::get_process_tracker()->limit();
     }
@@ -213,18 +214,19 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     mem_tracker_counter->set(bytes_limit);
 
     if (query_type() == TQueryType::SELECT) {
-        _query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
-            print_id(query_id), bytes_limit);
+        _query_mem_tracker =
+                _exec_env->task_pool_mem_tracker_registry()->register_query_mem_tracker(
+                        print_id(query_id), bytes_limit);
     } else if (query_type() == TQueryType::LOAD) {
         _query_mem_tracker = _exec_env->task_pool_mem_tracker_registry()->register_load_mem_tracker(
-            print_id(query_id), bytes_limit);
+                print_id(query_id), bytes_limit);
     } else {
         DCHECK(false);
     }
-    
+
     _instance_mem_tracker = MemTracker::create_tracker(
-            bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id), _query_mem_tracker,
-            MemTrackerLevel::INSTANCE, &_profile);
+            bytes_limit, "RuntimeState:instance:" + print_id(_fragment_instance_id),
+            _query_mem_tracker, MemTrackerLevel::INSTANCE, &_profile);
 
     RETURN_IF_ERROR(init_buffer_poolstate());
 
@@ -379,7 +381,8 @@ Status RuntimeState::create_error_log_file() {
     return Status::OK();
 }
 
-Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line, std::function<std::string()> error_msg,
+Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
+                                              std::function<std::string()> error_msg,
                                               bool* stop_processing, bool is_summary) {
     *stop_processing = false;
     if (query_type() != TQueryType::LOAD) {
@@ -417,7 +420,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
             // Note: export reason first in case src line too long and be truncated.
             fmt::format_to(out, "Reason: {}. src line [{}]; ", error_msg(), line());
         } else if (_error_row_number == MAX_ERROR_NUM) {
-            fmt::format_to(out, "TOO MUCH ERROR! already reach {}. show no more next error.", MAX_ERROR_NUM);
+            fmt::format_to(out, "TOO MUCH ERROR! already reach {}. show no more next error.",
+                           MAX_ERROR_NUM);
         }
     }
 

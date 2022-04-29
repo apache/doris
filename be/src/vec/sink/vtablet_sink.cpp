@@ -30,7 +30,7 @@ namespace doris {
 namespace stream_load {
 
 VNodeChannel::VNodeChannel(OlapTableSink* parent, IndexChannel* index_channel, int64_t node_id)
-    : NodeChannel(parent, index_channel, node_id) {
+        : NodeChannel(parent, index_channel, node_id) {
     _is_vectorized = true;
 }
 
@@ -105,7 +105,8 @@ Status VNodeChannel::open_wait() {
         if (status.ok()) {
             // if has error tablet, handle them first
             for (auto& error : result.tablet_errors()) {
-                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(), error.tablet_id());
+                _index_channel->mark_as_failed(this->node_id(), this->host(), error.msg(),
+                                               error.tablet_id());
             }
 
             Status st = _index_channel->check_intolerable_failure();
@@ -151,8 +152,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() &&
-           _pending_batches_num > 0) {
+    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -227,8 +227,8 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
     if (block.rows() > 0) {
         SCOPED_ATOMIC_TIMER(&_serialize_batch_ns);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes,
-                                    &compressed_bytes, &_column_values_buffer);
+        Status st = block.serialize(request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
+                                    &_column_values_buffer);
         if (!st.ok()) {
             cancel(fmt::format("{}, err: {}", channel_info(), st.get_error_msg()));
             _add_block_closure->clear_in_flight();
@@ -321,7 +321,8 @@ VOlapTableSink::~VOlapTableSink() {
     // OlapTableSink::_mem_tracker and its parents.
     // But their destructions are after OlapTableSink's.
     for (const auto& index_channel : _channels) {
-        index_channel->for_each_node_channel([](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_blocks(); });
+        index_channel->for_each_node_channel(
+                [](const std::shared_ptr<NodeChannel>& ch) { ch->clear_all_blocks(); });
     }
 }
 

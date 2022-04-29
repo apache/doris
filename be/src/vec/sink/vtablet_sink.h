@@ -59,7 +59,8 @@ private:
     std::unique_ptr<vectorized::MutableBlock> _cur_mutable_block;
     PTabletWriterAddBlockRequest _cur_add_block_request;
 
-    using AddBlockReq = std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
+    using AddBlockReq =
+            std::pair<std::unique_ptr<vectorized::MutableBlock>, PTabletWriterAddBlockRequest>;
     std::queue<AddBlockReq> _pending_blocks;
     ReusableClosure<PTabletWriterAddBlockResult>* _add_block_closure = nullptr;
 
@@ -68,7 +69,6 @@ private:
     // to avoid an extra pb serialization in the brpc.
     std::string _column_values_buffer;
 };
-
 
 class OlapTableSink;
 

@@ -60,7 +60,7 @@ void ConfigAction::handle_show_config(HttpRequest* req) {
         for (const std::string& config_filed : _config) {
             writer.String(config_filed.c_str());
         }
-        writer.EndArray();   
+        writer.EndArray();
     }
 
     writer.EndArray();

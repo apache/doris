@@ -46,8 +46,8 @@ SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
           _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _wblock(wblock),
-          _mem_tracker(
-                  MemTracker::create_virtual_tracker(-1, "SegmentWriter:Segment-" + std::to_string(segment_id))),
+          _mem_tracker(MemTracker::create_virtual_tracker(
+                  -1, "SegmentWriter:Segment-" + std::to_string(segment_id))),
           _olap_data_convertor(tablet_schema) {
     CHECK_NOTNULL(_wblock);
     size_t num_short_key_column = _tablet_schema->num_short_key_columns();
@@ -151,22 +151,22 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
         key_column_fields.clear();
     }
-    
+
     _row_count += num_rows;
     _olap_data_convertor.clear_source_content();
     return Status::OK();
 }
 
 int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
-    int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)estimate_segment_size()) / row_avg_size_in_bytes;
+    int64_t size_rows =
+            ((int64_t)MAX_SEGMENT_SIZE - (int64_t)estimate_segment_size()) / row_avg_size_in_bytes;
     int64_t count_rows = (int64_t)_max_row_per_segment - _row_count;
 
     return std::min(size_rows, count_rows);
 }
 
-
-std::string SegmentWriter::encode_short_keys(
-        const std::vector<const void*> key_column_fields, bool null_first) {
+std::string SegmentWriter::encode_short_keys(const std::vector<const void*> key_column_fields,
+                                             bool null_first) {
     size_t num_key_columns = _tablet_schema->num_short_key_columns();
     assert(key_column_fields.size() == num_key_columns &&
            _short_key_coders.size() == num_key_columns &&
@@ -184,8 +184,7 @@ std::string SegmentWriter::encode_short_keys(
             continue;
         }
         encoded_keys.push_back(KEY_NORMAL_MARKER);
-        _short_key_coders[cid]->encode_ascending(field, _short_key_index_size[cid],
-                                                 &encoded_keys);
+        _short_key_coders[cid]->encode_ascending(field, _short_key_index_size[cid], &encoded_keys);
     }
     return encoded_keys;
 }
@@ -229,8 +228,9 @@ uint64_t SegmentWriter::estimate_segment_size() {
 
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     // check disk capacity
-    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t) estimate_segment_size())) {
-        return Status::InternalError(fmt::format("disk {} exceed capacity limit.", _data_dir->path_hash()));
+    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
+        return Status::InternalError(
+                fmt::format("disk {} exceed capacity limit.", _data_dir->path_hash()));
     }
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());

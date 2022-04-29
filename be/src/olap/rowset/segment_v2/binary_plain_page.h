@@ -154,7 +154,6 @@ private:
 
 class BinaryPlainPageDecoder : public PageDecoder {
 public:
-
     BinaryPlainPageDecoder(Slice data) : BinaryPlainPageDecoder(data, PageDecoderOptions()) {}
 
     BinaryPlainPageDecoder(Slice data, const PageDecoderOptions& options)
@@ -230,7 +229,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) override {
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
             *n = 0;
@@ -241,13 +240,14 @@ public:
         uint32_t len_array[max_fetch];
         uint32_t start_offset_array[max_fetch];
         for (int i = 0; i < max_fetch; i++, _cur_idx++) {
-            const uint32_t start_offset  = offset(_cur_idx);
+            const uint32_t start_offset = offset(_cur_idx);
             uint32_t len = offset(_cur_idx + 1) - start_offset;
             len_array[i] = len;
             start_offset_array[i] = start_offset;
         }
-        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array, max_fetch);
- 
+        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
+                                     max_fetch);
+
         *n = max_fetch;
         return Status::OK();
     };
@@ -280,10 +280,12 @@ public:
         }
 
         for (int i = 0; i < (int)_num_elems - 1; ++i) {
-            dict_word_info[i].size = (char*)dict_word_info[i+1].data - (char*)dict_word_info[i].data;
+            dict_word_info[i].size =
+                    (char*)dict_word_info[i + 1].data - (char*)dict_word_info[i].data;
         }
 
-        dict_word_info[_num_elems-1].size = (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems-1].data;
+        dict_word_info[_num_elems - 1].size =
+                (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
     }
 
 private:

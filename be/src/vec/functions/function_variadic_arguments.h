@@ -46,7 +46,8 @@ public:
             if (!res) {
                 LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
             }
-        } else res = std::make_shared<ToDataType>();
+        } else
+            res = std::make_shared<ToDataType>();
         return res;
     }
 
@@ -60,15 +61,14 @@ public:
             RETURN_IF_ERROR(Impl::empty_apply(column->assume_mutable_ref(), input_rows_count));
         } else {
             const ColumnWithTypeAndName& first_col = block.get_by_position(arguments[0]);
-            RETURN_IF_ERROR(
-                    Impl::first_apply(first_col.type.get(), first_col.column.get(),
-                                      input_rows_count, column->assume_mutable_ref()));
+            RETURN_IF_ERROR(Impl::first_apply(first_col.type.get(), first_col.column.get(),
+                                              input_rows_count, column->assume_mutable_ref()));
 
             for (size_t i = 1; i < arguments.size(); ++i) {
                 const ColumnWithTypeAndName& col = block.get_by_position(arguments[i]);
-                RETURN_IF_ERROR(
-                        Impl::combine_apply(col.type.get(), col.column.get(),
-                                            input_rows_count, column->assume_mutable_ref()));
+                RETURN_IF_ERROR(Impl::combine_apply(col.type.get(), col.column.get(),
+                                                    input_rows_count,
+                                                    column->assume_mutable_ref()));
             }
         }
 

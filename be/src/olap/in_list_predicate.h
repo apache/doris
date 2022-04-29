@@ -93,8 +93,11 @@ class VectorizedRowBatch;
                                 const std::vector<BitmapIndexIterator*>& iterators,               \
                                 uint32_t num_rows, roaring::Roaring* bitmap) const override;      \
         void evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const override; \
-        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
-        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const override {} \
+        void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,              \
+                          bool* flags) const override {}                                          \
+        void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,               \
+                         bool* flags) const override {}                                           \
+                                                                                                  \
     private:                                                                                      \
         phmap::flat_hash_set<T> _values;                                                          \
     };

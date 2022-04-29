@@ -21,7 +21,6 @@
 
 #include "util/string_util.h"
 
-
 namespace doris {
 
 class S3URI {

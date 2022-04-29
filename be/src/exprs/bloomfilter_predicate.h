@@ -322,7 +322,7 @@ public:
     bool find_olap_engine(const void* data) const override {
         return dummy.find_olap_engine(*this->_bloom_filter, data);
     }
-    
+
     bool find_uint32_t(uint32_t data) const override {
         return dummy.find(*this->_bloom_filter, data);
     }

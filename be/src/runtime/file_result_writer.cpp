@@ -217,7 +217,7 @@ std::string FileResultWriter::_file_format_to_name() {
     }
 }
 std::string FileResultWriter::gen_types() {
-    std::string types = ""; 
+    std::string types = "";
     int num_columns = _output_expr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
         types += type_to_string(_output_expr_ctxs[i]->root()->type().type);

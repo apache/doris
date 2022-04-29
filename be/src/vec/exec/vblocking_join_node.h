@@ -36,34 +36,34 @@ namespace vectorized {
 // right child in open().
 class VBlockingJoinNode : public doris::ExecNode {
 public:
-    VBlockingJoinNode(const std::string &node_name, const TJoinOp::type join_op, ObjectPool *pool,
-                      const TPlanNode &tnode, const DescriptorTbl &descs);
+    VBlockingJoinNode(const std::string& node_name, const TJoinOp::type join_op, ObjectPool* pool,
+                      const TPlanNode& tnode, const DescriptorTbl& descs);
 
     virtual ~VBlockingJoinNode() = default;
 
     // Subclasses should call VBlockingJoinNode::init() and then perform any other init()
     // work, e.g. creating expr trees.
-    virtual Status init(const TPlanNode &tnode, RuntimeState *state = nullptr);
+    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
 
     // Subclasses should call VBlockingJoinNode::prepare() and then perform any other
     // prepare() work, e.g. codegen.
-    virtual Status prepare(RuntimeState *state);
+    virtual Status prepare(RuntimeState* state);
 
     // Open prepares the build side structures (subclasses should implement
     // construct_build_side()) and then prepares for GetNext with the first left child row
     // (subclasses should implement init_get_next()).
-    virtual Status open(RuntimeState *state);
+    virtual Status open(RuntimeState* state);
 
-    virtual Status get_next(RuntimeState *state, RowBatch *row_batch, bool *eos) {
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
         return Status::NotSupported("Not Implemented VBlocking Join Node::get_next scalar");
     }
 
-    virtual Status close(RuntimeState *state);
+    virtual Status close(RuntimeState* state);
 
 private:
     const std::string _node_name;
     TJoinOp::type _join_op;
-    bool _eos;                              // if true, nothing left to return in get_next()
+    bool _eos;                            // if true, nothing left to return in get_next()
     std::unique_ptr<MemPool> _build_pool; // holds everything referenced from build side
 
     // _left_block must be cleared before calling get_next().  The child node
@@ -82,10 +82,10 @@ private:
     // This should be the same size as the left child tuple row.
     int _result_tuple_row_size;
 
-    RuntimeProfile::Counter *_build_timer;            // time to prepare build side
-    RuntimeProfile::Counter *_left_child_timer;       // time to process left child batch
-    RuntimeProfile::Counter *_build_row_counter;      // num build rows
-    RuntimeProfile::Counter *_left_child_row_counter; // num left child rows
+    RuntimeProfile::Counter* _build_timer;            // time to prepare build side
+    RuntimeProfile::Counter* _left_child_timer;       // time to process left child batch
+    RuntimeProfile::Counter* _build_row_counter;      // num build rows
+    RuntimeProfile::Counter* _left_child_row_counter; // num left child rows
 
     // Init the build-side state for a new left child row (e.g. hash table iterator or list
     // iterator) given the first row. Used in open() to prepare for get_next().
@@ -96,34 +96,34 @@ private:
     // left child. If, for example, the left child is another
     // join node, it can start to build its own build-side at the
     // same time.
-    virtual Status construct_build_side(RuntimeState *state) = 0;
+    virtual Status construct_build_side(RuntimeState* state) = 0;
 
     // Gives subclasses an opportunity to add debug output to the debug string printed by
     // debug_string().
-    virtual void add_to_debug_string(int indentation_level, std::stringstream *out) const {}
+    virtual void add_to_debug_string(int indentation_level, std::stringstream* out) const {}
 
     // Subclasses should not override, use add_to_debug_string() to add to the result.
-    virtual void debug_string(int indentation_level, std::stringstream *out) const;
+    virtual void debug_string(int indentation_level, std::stringstream* out) const;
 
-//    // Returns a debug string for the left child's 'row'. They have tuple ptrs that are
-//    // uninitialized; the left child only populates the tuple ptrs it is responsible
-//    // for.  This function outputs just the row values and leaves the build
-//    // side values as NULL.
-//    // This is only used for debugging and outputting the left child rows before
-//    // doing the join.
-//    std::string get_left_child_row_string(TupleRow *row);
-//
-//    // Write combined row, consisting of the left child's 'left_row' and right child's
-//    // 'build_row' to 'out_row'.
-//    // This is replaced by codegen.
-//    void create_output_row(TupleRow *out_row, TupleRow *left_row, TupleRow *build_row);
-//
+    //    // Returns a debug string for the left child's 'row'. They have tuple ptrs that are
+    //    // uninitialized; the left child only populates the tuple ptrs it is responsible
+    //    // for.  This function outputs just the row values and leaves the build
+    //    // side values as NULL.
+    //    // This is only used for debugging and outputting the left child rows before
+    //    // doing the join.
+    //    std::string get_left_child_row_string(TupleRow *row);
+    //
+    //    // Write combined row, consisting of the left child's 'left_row' and right child's
+    //    // 'build_row' to 'out_row'.
+    //    // This is replaced by codegen.
+    //    void create_output_row(TupleRow *out_row, TupleRow *left_row, TupleRow *build_row);
+    //
     friend class VCrossJoinNode;
 
 private:
     // Supervises ConstructBuildSide in a separate thread, and returns its status in the
     // promise parameter.
-    void build_side_thread(RuntimeState *state, std::promise<Status> *status);
+    void build_side_thread(RuntimeState* state, std::promise<Status>* status);
 };
 
 } // namespace vectorized

@@ -461,7 +461,8 @@ Status RowBlockV2::_append_data_to_column(const ColumnVectorBatch* batch, size_t
                     column_string->insert_data(slice->data, slice->size);
                 } else {
                     return Status::NotSupported(
-                            "Not support string len over than `string_type_length_soft_limit_bytes` in vec engine.");
+                            "Not support string len over than "
+                            "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
             } else {
                 column_string->insert_default();

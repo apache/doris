@@ -269,7 +269,8 @@ Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
     //            res.column = block_without_low_cardinality.safe_get_by_position(result).column;
     //        }
     //    } else
-    return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count, dry_run);
+    return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
+                                                   dry_run);
 }
 
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {

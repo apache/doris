@@ -366,8 +366,8 @@ TEST_F(TestDeleteConditionHandler, StoreCondInvalidParameters) {
     // 空的过滤条件
     std::vector<TCondition> conditions;
     DeletePredicatePB del_pred;
-    Status failed_res = _delete_condition_handler.generate_delete_predicate(
-            tablet->tablet_schema(), conditions, &del_pred);
+    Status failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(),
+                                                                            conditions, &del_pred);
     ;
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_PARAMETERS), failed_res);
 }
@@ -383,8 +383,8 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
     condition.condition_values.push_back("2");
     conditions.push_back(condition);
     DeletePredicatePB del_pred;
-    Status failed_res = _delete_condition_handler.generate_delete_predicate(
-            tablet->tablet_schema(), conditions, &del_pred);
+    Status failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(),
+                                                                            conditions, &del_pred);
     ;
     EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_DELETE_INVALID_CONDITION), failed_res);
 

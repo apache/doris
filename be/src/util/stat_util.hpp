@@ -49,6 +49,6 @@ public:
     }
 };
 
-}
+} // namespace doris
 
 #endif

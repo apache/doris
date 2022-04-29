@@ -28,20 +28,20 @@ namespace doris::vectorized {
 VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
     Field field;
     switch (_type.type) {
-        case TYPE_BIGINT: {
-            field = Int64(node.info_func.int_value);
-            break;
-        }
-        case TYPE_STRING:
-        case TYPE_CHAR:
-        case TYPE_VARCHAR: {
-            field = node.info_func.str_value;
-            break;
-        }
-        default: {
-            DCHECK(false) << "Invalid type: " << _type.type;
-            break;
-        }
+    case TYPE_BIGINT: {
+        field = Int64(node.info_func.int_value);
+        break;
+    }
+    case TYPE_STRING:
+    case TYPE_CHAR:
+    case TYPE_VARCHAR: {
+        field = node.info_func.str_value;
+        break;
+    }
+    default: {
+        DCHECK(false) << "Invalid type: " << _type.type;
+        break;
+    }
     }
     this->_column_ptr = _data_type->create_column_const(1, field);
 }
@@ -56,4 +56,4 @@ Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block, int* 
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

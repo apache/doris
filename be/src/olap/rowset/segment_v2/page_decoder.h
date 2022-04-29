@@ -82,7 +82,7 @@ public:
     // allocated in the column_vector_view's mem_pool.
     virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
 
-    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr &dst) {
+    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         return Status::NotSupported("not implement vec op now");
     }
 

@@ -47,7 +47,7 @@ public:
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize function to avoid memory leak.
     void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                     ObjectPool* agg_pool) const {
+              ObjectPool* agg_pool) const {
         _init_fn(dst, src, src_null, mem_pool, agg_pool);
     }
 
@@ -70,9 +70,7 @@ public:
     // Memory Note: All heap memory allocated in init and update function should be freed
     // before this function return. Memory allocated from *mem_pool will be still available
     // and will be freed by client.
-    void finalize(RowCursorCell* src, MemPool* mem_pool) const {
-        _finalize_fn(src, mem_pool);
-    }
+    void finalize(RowCursorCell* src, MemPool* mem_pool) const { _finalize_fn(src, mem_pool); }
 
     FieldAggregationMethod agg_method() const { return _agg_method; }
 

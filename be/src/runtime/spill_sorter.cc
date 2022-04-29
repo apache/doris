@@ -164,9 +164,7 @@ private:
                                           const vector<StringValue*>& var_values);
 
     // Returns true if we have var-len slots and there are var-len blocks.
-    bool has_var_len_blocks() const {
-        return _has_var_len_slots && !_var_len_blocks.empty();
-    }
+    bool has_var_len_blocks() const { return _has_var_len_slots && !_var_len_blocks.empty(); }
 
     // Parent sorter object.
     const SpillSorter* _sorter;

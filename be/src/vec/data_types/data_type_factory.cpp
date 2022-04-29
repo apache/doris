@@ -163,7 +163,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type) 
         break;
     case OLAP_FIELD_TYPE_HLL:
         result = std::make_shared<vectorized::DataTypeHLL>();
-        break;        
+        break;
     case OLAP_FIELD_TYPE_OBJECT:
         result = std::make_shared<vectorized::DataTypeBitMap>();
         break;

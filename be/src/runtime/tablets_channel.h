@@ -91,7 +91,7 @@ public:
     int64_t mem_consumption() const { return _mem_tracker->consumption(); }
 
 private:
-    template<typename Request>
+    template <typename Request>
     Status _get_current_seq(int64_t& cur_seq, const Request& request);
 
     // open all writer
@@ -145,20 +145,20 @@ private:
     bool _is_vec = false;
 };
 
-template<typename Request>
+template <typename Request>
 Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state != kOpened) {
         return _state == kFinished
-            ? _close_status
-            : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
-                        _key.to_string(), _state));
+                       ? _close_status
+                       : Status::InternalError(strings::Substitute("TabletsChannel $0 state: $1",
+                                                                   _key.to_string(), _state));
     }
     cur_seq = _next_seqs[request.sender_id()];
     // check packet
     if (request.packet_seq() > cur_seq) {
         LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
-            << ", recept_seq=" << request.packet_seq();
+                     << ", recept_seq=" << request.packet_seq();
         return Status::InternalError("lost data packet");
     }
     return Status::OK();
@@ -190,13 +190,13 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         }
         auto it = tablet_to_rowidxs.find(tablet_id);
         if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int>{ i });
+            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<int> {i});
         } else {
             it->second.emplace_back(i);
         }
     }
 
-    auto get_send_data = [&] () {
+    auto get_send_data = [&]() {
         if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
             return RowBatch(*_row_desc, request.row_batch());
         } else {
@@ -205,12 +205,13 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     };
 
     auto send_data = get_send_data();
-    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors = response->mutable_tablet_errors();
+    google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
+            response->mutable_tablet_errors();
     for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
         auto tablet_writer_it = _tablet_writers.find(tablet_to_rowidxs_it.first);
         if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError(
-                    strings::Substitute("unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
+            return Status::InternalError(strings::Substitute(
+                    "unknown tablet to append data, tablet=$0", tablet_to_rowidxs_it.first));
         }
 
         Status st = tablet_writer_it->second->write(&send_data, tablet_to_rowidxs_it.second);

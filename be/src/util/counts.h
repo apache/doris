@@ -82,7 +82,8 @@ public:
         }
     }
 
-    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts, double position) const {
+    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts,
+                          double position) const {
         long lower = std::floor(position);
         long higher = std::ceil(position);
 

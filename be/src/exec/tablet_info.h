@@ -216,14 +216,13 @@ struct VOlapTablePartition {
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
 
-    VOlapTablePartition(vectorized::Block* partition_block):
-        start_key{partition_block, -1}, end_key{partition_block, -1} {};
+    VOlapTablePartition(vectorized::Block* partition_block)
+            : start_key {partition_block, -1}, end_key {partition_block, -1} {};
 };
 
 class VOlapTablePartKeyComparator {
 public:
-    VOlapTablePartKeyComparator(const std::vector<uint16_t>& slot_locs)
-            : _slot_locs(slot_locs) {}
+    VOlapTablePartKeyComparator(const std::vector<uint16_t>& slot_locs) : _slot_locs(slot_locs) {}
 
     // return true if lhs < rhs
     // 'row' is -1 mean
@@ -253,7 +252,7 @@ private:
 class VOlapTablePartitionParam {
 public:
     VOlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam>& schema,
-                            const TOlapTablePartitionParam& param);
+                             const TOlapTablePartitionParam& param);
 
     ~VOlapTablePartitionParam();
 
@@ -303,7 +302,6 @@ private:
     bool _is_in_partition = false;
     uint32_t _mem_usage = 0;
 };
-
 
 using TabletLocation = TTabletLocation;
 // struct TTabletLocation {

@@ -126,7 +126,7 @@ struct WindowFunnelState {
         sorted = true;
     }
 
-    void write(BufferWritable &out) const {
+    void write(BufferWritable& out) const {
         write_var_int(max_event_level, out);
         write_var_int(window, out);
         write_var_int(events.size(), out);
@@ -161,31 +161,30 @@ struct WindowFunnelState {
 };
 
 class AggregateFunctionWindowFunnel
-        : public IAggregateFunctionDataHelper<WindowFunnelState,
-                                              AggregateFunctionWindowFunnel> {
+        : public IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel> {
 public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<WindowFunnelState,
-                                           AggregateFunctionWindowFunnel>(argument_types_, {}) {
-    }
+            : IAggregateFunctionDataHelper<WindowFunnelState, AggregateFunctionWindowFunnel>(
+                      argument_types_, {}) {}
 
     String get_name() const override { return "window_funnel"; }
 
-    DataTypePtr get_return_type() const override {
-        return std::make_shared<DataTypeInt32>();
-    }
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt32>(); }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        const auto& window = static_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
+        const auto& window =
+                static_cast<const ColumnVector<Int64>&>(*columns[0]).get_data()[row_num];
         // TODO: handle mode in the future.
         // be/src/olap/row_block2.cpp copy_data_to_column
-        const auto& timestamp = static_cast<const ColumnVector<VecDateTimeValue>&>(*columns[2]).get_data()[row_num];
+        const auto& timestamp =
+                static_cast<const ColumnVector<VecDateTimeValue>&>(*columns[2]).get_data()[row_num];
         const int NON_EVENT_NUM = 3;
         for (int i = NON_EVENT_NUM; i < get_argument_types().size(); i++) {
-            const auto& is_set = static_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
+            const auto& is_set =
+                    static_cast<const ColumnVector<UInt8>&>(*columns[i]).get_data()[row_num];
             if (is_set) {
                 this->data(place).add(timestamp, i - NON_EVENT_NUM,
                                       get_argument_types().size() - NON_EVENT_NUM, window);

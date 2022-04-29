@@ -67,7 +67,8 @@ class FunctionUnaryArithmetic : public IFunction {
     static bool cast_type(const IDataType* type, F&& f) {
         return cast_type_to_either<
                 DataTypeUInt8, DataTypeUInt16, DataTypeUInt32, DataTypeUInt64, DataTypeInt8,
-                DataTypeInt16, DataTypeInt32, DataTypeInt64, DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
+                DataTypeInt16, DataTypeInt32, DataTypeInt64, DataTypeInt128, DataTypeFloat32,
+                DataTypeFloat64,
                 //                                            DataTypeDecimal<Decimal32>,
                 //                                            DataTypeDecimal<Decimal64>,
                 DataTypeDecimal<Decimal128>>(type, std::forward<F>(f));

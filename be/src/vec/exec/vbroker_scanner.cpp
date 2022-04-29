@@ -27,14 +27,12 @@
 
 namespace doris::vectorized {
 VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
-                             const TBrokerScanRangeParams& params,
-                             const std::vector<TBrokerRangeDesc>& ranges,
-                             const std::vector<TNetworkAddress>& broker_addresses,
-                             const std::vector<TExpr>& pre_filter_texprs,
-                             ScannerCounter* counter)
-        : BrokerScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter) {
-
-}
+                               const TBrokerScanRangeParams& params,
+                               const std::vector<TBrokerRangeDesc>& ranges,
+                               const std::vector<TNetworkAddress>& broker_addresses,
+                               const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
+        : BrokerScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
+                        counter) {}
 
 Status VBrokerScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
     SCOPED_TIMER(_read_timer);
@@ -168,14 +166,12 @@ Status VBrokerScanner::_fill_dest_columns(std::vector<MutableColumnPtr>& columns
                 _success = false;
                 return Status::OK();
             }
-            auto* nullable_column =
-                    reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
             nullable_column->insert_data(nullptr, 0);
             continue;
         }
         if (slot_desc->is_nullable()) {
-            auto* nullable_column =
-                    reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
+            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
             nullable_column->get_null_map_data().push_back(0);
             column_ptr = &nullable_column->get_nested_column();
         }

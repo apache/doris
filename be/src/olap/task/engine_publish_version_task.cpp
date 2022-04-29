@@ -61,10 +61,9 @@ Status EnginePublishVersionTask::finish() {
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             VLOG_CRITICAL << "begin to publish version on tablet. "
-                      << "tablet_id=" << tablet_info.tablet_id
-                      << ", schema_hash=" << tablet_info.schema_hash
-                      << ", version=" << version.first
-                      << ", transaction_id=" << transaction_id;
+                          << "tablet_id=" << tablet_info.tablet_id
+                          << ", schema_hash=" << tablet_info.schema_hash
+                          << ", version=" << version.first << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
             // and receive fe's publish version task
             // this be must return as an error tablet
@@ -127,7 +126,6 @@ Status EnginePublishVersionTask::finish() {
                 // check if the version exist, if not exist, then set publish failed
                 if (!tablet->check_version_exist(version)) {
                     _error_tablet_ids->push_back(tablet_info.tablet_id);
-
                 }
             }
         }

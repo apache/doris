@@ -220,7 +220,7 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
         }
     }
     if (!(res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
-                                                          S_IRUSR | S_IWUSR))) {
+                                           S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }
@@ -237,7 +237,7 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
     }
 
     if (!(res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
-                                                          S_IRUSR | S_IWUSR))) {
+                                           S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }

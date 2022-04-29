@@ -30,7 +30,8 @@ HistogramBucketMapper::HistogramBucketMapper() {
     _bucket_values = {1, 2};
     _value_index_map = {{1, 0}, {2, 1}};
     double bucket_val = static_cast<double>(_bucket_values.back());
-    while ((bucket_val = 1.5 * bucket_val) <= static_cast<double>(std::numeric_limits<uint64_t>::max())) {
+    while ((bucket_val = 1.5 * bucket_val) <=
+           static_cast<double>(std::numeric_limits<uint64_t>::max())) {
         _bucket_values.push_back(static_cast<uint64_t>(bucket_val));
         // Extracts two most significant digits to make histogram buckets more
         // human-readable. E.g., 172 becomes 170.
@@ -51,7 +52,7 @@ size_t HistogramBucketMapper::index_for_value(const uint64_t& value) const {
         return _bucket_values.size() - 1;
     } else if (value >= _min_bucket_value) {
         std::map<uint64_t, uint64_t>::const_iterator lowerBound =
-        _value_index_map.lower_bound(value);
+                _value_index_map.lower_bound(value);
         if (lowerBound != _value_index_map.end()) {
             return static_cast<size_t>(lowerBound->second);
         } else {
@@ -63,7 +64,7 @@ size_t HistogramBucketMapper::index_for_value(const uint64_t& value) const {
 }
 
 namespace {
-    const HistogramBucketMapper bucket_mapper;
+const HistogramBucketMapper bucket_mapper;
 }
 
 HistogramStat::HistogramStat() : _num_buckets(bucket_mapper.bucket_count()) {
@@ -82,7 +83,9 @@ void HistogramStat::clear() {
     }
 };
 
-bool HistogramStat::is_empty() const { return num() == 0; }
+bool HistogramStat::is_empty() const {
+    return num() == 0;
+}
 
 void HistogramStat::add(const uint64_t& value) {
     // This function is designed to be lock free, as it's in the critical path
@@ -91,7 +94,7 @@ void HistogramStat::add(const uint64_t& value) {
     const size_t index = bucket_mapper.index_for_value(value);
     DCHECK(index < _num_buckets);
     _buckets[index].store(_buckets[index].load(std::memory_order_relaxed) + 1,
-                            std::memory_order_relaxed);
+                          std::memory_order_relaxed);
 
     uint64_t old_min = min();
     if (value < old_min) {
@@ -103,13 +106,10 @@ void HistogramStat::add(const uint64_t& value) {
         _max.store(value, std::memory_order_relaxed);
     }
 
-    _num.store(_num.load(std::memory_order_relaxed) + 1,
-                std::memory_order_relaxed);
-    _sum.store(_sum.load(std::memory_order_relaxed) + value,
-                std::memory_order_relaxed);
-    _sum_squares.store(
-        _sum_squares.load(std::memory_order_relaxed) + value * value,
-        std::memory_order_relaxed);
+    _num.store(_num.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    _sum.store(_sum.load(std::memory_order_relaxed) + value, std::memory_order_relaxed);
+    _sum_squares.store(_sum_squares.load(std::memory_order_relaxed) + value * value,
+                       std::memory_order_relaxed);
 }
 
 void HistogramStat::merge(const HistogramStat& other) {
@@ -118,13 +118,13 @@ void HistogramStat::merge(const HistogramStat& other) {
     // requires no lock and value update can still happen concurrently
     uint64_t old_min = min();
     uint64_t other_min = other.min();
-    while (other_min < old_min &&
-            !_min.compare_exchange_weak(old_min, other_min)) {}
+    while (other_min < old_min && !_min.compare_exchange_weak(old_min, other_min)) {
+    }
 
     uint64_t old_max = max();
     uint64_t other_max = other.max();
-    while (other_max > old_max &&
-            !_max.compare_exchange_weak(old_max, other_max)) {}
+    while (other_max > old_max && !_max.compare_exchange_weak(old_max, other_max)) {
+    }
 
     _num.fetch_add(other.num(), std::memory_order_relaxed);
     _sum.fetch_add(other.sum(), std::memory_order_relaxed);
@@ -146,7 +146,7 @@ double HistogramStat::percentile(double p) const {
         cumulative_sum += bucket_value;
         if (cumulative_sum >= threshold) {
             // Scale linearly within this bucket
-            uint64_t left_point = (b == 0) ? 0 : bucket_mapper.bucket_limit(b-1);
+            uint64_t left_point = (b == 0) ? 0 : bucket_mapper.bucket_limit(b - 1);
             uint64_t right_point = bucket_mapper.bucket_limit(b);
             uint64_t left_sum = cumulative_sum - bucket_value;
             uint64_t right_sum = cumulative_sum;
@@ -178,45 +178,40 @@ double HistogramStat::standard_deviation() const {
     uint64_t cur_sum = sum();
     uint64_t cur_sum_squares = sum_squares();
     if (cur_num == 0) return 0;
-    double variance =
-        static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
-        static_cast<double>(cur_num * cur_num);
+    double variance = static_cast<double>(cur_sum_squares * cur_num - cur_sum * cur_sum) /
+                      static_cast<double>(cur_num * cur_num);
     return std::sqrt(variance);
 }
 std::string HistogramStat::to_string() const {
     uint64_t cur_num = num();
     std::string r;
     char buf[1650];
-    snprintf(buf, sizeof(buf),
-            "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n",
-            cur_num, average(), standard_deviation());
+    snprintf(buf, sizeof(buf), "Count: %" PRIu64 " Average: %.4f  StdDev: %.2f\n", cur_num,
+             average(), standard_deviation());
+    r.append(buf);
+    snprintf(buf, sizeof(buf), "Min: %" PRIu64 "  Median: %.4f  Max: %" PRIu64 "\n",
+             (cur_num == 0 ? 0 : min()), median(), (cur_num == 0 ? 0 : max()));
     r.append(buf);
     snprintf(buf, sizeof(buf),
-            "Min: %" PRIu64 "  Median: %.4f  Max: %" PRIu64 "\n",
-            (cur_num == 0 ? 0 : min()), median(), (cur_num == 0 ? 0 : max()));
-    r.append(buf);
-    snprintf(buf, sizeof(buf),
-            "Percentiles: "
-            "P50: %.2f P75: %.2f P99: %.2f P99.9: %.2f P99.99: %.2f\n",
-            percentile(50), percentile(75), percentile(99), percentile(99.9),
-            percentile(99.99));
+             "Percentiles: "
+             "P50: %.2f P75: %.2f P99: %.2f P99.9: %.2f P99.99: %.2f\n",
+             percentile(50), percentile(75), percentile(99), percentile(99.9), percentile(99.99));
     r.append(buf);
     r.append("------------------------------------------------------\n");
-    if (cur_num == 0) return r;   // all buckets are empty
+    if (cur_num == 0) return r; // all buckets are empty
     const double mult = 100.0 / cur_num;
     uint64_t cumulative_sum = 0;
     for (unsigned int b = 0; b < _num_buckets; b++) {
         uint64_t bucket_value = bucket_at(b);
         if (bucket_value <= 0.0) continue;
         cumulative_sum += bucket_value;
-        snprintf(buf, sizeof(buf),
-                "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
-                (b == 0) ? '[' : '(',
-                (b == 0) ? 0 : bucket_mapper.bucket_limit(b-1),  // left
-                bucket_mapper.bucket_limit(b),                   // right
-                bucket_value,                                   // count
-                (mult * bucket_value),                          // percentage
-                (mult * cumulative_sum));                       // cumulative percentage
+        snprintf(buf, sizeof(buf), "%c %7" PRIu64 ", %7" PRIu64 " ] %8" PRIu64 " %7.3f%% %7.3f%% ",
+                 (b == 0) ? '[' : '(',
+                 (b == 0) ? 0 : bucket_mapper.bucket_limit(b - 1), // left
+                 bucket_mapper.bucket_limit(b),                    // right
+                 bucket_value,                                     // count
+                 (mult * bucket_value),                            // percentage
+                 (mult * cumulative_sum));                         // cumulative percentage
         r.append(buf);
 
         // Add hash marks based on percentage; 20 marks for 100%.
@@ -227,4 +222,4 @@ std::string HistogramStat::to_string() const {
     return r;
 }
 
-}  // namespace doris
+} // namespace doris

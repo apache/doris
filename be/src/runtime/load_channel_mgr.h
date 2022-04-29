@@ -53,17 +53,17 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request,
-                     TabletWriterAddResult* response);
+    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
 private:
-    static LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                                              bool is_high_priority, const std::string& sender_ip, bool is_vec);
+    static LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit,
+                                             int64_t timeout_s, bool is_high_priority,
+                                             const std::string& sender_ip, bool is_vec);
 
-    template<typename Request>
+    template <typename Request>
     Status _get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
                              const UniqueId& load_id, const Request& request);
 
@@ -90,11 +90,9 @@ protected:
     Status _start_load_channels_clean();
 };
 
-template<typename Request>
-Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel,
-                         bool& is_eof,
-                         const UniqueId& load_id,
-                         const Request& request) {
+template <typename Request>
+Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, bool& is_eof,
+                                         const UniqueId& load_id, const Request& request) {
     is_eof = false;
     std::lock_guard<std::mutex> l(_lock);
     auto it = _load_channels.find(load_id);
@@ -146,6 +144,5 @@ Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
     }
     return Status::OK();
 }
-
 
 } // namespace doris

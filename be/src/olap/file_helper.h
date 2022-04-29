@@ -237,8 +237,7 @@ private:
 
 // FileHandler implementation
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
-Status FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(
-        FileHandlerType* file_handler) {
+Status FileHeader<MessageType, ExtraType, FileHandlerType>::prepare(FileHandlerType* file_handler) {
     if (nullptr == file_handler) {
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
@@ -286,7 +285,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
     }
 
     if (!file_handler->pwrite(&_extra_fixed_header, sizeof(_extra_fixed_header),
-                                             _fixed_file_header_size)) {
+                              _fixed_file_header_size)) {
         char errmsg[64];
         LOG(WARNING) << "fail to write extra fixed header to file. [file='"
                      << file_handler->file_name() << "' err=" << strerror_r(errno, errmsg, 64)
@@ -295,7 +294,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::serialize(
     }
 
     if (!file_handler->pwrite(_proto_string.c_str(), _proto_string.size(),
-                             _fixed_file_header_size + sizeof(_extra_fixed_header))) {
+                              _fixed_file_header_size + sizeof(_extra_fixed_header))) {
         char errmsg[64];
         LOG(WARNING) << "fail to write proto header to file. [file='" << file_handler->file_name()
                      << "' err='" << strerror_r(errno, errmsg, 64) << "']";
@@ -351,7 +350,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
                 << ", version=" << _fixed_file_header.version;
 
     if (!file_handler->pread(&_extra_fixed_header, sizeof(_extra_fixed_header),
-                                            _fixed_file_header_size)) {
+                             _fixed_file_header_size)) {
         char errmsg[64];
         LOG(WARNING) << "fail to load extra fixed header from file. file="
                      << file_handler->file_name() << ", error=" << strerror_r(errno, errmsg, 64);
@@ -368,7 +367,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
     }
 
     if (!file_handler->pread(buf.get(), _fixed_file_header.protobuf_length,
-                            _fixed_file_header_size + sizeof(_extra_fixed_header))) {
+                             _fixed_file_header_size + sizeof(_extra_fixed_header))) {
         char errmsg[64];
         LOG(WARNING) << "fail to load protobuf from file. file=" << file_handler->file_name()
                      << ", error=" << strerror_r(errno, errmsg, 64);
@@ -412,8 +411,7 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::unserialize(
 }
 
 template <typename MessageType, typename ExtraType, typename FileHandlerType>
-Status FileHeader<MessageType, ExtraType, FileHandlerType>::validate(
-        const std::string& filename) {
+Status FileHeader<MessageType, ExtraType, FileHandlerType>::validate(const std::string& filename) {
     FileHandler file_handler;
     Status res = Status::OK();
 
@@ -433,4 +431,3 @@ Status FileHeader<MessageType, ExtraType, FileHandlerType>::validate(
 }
 
 } // namespace doris
-

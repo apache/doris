@@ -56,14 +56,11 @@ public:
         if (cpu_limit > 0) {
             // For now, cpu_limit will be the max concurrency of the scan thread pool token.
             _thread_token = _exec_env->limited_scan_thread_pool()->new_token(
-                    ThreadPool::ExecutionMode::CONCURRENT,
-                    cpu_limit);
+                    ThreadPool::ExecutionMode::CONCURRENT, cpu_limit);
         }
     }
 
-    ThreadPoolToken* get_token() {
-        return _thread_token.get();
-    }
+    ThreadPoolToken* get_token() { return _thread_token.get(); }
 
 public:
     TUniqueId query_id;
@@ -84,6 +81,7 @@ public:
     std::atomic<int> fragment_num;
     int timeout_second;
     ObjectPool obj_pool;
+
 private:
     ExecEnv* _exec_env;
     DateTimeValue _start_time;
@@ -96,5 +94,4 @@ private:
     std::unique_ptr<ThreadPoolToken> _thread_token;
 };
 
-} // end of namespace
-
+} // namespace doris

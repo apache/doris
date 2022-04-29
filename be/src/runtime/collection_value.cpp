@@ -26,12 +26,9 @@
 
 namespace doris {
 
-using AllocateMemFunc = std::function<uint8_t* (size_t size)>;
-static Status init_collection(
-        CollectionValue* value,
-        const AllocateMemFunc& allocate,
-        uint32_t size,
-        PrimitiveType child_type);
+using AllocateMemFunc = std::function<uint8_t*(size_t size)>;
+static Status init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
+                              uint32_t size, PrimitiveType child_type);
 
 int sizeof_type(PrimitiveType type) {
     switch (type) {
@@ -106,7 +103,7 @@ size_t CollectionValue::get_byte_size(const TypeDescriptor& type) const {
     const auto& item_type = type.children[0];
     result += _length * item_type.get_slot_size();
     if (item_type.is_string_type()) {
-        for (int i = 0; i < _length; ++ i) {
+        for (int i = 0; i < _length; ++i) {
             if (is_null_at(i)) {
                 continue;
             }
@@ -115,12 +112,13 @@ size_t CollectionValue::get_byte_size(const TypeDescriptor& type) const {
             result += item->len;
         }
     } else if (item_type.type == TYPE_ARRAY) {
-        for (int i = 0; i < _length; ++ i) {
+        for (int i = 0; i < _length; ++i) {
             if (is_null_at(i)) {
                 continue;
             }
             int item_offset = i * item_type.get_slot_size();
-            CollectionValue* item = reinterpret_cast<CollectionValue*>(((uint8_t*)_data) + item_offset);
+            CollectionValue* item =
+                    reinterpret_cast<CollectionValue*>(((uint8_t*)_data) + item_offset);
             result += item->get_byte_size(item_type);
         }
     }
@@ -133,18 +131,13 @@ ArrayIterator CollectionValue::iterator(PrimitiveType children_type) const {
 
 Status CollectionValue::init_collection(ObjectPool* pool, uint32_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
-    return doris::init_collection(value, [pool](size_t size) -> uint8_t* {
-            return pool->add_array(new uint8_t[size]);
-        },
-        size, child_type
-    );
+    return doris::init_collection(
+            value, [pool](size_t size) -> uint8_t* { return pool->add_array(new uint8_t[size]); },
+            size, child_type);
 }
 
-static Status init_collection(
-        CollectionValue* value,
-        const AllocateMemFunc& allocate,
-        uint32_t size,
-        PrimitiveType child_type) {
+static Status init_collection(CollectionValue* value, const AllocateMemFunc& allocate,
+                              uint32_t size, PrimitiveType child_type) {
     if (value == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
@@ -167,20 +160,14 @@ static Status init_collection(
 
 Status CollectionValue::init_collection(MemPool* pool, uint32_t size, PrimitiveType child_type,
                                         CollectionValue* value) {
-    return doris::init_collection(value, [pool](size_t size) {
-            return pool->allocate(size);
-        },
-        size, child_type
-    );
+    return doris::init_collection(
+            value, [pool](size_t size) { return pool->allocate(size); }, size, child_type);
 }
 
 Status CollectionValue::init_collection(FunctionContext* context, uint32_t size,
                                         PrimitiveType child_type, CollectionValue* value) {
-    return doris::init_collection(value, [context](size_t size) {
-            return context->allocate(size);
-        },
-        size, child_type
-    );
+    return doris::init_collection(
+            value, [context](size_t size) { return context->allocate(size); }, size, child_type);
 }
 
 CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {
@@ -190,11 +177,10 @@ CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {
 // Deep copy collection.
 // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
 // copy data from origin collection value).
-void CollectionValue::deep_copy_collection(
-        CollectionValue* shallow_copied_cv,
-        const TypeDescriptor& item_type,
-        const GenMemFootprintFunc& gen_mem_footprint,
-        bool convert_ptrs) {
+void CollectionValue::deep_copy_collection(CollectionValue* shallow_copied_cv,
+                                           const TypeDescriptor& item_type,
+                                           const GenMemFootprintFunc& gen_mem_footprint,
+                                           bool convert_ptrs) {
     CollectionValue* cv = shallow_copied_cv;
     if (cv->length() == 0) {
         return;
@@ -231,17 +217,15 @@ void CollectionValue::deep_copy_collection(
 // Deep copy items in collection.
 // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
 // copy data from origin collection value).
-void CollectionValue::deep_copy_items_in_collection(
-        CollectionValue* shallow_copied_cv,
-        char* base,
-        const TypeDescriptor& item_type,
-        const GenMemFootprintFunc& gen_mem_footprint,
-        bool convert_ptrs) {
+void CollectionValue::deep_copy_items_in_collection(CollectionValue* shallow_copied_cv, char* base,
+                                                    const TypeDescriptor& item_type,
+                                                    const GenMemFootprintFunc& gen_mem_footprint,
+                                                    bool convert_ptrs) {
     int nulls_size = shallow_copied_cv->has_null() ? shallow_copied_cv->length() : 0;
     char* item_base = base + nulls_size;
     if (item_type.is_string_type()) {
         // when itemtype is string, copy every string item
-        for (int i = 0; i < shallow_copied_cv->length(); ++ i) {
+        for (int i = 0; i < shallow_copied_cv->length(); ++i) {
             if (shallow_copied_cv->is_null_at(i)) {
                 continue;
             }
@@ -256,7 +240,7 @@ void CollectionValue::deep_copy_items_in_collection(
             }
         }
     } else if (item_type.type == TYPE_ARRAY) {
-        for (int i = 0; i < shallow_copied_cv->length(); ++ i) {
+        for (int i = 0; i < shallow_copied_cv->length(); ++i) {
             if (shallow_copied_cv->is_null_at(i)) {
                 continue;
             }
@@ -267,10 +251,8 @@ void CollectionValue::deep_copy_items_in_collection(
     }
 }
 
-void CollectionValue::deserialize_collection(
-        CollectionValue* cv,
-        const char* tuple_data,
-        const TypeDescriptor& type) {
+void CollectionValue::deserialize_collection(CollectionValue* cv, const char* tuple_data,
+                                             const TypeDescriptor& type) {
     if (cv->length() == 0) {
         new (cv) CollectionValue(cv->length());
         return;
@@ -291,8 +273,8 @@ void CollectionValue::deserialize_collection(
                 continue;
             }
 
-            StringValue* dst_item_v = convert_to<StringValue*>(
-                    (uint8_t*)cv->data() + i * item_type.get_slot_size());
+            StringValue* dst_item_v =
+                    convert_to<StringValue*>((uint8_t*)cv->data() + i * item_type.get_slot_size());
 
             if (dst_item_v->len != 0) {
                 int offset = convert_to<int>(dst_item_v->ptr);
@@ -305,8 +287,8 @@ void CollectionValue::deserialize_collection(
                 continue;
             }
 
-            CollectionValue* item_cv = convert_to<CollectionValue*>(
-                    (uint8_t*)cv->data() + i * item_type.get_slot_size());
+            CollectionValue* item_cv = convert_to<CollectionValue*>((uint8_t*)cv->data() +
+                                                                    i * item_type.get_slot_size());
             deserialize_collection(item_cv, tuple_data, item_type);
         }
     }
@@ -333,7 +315,8 @@ Status CollectionValue::set(uint32_t i, PrimitiveType type, const AnyVal* value)
         *reinterpret_cast<int8_t*>(iter.value()) = reinterpret_cast<const TinyIntVal*>(value)->val;
         break;
     case TYPE_SMALLINT:
-        *reinterpret_cast<int16_t*>(iter.value()) = reinterpret_cast<const SmallIntVal*>(value)->val;
+        *reinterpret_cast<int16_t*>(iter.value()) =
+                reinterpret_cast<const SmallIntVal*>(value)->val;
         break;
     case TYPE_INT:
         *reinterpret_cast<int32_t*>(iter.value()) = reinterpret_cast<const IntVal*>(value)->val;

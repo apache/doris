@@ -57,7 +57,8 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {}
+          _scanner_eof(false) {
+}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());

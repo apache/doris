@@ -60,28 +60,28 @@ public:
                 size_t data_len = 0;
                 const auto* col_schema = _schema.column(j);
                 switch (col_schema->type()) {
-                    case OLAP_FIELD_TYPE_SMALLINT:
-                        *(int16_t*)data = _rows_returned + j;
-                        data_len = sizeof(int16_t);
-                        break; 
-                    case OLAP_FIELD_TYPE_INT:
-                        *(int32_t*)data = _rows_returned + j;
-                        data_len = sizeof(int32_t);
-                        break;
-                    case OLAP_FIELD_TYPE_BIGINT:
-                        *(int64_t*)data = _rows_returned + j;
-                        data_len = sizeof(int64_t);
-                        break;
-                    case OLAP_FIELD_TYPE_FLOAT: 
-                        *(float*)data = _rows_returned + j;
-                        data_len = sizeof(float);
-                        break;
-                    case OLAP_FIELD_TYPE_DOUBLE: 
-                        *(double*)data = _rows_returned + j;
-                        data_len = sizeof(double);
-                        break;
-                    default:
-                        break;
+                case OLAP_FIELD_TYPE_SMALLINT:
+                    *(int16_t*)data = _rows_returned + j;
+                    data_len = sizeof(int16_t);
+                    break;
+                case OLAP_FIELD_TYPE_INT:
+                    *(int32_t*)data = _rows_returned + j;
+                    data_len = sizeof(int32_t);
+                    break;
+                case OLAP_FIELD_TYPE_BIGINT:
+                    *(int64_t*)data = _rows_returned + j;
+                    data_len = sizeof(int64_t);
+                    break;
+                case OLAP_FIELD_TYPE_FLOAT:
+                    *(float*)data = _rows_returned + j;
+                    data_len = sizeof(float);
+                    break;
+                case OLAP_FIELD_TYPE_DOUBLE:
+                    *(double*)data = _rows_returned + j;
+                    data_len = sizeof(double);
+                    break;
+                default:
+                    break;
                 }
 
                 vi.insert_data(data, data_len);
@@ -91,8 +91,7 @@ public:
             ++_rows_returned;
         }
 
-        if (row_idx > 0)
-            return Status::OK();
+        if (row_idx > 0) return Status::OK();
         return Status::EndOfFile("End of VAutoIncrementIterator");
     }
 
@@ -120,7 +119,8 @@ Status VAutoIncrementIterator::init(const StorageReadOptions& opts) {
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx) : _iter(iter), _sequence_id_idx(sequence_id_idx) {}
+    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx)
+            : _iter(iter), _sequence_id_idx(sequence_id_idx) {}
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext(VMergeIteratorContext&&) = delete;
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
@@ -131,8 +131,7 @@ public:
         _iter = nullptr;
     }
 
-    Status block_reset()
-    {
+    Status block_reset() {
         if (!_block) {
             const Schema& schema = _iter->schema();
             const auto& column_ids = schema.column_ids();
@@ -144,7 +143,8 @@ public:
                 }
                 auto column = data_type->create_column();
                 column->reserve(_block_row_max);
-                _block.insert(ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
+                _block.insert(
+                        ColumnWithTypeAndName(std::move(column), data_type, column_desc->name()));
             }
         } else {
             _block.clear_column_data();
@@ -158,13 +158,15 @@ public:
     bool compare(const VMergeIteratorContext& rhs) const {
         const Schema& schema = _iter->schema();
         int num = schema.num_key_columns();
-        int cmp_res = this->_block.compare_at(_index_in_block, rhs._index_in_block, num, rhs._block, -1);
+        int cmp_res =
+                this->_block.compare_at(_index_in_block, rhs._index_in_block, num, rhs._block, -1);
         if (cmp_res != 0) {
             return cmp_res > 0;
         }
-        
+
         if (_sequence_id_idx != -1) {
-            int col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block, _sequence_id_idx, rhs._block, -1);
+            int col_cmp_res = this->_block.compare_column_at(_index_in_block, rhs._index_in_block,
+                                                             _sequence_id_idx, rhs._block, -1);
             if (col_cmp_res != 0) {
                 return col_cmp_res < 0;
             }
@@ -262,8 +264,8 @@ Status VMergeIteratorContext::_load_next_block() {
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx) : 
-        _origin_iters(iters),_sequence_id_idx(sequence_id_idx) {}
+    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx)
+            : _origin_iters(iters), _sequence_id_idx(sequence_id_idx) {}
 
     ~VMergeIterator() override {
         while (!_merge_heap.empty()) {
@@ -291,9 +293,9 @@ private:
         }
     };
 
-    using VMergeHeap = std::priority_queue<VMergeIteratorContext*, 
-                                        std::vector<VMergeIteratorContext*>,
-                                        VMergeContextComparator>;
+    using VMergeHeap =
+            std::priority_queue<VMergeIteratorContext*, std::vector<VMergeIteratorContext*>,
+                                VMergeContextComparator>;
 
     VMergeHeap _merge_heap;
 
@@ -325,8 +327,7 @@ Status VMergeIterator::init(const StorageReadOptions& opts) {
 
 Status VMergeIterator::next_batch(vectorized::Block* block) {
     while (block->rows() < block_row_max) {
-        if (_merge_heap.empty())
-            break;
+        if (_merge_heap.empty()) break;
 
         auto ctx = _merge_heap.top();
         _merge_heap.pop();
@@ -355,7 +356,8 @@ public:
     VUnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
 
     ~VUnionIterator() override {
-        std::for_each(_origin_iters.begin(), _origin_iters.end(), std::default_delete<RowwiseIterator>());
+        std::for_each(_origin_iters.begin(), _origin_iters.end(),
+                      std::default_delete<RowwiseIterator>());
     }
 
     Status init(const StorageReadOptions& opts) override;
@@ -401,7 +403,6 @@ Status VUnionIterator::next_batch(vectorized::Block* block) {
     return Status::EndOfFile("End of VUnionIterator");
 }
 
-
 RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx) {
     if (inputs.size() == 1) {
         return *(inputs.begin());
@@ -420,6 +421,6 @@ RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_ro
     return new VAutoIncrementIterator(schema, num_rows);
 }
 
-}
+} // namespace vectorized
 
 } // namespace doris

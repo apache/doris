@@ -41,10 +41,7 @@ struct UserFunctionCacheEntry;
 // with id, this function library is valid. And when user wants to
 // change its implementation(URL), Doris will generate a new function
 // id.
-enum class LibType {
-    JAR,
-    SO
-};
+enum class LibType { JAR, SO };
 
 class UserFunctionCache {
 public:
@@ -70,7 +67,8 @@ public:
                             UserFunctionCacheEntry** entry);
     void release_entry(UserFunctionCacheEntry* entry);
 
-    Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum, std::string* libpath);
+    Status get_jarpath(int64_t fid, const std::string& url, const std::string& checksum,
+                       std::string* libpath);
 
 private:
     Status _load_cached_lib();

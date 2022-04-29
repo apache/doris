@@ -35,7 +35,7 @@ VTupleIsNullPredicate::VTupleIsNullPredicate(const TExprNode& node)
                      node.tuple_is_null_pred.tuple_ids.end()) {}
 
 Status VTupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
-                             VExprContext* context) {
+                                      VExprContext* context) {
     RETURN_IF_ERROR(VExpr::prepare(state, desc, context));
     DCHECK_EQ(0, _children.size());
     DCHECK_GT(_tuple_ids.size(), 0);
@@ -63,8 +63,11 @@ Status VTupleIsNullPredicate::execute(VExprContext* context, Block* block, int* 
     auto* __restrict ans_map = ans->get_data().data();
 
     for (auto col_id : _column_to_check) {
-        auto* __restrict null_map = reinterpret_cast<const ColumnNullable&>(
-                *block->get_by_position(col_id).column).get_null_map_column().get_data().data();
+        auto* __restrict null_map =
+                reinterpret_cast<const ColumnNullable&>(*block->get_by_position(col_id).column)
+                        .get_null_map_column()
+                        .get_data()
+                        .data();
 
         for (int i = 0; i < target_rows; ++i) {
             ans_map[i] &= null_map[i] == JOIN_NULL_HINT;

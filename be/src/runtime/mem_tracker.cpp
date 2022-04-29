@@ -65,7 +65,8 @@ static std::shared_ptr<MemTracker> brpc_server_tracker;
 static GoogleOnceType brpc_server_tracker_once = GOOGLE_ONCE_INIT;
 
 void MemTracker::create_brpc_server_tracker() {
-    brpc_server_tracker = MemTracker::create_tracker(-1, "Brpc", get_process_tracker(), MemTrackerLevel::OVERVIEW);
+    brpc_server_tracker = MemTracker::create_tracker(-1, "Brpc", get_process_tracker(),
+                                                     MemTrackerLevel::OVERVIEW);
 }
 
 std::shared_ptr<MemTracker> MemTracker::get_brpc_server_tracker() {

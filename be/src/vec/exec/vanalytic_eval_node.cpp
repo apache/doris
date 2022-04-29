@@ -38,7 +38,8 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 
     _fn_scope = AnalyticFnScope::PARTITION;
-    if (!tnode.analytic_node.__isset.window) { //haven't set window, Unbounded:  [unbounded preceding,unbounded following]
+    if (!tnode.analytic_node.__isset
+                 .window) { //haven't set window, Unbounded:  [unbounded preceding,unbounded following]
         _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_partition, this,
                                                std::placeholders::_1, std::placeholders::_2,
                                                std::placeholders::_3);
@@ -49,7 +50,8 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
                _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW)
                 << "RANGE window end bound must be CURRENT ROW or UNBOUNDED FOLLOWING";
 
-        if (!_window.__isset.window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
+        if (!_window.__isset
+                     .window_end) { //haven't set end, so same as PARTITION, [unbounded preceding, unbounded following]
             _executor.get_next = std::bind<Status>(&VAnalyticEvalNode::_get_next_for_partition,
                                                    this, std::placeholders::_1,
                                                    std::placeholders::_2, std::placeholders::_3);
@@ -69,7 +71,7 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
         } else {
             if (_window.__isset.window_start) { //calculate start boundary
                 TAnalyticWindowBoundary b = _window.window_start;
-                if (b.__isset.rows_offset_value) {                               //[offset     ,   ]
+                if (b.__isset.rows_offset_value) { //[offset     ,   ]
                     _rows_start_offset = b.rows_offset_value;
                     if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
                         _rows_start_offset *= -1; //preceding--> negative
@@ -82,7 +84,7 @@ VAnalyticEvalNode::VAnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
 
             if (_window.__isset.window_end) { //calculate end boundary
                 TAnalyticWindowBoundary b = _window.window_end;
-                if (b.__isset.rows_offset_value) {                               //[       , offset]
+                if (b.__isset.rows_offset_value) { //[       , offset]
                     _rows_end_offset = b.rows_offset_value;
                     if (b.type == TAnalyticWindowBoundaryType::PRECEDING) {
                         _rows_end_offset *= -1;
@@ -124,15 +126,18 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
         }
 
         AggFnEvaluator* evaluator = nullptr;
-        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], &evaluator));
+        RETURN_IF_ERROR(
+                AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], &evaluator));
         _agg_functions.emplace_back(evaluator);
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
             _agg_intput_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
     }
 
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.partition_exprs, &_partition_by_eq_expr_ctxs));
-    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.order_by_exprs, &_order_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_pool, analytic_node.partition_exprs,
+                                             &_partition_by_eq_expr_ctxs));
+    RETURN_IF_ERROR(
+            VExpr::create_expr_trees(_pool, analytic_node.order_by_exprs, &_order_by_eq_expr_ctxs));
     _partition_by_column_idxs.resize(_partition_by_eq_expr_ctxs.size());
     _ordey_by_column_idxs.resize(_order_by_eq_expr_ctxs.size());
     _agg_functions_size = _agg_functions.size();
@@ -255,7 +260,9 @@ Status VAnalyticEvalNode::_get_next_for_partition(RuntimeState* state, Block* bl
     while (!_input_eos || _output_block_index < _input_blocks.size()) {
         bool next_partition = false;
         RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) { break; }
+        if (*eos) {
+            break;
+        }
 
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
         if (next_partition) {
@@ -274,10 +281,13 @@ Status VAnalyticEvalNode::_get_next_for_range(RuntimeState* state, Block* block,
     while (!_input_eos || _output_block_index < _input_blocks.size()) {
         bool next_partition = false;
         RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) { break; }
+        if (*eos) {
+            break;
+        }
 
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        while (_current_row_position < _partition_by_end.pos && _window_end_position < current_block_rows) {
+        while (_current_row_position < _partition_by_end.pos &&
+               _window_end_position < current_block_rows) {
             if (_current_row_position >= _order_by_end.pos) {
                 _update_order_by_range();
                 _executor.execute(_order_by_start, _order_by_end, _order_by_start, _order_by_end);
@@ -295,18 +305,25 @@ Status VAnalyticEvalNode::_get_next_for_rows(RuntimeState* state, Block* block, 
     while (!_input_eos || _output_block_index < _input_blocks.size()) {
         bool next_partition = false;
         RETURN_IF_ERROR(_consumed_block_and_init_partition(state, &next_partition, eos));
-        if (*eos) { break; }
+        if (*eos) {
+            break;
+        }
 
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        while (_current_row_position < _partition_by_end.pos && _window_end_position < current_block_rows) {
+        while (_current_row_position < _partition_by_end.pos &&
+               _window_end_position < current_block_rows) {
             BlockRowPos range_start, range_end;
             if (!_window.__isset.window_start &&
-                _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW) { //[preceding, current_row],[current_row, following]
+                _window.window_end.type ==
+                        TAnalyticWindowBoundaryType::
+                                CURRENT_ROW) { //[preceding, current_row],[current_row, following]
                 range_start.pos = _current_row_position;
-                range_end.pos = _current_row_position + 1; //going on calculate,add up data, no need to reset state
+                range_end.pos = _current_row_position +
+                                1; //going on calculate,add up data, no need to reset state
             } else {
                 _reset_agg_status();
-                if (!_window.__isset.window_start) { //[preceding, offset]        --unbound: [preceding, following]
+                if (!_window.__isset
+                             .window_start) { //[preceding, offset]        --unbound: [preceding, following]
                     range_start.pos = _partition_by_start.pos;
                 } else {
                     range_start.pos = _current_row_position + _rows_start_offset;
@@ -326,7 +343,8 @@ Status VAnalyticEvalNode::_get_next_for_rows(RuntimeState* state, Block* block, 
 Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state,
                                                              bool* next_partition, bool* eos) {
     BlockRowPos found_partition_end = _get_partition_by_end(); //claculate current partition end
-    while (whether_need_next_partition(found_partition_end)) { //check whether need get next partition, if current partition haven't execute done, return false
+    while (whether_need_next_partition(
+            found_partition_end)) { //check whether need get next partition, if current partition haven't execute done, return false
         RETURN_IF_ERROR(_fetch_next_block_data(state)); //return true, fetch next block
         found_partition_end = _get_partition_by_end();  //claculate new partition end
     }
@@ -343,18 +361,21 @@ Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state
 BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
     SCOPED_TIMER(_evaluation_timer);
 
-    if (_current_row_position < _partition_by_end.pos) { //still have data, return partition_by_end directly
+    if (_current_row_position <
+        _partition_by_end.pos) { //still have data, return partition_by_end directly
         return _partition_by_end;
     }
 
-    if (_partition_by_eq_expr_ctxs.empty() || (_input_total_rows == 0)) { //no partition_by, the all block is end
+    if (_partition_by_eq_expr_ctxs.empty() ||
+        (_input_total_rows == 0)) { //no partition_by, the all block is end
         return _all_block_end;
     }
 
     BlockRowPos cal_end = _all_block_end;
-    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size(); ++i) { //have partition_by, binary search the partiton end
-        cal_end = _compare_row_to_find_end(_partition_by_column_idxs[i], _partition_by_end,
-                                           cal_end);
+    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size();
+         ++i) { //have partition_by, binary search the partiton end
+        cal_end =
+                _compare_row_to_find_end(_partition_by_column_idxs[i], _partition_by_end, cal_end);
     }
     cal_end.pos = input_block_first_row_positions[cal_end.block_num] + cal_end.row_num;
     return cal_end;
@@ -386,7 +407,8 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     if (end_block_num == mid_blcok_num - 1) {
         start_next_block_column = _input_blocks[end_block_num].get_by_position(idx).column;
         int64_t block_size = _input_blocks[end_block_num].rows();
-        if ((start_column->compare_at(start_init_row_num, block_size - 1, *start_next_block_column, 1) == 0)) {
+        if ((start_column->compare_at(start_init_row_num, block_size - 1, *start_next_block_column,
+                                      1) == 0)) {
             start.block_num = end_block_num + 1;
             start.row_num = 0;
             return start;
@@ -451,13 +473,15 @@ Status VAnalyticEvalNode::_fetch_next_block_data(RuntimeState* state) {
     _all_block_end.row_num = block_rows;
     _all_block_end.pos = _input_total_rows;
 
-    if (_origin_cols.empty()) { //record origin columns, maybe be after this, could cast some column but no need to save
+    if (_origin_cols
+                .empty()) { //record origin columns, maybe be after this, could cast some column but no need to save
         for (int c = 0; c < block.columns(); ++c) {
             _origin_cols.emplace_back(c);
         }
     }
 
-    for (size_t i = 0; i < _agg_functions_size; ++i) { //insert _agg_intput_columns, execute calculate for its
+    for (size_t i = 0; i < _agg_functions_size;
+         ++i) { //insert _agg_intput_columns, execute calculate for its
         for (size_t j = 0; j < _agg_expr_ctxs[i].size(); ++j) {
             RETURN_IF_ERROR(_insert_range_column(&block, _agg_expr_ctxs[i][j],
                                                  _agg_intput_columns[i][j].get(), block_rows));

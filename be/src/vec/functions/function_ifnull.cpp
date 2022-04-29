@@ -24,4 +24,4 @@ namespace doris::vectorized {
 void register_function_function_ifnull(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIfNull>();
 }
-}
+} // namespace doris::vectorized

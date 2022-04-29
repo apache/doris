@@ -43,7 +43,7 @@ public:
     Status remove(const int column_family_index, const std::string& key);
 
     Status iterate(const int column_family_index, const std::string& prefix,
-                       std::function<bool(const std::string&, const std::string&)> const& func);
+                   std::function<bool(const std::string&, const std::string&)> const& func);
 
     std::string get_root_path();
 
@@ -54,4 +54,3 @@ private:
 };
 
 } // namespace doris
-

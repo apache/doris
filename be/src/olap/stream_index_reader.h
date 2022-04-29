@@ -70,7 +70,7 @@ public:
     ~StreamIndexReader();
 
     Status init(char* buffer, size_t buffer_size, FieldType type, bool is_using_cache,
-                    bool null_supported);
+                bool null_supported);
     const PositionEntryReader& entry(uint64_t entry_id);
     size_t entry_count();
 
@@ -89,4 +89,3 @@ private:
 };
 
 } // namespace doris
-

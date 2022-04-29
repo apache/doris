@@ -53,7 +53,7 @@ private:
         if constexpr (has_variadic_argument) return Impl::get_variadic_argument_types();
         return {};
     }
-    
+
     template <typename T, typename ReturnType>
     static void execute_in_iterations(const T* src_data, ReturnType* dst_data, size_t size) {
         if constexpr (Impl::rows_per_iteration == 0) {
@@ -133,8 +133,7 @@ private:
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
             using Type = typename Types::RightType;
-            using ReturnType = std::conditional_t<
-                    Impl::always_returns_float64, Float64, Int64>;
+            using ReturnType = std::conditional_t<Impl::always_returns_float64, Float64, Int64>;
             using ColVecType = std::conditional_t<IsDecimalNumber<Type>, ColumnDecimal<Type>,
                                                   ColumnVector<Type>>;
 

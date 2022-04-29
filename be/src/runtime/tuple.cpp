@@ -36,11 +36,9 @@
 
 namespace doris {
 
-static void deep_copy_collection_slots(
-        Tuple* shallow_copied_tuple,
-        const TupleDescriptor& desc,
-        const GenMemFootprintFunc& gen_mem_footprint,
-        bool convert_ptrs);
+static void deep_copy_collection_slots(Tuple* shallow_copied_tuple, const TupleDescriptor& desc,
+                                       const GenMemFootprintFunc& gen_mem_footprint,
+                                       bool convert_ptrs);
 
 int64_t Tuple::total_byte_size(const TupleDescriptor& desc) const {
     int64_t result = desc.byte_size();
@@ -93,23 +91,22 @@ void Tuple::deep_copy(Tuple* dst, const TupleDescriptor& desc, MemPool* pool, bo
     }
 
     // copy collection slot
-    deep_copy_collection_slots(dst, desc, [pool](int size) ->MemFootprint {
-            int64_t offset = pool->total_allocated_bytes();
-            uint8_t* data = pool->allocate(size);
-            return { offset, data };
-        },
-        convert_ptrs
-    );
+    deep_copy_collection_slots(
+            dst, desc,
+            [pool](int size) -> MemFootprint {
+                int64_t offset = pool->total_allocated_bytes();
+                uint8_t* data = pool->allocate(size);
+                return {offset, data};
+            },
+            convert_ptrs);
 }
 
 // Deep copy collection slots.
 // NOTICE: The Tuple* shallow_copied_tuple must be initialized by calling memcpy function first (
 // copy data from origin tuple).
-static void deep_copy_collection_slots(
-        Tuple* shallow_copied_tuple,
-        const TupleDescriptor& desc,
-        const GenMemFootprintFunc& gen_mem_footprint,
-        bool convert_ptrs) {
+static void deep_copy_collection_slots(Tuple* shallow_copied_tuple, const TupleDescriptor& desc,
+                                       const GenMemFootprintFunc& gen_mem_footprint,
+                                       bool convert_ptrs) {
     for (auto slot_desc : desc.collection_slots()) {
         DCHECK(slot_desc->type().is_collection_type());
         if (shallow_copied_tuple->is_null(slot_desc->null_indicator_offset())) {
@@ -118,8 +115,8 @@ static void deep_copy_collection_slots(
 
         // copy collection item
         CollectionValue* cv = shallow_copied_tuple->get_collection_slot(slot_desc->tuple_offset());
-        CollectionValue::deep_copy_collection(
-                cv, slot_desc->type().children[0], gen_mem_footprint, convert_ptrs);
+        CollectionValue::deep_copy_collection(cv, slot_desc->type().children[0], gen_mem_footprint,
+                                              convert_ptrs);
     }
 }
 
@@ -165,7 +162,8 @@ int64_t Tuple::release_string(const TupleDescriptor& desc) {
     return bytes;
 }
 
-void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset, bool convert_ptrs) {
+void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
+                      bool convert_ptrs) {
     Tuple* dst = (Tuple*)(*data);
     memory_copy(dst, this, desc.byte_size());
     *data += desc.byte_size();
@@ -186,14 +184,15 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
     }
 
     // copy collection slots
-    deep_copy_collection_slots(dst, desc, [offset, data](int size) -> MemFootprint {
-            MemFootprint footprint = { *offset, reinterpret_cast<uint8_t*>(*data) };
-            *offset += size;
-            *data += size;
-            return footprint;
-        },
-        convert_ptrs
-    );
+    deep_copy_collection_slots(
+            dst, desc,
+            [offset, data](int size) -> MemFootprint {
+                MemFootprint footprint = {*offset, reinterpret_cast<uint8_t*>(*data)};
+                *offset += size;
+                *data += size;
+                return footprint;
+            },
+            convert_ptrs);
 }
 
 template <bool collect_string_vals>
