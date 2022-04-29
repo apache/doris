@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_has_any
-## description
-### Syntax
+## bitmap_has_any
+### description
+#### Syntax
 
 `B00LEAN BITMAP_HAS_ANY(BITMAP lhs, BITMAP rhs)`
 
 Calculate whether there are intersecting elements in the two Bitmap columns. The return value is Boolean.
 
-## example
+### example
 
 ```
 mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(2)) cnt;
@@ -50,6 +50,6 @@ mysql> select bitmap_has_any(to_bitmap(1),to_bitmap(1)) cnt;
 +------+
 ```
 
-## keyword
+### keywords
 
     BITMAP_HAS_ANY,BITMAP

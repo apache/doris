@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_subset_limit
+## bitmap_subset_limit
 
-## Description
+### Description
 
-### Syntax
+#### Syntax
 
 `BITMAP BITMAP_SUBSET_LIMIT(BITMAP src, BIGINT range_start, BIGINT cardinality_limit)`
 
@@ -36,7 +36,7 @@ Create subset of the BITMAP, begin with range from range_start, limit by cardina
 range_start: start value for the range
 cardinality_limit: subset upper limit
 
-## example
+### example
 
 ```
 mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5'), 0, 3)) value;
@@ -54,6 +54,6 @@ mysql> select bitmap_to_string(bitmap_subset_limit(bitmap_from_string('1,2,3,4,5
 +-------+
 ```
 
-## keyword
+### keywords
 
     BITMAP_SUBSET_LIMIT,BITMAP_SUBSET,BITMAP

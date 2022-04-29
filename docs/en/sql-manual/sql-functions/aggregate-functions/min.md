@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# MIN
-## Description
-### Syntax
+## MIN
+### Description
+#### Syntax
 
 `MIN(expr)`
 
 
 Returns the minimum value of an expr expression
 
-## example
+### example
 ```
 MySQL > select min(scan_rows) from log_statis group by datetime;
 +------------------+
@@ -42,5 +42,5 @@ MySQL > select min(scan_rows) from log_statis group by datetime;
 |                0 |
 +------------------+
 ```
-## keyword
+### keywords
 MIN

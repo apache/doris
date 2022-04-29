@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `explode_json_array`
+## `explode_json_array`
 
-## description
+### description
 
 表函数，需配合 Lateral View 使用。
 
@@ -40,7 +40,7 @@ explode_json_array_double(json_str)
 explode_json_array_string(json_str)
 ```
 
-## example
+### example
 
 原表数据：
 
@@ -182,6 +182,6 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_string('{"a":
 Empty set
 ```
 
-## keyword
+### keywords
 
     explode_json_array

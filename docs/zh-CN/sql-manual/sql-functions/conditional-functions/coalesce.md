@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# coalesce
-## description
-### Syntax
+## coalesce
+### description
+#### Syntax
 
 `coalesce(expr1, expr2, ...., expr_n))`
 
 返回参数中的第一个非空表达式（从左向右）
 
-## example
+### example
 
 ```
 mysql> select coalesce(NULL, '1111', '0000');
@@ -42,6 +42,6 @@ mysql> select coalesce(NULL, '1111', '0000');
 | 1111                           |
 +--------------------------------+
 ```
-## keyword
+### keywords
 
     COALESCE

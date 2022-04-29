@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# group_concat
-## description
-### Syntax
+## group_concat
+### description
+#### Syntax
 
 `VARCHAR GROUP_CONCAT(VARCHAR str[, VARCHAR sep])`
 
 
 该函数是类似于 sum() 的聚合函数，group_concat 将结果集中的多行结果连接成一个字符串。第二个参数 sep 为字符串之间的连接符号，该参数可以省略。该函数通常需要和 group by 语句一起使用。
 
-## example
+### example
 
 ```
 mysql> select value from test;
@@ -66,5 +66,5 @@ mysql> select GROUP_CONCAT(value, NULL) from test;
 | NULL                       |
 +----------------------------+
 ```
-## keyword
+### keywords
 GROUP_CONCAT,GROUP,CONCAT

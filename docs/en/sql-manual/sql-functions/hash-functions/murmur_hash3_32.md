@@ -22,16 +22,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# murmur_hash3_32
+## murmur_hash3_32
 
-## description
-### Syntax
+### description
+#### Syntax
 
 `INT MURMUR_HASH3_32(VARCHAR input, ...)`
 
 Return the 32 bits murmur3 hash of input string.
 
-## example
+### example
 
 ```
 mysql> select murmur_hash3_32(null);
@@ -56,6 +56,6 @@ mysql> select murmur_hash3_32("hello", "world");
 +-----------------------------------+
 ```
 
-## keyword
+### keywords
 
     MURMUR_HASH3_32,HASH
