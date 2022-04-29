@@ -522,6 +522,23 @@ Flink Doris Connector写入频率主要是通过sink.batch.size，sink.batch.int
 
 ### 常见问题
 
-1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
+1. Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
 
 因为Doris有个隐藏列，需要在Flink Schema中手动添加一列`__DORIS_DELETE_SIGN__`  类型：TINYINT
+
+2. Bitmap类型写入
+```sql
+CREATE TABLE bitmap_sink (
+dt int,
+page string,
+user_id int 
+)
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'test.bitmap_test',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
+)
+```
