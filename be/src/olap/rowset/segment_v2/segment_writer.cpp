@@ -38,11 +38,12 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema,
-                             DataDir* data_dir, const SegmentWriterOptions& opts)
+                             const TabletSchema* tablet_schema, DataDir* data_dir,
+                             uint32_t max_row_per_segment, const SegmentWriterOptions& opts)
         : _segment_id(segment_id),
           _tablet_schema(tablet_schema),
           _data_dir(data_dir),
+          _max_row_per_segment(max_row_per_segment),
           _opts(opts),
           _wblock(wblock),
           _mem_tracker(
@@ -155,6 +156,14 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     _olap_data_convertor.clear_source_content();
     return Status::OK();
 }
+
+int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
+    int64_t size_rows = ((int64_t)MAX_SEGMENT_SIZE - (int64_t)estimate_segment_size()) / row_avg_size_in_bytes;
+    int64_t count_rows = (int64_t)_max_row_per_segment - _row_count;
+
+    return std::min(size_rows, count_rows);
+}
+
 
 std::string SegmentWriter::encode_short_keys(
         const std::vector<const void*> key_column_fields, bool null_first) {

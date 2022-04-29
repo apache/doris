@@ -28,6 +28,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -39,20 +40,16 @@ class Cache;
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip);
-    virtual ~LoadChannel();
+                bool is_high_priority, const std::string& sender_ip, bool is_vec);
+    ~LoadChannel();
 
     // open a new load channel if not exist
-    virtual Status open(const PTabletWriterOpenRequest& request);
+    Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     PTabletWriterAddBatchResult* response);
-
-    virtual Status add_block(const PTabletWriterAddBlockRequest& request,
-                             PTabletWriterAddBlockResult* response) {
-        return Status::NotSupported("Not Implemented add_block");
-    }
+    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
+    Status add_batch(const TabletWriterAddRequest& request,
+                     TabletWriterAddResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -98,7 +95,7 @@ protected:
     }
 
 
-protected:
+private:
     // when mem consumption exceeds limit, should call this method to find the channel
     // that consumes the largest memory(, and then we can reduce its memory usage).
     bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);
@@ -127,7 +124,48 @@ protected:
 
     // the ip where tablet sink locate
     std::string _sender_ip = "";
+
+    // true if this load is vectorized
+    bool _is_vec = false;
 };
+
+template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
+Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
+                              TabletWriterAddResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    int64_t index_id = request.index_id();
+    // 1. get tablets channel
+    std::shared_ptr<TabletsChannel> channel;
+    bool is_finished;
+    Status st = _get_tablets_channel(channel, is_finished, index_id);
+    if (!st.ok() || is_finished) {
+        return st;
+    }
+
+    // 2. check if mem consumption exceed limit
+    handle_mem_exceed_limit(false);
+
+    // 3. add batch to tablets channel
+    if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
+        if (request.has_row_batch()) {
+            RETURN_IF_ERROR(channel->add_batch(request, response));
+        }
+    } else {
+        if (request.has_block()) {
+            RETURN_IF_ERROR(channel->add_batch(request, response));
+        }
+    }
+
+    // 4. handle eos
+    if (request.has_eos() && request.eos()) {
+        st = _handle_eos(channel, request, response);
+        if (!st.ok()) {
+            return st;
+        }
+    }
+    _last_updated_time.store(time(nullptr));
+    return st;
+}
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
