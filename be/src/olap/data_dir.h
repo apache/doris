@@ -54,8 +54,8 @@ public:
     const std::string& path() const { return _path_desc.filepath; }
     const FilePathDesc& path_desc() const { return _path_desc; }
     size_t path_hash() const { return _path_hash; }
-    bool is_bad() const { return _is_bad; }
-    void set_is_bad(bool is_bad) { _is_bad = is_bad; }
+    bool bad() const { return _is_bad; }
+    void set_bad(bool is_bad) { _is_bad = is_bad; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 

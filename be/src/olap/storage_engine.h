@@ -282,12 +282,12 @@ private:
     };
 
     struct CompactionDiskStat {
-        CompactionDiskStat(std::string path, uint32_t index, bool used)
+        CompactionDiskStat(std::string path, uint32_t index, bool bad)
                 : storage_path(path),
                   disk_index(index),
                   task_running(0),
                   task_remaining(0),
-                  is_bad(used) {}
+                  is_bad(bad) {}
         const std::string storage_path;
         const uint32_t disk_index;
         uint32_t task_running;

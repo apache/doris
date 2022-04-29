@@ -554,7 +554,7 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, bool in
         return nullptr;
     }
 
-    if (!tablet->is_bad()) {
+    if (!tablet->bad()) {
         LOG(WARNING) << "tablet cannot be used. tablet=" << tablet_id;
         if (err != nullptr) {
             *err = "tablet cannot be used. " + BackendOptions::get_localhost();
@@ -1143,7 +1143,7 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
                 }
 
                 if (tablet_ptr->data_dir()->path_hash() != data_dir->path_hash() ||
-                    !tablet_ptr->is_bad() || !tablet_ptr->init_succeeded()) {
+                    !tablet_ptr->bad() || !tablet_ptr->init_succeeded()) {
                     continue;
                 }
                 related_tablets.push_back(tablet_ptr);

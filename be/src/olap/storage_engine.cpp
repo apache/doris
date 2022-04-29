@@ -280,7 +280,7 @@ void StorageEngine::_update_storage_medium_type_count() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& it : _store_map) {
-        if (it.second->is_bad()) {
+        if (it.second->bad()) {
             available_storage_medium_types.insert(it.second->storage_medium());
         }
     }
@@ -323,7 +323,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
         }
     } else {
         for (auto& it : _store_map) {
-            if (it.second->is_bad()) {
+            if (it.second->bad()) {
                 stores.push_back(it.second);
             }
         }
@@ -472,7 +472,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            if (it.second->is_bad()) {
+            if (it.second->bad()) {
                 if (_available_storage_medium_type_count == 1 ||
                     it.second->storage_medium() == storage_medium ||
                     (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
@@ -528,7 +528,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
         for (auto& it : _store_map) {
             ++total_root_path_num;
-            if (it.second->is_bad()) {
+            if (it.second->bad()) {
                 continue;
             }
             it.second->clear_tablets(&tablet_info_vec);

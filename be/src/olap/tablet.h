@@ -62,7 +62,7 @@ public:
     Status init();
     bool init_succeeded();
 
-    bool is_bad();
+    bool bad();
 
     void register_tablet_into_dir();
     void deregister_tablet_from_dir();
@@ -355,8 +355,8 @@ inline bool Tablet::init_succeeded() {
     return _init_once.has_called() && _init_once.stored_result().ok();
 }
 
-inline bool Tablet::is_bad() {
-    return !_is_bad && _data_dir->is_bad();
+inline bool Tablet::bad() {
+    return !_is_bad && _data_dir->bad();
 }
 
 inline void Tablet::register_tablet_into_dir() {
