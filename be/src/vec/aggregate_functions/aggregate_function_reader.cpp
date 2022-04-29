@@ -22,8 +22,7 @@ namespace doris::vectorized {
 // auto spread at nullable condition, null value do not participate aggregate
 void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
     // add a suffix to the function name here to distinguish special functions of agg reader
-    auto register_function = [&](const std::string& name,
-                                 const AggregateFunctionCreator& creator) {
+    auto register_function = [&](const std::string& name, const AggregateFunctionCreator& creator) {
         factory.register_function(name + AGG_READER_SUFFIX, creator, false);
         factory.register_function(name + AGG_LOAD_SUFFIX, creator, false);
     };
@@ -45,13 +44,18 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
         factory.register_function(name + suffix, creator, nullable);
     };
 
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<false, true>, false);
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true, true>, true);
-    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false, true>, false);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<false, true>,
+                      false);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true, true>,
+                      true);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false, true>,
+                      false);
     register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<true, true>, true);
 
-    register_function("replace_if_not_null", AGG_READER_SUFFIX, create_aggregate_function_first<false, true>, false);
-    register_function("replace_if_not_null", AGG_LOAD_SUFFIX, create_aggregate_function_last<false, true>, false);
+    register_function("replace_if_not_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first<false, true>, false);
+    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last<false, true>, false);
 }
 
 } // namespace doris::vectorized

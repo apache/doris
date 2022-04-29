@@ -32,34 +32,26 @@ public:
 
     class Iterator : public std::iterator<std::input_iterator_tag, KeyValuePair> {
     public:
-        Iterator(typename std::unordered_map<Key, ListIterator>::iterator it) : _it(it) { }
+        Iterator(typename std::unordered_map<Key, ListIterator>::iterator it) : _it(it) {}
 
         Iterator& operator++() {
             ++_it;
             return *this;
         }
 
-        bool operator==(const Iterator& rhs) const {
-            return _it == rhs._it;
-        }
+        bool operator==(const Iterator& rhs) const { return _it == rhs._it; }
 
-        bool operator!=(const Iterator& rhs) const {
-            return _it != rhs._it;
-        }
+        bool operator!=(const Iterator& rhs) const { return _it != rhs._it; }
 
-        KeyValuePair* operator->() {
-            return _it->second.operator->();
-        }
+        KeyValuePair* operator->() { return _it->second.operator->(); }
 
-        KeyValuePair& operator*() {
-            return *_it->second;
-        }
+        KeyValuePair& operator*() { return *_it->second; }
 
     private:
         typename std::unordered_map<Key, ListIterator>::iterator _it;
     };
 
-    LruCache(size_t max_size) : _max_size(max_size) { }
+    LruCache(size_t max_size) : _max_size(max_size) {}
 
     void put(const Key& key, const Value& value) {
         auto it = _cache_items_map.find(key);
@@ -102,17 +94,11 @@ public:
         return _cache_items_map.find(key) != _cache_items_map.end();
     }
 
-    size_t size() const {
-        return _cache_items_map.size();
-    }
+    size_t size() const { return _cache_items_map.size(); }
 
-    Iterator begin() {
-        return Iterator(_cache_items_map.begin());
-    }
+    Iterator begin() { return Iterator(_cache_items_map.begin()); }
 
-    Iterator end() {
-        return Iterator(_cache_items_map.end());
-    }
+    Iterator end() { return Iterator(_cache_items_map.end()); }
 
 private:
     std::list<KeyValuePair> _cache_items_list;
@@ -120,6 +106,6 @@ private:
     size_t _max_size;
 };
 
-}
+} // namespace doris
 
 #endif

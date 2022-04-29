@@ -48,7 +48,6 @@ public:
         for (size_t i = 0; i < rhs.grower.buf_size(); ++i)
             if (!rhs.buf[i].is_zero(*this)) this->insert(Cell::get_key(rhs.buf[i].get_value()));
     }
-
 };
 
 template <typename Key, typename Hash, typename TState = HashTableNoState>

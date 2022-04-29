@@ -55,20 +55,27 @@ public:
         if (left_nullable == right_nullable) {
             auto return_type = std::make_shared<DataTypeUInt8>();
 
-            ColumnsWithTypeAndName eq_columns
-            {
-                ColumnWithTypeAndName{left_nullable ? left_column->get_nested_column_ptr() : col_left.column,
-                                      left_nullable ? assert_cast<const DataTypeNullable*>
-                                              (col_left.type.get())->get_nested_type() : col_left.type, ""},
-                ColumnWithTypeAndName{left_nullable ? right_column->get_nested_column_ptr() : col_right.column,
-                                      left_nullable ? assert_cast<const DataTypeNullable*>
-                                              (col_right.type.get())->get_nested_type() : col_right.type, ""}
-            };
+            ColumnsWithTypeAndName eq_columns {
+                    ColumnWithTypeAndName {
+                            left_nullable ? left_column->get_nested_column_ptr() : col_left.column,
+                            left_nullable
+                                    ? assert_cast<const DataTypeNullable*>(col_left.type.get())
+                                              ->get_nested_type()
+                                    : col_left.type,
+                            ""},
+                    ColumnWithTypeAndName {left_nullable ? right_column->get_nested_column_ptr()
+                                                         : col_right.column,
+                                           left_nullable ? assert_cast<const DataTypeNullable*>(
+                                                                   col_right.type.get())
+                                                                   ->get_nested_type()
+                                                         : col_right.type,
+                                           ""}};
             Block temporary_block(eq_columns);
 
-            auto func_eq = SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
+            auto func_eq =
+                    SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
             DCHECK(func_eq);
-            temporary_block.insert(ColumnWithTypeAndName{nullptr, return_type, ""});
+            temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
             func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
 
             if (left_nullable) {
@@ -90,22 +97,23 @@ public:
         } else {
             auto return_type = make_nullable(std::make_shared<DataTypeUInt8>());
 
-            const ColumnsWithTypeAndName eq_columns
-            {
-                ColumnWithTypeAndName{col_left.column, col_left.type, ""},
-                ColumnWithTypeAndName{col_right.column, col_right.type, ""}
-            };
-            auto func_eq = SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
+            const ColumnsWithTypeAndName eq_columns {
+                    ColumnWithTypeAndName {col_left.column, col_left.type, ""},
+                    ColumnWithTypeAndName {col_right.column, col_right.type, ""}};
+            auto func_eq =
+                    SimpleFunctionFactory::instance().get_function("eq", eq_columns, return_type);
             DCHECK(func_eq);
 
             Block temporary_block(eq_columns);
-            temporary_block.insert(ColumnWithTypeAndName{nullptr, return_type, ""});
+            temporary_block.insert(ColumnWithTypeAndName {nullptr, return_type, ""});
             func_eq->execute(context, temporary_block, {0, 1}, 2, input_rows_count);
 
             auto res_nullable_column = assert_cast<ColumnNullable*>(
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
             auto& null_map = res_nullable_column->get_null_map_data();
-            auto& res_map = assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column()).get_data();
+            auto& res_map =
+                    assert_cast<ColumnVector<UInt8>&>(res_nullable_column->get_nested_column())
+                            .get_data();
 
             auto* __restrict res = res_map.data();
             auto* __restrict l = null_map.data();
@@ -122,4 +130,4 @@ public:
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionEqForNull>();
 }
-}
+} // namespace doris::vectorized

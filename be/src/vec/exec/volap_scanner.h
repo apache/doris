@@ -34,7 +34,7 @@ class VOlapScanner : public OlapScanner {
 public:
     VOlapScanner(RuntimeState* runtime_state, VOlapScanNode* parent, bool aggregation,
                  bool need_agg_finalize, const TPaloScanRange& scan_range,
-                std::shared_ptr<MemTracker> tracker);
+                 std::shared_ptr<MemTracker> tracker);
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eof);
 

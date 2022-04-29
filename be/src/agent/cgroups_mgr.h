@@ -57,8 +57,8 @@ public:
     //   level_share: a mapping for shares for different levels under the user.
     //               mapping key is level name; value is level's share. Currently, different resource using the same share.
     Status modify_user_cgroups(const std::string& user_name,
-                                    const std::map<std::string, int32_t>& user_share,
-                                    const std::map<std::string, int32_t>& level_share);
+                               const std::map<std::string, int32_t>& user_share,
+                               const std::map<std::string, int32_t>& level_share);
 
     static void apply_cgroup(const std::string& user_name, const std::string& level);
 
@@ -76,7 +76,7 @@ public:
     //   thread_id: the unique id for the thread
     //   user_name&level: the user name and level used to find the cgroup
     Status assign_thread_to_cgroups(int64_t thread_id, const std::string& user_name,
-                                         const std::string& level);
+                                    const std::string& level);
 
     // Delete the user's cgroups and its sub level cgroups using DropCgroups
     // Input parameters:
@@ -123,11 +123,11 @@ public:
     //  ssd_write_iops: write iops number for ssd disk.
     //  ssd_read_mbps: read bps number for ssd disk, using mb not byte or kb.
     //  ssd_write_mbps: write bps number for ssd disk, using mb not byte or kb.
-    Status _config_disk_throttle(std::string user_name, std::string level,
-                                      int64_t hdd_read_iops, int64_t hdd_write_iops,
-                                      int64_t hdd_read_mbps, int64_t hdd_write_mbps,
-                                      int64_t ssd_read_iops, int64_t ssd_write_iops,
-                                      int64_t ssd_read_mbps, int64_t ssd_write_mbps);
+    Status _config_disk_throttle(std::string user_name, std::string level, int64_t hdd_read_iops,
+                                 int64_t hdd_write_iops, int64_t hdd_read_mbps,
+                                 int64_t hdd_write_mbps, int64_t ssd_read_iops,
+                                 int64_t ssd_write_iops, int64_t ssd_read_mbps,
+                                 int64_t ssd_write_mbps);
 
     // echo command in string stream to the cgroup file
     // Input parameters:

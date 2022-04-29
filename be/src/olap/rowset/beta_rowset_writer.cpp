@@ -52,18 +52,20 @@ BetaRowsetWriter::~BetaRowsetWriter() {
         _segment_writer.reset(); // ensure all files are closed
         Status st;
         if (_context.path_desc.is_remote()) {
-            std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
-                    get_storage_backend(_context.path_desc.storage_name);
+            std::shared_ptr<StorageBackend> storage_backend =
+                    StorageBackendMgr::instance()->get_storage_backend(
+                            _context.path_desc.storage_name);
             if (storage_backend == nullptr) {
                 LOG(WARNING) << "storage_backend is invalid: " << _context.path_desc.debug_string();
                 return;
             }
             WARN_IF_ERROR(storage_backend->rmdir(_context.path_desc.remote_path),
-                    strings::Substitute("Failed to delete remote file=$0", _context.path_desc.remote_path));
+                          strings::Substitute("Failed to delete remote file=$0",
+                                              _context.path_desc.remote_path));
         }
         for (int i = 0; i < _num_segment; ++i) {
-            auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
-                                                      _context.rowset_id, i);
+            auto path_desc =
+                    BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id, i);
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
@@ -166,8 +168,8 @@ Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_rowset_for_linked_schema_change(
-        RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) {
+Status BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
+                                                             const SchemaMapping& schema_mapping) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
 }
@@ -185,13 +187,15 @@ Status BetaRowsetWriter::add_rowset_for_migration(RowsetSharedPtr rowset) {
     } else if (!rowset->rowset_path_desc().is_remote() && _context.path_desc.is_remote()) {
         res = rowset->upload_files_to(_context.path_desc, _context.rowset_id);
         if (!res.ok()) {
-            LOG(WARNING) << "upload_files failed. src: " << rowset->rowset_path_desc().debug_string()
+            LOG(WARNING) << "upload_files failed. src: "
+                         << rowset->rowset_path_desc().debug_string()
                          << ", dest: " << _context.path_desc.debug_string();
             return res;
         }
     } else {
         LOG(WARNING) << "add_rowset_for_migration failed. storage_medium is invalid. src: "
-                << rowset->rowset_path_desc().debug_string() << ", dest: " << _context.path_desc.debug_string();
+                     << rowset->rowset_path_desc().debug_string()
+                     << ", dest: " << _context.path_desc.debug_string();
         return Status::OLAPInternalError(OLAP_ERR_ROWSET_ADD_MIGRATION_V2);
     }
 
@@ -232,7 +236,7 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
         }
 
         if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                    writer->num_rows_written() >= _context.max_rows_per_segment)) {
+                          writer->num_rows_written() >= _context.max_rows_per_segment)) {
             RETURN_NOT_OK(_flush_segment_writer(&writer));
         }
         ++_num_rows_written;
@@ -282,9 +286,10 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     return rowset;
 }
 
-Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer) {
-    auto path_desc = BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id,
-                                              _num_segment++);
+Status BetaRowsetWriter::_create_segment_writer(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer) {
+    auto path_desc =
+            BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id, _num_segment++);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
     fs::BlockManager* block_mgr = fs::fs_util::block_manager(_context.path_desc);
@@ -293,7 +298,7 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
     if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath 
+        LOG(WARNING) << "failed to create writable block. path=" << path_desc.filepath
                      << ", err: " << st.get_error_msg();
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
@@ -301,7 +306,8 @@ Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::Segm
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
-                                                _context.data_dir, _context.max_rows_per_segment, writer_options));
+                                                _context.data_dir, _context.max_rows_per_segment,
+                                                writer_options));
     {
         std::lock_guard<SpinLock> l(_lock);
         _wblocks.push_back(std::move(wblock));

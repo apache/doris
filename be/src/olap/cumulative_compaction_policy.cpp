@@ -98,13 +98,14 @@ void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
                 break;
             }
 
-            // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase 
+            // include one situation: When the segment is not deleted, and is singleton delta, and is NONOVERLAPPING, ret_cumulative_point increase
             prev_version = rs->version().second;
             *ret_cumulative_point = prev_version + 1;
         }
-        VLOG_NOTICE << "cumulative compaction size_based policy, calculate cumulative point value = "
-            << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
-            << " tablet = " << tablet->full_name();
+        VLOG_NOTICE
+                << "cumulative compaction size_based policy, calculate cumulative point value = "
+                << *ret_cumulative_point << ", calc promotion size value = " << promotion_size
+                << " tablet = " << tablet->full_name();
     } else if (tablet->tablet_state() == TABLET_NOTREADY) {
         // tablet under alter process
         // we choose version next to the base version as cumulative point
@@ -156,9 +157,9 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
     }
 }
 
-void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(TabletState state,
-        const std::vector<RowsetMetaSharedPtr>& all_metas, int64_t current_cumulative_point,
-        uint32_t* score) {
+void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
+        TabletState state, const std::vector<RowsetMetaSharedPtr>& all_metas,
+        int64_t current_cumulative_point, uint32_t* score) {
     bool base_rowset_exist = false;
     const int64_t point = current_cumulative_point;
     int64_t promotion_size = 0;
@@ -305,10 +306,11 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         rs_iter = input_rowsets->erase(rs_iter);
     }
 
-    VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = " << *compaction_score
-            << ", total_size = " << total_size << ", calc promotion size value = " << promotion_size
-            << ", tablet = " << tablet->full_name() << ", input_rowset size "
-            << input_rowsets->size();
+    VLOG_CRITICAL << "cumulative compaction size_based policy, compaction_score = "
+                  << *compaction_score << ", total_size = " << total_size
+                  << ", calc promotion size value = " << promotion_size
+                  << ", tablet = " << tablet->full_name() << ", input_rowset size "
+                  << input_rowsets->size();
 
     // empty return
     if (input_rowsets->empty()) {
@@ -396,9 +398,9 @@ int NumBasedCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(TabletState state,
-        const std::vector<RowsetMetaSharedPtr>& all_rowsets, const int64_t current_cumulative_point,
-        uint32_t* score) {
+void NumBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
+        TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+        const int64_t current_cumulative_point, uint32_t* score) {
     const int64_t point = current_cumulative_point;
     for (auto& rs_meta : all_rowsets) {
         if (rs_meta->start_version() < point) {
@@ -465,10 +467,10 @@ void CumulativeCompactionPolicy::pick_candidate_rowsets(
     int64_t now = UnixSeconds();
     for (auto& it : rs_version_map) {
         // find all rowset version greater than cumulative_point and skip the create time in skip_window_sec
-        if (it.first.first >= cumulative_point
-            && ((it.second->creation_time() + skip_window_sec < now)
-            // this case means a rowset has been compacted before which is not a new published rowset, so it should participate compaction
-            || (it.first.first != it.first.second))) {
+        if (it.first.first >= cumulative_point &&
+            ((it.second->creation_time() + skip_window_sec < now)
+             // this case means a rowset has been compacted before which is not a new published rowset, so it should participate compaction
+             || (it.first.first != it.first.second))) {
             candidate_rowsets->push_back(it.second);
         }
     }

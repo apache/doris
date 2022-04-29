@@ -91,7 +91,8 @@ public:
     static uint32_t zlib_crc32(const void* value, const TypeDescriptor& type, uint32_t seed);
 
     // Same as the up function, only use in vec exec engine.
-    static uint32_t zlib_crc32(const void* value, size_t len, const TypeDescriptor& type, uint32_t seed);
+    static uint32_t zlib_crc32(const void* value, size_t len, const TypeDescriptor& type,
+                               uint32_t seed);
 
     // Compares both values.
     // Return value is < 0  if v1 < v2, 0 if v1 == v2, > 0 if v1 > v2.
@@ -408,7 +409,8 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
 
 // NOTE: this is just for split data, decimal use old doris hash function
 // Because crc32 hardware is not equal with zlib crc32
-inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescriptor& type, uint32_t seed) {
+inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescriptor& type,
+                                     uint32_t seed) {
     // Hash_combine with v = 0
     if (v == nullptr) {
         uint32_t value = 0x9e3779b9;

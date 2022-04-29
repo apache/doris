@@ -28,8 +28,7 @@ public:
     MockAgentServerClient(const TBackend backend);
     MOCK_METHOD2(make_snapshot,
                  Status(const TSnapshotRequest& snapshot_request, TAgentResult* result));
-    MOCK_METHOD2(release_snapshot,
-                 Status(const std::string& snapshot_path, TAgentResult* result));
+    MOCK_METHOD2(release_snapshot, Status(const std::string& snapshot_path, TAgentResult* result));
 }; // class AgentServerClient
 
 class MockMasterServerClient : public MasterServerClient {

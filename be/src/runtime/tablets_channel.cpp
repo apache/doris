@@ -31,7 +31,11 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, bool is_high_priority, bool is_vec)
-        : _key(key), _state(kInitialized), _closed_senders(64), _is_high_priority(is_high_priority), _is_vec(is_vec) {
+        : _key(key),
+          _state(kInitialized),
+          _closed_senders(64),
+          _is_high_priority(is_high_priority),
+          _is_vec(is_vec) {
     _mem_tracker = MemTracker::create_tracker(-1, "TabletsChannel:" + std::to_string(key.index_id));
     static std::once_flag once_flag;
     std::call_once(once_flag, [] {
@@ -124,7 +128,8 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
+            writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) !=
+                                            _broken_tablets.end()));
         }
     }
     return Status::OK();
@@ -144,10 +149,9 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     for (auto& it : _tablet_writers) {
         writers.push_back(it.second);
     }
-    std::sort(writers.begin(), writers.end(),
-              [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
-                  return lhs->mem_consumption() > rhs->mem_consumption();
-              });
+    std::sort(writers.begin(), writers.end(), [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
+        return lhs->mem_consumption() > rhs->mem_consumption();
+    });
 
     // Decide which writes should be flushed to reduce mem consumption.
     // The main idea is to flush at least one third of the mem_limit.
@@ -161,7 +165,7 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     // the tablet that has not been flushed before will accumulate more data, thereby reducing the number of flushes.
     int64_t mem_to_flushed = mem_limit / 3;
     int counter = 0;
-    int64_t  sum = 0;
+    int64_t sum = 0;
     for (auto writer : writers) {
         if (writer->mem_consumption() <= 0) {
             break;
@@ -180,7 +184,8 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     for (int i = 0; i < counter; i++) {
         Status st = writers[i]->wait_flush();
         if (!st.ok()) {
-            return Status::InternalError(fmt::format("failed to reduce mem consumption by flushing memtable. err: {}", st));
+            return Status::InternalError(fmt::format(
+                    "failed to reduce mem consumption by flushing memtable. err: {}", st));
         }
     }
     return Status::OK();

@@ -145,9 +145,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         std::lock_guard<std::mutex> lock(_gc_mutex);
         return _unused_rowsets.size();
     });
-    REGISTER_HOOK_METRIC(compaction_mem_consumption, [this]() {
-        return _compaction_mem_tracker->consumption();
-    });
+    REGISTER_HOOK_METRIC(compaction_mem_consumption,
+                         [this]() { return _compaction_mem_tracker->consumption(); });
     REGISTER_HOOK_METRIC(schema_change_mem_consumption,
                          [this]() { return _schema_change_mem_tracker->consumption(); });
 }
@@ -347,7 +346,7 @@ template std::vector<DataDir*> StorageEngine::get_stores<false>();
 template std::vector<DataDir*> StorageEngine::get_stores<true>();
 
 Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_infos,
-                                                bool need_update) {
+                                            bool need_update) {
     Status res = Status::OK();
     data_dir_infos->clear();
 
@@ -487,8 +486,8 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
             if (it.second->is_used()) {
                 if (_available_storage_medium_type_count == 1 ||
                     it.second->storage_medium() == storage_medium ||
-                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE
-                            && FilePathDesc::is_remote(storage_medium))) {
+                    (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
+                     FilePathDesc::is_remote(storage_medium))) {
                     stores.push_back(it.second);
                 }
             }
@@ -703,7 +702,8 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
         FilePathDescStream trash_path_desc_s;
         trash_path_desc_s << info.path_desc << TRASH_PREFIX;
         FilePathDesc trash_path_desc = trash_path_desc_s.path_desc();
-        curr_res = _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
+        curr_res =
+                _do_sweep(trash_path_desc, local_now, curr_usage > guard_space ? 0 : trash_expire);
         if (!curr_res.ok()) {
             LOG(WARNING) << "failed to sweep trash. path=" << trash_path_desc.filepath
                          << ", err_code=" << curr_res;
@@ -800,7 +800,8 @@ void StorageEngine::_clean_unused_txns() {
     std::set<TabletInfo> tablet_infos;
     _txn_manager->get_all_related_tablets(&tablet_infos);
     for (auto& tablet_info : tablet_infos) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
+        TabletSharedPtr tablet =
+                _tablet_manager->get_tablet(tablet_info.tablet_id, tablet_info.tablet_uid, true);
         if (tablet == nullptr) {
             // TODO(ygl) :  should check if tablet still in meta, it's a improvement
             // case 1: tablet still in meta, just remove from memory
@@ -815,7 +816,7 @@ void StorageEngine::_clean_unused_txns() {
 }
 
 Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_now,
-                                    const int32_t expire) {
+                                const int32_t expire) {
     Status res = Status::OK();
     if (!FileUtils::check_exist(scan_root_desc.filepath)) {
         // dir not existed. no need to sweep trash.
@@ -853,30 +854,36 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
                 std::string storage_name_path = path_name + "/" + STORAGE_NAME;
                 if (scan_root_desc.is_remote() && FileUtils::check_exist(storage_name_path)) {
                     FilePathDesc remote_path_desc = scan_root_desc;
-                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path, &(remote_path_desc.storage_name)).ok()) {
+                    if (!env_util::read_file_to_string(Env::Default(), storage_name_path,
+                                                       &(remote_path_desc.storage_name))
+                                 .ok()) {
                         LOG(WARNING) << "read storage_name failed: " << storage_name_path;
                         continue;
                     }
                     boost::algorithm::trim(remote_path_desc.storage_name);
-                    std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
-                            get_storage_backend(remote_path_desc.storage_name);
+                    std::shared_ptr<StorageBackend> storage_backend =
+                            StorageBackendMgr::instance()->get_storage_backend(
+                                    remote_path_desc.storage_name);
                     // if storage_backend is nullptr, the remote storage is invalid.
                     // Only the local path need to be removed.
                     if (storage_backend != nullptr) {
                         std::string remote_root_path;
                         if (!StorageBackendMgr::instance()->get_root_path(
-                                remote_path_desc.storage_name, &remote_root_path)) {
-                            LOG(WARNING) << "read storage root_path failed: " << remote_path_desc.storage_name;
+                                    remote_path_desc.storage_name, &remote_root_path)) {
+                            LOG(WARNING) << "read storage root_path failed: "
+                                         << remote_path_desc.storage_name;
                             continue;
                         }
                         remote_path_desc.remote_path = remote_root_path + TRASH_PREFIX;
                         std::filesystem::path local_path(path_name);
                         std::stringstream remote_file_stream;
-                        remote_file_stream << remote_path_desc.remote_path << "/" << local_path.filename().string();
+                        remote_file_stream << remote_path_desc.remote_path << "/"
+                                           << local_path.filename().string();
                         Status ret = storage_backend->rmdir(remote_file_stream.str());
                         if (!ret.ok()) {
-                            LOG(WARNING) << "fail to remove file or directory. path=" << remote_file_stream.str()
-                                         << ", error=" << ret.to_string();
+                            LOG(WARNING)
+                                    << "fail to remove file or directory. path="
+                                    << remote_file_stream.str() << ", error=" << ret.to_string();
                             res = Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
                             continue;
                         }
@@ -895,7 +902,8 @@ Status StorageEngine::_do_sweep(const FilePathDesc& scan_root_desc, const time_t
             }
         }
     } catch (...) {
-        LOG(WARNING) << "Exception occur when scan directory. path_desc=" << scan_root_desc.debug_string();
+        LOG(WARNING) << "Exception occur when scan directory. path_desc="
+                     << scan_root_desc.debug_string();
         res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
@@ -965,7 +973,7 @@ Status StorageEngine::create_tablet(const TCreateTabletReq& request) {
 }
 
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
-                                            std::string* shard_path, DataDir** store) {
+                                        std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
@@ -997,7 +1005,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium,
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
-                                      bool restore) {
+                                  bool restore) {
     LOG(INFO) << "begin to process load headers."
               << "tablet_id=" << request.tablet_id << ", schema_hash=" << request.schema_hash;
     Status res = Status::OK();
@@ -1068,8 +1076,7 @@ Status StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id);
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));
@@ -1099,8 +1106,7 @@ Status StorageEngine::execute_task(EngineTask* task) {
         std::vector<TabletSharedPtr> related_tablets;
         std::vector<std::unique_lock<std::shared_mutex>> wrlocks;
         for (TabletInfo& tablet_info : tablet_infos) {
-            TabletSharedPtr tablet =
-                    _tablet_manager->get_tablet(tablet_info.tablet_id);
+            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_info.tablet_id);
             if (tablet != nullptr) {
                 related_tablets.push_back(tablet);
                 wrlocks.push_back(std::unique_lock<std::shared_mutex>(tablet->get_header_lock()));

@@ -37,9 +37,9 @@ using std::set;
 using std::vector;
 
 namespace doris {
-    
+
 Status TupleReader::_init_collect_iter(const ReaderParams& read_params,
-        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
+                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     _collect_iter.init(this);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
@@ -74,7 +74,9 @@ Status TupleReader::init(const ReaderParams& read_params) {
 
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto status = _init_collect_iter(read_params, &rs_readers);
-    if (!status.ok()) { return status; }
+    if (!status.ok()) {
+        return status;
+    }
 
     if (_optimize_for_single_rowset(rs_readers)) {
         _next_row_func = _tablet->keys_type() == AGG_KEYS ? &TupleReader::_direct_agg_key_next_row
@@ -101,7 +103,7 @@ Status TupleReader::init(const ReaderParams& read_params) {
 }
 
 Status TupleReader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                    bool* eof) {
+                                     bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return Status::OK();
@@ -115,7 +117,7 @@ Status TupleReader::_direct_next_row(RowCursor* row_cursor, MemPool* mem_pool, O
 }
 
 Status TupleReader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
-                                            ObjectPool* agg_pool, bool* eof) {
+                                             ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return Status::OK();
@@ -131,8 +133,8 @@ Status TupleReader::_direct_agg_key_next_row(RowCursor* row_cursor, MemPool* mem
     return Status::OK();
 }
 
-Status TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) {
+Status TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
+                                      ObjectPool* agg_pool, bool* eof) {
     if (UNLIKELY(_next_key == nullptr)) {
         *eof = true;
         return Status::OK();
@@ -171,7 +173,7 @@ Status TupleReader::_agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, 
 }
 
 Status TupleReader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool,
-                                        ObjectPool* agg_pool, bool* eof) {
+                                         ObjectPool* agg_pool, bool* eof) {
     *eof = false;
     bool cur_delete_flag = false;
     do {

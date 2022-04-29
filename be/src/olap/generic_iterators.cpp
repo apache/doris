@@ -262,9 +262,8 @@ private:
         int sequence_id_idx;
     };
 
-    using MergeHeap = std::priority_queue<MergeIteratorContext*, 
-                                        std::vector<MergeIteratorContext*>,
-                                        MergeContextComparator>;
+    using MergeHeap = std::priority_queue<MergeIteratorContext*, std::vector<MergeIteratorContext*>,
+                                          MergeContextComparator>;
 
     MergeHeap _merge_heap;
 };
@@ -324,7 +323,8 @@ public:
     UnionIterator(std::vector<RowwiseIterator*>& v) : _origin_iters(v.begin(), v.end()) {}
 
     ~UnionIterator() override {
-        std::for_each(_origin_iters.begin(), _origin_iters.end(), std::default_delete<RowwiseIterator>());
+        std::for_each(_origin_iters.begin(), _origin_iters.end(),
+                      std::default_delete<RowwiseIterator>());
     }
 
     Status init(const StorageReadOptions& opts) override;

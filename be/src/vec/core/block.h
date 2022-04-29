@@ -358,10 +358,14 @@ public:
     DataTypes& data_types() { return _data_types; }
 
     MutableColumnPtr& get_column_by_position(size_t position) { return _columns[position]; }
-    const MutableColumnPtr& get_column_by_position(size_t position) const { return _columns[position]; }
+    const MutableColumnPtr& get_column_by_position(size_t position) const {
+        return _columns[position];
+    }
 
     DataTypePtr& get_datatype_by_position(size_t position) { return _data_types[position]; }
-    const DataTypePtr& get_datatype_by_position(size_t position) const { return _data_types[position]; }
+    const DataTypePtr& get_datatype_by_position(size_t position) const {
+        return _data_types[position];
+    }
 
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {

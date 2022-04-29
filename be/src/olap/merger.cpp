@@ -30,9 +30,8 @@
 namespace doris {
 
 Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                 RowsetWriter* dst_rowset_writer,
-                                 Merger::Statistics* stats_output) {
+                             const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                             RowsetWriter* dst_rowset_writer, Merger::Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
     TupleReader reader;
@@ -89,8 +88,8 @@ Status Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 }
 
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                  RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
+                              const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                              RowsetWriter* dst_rowset_writer, Statistics* stats_output) {
     TRACE_COUNTER_SCOPE_LATENCY_US("merge_rowsets_latency_us");
 
     vectorized::BlockReader reader;
@@ -105,7 +104,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     std::iota(reader_params.return_columns.begin(), reader_params.return_columns.end(), 0);
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
-    
+
     vectorized::Block block = schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
     while (true) {

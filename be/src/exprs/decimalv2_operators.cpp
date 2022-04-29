@@ -176,23 +176,23 @@ DateTimeVal DecimalV2Operators::cast_to_date_val(FunctionContext* context,
         return result;                                                                  \
     }
 
-#define DECIMAL_ARITHMETIC_OP_DIVIDE(FN_NAME, OP)                                   \
-DecimalV2Val DecimalV2Operators::FN_NAME##_decimalv2_val_decimalv2_val(             \
-        FunctionContext* context, const DecimalV2Val& v1, const DecimalV2Val& v2) { \
-    if (v1.is_null || v2.is_null || v2.value() == 0) return DecimalV2Val::null();   \
-    DecimalV2Value iv1 = DecimalV2Value::from_decimal_val(v1);                      \
-    DecimalV2Value iv2 = DecimalV2Value::from_decimal_val(v2);                      \
-    DecimalV2Value ir = iv1 OP iv2;                                                 \
-    DecimalV2Val result;                                                            \
-    ir.to_decimal_val(&result);                                                     \
-    return result;                                                                  \
-}
+#define DECIMAL_ARITHMETIC_OP_DIVIDE(FN_NAME, OP)                                       \
+    DecimalV2Val DecimalV2Operators::FN_NAME##_decimalv2_val_decimalv2_val(             \
+            FunctionContext* context, const DecimalV2Val& v1, const DecimalV2Val& v2) { \
+        if (v1.is_null || v2.is_null || v2.value() == 0) return DecimalV2Val::null();   \
+        DecimalV2Value iv1 = DecimalV2Value::from_decimal_val(v1);                      \
+        DecimalV2Value iv2 = DecimalV2Value::from_decimal_val(v2);                      \
+        DecimalV2Value ir = iv1 OP iv2;                                                 \
+        DecimalV2Val result;                                                            \
+        ir.to_decimal_val(&result);                                                     \
+        return result;                                                                  \
+    }
 
-#define DECIMAL_ARITHMETIC_OPS()                \
-    DECIMAL_ARITHMETIC_OP(add, +);              \
-    DECIMAL_ARITHMETIC_OP(subtract, -);         \
-    DECIMAL_ARITHMETIC_OP(multiply, *);         \
-    DECIMAL_ARITHMETIC_OP_DIVIDE(divide, /);    \
+#define DECIMAL_ARITHMETIC_OPS()             \
+    DECIMAL_ARITHMETIC_OP(add, +);           \
+    DECIMAL_ARITHMETIC_OP(subtract, -);      \
+    DECIMAL_ARITHMETIC_OP(multiply, *);      \
+    DECIMAL_ARITHMETIC_OP_DIVIDE(divide, /); \
     DECIMAL_ARITHMETIC_OP_DIVIDE(mod, %);
 
 DECIMAL_ARITHMETIC_OPS();

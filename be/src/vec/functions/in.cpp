@@ -67,8 +67,8 @@ public:
         }
         auto* state = new InState();
         context->set_function_state(scope, state);
-        state->hybrid_set.reset(create_set(convert_type_to_primitive(
-                context->get_arg_type(0)->type)));
+        state->hybrid_set.reset(
+                create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
 
         DCHECK(context->get_num_args() > 1);
         for (int i = 1; i < context->get_num_args(); ++i) {
@@ -78,7 +78,7 @@ public:
                 if (const_data.data == nullptr) {
                     state->null_in_set = true;
                 } else {
-                    state->hybrid_set->insert((void *) const_data.data, const_data.size);
+                    state->hybrid_set->insert((void*)const_data.data, const_data.size);
                 }
             } else {
                 state->use_set = false;
@@ -91,10 +91,10 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         auto in_state = reinterpret_cast<InState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!in_state) {
-            return Status::RuntimeError(fmt::format("funciton context for function '{}' must have Set;",
-                                get_name()));
+            return Status::RuntimeError(
+                    fmt::format("funciton context for function '{}' must have Set;", get_name()));
         }
         auto res = ColumnUInt8::create();
         ColumnUInt8::Container& vec_res = res->get_data();
@@ -112,7 +112,8 @@ public:
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const auto& ref_data = materialized_column->get_data_at(i);
                 if (ref_data.data) {
-                    vec_res[i] = negative ^ in_state->hybrid_set->find((void *) ref_data.data, ref_data.size);
+                    vec_res[i] = negative ^
+                                 in_state->hybrid_set->find((void*)ref_data.data, ref_data.size);
                     if (in_state->null_in_set) {
                         vec_null_map_to[i] = negative == vec_res[i];
                     } else {
@@ -135,8 +136,8 @@ public:
                     continue;
                 }
 
-                std::unique_ptr<HybridSetBase> hybrid_set(create_set(convert_type_to_primitive(
-                context->get_arg_type(0)->type)));
+                std::unique_ptr<HybridSetBase> hybrid_set(
+                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {
@@ -144,9 +145,9 @@ public:
                     if (set_data.data == nullptr)
                         null_in_set = true;
                     else
-                        hybrid_set->insert((void *)(set_data.data), set_data.size);
+                        hybrid_set->insert((void*)(set_data.data), set_data.size);
                 }
-                vec_res[i] = negative ^ hybrid_set->find((void *) ref_data.data, ref_data.size);
+                vec_res[i] = negative ^ hybrid_set->find((void*)ref_data.data, ref_data.size);
                 if (null_in_set) {
                     vec_null_map_to[i] = negative == vec_res[i];
                 } else {
@@ -156,7 +157,8 @@ public:
         }
 
         if (block.get_by_position(result).type->is_nullable()) {
-            block.replace_by_position(result, ColumnNullable::create(std::move(res), std::move(col_null_map_to)));
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(res), std::move(col_null_map_to)));
         } else {
             block.replace_by_position(result, std::move(res));
         }
@@ -172,7 +174,6 @@ public:
         return Status::OK();
     }
 };
-
 
 void register_function_in(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIn<false>>();

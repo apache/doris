@@ -40,7 +40,8 @@ class RemoteBlockManager : public BlockManager {
 public:
     // Note: all objects passed as pointers should remain alive for the lifetime
     // of the block manager.
-    RemoteBlockManager(Env* local_env, std::shared_ptr<StorageBackend> storage_backend, const BlockManagerOptions& opts);
+    RemoteBlockManager(Env* local_env, std::shared_ptr<StorageBackend> storage_backend,
+                       const BlockManagerOptions& opts);
     virtual ~RemoteBlockManager();
 
     Status open() override;

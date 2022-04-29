@@ -67,7 +67,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
-    std::vector<TExpr> _pre_filter; 
+    std::vector<TExpr> _pre_filter;
 };
 
 void VBrokerScannerTest::init_desc_table() {
@@ -357,7 +357,8 @@ TEST_F(VBrokerScannerTest, normal) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -402,7 +403,8 @@ TEST_F(VBrokerScannerTest, normal2) {
     range.size = 4;
     ranges.push_back(range);
 
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -439,7 +441,8 @@ TEST_F(VBrokerScannerTest, normal5) {
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
 
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter, &_counter);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 

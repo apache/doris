@@ -26,10 +26,13 @@ namespace doris {
 
 LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
                          bool is_high_priority, const std::string& sender_ip, bool is_vec)
-        : _load_id(load_id), _timeout_s(timeout_s), _is_high_priority(is_high_priority),
-          _sender_ip(sender_ip), _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(
-            mem_limit, "LoadChannel:" + _load_id.to_string(), nullptr, MemTrackerLevel::TASK);
+        : _load_id(load_id),
+          _timeout_s(timeout_s),
+          _is_high_priority(is_high_priority),
+          _sender_ip(sender_ip),
+          _is_vec(is_vec) {
+    _mem_tracker = MemTracker::create_tracker(mem_limit, "LoadChannel:" + _load_id.to_string(),
+                                              nullptr, MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -39,7 +42,8 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel removed. mem peak usage=" << _mem_tracker->peak_consumption()
               << ", info=" << _mem_tracker->debug_string() << ", load_id=" << _load_id
-              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip << ", is_vec=" << _is_vec;
+              << ", is high priority=" << _is_high_priority << ", sender_ip=" << _sender_ip
+              << ", is_vec=" << _is_vec;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -66,7 +70,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished, const int64_t index_id) {
+Status LoadChannel::_get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
+                                         bool& is_finished, const int64_t index_id) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _tablets_channels.find(index_id);
     if (it == _tablets_channels.end()) {

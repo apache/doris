@@ -402,23 +402,23 @@ public:
         bool cond_is_null = arg_cond.column->only_null();
 
         if (cond_is_null) {
-            block.replace_by_position(result, arg_else.column->clone_resized(arg_cond.column->size()));
+            block.replace_by_position(result,
+                                      arg_else.column->clone_resized(arg_cond.column->size()));
             return true;
         }
 
-        if (auto * nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
-	        DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
-	        Block temporary_block
-            {
-                { nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type), arg_cond.name },
-                arg_then,
-                arg_else,
-                block.get_by_position(result)
-            };
+        if (auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
+            DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
+            Block temporary_block {{nullable->get_nested_column_ptr(),
+                                    remove_nullable(arg_cond.type), arg_cond.name},
+                                   arg_then,
+                                   arg_else,
+                                   block.get_by_position(result)};
 
             execute_impl(context, temporary_block, {0, 1, 2}, 3, temporary_block.rows());
 
-            block.get_by_position(result).column = std::move(temporary_block.get_by_position(3).column);
+            block.get_by_position(result).column =
+                    std::move(temporary_block.get_by_position(3).column);
             return true;
         }
         return false;

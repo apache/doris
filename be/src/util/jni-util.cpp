@@ -35,7 +35,7 @@ void FindOrCreateJavaVM() {
     int num_vms;
     int rv = JNI_GetCreatedJavaVMs(&g_vm, 1, &num_vms);
     if (rv == 0) {
-        JNIEnv *env;
+        JNIEnv* env;
         JavaVMInitArgs vm_args;
         JavaVMOption options[1];
         char* str = getenv("DORIS_JNI_CLASSPATH_PARAMETER");
@@ -45,7 +45,7 @@ void FindOrCreateJavaVM() {
         vm_args.nOptions = 1;
         vm_args.ignoreUnrecognized = JNI_TRUE;
 
-        int res = JNI_CreateJavaVM(&g_vm, (void **)&env, &vm_args);
+        int res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
         DCHECK_LT(res, 0) << "Failed tp create JVM, code= " << res;
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
@@ -101,7 +101,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
     GoogleOnceInit(&g_vm_once, &FindOrCreateJavaVM);
     int rc = g_vm->GetEnv(reinterpret_cast<void**>(&tls_env_), JNI_VERSION_1_8);
     if (rc == JNI_EDETACHED) {
-        rc = g_vm->AttachCurrentThread((void **) &tls_env_, nullptr);
+        rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
     if (rc != 0 || tls_env_ == nullptr) {
         return Status::InternalError("Unable to get JVM!");
@@ -117,10 +117,11 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     }
     env->ExceptionClear();
     DCHECK(throwable_to_string_id() != nullptr);
-    const char* oom_msg_template = "$0 threw an unchecked exception. The JVM is likely out "
+    const char* oom_msg_template =
+            "$0 threw an unchecked exception. The JVM is likely out "
             "of memory (OOM).";
-    jstring msg = static_cast<jstring>(env->CallStaticObjectMethod(jni_util_class(),
-                                                                   throwable_to_string_id(), exc));
+    jstring msg = static_cast<jstring>(
+            env->CallStaticObjectMethod(jni_util_class(), throwable_to_string_id(), exc));
     if (env->ExceptionOccurred()) {
         env->ExceptionClear();
         string oom_msg = strings::Substitute(oom_msg_template, "throwableToString");
@@ -130,8 +131,8 @@ Status JniUtil::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& pr
     JniUtfCharGuard msg_str_guard;
     RETURN_IF_ERROR(JniUtfCharGuard::create(env, msg, &msg_str_guard));
     if (log_stack) {
-        jstring stack = static_cast<jstring>(env->CallStaticObjectMethod(jni_util_class(),
-                                                                         throwable_to_stack_trace_id(), exc));
+        jstring stack = static_cast<jstring>(
+                env->CallStaticObjectMethod(jni_util_class(), throwable_to_stack_trace_id(), exc));
         if (env->ExceptionOccurred()) {
             env->ExceptionClear();
             string oom_msg = strings::Substitute(oom_msg_template, "throwableToStackTrace");
@@ -185,8 +186,7 @@ Status JniUtil::Init() {
     }
 
     // Find InternalException class and create a global ref.
-    jclass local_internal_exc_cl =
-            env->FindClass("org/apache/doris/udf/InternalException");
+    jclass local_internal_exc_cl = env->FindClass("org/apache/doris/udf/InternalException");
     if (local_internal_exc_cl == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil class.");
@@ -202,39 +202,34 @@ Status JniUtil::Init() {
     }
 
     // Throwable toString()
-    throwable_to_string_id_ =
-            env->GetStaticMethodID(jni_util_cl_, "throwableToString",
-                                   "(Ljava/lang/Throwable;)Ljava/lang/String;");
+    throwable_to_string_id_ = env->GetStaticMethodID(jni_util_cl_, "throwableToString",
+                                                     "(Ljava/lang/Throwable;)Ljava/lang/String;");
     if (throwable_to_string_id_ == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.throwableToString method.");
     }
 
     // throwableToStackTrace()
-    throwable_to_stack_trace_id_ =
-            env->GetStaticMethodID(jni_util_cl_, "throwableToStackTrace",
-                                   "(Ljava/lang/Throwable;)Ljava/lang/String;");
+    throwable_to_stack_trace_id_ = env->GetStaticMethodID(
+            jni_util_cl_, "throwableToStackTrace", "(Ljava/lang/Throwable;)Ljava/lang/String;");
     if (throwable_to_stack_trace_id_ == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.throwableToFullStackTrace method.");
     }
 
-    get_jvm_metrics_id_ =
-            env->GetStaticMethodID(jni_util_cl_, "getJvmMemoryMetrics", "()[B");
+    get_jvm_metrics_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmMemoryMetrics", "()[B");
     if (get_jvm_metrics_id_ == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.getJvmMemoryMetrics method.");
     }
 
-    get_jvm_threads_id_ =
-            env->GetStaticMethodID(jni_util_cl_, "getJvmThreadsInfo", "([B)[B");
+    get_jvm_threads_id_ = env->GetStaticMethodID(jni_util_cl_, "getJvmThreadsInfo", "([B)[B");
     if (get_jvm_threads_id_ == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.getJvmThreadsInfo method.");
     }
 
-    get_jmx_json_ =
-            env->GetStaticMethodID(jni_util_cl_, "getJMXJson", "()[B");
+    get_jmx_json_ = env->GetStaticMethodID(jni_util_cl_, "getJMXJson", "()[B");
     if (get_jmx_json_ == NULL) {
         if (env->ExceptionOccurred()) env->ExceptionDescribe();
         return Status::InternalError("Failed to find JniUtil.getJMXJson method.");

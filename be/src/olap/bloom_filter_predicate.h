@@ -86,7 +86,7 @@ void BloomFilterColumnPredicate<T>::evaluate(VectorizedRowBatch* batch) const {
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
-                                                uint16_t* size) const {
+                                             uint16_t* size) const {
     uint16_t new_size = 0;
     if (block->is_nullable()) {
         for (uint16_t i = 0; i < *size; ++i) {
@@ -109,7 +109,7 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
-                                                uint16_t* size) const {
+                                             uint16_t* size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
 
@@ -118,16 +118,18 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         // deal ColumnDict
         if (nullable_col->get_nested_column().is_column_dictionary()) {
-            auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(nullable_col->get_nested_column());
+            auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(
+                    nullable_col->get_nested_column());
             const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
-                new_size += (!null_map_data[idx]) && _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
+                new_size += (!null_map_data[idx]) &&
+                            _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
             }
         } else {
             auto* pred_col = vectorized::check_and_get_column<vectorized::PredicateColumnType<FT>>(
-                nullable_col->get_nested_column());
+                    nullable_col->get_nested_column());
             auto& pred_col_data = pred_col->get_data();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
@@ -166,4 +168,3 @@ public:
 };
 
 } //namespace doris
-

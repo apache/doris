@@ -46,16 +46,13 @@ class SegmentCacheHandle;
 using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 class SegmentLoader {
 public:
-
     // The cache key or segment lru cache
     struct CacheKey {
         CacheKey(RowsetId rowset_id_) : rowset_id(rowset_id_) {}
         RowsetId rowset_id;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
-            return rowset_id.to_string();
-        }
+        std::string encode() const { return rowset_id.to_string(); }
     };
 
     // The cache value of segment lru cache.
@@ -84,7 +81,8 @@ public:
 
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
-    Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle, bool use_cache = false);
+    Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
+                         bool use_cache = false);
 
     // Try to prune the segment cache if expired.
     Status prune();
@@ -125,7 +123,7 @@ public:
             CHECK(!owned);
             // last_visit_time is set when release.
             // because it only be needed when pruning.
-            ((SegmentLoader::CacheValue*) _cache->value(_handle))->last_visit_time = UnixMillis();
+            ((SegmentLoader::CacheValue*)_cache->value(_handle))->last_visit_time = UnixMillis();
             _cache->release(_handle);
         }
     }
@@ -147,9 +145,9 @@ public:
 
     std::vector<segment_v2::SegmentSharedPtr>& get_segments() {
         if (owned) {
-            return segments; 
+            return segments;
         } else {
-            return ((SegmentLoader::CacheValue*) _cache->value(_handle))->segments;
+            return ((SegmentLoader::CacheValue*)_cache->value(_handle))->segments;
         }
     }
 

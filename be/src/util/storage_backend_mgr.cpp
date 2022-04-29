@@ -111,25 +111,25 @@ Status StorageBackendMgr::_create_remote_storage_internal(const StorageParamPB& 
     }
     std::map<std::string, std::string> storage_prop;
     switch (storage_param_pb.storage_medium()) {
-        case StorageMediumPB::S3:
-        default:
-            S3StorageParamPB s3_storage_param = storage_param_pb.s3_storage_param();
-            if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty()
-                || s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
-                return Status::InternalError("s3_storage_param param is invalid");
-            }
-            storage_prop[S3_AK] = s3_storage_param.s3_ak();
-            storage_prop[S3_SK] = s3_storage_param.s3_sk();
-            storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
-            storage_prop[S3_REGION] = s3_storage_param.s3_region();
-            storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
-            storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
-            storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
+    case StorageMediumPB::S3:
+    default:
+        S3StorageParamPB s3_storage_param = storage_param_pb.s3_storage_param();
+        if (s3_storage_param.s3_ak().empty() || s3_storage_param.s3_sk().empty() ||
+            s3_storage_param.s3_endpoint().empty() || s3_storage_param.s3_region().empty()) {
+            return Status::InternalError("s3_storage_param param is invalid");
+        }
+        storage_prop[S3_AK] = s3_storage_param.s3_ak();
+        storage_prop[S3_SK] = s3_storage_param.s3_sk();
+        storage_prop[S3_ENDPOINT] = s3_storage_param.s3_endpoint();
+        storage_prop[S3_REGION] = s3_storage_param.s3_region();
+        storage_prop[S3_MAX_CONN_SIZE] = s3_storage_param.s3_max_conn();
+        storage_prop[S3_REQUEST_TIMEOUT_MS] = s3_storage_param.s3_request_timeout_ms();
+        storage_prop[S3_CONN_TIMEOUT_MS] = s3_storage_param.s3_conn_timeout_ms();
 
-            if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
-                return Status::InternalError("s3_storage_param is invalid");
-            }
-            _storage_backend_map[storage_name] = std::make_shared<S3StorageBackend>(storage_prop);
+        if (!ClientFactory::is_s3_conf_valid(storage_prop)) {
+            return Status::InternalError("s3_storage_param is invalid");
+        }
+        _storage_backend_map[storage_name] = std::make_shared<S3StorageBackend>(storage_prop);
     }
     _storage_param_map[storage_name] = storage_param_pb;
     _storage_backend_active_time[storage_name] = time(nullptr);
@@ -168,11 +168,10 @@ Status StorageBackendMgr::get_root_path(const std::string& storage_name, std::st
 
 std::string StorageBackendMgr::get_root_path_from_param(const StorageParamPB& storage_param) {
     switch (storage_param.storage_medium()) {
-        case StorageMediumPB::S3:
-        default:
-        {
-            return storage_param.s3_storage_param().root_path();
-        }
+    case StorageMediumPB::S3:
+    default: {
+        return storage_param.s3_storage_param().root_path();
+    }
     }
 }
 

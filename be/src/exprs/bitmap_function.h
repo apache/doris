@@ -87,9 +87,9 @@ public:
     static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
 
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap

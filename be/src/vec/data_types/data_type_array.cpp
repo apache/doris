@@ -26,12 +26,10 @@
 namespace doris::vectorized {
 
 namespace ErrorCodes {
-    extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
+extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 }
 
-DataTypeArray::DataTypeArray(const DataTypePtr & nested_)
-    : nested{nested_} {
-}
+DataTypeArray::DataTypeArray(const DataTypePtr& nested_) : nested {nested_} {}
 
 MutableColumnPtr DataTypeArray::create_column() const {
     return ColumnArray::create(nested->create_column(), ColumnArray::ColumnOffsets::create());
@@ -41,22 +39,24 @@ Field DataTypeArray::get_default() const {
     return Array();
 }
 
-bool DataTypeArray::equals(const IDataType & rhs) const {
-    return typeid(rhs) == typeid(*this) && nested->equals(*static_cast<const DataTypeArray &>(rhs).nested);
+bool DataTypeArray::equals(const IDataType& rhs) const {
+    return typeid(rhs) == typeid(*this) &&
+           nested->equals(*static_cast<const DataTypeArray&>(rhs).nested);
 }
 
 size_t DataTypeArray::get_number_of_dimensions() const {
-    const DataTypeArray * nested_array = typeid_cast<const DataTypeArray *>(nested.get());
-    if (!nested_array)
-        return 1;
-    return 1 + nested_array->get_number_of_dimensions();   /// Every modern C++ compiler optimizes tail recursion.
+    const DataTypeArray* nested_array = typeid_cast<const DataTypeArray*>(nested.get());
+    if (!nested_array) return 1;
+    return 1 +
+           nested_array
+                   ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
 }
 
 int64_t DataTypeArray::get_uncompressed_serialized_bytes(const IColumn& column) const {
     auto ptr = column.convert_to_full_column_if_const();
     const auto& data_column = assert_cast<const ColumnArray&>(*ptr.get());
     return sizeof(IColumn::Offset) * (column.size() + 1) +
-               get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
+           get_nested_type()->get_uncompressed_serialized_bytes(data_column.get_data());
 }
 
 char* DataTypeArray::serialize(const IColumn& column, char* buf) const {

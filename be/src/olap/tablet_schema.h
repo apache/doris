@@ -181,4 +181,3 @@ bool operator==(const TabletSchema& a, const TabletSchema& b);
 bool operator!=(const TabletSchema& a, const TabletSchema& b);
 
 } // namespace doris
-

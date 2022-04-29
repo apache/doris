@@ -58,14 +58,15 @@ SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id)
           _prop(std::map<std::string, std::string>()),
           _storage_backend(nullptr) {}
 
-SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id, const std::map<std::string, std::string>& prop)
+SnapshotLoader::SnapshotLoader(ExecEnv* env, int64_t job_id, int64_t task_id,
+                               const std::map<std::string, std::string>& prop)
         : _env(env),
           _job_id(job_id),
           _task_id(task_id),
           _broker_addr(TNetworkAddress()),
           _prop(prop) {
-              _storage_backend.reset(new S3StorageBackend(_prop));
-          }
+    _storage_backend.reset(new S3StorageBackend(_prop));
+}
 
 SnapshotLoader::~SnapshotLoader() = default;
 
@@ -155,7 +156,8 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
             // upload
             std::string full_remote_file = dest_path + "/" + local_file;
             std::string full_local_file = src_path + "/" + local_file;
-            RETURN_IF_ERROR(_storage_backend->upload_with_checksum(full_local_file, full_remote_file, md5sum));
+            RETURN_IF_ERROR(_storage_backend->upload_with_checksum(full_local_file,
+                                                                   full_remote_file, md5sum));
         } // end for each tablet's local files
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
@@ -206,8 +208,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
         int64_t remote_tablet_id;
         RETURN_IF_ERROR(_get_tablet_id_from_remote_path(remote_path, &remote_tablet_id));
-        VLOG_CRITICAL << "get local tablet id: " << local_tablet_id << ", schema hash: " << schema_hash
-                << ", remote tablet id: " << remote_tablet_id;
+        VLOG_CRITICAL << "get local tablet id: " << local_tablet_id
+                      << ", schema hash: " << schema_hash
+                      << ", remote tablet id: " << remote_tablet_id;
 
         // 2.1. get local files
         std::vector<std::string> local_files;
@@ -223,7 +226,8 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             return Status::InternalError(ss.str());
         }
 
-        TabletSharedPtr tablet = _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id);
+        TabletSharedPtr tablet =
+                _env->storage_engine()->tablet_manager()->get_tablet(local_tablet_id);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get local tablet: " << local_tablet_id;
@@ -257,7 +261,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
                         need_download = true;
                     } else {
                         VLOG_CRITICAL << "get local file checksum: " << remote_file << ": "
-                                << local_md5sum;
+                                      << local_md5sum;
                         if (file_stat.md5 != local_md5sum) {
                             // file's checksum does not equal, download it.
                             need_download = true;
@@ -295,12 +299,13 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             status = FileUtils::md5sum(full_local_file, &downloaded_md5sum);
             if (!status.ok()) {
                 std::stringstream ss;
-                ss << "failed to get md5sum of file: " << full_local_file << ", err: " << status.get_error_msg();
+                ss << "failed to get md5sum of file: " << full_local_file
+                   << ", err: " << status.get_error_msg();
                 LOG(WARNING) << ss.str();
                 return Status::InternalError(ss.str());
             }
             VLOG_CRITICAL << "get downloaded file checksum: " << full_local_file << ": "
-                    << downloaded_md5sum;
+                          << downloaded_md5sum;
             if (downloaded_md5sum != file_stat.md5) {
                 std::stringstream ss;
                 ss << "invalid md5 of downloaded file: " << full_local_file
@@ -335,7 +340,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             // delete
             std::string full_local_file = local_path + "/" + local_file;
             VLOG_CRITICAL << "begin to delete local snapshot file: " << full_local_file
-                    << ", it does not exist in remote";
+                          << ", it does not exist in remote";
             if (remove(full_local_file.c_str()) != 0) {
                 LOG(WARNING) << "failed to delete unknown local file: " << full_local_file
                              << ", ignore it";
@@ -514,7 +519,7 @@ Status SnapshotLoader::_get_tablet_id_and_schema_hash_from_file_path(const std::
     ss2 >> *tablet_id;
 
     VLOG_CRITICAL << "get tablet id " << *tablet_id << ", schema hash: " << *schema_hash
-            << " from path: " << src_path;
+                  << " from path: " << src_path;
     return Status::OK();
 }
 

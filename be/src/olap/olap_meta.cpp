@@ -82,8 +82,7 @@ Status OlapMeta::init() {
     return Status::OK();
 }
 
-Status OlapMeta::get(const int column_family_index, const std::string& key,
-                         std::string* value) {
+Status OlapMeta::get(const int column_family_index, const std::string& key, std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
@@ -103,7 +102,7 @@ Status OlapMeta::get(const int column_family_index, const std::string& key,
 }
 
 bool OlapMeta::key_may_exist(const int column_family_index, const std::string& key,
-                         std::string* value) {
+                             std::string* value) {
     DorisMetrics::instance()->meta_read_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
@@ -113,12 +112,12 @@ bool OlapMeta::key_may_exist(const int column_family_index, const std::string& k
         is_exist = _db->KeyMayExist(ReadOptions(), handle, rocksdb::Slice(key), value);
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
-    
+
     return is_exist;
 }
 
 Status OlapMeta::put(const int column_family_index, const std::string& key,
-                         const std::string& value) {
+                     const std::string& value) {
     DorisMetrics::instance()->meta_write_request_total->increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
@@ -156,9 +155,8 @@ Status OlapMeta::remove(const int column_family_index, const std::string& key) {
     return Status::OK();
 }
 
-Status OlapMeta::iterate(
-        const int column_family_index, const std::string& prefix,
-        std::function<bool(const std::string&, const std::string&)> const& func) {
+Status OlapMeta::iterate(const int column_family_index, const std::string& prefix,
+                         std::function<bool(const std::string&, const std::string&)> const& func) {
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     std::unique_ptr<Iterator> it(_db->NewIterator(ReadOptions(), handle));
     if (prefix == "") {

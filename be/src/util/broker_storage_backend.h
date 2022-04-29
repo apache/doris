@@ -36,8 +36,8 @@ public:
                                 const std::string& checksum) override;
     Status rename(const std::string& orig_name, const std::string& new_name) override;
     Status rename_dir(const std::string& orig_name, const std::string& new_name) override;
-    Status list(const std::string& remote_path, bool contain_md5,
-                bool recursion, std::map<std::string, FileStat>* files) override;
+    Status list(const std::string& remote_path, bool contain_md5, bool recursion,
+                std::map<std::string, FileStat>* files) override;
     Status direct_upload(const std::string& remote, const std::string& content) override;
     Status rm(const std::string& remote) override;
     Status rmdir(const std::string& remote) override;

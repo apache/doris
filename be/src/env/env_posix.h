@@ -87,7 +87,6 @@ public:
     Status link_file(const std::string& old_path, const std::string& new_path) override;
 
     Status get_space_info(const std::string& path, int64_t* capacity, int64_t* available) override;
-
 };
 
 } // namespace doris

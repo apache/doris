@@ -87,20 +87,23 @@ void CollectIterator::build_heap(const std::vector<RowsetReaderSharedPtr>& rs_re
                 }
                 ++i;
             }
-            Level1Iterator* cumu_iter =
-                    new Level1Iterator(cumu_children, cumu_children.size() > 1, _reverse,
-                                       _reader->_sequence_col_idx, &_reader->_merged_rows, sort_type, sort_col_num);
+            Level1Iterator* cumu_iter = new Level1Iterator(
+                    cumu_children, cumu_children.size() > 1, _reverse, _reader->_sequence_col_idx,
+                    &_reader->_merged_rows, sort_type, sort_col_num);
             cumu_iter->init();
-            _inner_iter.reset(new Level1Iterator(std::list<LevelIterator*>{*base_reader_child, cumu_iter}, _merge,
-                    _reverse, _reader->_sequence_col_idx, &_reader->_merged_rows, sort_type, sort_col_num));
+            _inner_iter.reset(new Level1Iterator(
+                    std::list<LevelIterator*> {*base_reader_child, cumu_iter}, _merge, _reverse,
+                    _reader->_sequence_col_idx, &_reader->_merged_rows, sort_type, sort_col_num));
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(_children, _merge,
-                    _reverse, _reader->_sequence_col_idx, &_reader->_merged_rows, sort_type, sort_col_num));
+            _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse,
+                                                 _reader->_sequence_col_idx, &_reader->_merged_rows,
+                                                 sort_type, sort_col_num));
         }
     } else {
-        _inner_iter.reset(new Level1Iterator(_children, _merge,
-                _reverse, _reader->_sequence_col_idx, &_reader->_merged_rows, sort_type, sort_col_num));
+        _inner_iter.reset(new Level1Iterator(_children, _merge, _reverse,
+                                             _reader->_sequence_col_idx, &_reader->_merged_rows,
+                                             sort_type, sort_col_num));
     }
     _inner_iter->init();
     // Clear _children earlier to release any related references
@@ -122,12 +125,13 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
     if (_sequence_id_idx != -1) {
         auto seq_first_cell = first->cell(_sequence_id_idx);
         auto seq_second_cell = second->cell(_sequence_id_idx);
-        auto res = first->schema()->column(_sequence_id_idx)->compare_cell(seq_first_cell, seq_second_cell);
+        auto res = first->schema()
+                           ->column(_sequence_id_idx)
+                           ->compare_cell(seq_first_cell, seq_second_cell);
         if (res != 0) {
             res < 0 ? a->set_need_skip(true) : b->set_need_skip(true);
             return res < 0;
         }
-
     }
     // if row cursors equal, compare data version.
     // read data from higher version to lower version.
@@ -141,8 +145,7 @@ bool CollectIterator::LevelIteratorComparator::operator()(const LevelIterator* a
     return a->version() > b->version();
 }
 
-CollectIterator::BaseComparator::BaseComparator(
-        std::shared_ptr<LevelIteratorComparator>& cmp) {
+CollectIterator::BaseComparator::BaseComparator(std::shared_ptr<LevelIteratorComparator>& cmp) {
     _cmp = cmp;
 }
 
@@ -151,7 +154,7 @@ bool CollectIterator::BaseComparator::operator()(const LevelIterator* a, const L
 }
 
 bool CollectIterator::LevelZorderIteratorComparator::operator()(const LevelIterator* a,
-                                                                    const LevelIterator* b) {
+                                                                const LevelIterator* b) {
     // First compare row cursor.
     const RowCursor* first = a->current_row();
     const RowCursor* second = b->current_row();
@@ -184,7 +187,8 @@ Status CollectIterator::next(const RowCursor** row, bool* delete_flag) {
     }
 }
 
-CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
+CollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
+                                                TabletReader* reader)
         : _rs_reader(rs_reader), _is_delete(rs_reader->delete_flag()), _reader(reader) {
     if (LIKELY(rs_reader->type() == RowsetTypePB::BETA_ROWSET)) {
         _refresh_current_row = &Level0Iterator::_refresh_current_row_v2;
@@ -270,11 +274,15 @@ Status CollectIterator::Level0Iterator::next(const RowCursor** row, bool* delete
 }
 
 CollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<CollectIterator::LevelIterator*>& children,
-        bool merge, bool reverse, int sequence_id_idx, uint64_t* merge_count,
-        SortType sort_type, int sort_col_num)
-        : _children(children), _merge(merge), _reverse(reverse), _sequence_id_idx(sequence_id_idx),
-        _merged_rows(merge_count), _sort_type(sort_type), _sort_col_num(sort_col_num) {}
+        const std::list<CollectIterator::LevelIterator*>& children, bool merge, bool reverse,
+        int sequence_id_idx, uint64_t* merge_count, SortType sort_type, int sort_col_num)
+        : _children(children),
+          _merge(merge),
+          _reverse(reverse),
+          _sequence_id_idx(sequence_id_idx),
+          _merged_rows(merge_count),
+          _sort_type(sort_type),
+          _sort_col_num(sort_col_num) {}
 
 CollectIterator::LevelIterator::~LevelIterator() = default;
 
@@ -345,7 +353,8 @@ Status CollectIterator::Level1Iterator::init() {
     if (_merge && _children.size() > 1) {
         std::shared_ptr<LevelIteratorComparator> cmp;
         if (_sort_type == SortType::ZORDER) {
-            cmp = std::make_shared<LevelZorderIteratorComparator>(_reverse, _sequence_id_idx,  _sort_col_num);
+            cmp = std::make_shared<LevelZorderIteratorComparator>(_reverse, _sequence_id_idx,
+                                                                  _sort_col_num);
         } else {
             cmp = std::make_shared<LevelIteratorComparator>(_reverse, _sequence_id_idx);
         }
@@ -368,7 +377,7 @@ Status CollectIterator::Level1Iterator::init() {
 }
 
 inline Status CollectIterator::Level1Iterator::_merge_next(const RowCursor** row,
-                                                               bool* delete_flag) {
+                                                           bool* delete_flag) {
     _heap->pop();
     auto res = _cur_child->next(row, delete_flag);
     if (LIKELY(res.ok())) {
@@ -399,7 +408,7 @@ inline Status CollectIterator::Level1Iterator::_merge_next(const RowCursor** row
 }
 
 inline Status CollectIterator::Level1Iterator::_normal_next(const RowCursor** row,
-                                                                bool* delete_flag) {
+                                                            bool* delete_flag) {
     auto res = _cur_child->next(row, delete_flag);
     if (LIKELY(res.ok())) {
         return Status::OK();

@@ -28,8 +28,9 @@
 
 namespace doris {
 
-Status RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
-                                        RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
+Status RowsetFactory::create_rowset(const TabletSchema* schema,
+                                    const FilePathDesc& rowset_path_desc,
+                                    RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
     if (rowset_meta->rowset_type() == ALPHA_ROWSET) {
         rowset->reset(new AlphaRowset(schema, rowset_path_desc, rowset_meta));
         return (*rowset)->init();
@@ -42,7 +43,7 @@ Status RowsetFactory::create_rowset(const TabletSchema* schema, const FilePathDe
 }
 
 Status RowsetFactory::create_rowset_writer(const RowsetWriterContext& context,
-                                               std::unique_ptr<RowsetWriter>* output) {
+                                           std::unique_ptr<RowsetWriter>* output) {
     if (context.rowset_type == ALPHA_ROWSET) {
         output->reset(new AlphaRowsetWriter);
         return (*output)->init(context);

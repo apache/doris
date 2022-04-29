@@ -173,7 +173,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                CollectionValue::deserialize_collection(array_val, tuple_data, slot_collection->type());
+                CollectionValue::deserialize_collection(array_val, tuple_data,
+                                                        slot_collection->type());
             }
         }
     }
@@ -257,7 +258,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
-            mutable_tuple_offsets->Add((int32_t) offset);
+            mutable_tuple_offsets->Add((int32_t)offset);
             mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
             CHECK_LE(offset, size);

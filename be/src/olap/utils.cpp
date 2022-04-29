@@ -59,7 +59,7 @@ using std::vector;
 namespace doris {
 
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                         size_t* written_len, OLAPCompressionType compression_type) {
+                     size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
         OLAP_LOG_WARNING(
                 "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
@@ -78,10 +78,8 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         if (LZO_E_OK != (lzo_res = lzo1x_1_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) <<  "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
             return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
@@ -99,10 +97,8 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         if (LZO_E_OK != (lzo_res = lzo1c_99_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) << "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
             return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
@@ -134,7 +130,7 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
 }
 
 Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                           size_t* written_len, OLAPCompressionType compression_type) {
+                       size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
         OLAP_LOG_WARNING(
                 "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
@@ -151,10 +147,8 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
             return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
@@ -169,10 +163,8 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) <<  "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
             return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
             OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
@@ -188,10 +180,8 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (lz4_res < 0) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lz4_res;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lz4_res;
             return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;

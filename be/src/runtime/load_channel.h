@@ -48,8 +48,7 @@ public:
 
     // this batch must belong to a index in one transaction
     template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
-    Status add_batch(const TabletWriterAddRequest& request,
-                     TabletWriterAddResult* response);
+    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -73,19 +72,16 @@ public:
     bool is_high_priority() const { return _is_high_priority; }
 
 protected:
-    Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel,
-                                bool& is_finished,
+    Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
-    
-    template<typename Request, typename Response>
-    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
-                       const Request& request,
+
+    template <typename Request, typename Response>
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel, const Request& request,
                        Response* response) {
         bool finished = false;
         auto index_id = request.index_id();
-        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
-                                        &finished, request.partition_ids(),
-                                        response->mutable_tablet_vec()));
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), &finished,
+                                       request.partition_ids(), response->mutable_tablet_vec()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -93,7 +89,6 @@ protected:
         }
         return Status::OK();
     }
-
 
 private:
     // when mem consumption exceeds limit, should call this method to find the channel
@@ -169,8 +164,8 @@ Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
-        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
-        << ", is high priority: " << load_channel.is_high_priority() << ")";
+       << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
+       << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
 }
 

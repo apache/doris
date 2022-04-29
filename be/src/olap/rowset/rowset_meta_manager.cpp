@@ -42,8 +42,8 @@ bool RowsetMetaManager::check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
 }
 
 Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                              const RowsetId& rowset_id,
-                                              RowsetMetaSharedPtr rowset_meta) {
+                                          const RowsetId& rowset_id,
+                                          RowsetMetaSharedPtr rowset_meta) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
@@ -65,8 +65,8 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
 }
 
 Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                                   const RowsetId& rowset_id,
-                                                   std::string* json_rowset_meta) {
+                                               const RowsetId& rowset_id,
+                                               std::string* json_rowset_meta) {
     RowsetMetaSharedPtr rowset_meta_ptr(new (std::nothrow) RowsetMeta());
     Status status = get_rowset_meta(meta, tablet_uid, rowset_id, rowset_meta_ptr);
     if (!status.ok()) {
@@ -81,7 +81,7 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
 }
 
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                                   const RowsetMetaPB& rowset_meta_pb) {
+                               const RowsetMetaPB& rowset_meta_pb) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     bool ret = rowset_meta_pb.SerializeToString(&value);
@@ -94,8 +94,7 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
     return status;
 }
 
-Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid,
-                                     const RowsetId& rowset_id) {
+Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     VLOG_NOTICE << "start to remove rowset, key:" << key;
     Status status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
@@ -128,7 +127,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
 }
 
 Status RowsetMetaManager::load_json_rowset_meta(OlapMeta* meta,
-                                                    const std::string& rowset_meta_path) {
+                                                const std::string& rowset_meta_path) {
     std::ifstream infile(rowset_meta_path);
     char buffer[1024];
     std::string json_rowset_meta;

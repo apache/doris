@@ -27,15 +27,11 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "util/time.h"
 
-
 namespace doris {
 const std::string STREAM_LOAD_POSTFIX = "/stream_load";
 
 StreamLoadRecorder::StreamLoadRecorder(const std::string& root_path)
-        : _root_path(root_path),
-          _db(nullptr),
-          _last_compaction_time(UnixMillis()) {
-}
+        : _root_path(root_path), _db(nullptr), _last_compaction_time(UnixMillis()) {}
 
 StreamLoadRecorder::~StreamLoadRecorder() {
     if (_db != nullptr) {
@@ -59,10 +55,12 @@ Status StreamLoadRecorder::init() {
     // default column family is required
     column_families.emplace_back(DEFAULT_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
     std::vector<int32_t> ttls = {config::stream_load_record_expire_time_secs};
-    rocksdb::Status s = rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &_db, ttls);
+    rocksdb::Status s =
+            rocksdb::DBWithTTL::Open(options, db_path, column_families, &_handles, &_db, ttls);
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb open failed, reason: " + s.ToString());
+        return Status::InternalError("Stream load record rocksdb open failed, reason: " +
+                                     s.ToString());
     }
     return Status::OK();
 }
@@ -74,10 +72,12 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
     rocksdb::Status s = _db->Put(write_options, handle, rocksdb::Slice(key), rocksdb::Slice(value));
     if (!s.ok()) {
         LOG(WARNING) << "rocks db put key:" << key << " failed, reason:" << s.ToString();
-        return Status::InternalError("Stream load record rocksdb put failed, reason: " + s.ToString());
+        return Status::InternalError("Stream load record rocksdb put failed, reason: " +
+                                     s.ToString());
     }
 
-    if ((UnixMillis() - _last_compaction_time) / 1000 > config::clean_stream_load_record_interval_secs) {
+    if ((UnixMillis() - _last_compaction_time) / 1000 >
+        config::clean_stream_load_record_interval_secs) {
         rocksdb::CompactRangeOptions options;
         s = _db->CompactRange(options, _handles[0], nullptr, nullptr);
         if (s.ok()) {
@@ -87,7 +87,8 @@ Status StreamLoadRecorder::put(const std::string& key, const std::string& value)
     return Status::OK();
 }
 
-Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size, std::map<std::string, std::string>* stream_load_records) {
+Status StreamLoadRecorder::get_batch(const std::string& start, const int batch_size,
+                                     std::map<std::string, std::string>* stream_load_records) {
     rocksdb::ColumnFamilyHandle* handle = _handles[0];
     std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));
     if (start == "-1") {

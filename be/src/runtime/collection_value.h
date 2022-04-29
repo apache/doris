@@ -28,7 +28,7 @@ namespace doris {
 using doris_udf::AnyVal;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
-using GenMemFootprintFunc = std::function<MemFootprint (int size)>;
+using GenMemFootprintFunc = std::function<MemFootprint(int size)>;
 
 struct TypeDescriptor;
 class ArrayIterator;
@@ -59,9 +59,7 @@ public:
     CollectionValue(void* data, uint32_t length, bool has_null, bool* null_signs)
             : _data(data), _length(length), _has_null(has_null), _null_signs(null_signs) {}
 
-    bool is_null_at(uint32_t index) const {
-        return this->_has_null && this->_null_signs[index];
-    }
+    bool is_null_at(uint32_t index) const { return this->_has_null && this->_null_signs[index]; }
 
     void to_collection_val(CollectionVal* val) const;
 
@@ -100,26 +98,21 @@ public:
     // Deep copy collection.
     // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
     // copy data from origin collection value).
-    static void deep_copy_collection(
-            CollectionValue* shallow_copied_cv,
-            const TypeDescriptor& item_type,
-            const GenMemFootprintFunc& gen_mem_footprint,
-            bool convert_ptrs);
+    static void deep_copy_collection(CollectionValue* shallow_copied_cv,
+                                     const TypeDescriptor& item_type,
+                                     const GenMemFootprintFunc& gen_mem_footprint,
+                                     bool convert_ptrs);
 
     // Deep copy items in collection.
     // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
     // copy data from origin collection value).
-    static void deep_copy_items_in_collection(
-            CollectionValue* shallow_copied_cv,
-            char* base,
-            const TypeDescriptor& item_type,
-            const GenMemFootprintFunc& gen_mem_footprint,
-            bool convert_ptrs);
+    static void deep_copy_items_in_collection(CollectionValue* shallow_copied_cv, char* base,
+                                              const TypeDescriptor& item_type,
+                                              const GenMemFootprintFunc& gen_mem_footprint,
+                                              bool convert_ptrs);
 
-    static void deserialize_collection(
-            CollectionValue* cv,
-            const char* tuple_data,
-            const TypeDescriptor& type);
+    static void deserialize_collection(CollectionValue* cv, const char* tuple_data,
+                                       const TypeDescriptor& type);
 
     const void* data() const { return _data; }
     bool has_null() const { return _has_null; }

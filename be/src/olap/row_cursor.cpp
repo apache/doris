@@ -67,19 +67,19 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 }
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
-                            const std::vector<uint32_t>& columns) {
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(*shared_schema.get()));
     return _init(columns);
 }
 
 Status RowCursor::_init(const std::vector<TabletColumn>& schema,
-                            const std::vector<uint32_t>& columns) {
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
     return _init(columns);
 }
 
 Status RowCursor::_init_scan_key(const TabletSchema& schema,
-                                     const std::vector<std::string>& scan_keys) {
+                                 const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
@@ -173,7 +173,7 @@ Status RowCursor::init(const TabletSchema& schema, const std::vector<uint32_t>& 
 }
 
 Status RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys) {
+                                const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
     if (scan_key_size > schema.num_columns()) {
         LOG(WARNING)
@@ -192,8 +192,8 @@ Status RowCursor::init_scan_key(const TabletSchema& schema,
 }
 
 Status RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys,
-                                    const std::shared_ptr<Schema>& shared_schema) {
+                                const std::vector<std::string>& scan_keys,
+                                const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
 
     std::vector<uint32_t> columns;
