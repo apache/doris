@@ -21,6 +21,7 @@
 #pragma once
 #include <cmath>
 
+#include "common/config.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/common/arithmetic_overflow.h"
 #include "vec/common/typeid_cast.h"
@@ -46,7 +47,7 @@ constexpr size_t max_decimal_precision<Decimal64>() {
 }
 template <>
 constexpr size_t max_decimal_precision<Decimal128>() {
-    return 27;
+    return 38;
 }
 
 DataTypePtr create_decimal(UInt64 precision, UInt64 scale);
@@ -187,6 +188,8 @@ public:
 
     static T get_scale_multiplier(UInt32 scale);
 
+    T parse_from_string(const std::string& str) const;
+
 private:
     const UInt32 precision;
     const UInt32 scale;
@@ -196,26 +199,54 @@ template <typename T, typename U>
 typename std::enable_if_t<(sizeof(T) >= sizeof(U)), const DataTypeDecimal<T>> decimal_result_type(
         const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
         bool is_divide) {
-    return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+    if (config::enable_decimalv3) {
+        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
+        if (is_multiply) {
+            scale = tx.get_scale() + ty.get_scale();
+        } else if (is_divide) {
+            scale = tx.get_scale();
+        }
+        return DataTypeDecimal<T>(max_decimal_precision<T>(), scale);
+    } else {
+        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+    }
 }
 
 template <typename T, typename U>
 typename std::enable_if_t<(sizeof(T) < sizeof(U)), const DataTypeDecimal<U>> decimal_result_type(
         const DataTypeDecimal<T>& tx, const DataTypeDecimal<U>& ty, bool is_multiply,
         bool is_divide) {
-    return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
+    if (config::enable_decimalv3) {
+        UInt32 scale = (tx.get_scale() > ty.get_scale() ? tx.get_scale() : ty.get_scale());
+        if (is_multiply) {
+            scale = tx.get_scale() + ty.get_scale();
+        } else if (is_divide) {
+            scale = tx.get_scale();
+        }
+        return DataTypeDecimal<U>(max_decimal_precision<U>(), scale);
+    } else {
+        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
+    }
 }
 
 template <typename T, typename U>
 const DataTypeDecimal<T> decimal_result_type(const DataTypeDecimal<T>& tx, const DataTypeNumber<U>&,
                                              bool, bool) {
-    return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+    if (config::enable_decimalv3) {
+        return DataTypeDecimal<T>(max_decimal_precision<T>(), tx.get_scale());
+    } else {
+        return DataTypeDecimal<T>(max_decimal_precision<T>(), 9);
+    }
 }
 
 template <typename T, typename U>
 const DataTypeDecimal<U> decimal_result_type(const DataTypeNumber<T>&, const DataTypeDecimal<U>& ty,
                                              bool, bool) {
-    return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
+    if (config::enable_decimalv3) {
+        return DataTypeDecimal<U>(max_decimal_precision<U>(), ty.get_scale());
+    } else {
+        return DataTypeDecimal<U>(max_decimal_precision<U>(), 9);
+    }
 }
 
 template <typename T>

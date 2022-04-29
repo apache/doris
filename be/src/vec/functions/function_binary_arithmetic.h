@@ -251,7 +251,14 @@ struct DecimalBinaryOperation {
                               ArrayC& c, ResultType scale_a [[maybe_unused]],
                               ResultType scale_b [[maybe_unused]], NullMap& null_map) {
         size_t size = a.size();
-
+        if (config::enable_decimalv3) {
+            if constexpr (OpTraits::is_division && IsDecimalNumber<B>) {
+                for (size_t i = 0; i < size; ++i) {
+                    c[i] = apply_scaled_div(a[i], b[i], scale_a, null_map[i]);
+                }
+                return;
+            }
+        }
         /// default: use it if no return before
         for (size_t i = 0; i < size; ++i) {
             c[i] = apply(a[i], b[i], null_map[i]);
@@ -451,6 +458,18 @@ struct DecimalBinaryOperation {
 private:
     /// there's implicit type convertion here
     static NativeResultType apply(NativeResultType a, NativeResultType b) {
+        if (config::enable_decimalv3) {
+            if constexpr (OpTraits::can_overflow && check_overflow) {
+                NativeResultType res;
+                if (Op::template apply<NativeResultType>(a, b, res)) {
+                    LOG(FATAL) << "Decimal math overflow";
+                }
+                return res;
+            } else {
+                return Op::template apply<NativeResultType>(a, b);
+            }
+        }
+
         // Now, Doris only support decimal +-*/ decimal.
         // overflow in consider in operator
         DecimalV2Value l(a);
@@ -463,6 +482,10 @@ private:
 
     /// null_map for divide and mod
     static NativeResultType apply(NativeResultType a, NativeResultType b, UInt8& is_null) {
+        if (config::enable_decimalv3) {
+            return Op::template apply<NativeResultType>(a, b, is_null);
+        }
+
         DecimalV2Value l(a);
         DecimalV2Value r(b);
         auto ans = Op::template apply(l, r, is_null);
