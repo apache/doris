@@ -55,19 +55,20 @@ BetaRowsetWriter::~BetaRowsetWriter() {
     if (!_already_built) {       // abnormal exit, remove all files generated
         _segment_writer.reset(); // ensure all files are closed
         Status st;
+        std::shared_ptr <StorageBackend> storage_backend(nullptr);
         if (_context.path_desc.is_remote()) {
-            std::shared_ptr<StorageBackend> storage_backend = StorageBackendMgr::instance()->
-                    get_storage_backend(_context.path_desc.storage_name);
+            storage_backend = StorageBackendMgr::instance()->get_storage_backend(_context.path_desc.storage_name);
             if (storage_backend == nullptr) {
                 LOG(WARNING) << "storage_backend is invalid: " << _context.path_desc.debug_string();
                 return;
             }
-            WARN_IF_ERROR(storage_backend->rmdir(_context.path_desc.remote_path),
-                    strings::Substitute("Failed to delete remote file=$0", _context.path_desc.remote_path));
         }
         for (int i = 0; i < _num_segment; ++i) {
-            auto path_desc = BetaRowset::segment_file_path(_context.path_desc,
-                                                      _context.rowset_id, i);
+            auto path_desc = BetaRowset::segment_file_path(_context.path_desc, _context.rowset_id, i);
+            if (_context.path_desc.is_remote()) {
+                WARN_IF_ERROR(storage_backend->rm(path_desc.remote_path),
+                              strings::Substitute("Failed to delete remote file=$0", path_desc.remote_path));
+            }
             // Even if an error is encountered, these files that have not been cleaned up
             // will be cleaned up by the GC background. So here we only print the error
             // message when we encounter an error.
