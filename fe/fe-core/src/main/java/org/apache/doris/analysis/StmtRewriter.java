@@ -1158,9 +1158,6 @@ public class StmtRewriter {
             TableRef tableRef = selectStmt.fromClause_.get(i);
             if (tableRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tableRef;
-                if (viewRef.getAlias().startsWith("policy_rewrite")) {
-                    continue;
-                }
                 rewriteByPolicy(viewRef.getQueryStmt(), analyzer);
             }
             // has been rewrite
@@ -1191,8 +1188,6 @@ public class StmtRewriter {
                     null,
                     LimitElement.NO_LIMIT);
             selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().toSql(), stmt));
-            String sql = selectStmt.toSql();
-            LOG.info("child sql={}", sql);
         }
         String sql = selectStmt.toSql();
         LOG.info("sql={}", sql);
