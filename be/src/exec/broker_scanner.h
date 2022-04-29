@@ -56,7 +56,7 @@ public:
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    ~BrokerScanner();
+    virtual ~BrokerScanner();
 
     // Open this scanner, will initialize information need to
     Status open() override;
@@ -67,12 +67,16 @@ public:
     // Close this scanner
     void close() override;
 
+protected:
+    // Read next buffer from reader
+    Status open_next_reader();
+
+    Status _line_to_src_tuple(const Slice& line);
+
 private:
     Status open_file_reader();
     Status create_decompressor(TFileFormatType::type type);
     Status open_line_reader();
-    // Read next buffer from reader
-    Status open_next_reader();
 
     // Split one text line to values
     void split_line(const Slice& line);
@@ -88,13 +92,9 @@ private:
     //  output is tuple
     Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple);
 
-    Status _line_to_src_tuple(const Slice& line);
-
-private:
+protected:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
-
-    std::unique_ptr<TextConverter> _text_converter;
 
     std::string _value_separator;
     std::string _line_delimiter;

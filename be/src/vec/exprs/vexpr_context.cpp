@@ -68,6 +68,7 @@ void VExprContext::close(doris::RuntimeState* state) {
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         _fn_contexts[i]->impl()->close();
+        delete _fn_contexts[i];
     }
     // _pool can be NULL if Prepare() was never called
     if (_pool != NULL) {
