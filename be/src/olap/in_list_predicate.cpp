@@ -134,12 +134,13 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                     auto* nested_col_ptr = vectorized::check_and_get_column<                       \
                             vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);          \
                     auto& data_array = nested_col_ptr->get_data();                                 \
+                    auto dict_codes = nested_col_ptr->find_codes(_values);                         \
                     for (uint16_t i = 0; i < *size; i++) {                                         \
                         uint16_t idx = sel[i];                                                     \
                         sel[new_size] = idx;                                                       \
                         const auto& cell_value = data_array[idx];                                  \
                         bool ret = !null_bitmap[idx]                                               \
-                                   && (_dict_codes.find(cell_value) OP _dict_codes.end());         \
+                                   && (dict_codes.find(cell_value) OP dict_codes.end());           \
                         new_size += _opposite ? !ret : ret;                                        \
                     }                                                                              \
                 }                                                                                  \
@@ -155,18 +156,18 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
                     new_size += _opposite ? !ret : ret;                                            \
                 }                                                                                  \
             }                                                                                      \
-            *size = new_size;                                                                      \
         } else if (column.is_column_dictionary()) {                                                \
             if constexpr (std::is_same_v<T, StringValue>) {                                        \
                 auto& dict_col =                                                                   \
                         reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(        \
                                 column);                                                           \
                 auto& data_array = dict_col.get_data();                                            \
+                auto dict_codes = dict_col.find_codes(_values);                                    \
                 for (uint16_t i = 0; i < *size; i++) {                                             \
                     uint16_t idx = sel[i];                                                         \
                     sel[new_size] = idx;                                                           \
                     const auto& cell_value = data_array[idx];                                      \
-                    auto result = (_dict_codes.find(cell_value) OP _dict_codes.end());             \
+                    auto result = (dict_codes.find(cell_value) OP dict_codes.end());               \
                     new_size += _opposite ? !result : result;                                      \
                 }                                                                                  \
             }                                                                                      \
@@ -282,32 +283,6 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
-#define IN_LIST_PRED_SET_DICT_CODE(CLASS)                                                      \
-    template <class T>                                                                         \
-    void CLASS<T>::set_dict_code_if_necessary(vectorized::IColumn& column) {                   \
-        if (_dict_code_inited) {                                                               \
-            return;                                                                            \
-        }                                                                                      \
-        if constexpr (std::is_same_v<T, StringValue>) {                                        \
-            auto* col_ptr = column.get_ptr().get();                                            \
-            if (column.is_nullable()) {                                                        \
-                auto nullable_col =                                                            \
-                        reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);                \
-                col_ptr = nullable_col->get_nested_column_ptr().get();                         \
-            }                                                                                  \
-            if (col_ptr->is_column_dictionary()) {                                             \
-                auto& dict_col =                                                               \
-                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(    \
-                                *col_ptr);                                                     \
-                _dict_codes = dict_col.find_codes(_values);                                    \
-                _dict_code_inited = true;                                                      \
-            }                                                                                  \
-        }                                                                                      \
-    }
-
-IN_LIST_PRED_SET_DICT_CODE(InListPredicate)
-IN_LIST_PRED_SET_DICT_CODE(NotInListPredicate)
-
 #define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                \
     template CLASS<int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,       \
                                   bool opposite);                                                  \
@@ -414,9 +389,5 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(NotInListPredicate)
-
-template void InListPredicate<StringValue>::set_dict_code_if_necessary(vectorized::IColumn& column);
-template void NotInListPredicate<StringValue>::set_dict_code_if_necessary(
-        vectorized::IColumn& column);
 
 } //namespace doris
