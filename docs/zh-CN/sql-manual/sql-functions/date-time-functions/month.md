@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# month
-## description
-### Syntax
+## month
+### description
+#### Syntax
 
 `INT MONTH(DATETIME date)`
 
@@ -35,7 +35,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select month('1987-01-01');
@@ -46,6 +46,6 @@ mysql> select month('1987-01-01');
 +-----------------------------+
 ```
 
-## keyword
+### keywords
 
     MONTH

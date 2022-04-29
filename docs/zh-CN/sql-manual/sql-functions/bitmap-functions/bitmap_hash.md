@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_hash
-## description
-### Syntax
+## bitmap_hash
+### description
+#### Syntax
 
 `BITMAP BITMAP_HASH(expr)`
 
@@ -36,7 +36,7 @@ under the License.
 cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,device_id, device_id=bitmap_hash(device_id)"   http://host:8410/api/test/testDb/_stream_load
 ```
 
-## example
+### example
 
 ```
 mysql> select bitmap_count(bitmap_hash('hello'));
@@ -47,6 +47,6 @@ mysql> select bitmap_count(bitmap_hash('hello'));
 +------------------------------------+
 ```
 
-## keyword
+### keywords
 
     BITMAP_HASH,BITMAP

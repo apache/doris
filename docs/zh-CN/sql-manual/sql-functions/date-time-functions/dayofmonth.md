@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# dayofmonth
-## description
-### Syntax
+## dayofmonth
+### description
+#### Syntax
 
 `INT DAYOFMONTH(DATETIME date)`
 
@@ -35,7 +35,7 @@ under the License.
 
 参数为Date或者Datetime类型
 
-## example
+### example
 
 ```
 mysql> select dayofmonth('1987-01-31');
@@ -46,6 +46,6 @@ mysql> select dayofmonth('1987-01-31');
 +-----------------------------------+
 ```
 
-## keyword
+### keywords
 
     DAYOFMONTH

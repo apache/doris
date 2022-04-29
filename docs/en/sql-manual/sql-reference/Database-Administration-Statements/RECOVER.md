@@ -32,59 +32,56 @@ RECOVER
 
 ### Description
 
-This statement is used to restore a previously deleted database, table or partition.
+This statement is used to restore a previously deleted database, table or partition
 
 grammar:
 
-1. Restore the database
-        
+1. restore database
 
-       ```sql
-        RECOVER DATABASE db_name;
-       ````
+   ```sql
+   RECOVER DATABASE db_name;
+   ```
 
-1. Restore the table
-        
+2. restore table
 
-       ```sql
-       RECOVER TABLE [db_name.]table_name;
-       ````
+   ```sql
+   RECOVER TABLE [db_name.]table_name;
+   ```
 
-1. restore partition
-        
+ 3. restore partition
 
-       ```sql
-       RECOVER PARTITION partition_name FROM [db_name.]table_name;
-       ````
+    ```sql
+    RECOVER PARTITION partition_name FROM [db_name.]table_name;
+    ```
 
 illustrate:
 
-1. This operation can only restore meta information that was deleted within a certain period of time. Default is 1 day. (Configurable through the `catalog_trash_expire_second` parameter in fe.conf)
-2. If a new meta information with the same name and type is created after the meta information is deleted, the previously deleted meta information cannot be recovered.
+- This operation can only restore meta information that was deleted in the previous period. Default is 1 day. (Configurable through the `catalog_trash_expire_second` parameter in fe.conf)
+- If a new meta information with the same name and type is created after the meta information is deleted, the previously deleted meta information cannot be recovered
 
 ### Example
 
-1. Restore the database named example_db;
+1. Restore the database named example_db
 
-   ```sql
-   RECOVER DATABASE example_db;
-   ````
+```sql
+RECOVER DATABASE example_db;
+```
 
 2. Restore the table named example_tbl
 
-   ```sql
-   RECOVER TABLE example_db.example_tbl;
-   ````
+```sql
+RECOVER TABLE example_db.example_tbl;
+```
 
 3. Restore the partition named p1 in table example_tbl
 
-   ```sql
-   RECOVER PARTITION p1 FROM example_tbl;
-   ````
+```sql
+RECOVER PARTITION p1 FROM example_tbl;
+```
 
 ### Keywords
 
-    RECOVER
+     RECOVER
 
 ### Best Practice
 

@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# `explode_json_array`
+## `explode_json_array`
 
-## description
+### description
 
 Table functions must be used in conjunction with Lateral View.
 
@@ -40,7 +40,7 @@ explode_json_array_double(json_str)
 explode_json_array_string(json_str)
 ```
 
-## example
+### example
 
 Original table data:
 
@@ -281,6 +281,6 @@ mysql> select k1, e1 from example1 lateral view explode_json_array_string('{"a":
 +------+------+
 ```
 
-## keyword
+### keywords
 
     explode_json_array

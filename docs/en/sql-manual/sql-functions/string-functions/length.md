@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# length
-## Description
-### Syntax
+## length
+### Description
+#### Syntax
 
 `INT length (VARCHAR str)`
 
 
 Returns the length of the string in byte size.
 
-## example
+### example
 
 ```
 mysql> select length("abc");
@@ -50,5 +50,5 @@ mysql> select length("中国");
 |                6 |
 +------------------+
 ```
-## keyword
+### keywords
 LENGTH

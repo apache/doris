@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# to_bitmap
-## description
-### Syntax
+## to_bitmap
+### description
+#### Syntax
 
 `BITMAP TO_BITMAP(expr)`
 
@@ -38,7 +38,7 @@ under the License.
 cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,user_id, user_id=to_bitmap(user_id)"   http://host:8410/api/test/testDb/_stream_load
 ```
 
-## example
+### example
 
 ```
 mysql> select bitmap_count(to_bitmap(10));
@@ -56,6 +56,6 @@ MySQL> select bitmap_to_string(to_bitmap(-1));
 +---------------------------------+
 ```
 
-## keyword
+### keywords
 
     TO_BITMAP,BITMAP

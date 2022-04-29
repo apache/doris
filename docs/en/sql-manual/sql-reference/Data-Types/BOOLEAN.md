@@ -24,10 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# BOOLEAN
-## Description
+## BOOLEAN
+### Description
 BOOL, BOOLEAN
 Like TINYINT, 0 stands for false and 1 for true.
 
-## keyword
+### keywords
 BOOLEAN

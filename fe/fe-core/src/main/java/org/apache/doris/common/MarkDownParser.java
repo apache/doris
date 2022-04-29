@@ -17,30 +17,36 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.qe.HelpTopic;
+
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
-// Process markdown file.
-//
-// Example:
-// file content is below:
-// 
-// # head1
-// ## head2_1
-// some lines
-// ## head2_2
-// some other lines
-//
-// will be parsed to map like {"head1" : {"head2_1":"some lines", "head2_2" : "some other lines"}}
-// Note: It is allowed to have more than one topic in a file
+/**
+ * A simple MarkDownParser to parser the help topic
+ * eg: sql-reference, sql-functions.
+ * <p>
+ * Each topic must have following structure:
+ * ## Topic Name
+ * ### Description  // required
+ * ### Example      // optional
+ * ### Keywords     // required
+ * other fields are optional
+ * <p>
+ * <p>
+ * It is allowed to have multi topic in one file.
+ */
 public class MarkDownParser {
-    private static enum ParseState {
+    private enum ParseState {
         START,
         PARSED_H1,
         PARSED_H2
     }
+
+    private static final byte SINGLE_POUND_SIGN = '#';
 
     private Map<String, Map<String, String>> documents;
     private List<String> lines;
@@ -68,7 +74,7 @@ public class MarkDownParser {
             }
             switch (state) {
                 case START:
-                    if (headLevel == 1) {
+                    if (headLevel == 2) {
                         head = keyValue.getKey();
                         keyValues = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
                         state = ParseState.PARSED_H1;
@@ -78,12 +84,12 @@ public class MarkDownParser {
                     }
                     break;
                 case PARSED_H1:
-                    if (headLevel == 1) {
+                    if (headLevel == 2) {
                         // Empty document, step over, do nothing
                         documents.put(head, keyValues);
                         head = keyValue.getKey();
                         keyValues = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-                    } else if (headLevel == 2) {
+                    } else if (headLevel == 3) {
                         keyValues.put(keyValue.getKey(), keyValue.getValue());
                         state = ParseState.PARSED_H2;
                     } else {
@@ -91,12 +97,12 @@ public class MarkDownParser {
                     }
                     break;
                 case PARSED_H2:
-                    if (headLevel == 1) {
+                    if (headLevel == 2) {
                         // One document read over.
                         documents.put(head, keyValues);
                         head = keyValue.getKey();
                         keyValues = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-                    } else if (headLevel == 2) {
+                    } else if (headLevel == 3) {
                         keyValues.put(keyValue.getKey(), keyValue.getValue());
                     } else {
                         //Ignore headlevel greater than 2 instead of throwing a exception
@@ -113,34 +119,48 @@ public class MarkDownParser {
         if (head != null) {
             documents.put(head, keyValues);
         }
-
+        
+        checkStructure();
         return documents;
     }
 
+    private void checkStructure() throws DdlException {
+        for (Map.Entry<String, Map<String, String>> entry : documents.entrySet()) {
+            Set<String> keys = entry.getValue().keySet();
+            if (!(keys.contains(HelpTopic.DESCRIPTION)
+                    && keys.contains(HelpTopic.KEYWORDS))) {
+                throw new DdlException("Invalid help topic structure. title: " + entry.getKey() + ", keys: " + keys);
+            }
+        }
+    }
+
     private Map.Entry<String, String> parseOneItem() {
-        while (nextToRead < lines.size() && !lines.get(nextToRead).startsWith("#")) {
+        // 1. Find the first heading line (start with ##)
+        while (nextToRead < lines.size() && !lines.get(nextToRead).startsWith("##")) {
             nextToRead++;
         }
         if (nextToRead >= lines.size()) {
             return null;
         }
+        // 2. Get the level of this key
         String key = lines.get(nextToRead++);
         headLevel = 0;
-        while (headLevel < key.length() && key.charAt(headLevel) == '#') {
+        while (headLevel < key.length() && key.charAt(headLevel) == SINGLE_POUND_SIGN) {
             headLevel++;
         }
+        // 3. Save all lines within this level until we met next ## or ###
         StringBuilder sb = new StringBuilder();
         while (nextToRead < lines.size()) {
-            if (!lines.get(nextToRead).startsWith("#")) {
+            if (!lines.get(nextToRead).startsWith("##")) {
+                // content
                 sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
-            }
-            // Ignore headlevel greater than 2
-            else if (lines.get(nextToRead).startsWith("###")) {
-                sb.append(lines.get(nextToRead).replaceAll("#","")).append('\n');
+            } else if (lines.get(nextToRead).startsWith("####")) {
+                // Ignore head level greater than 3, treat them as normal content
+                sb.append(lines.get(nextToRead)).append('\n');
                 nextToRead++;
-            } 
-            else {
+            } else {
+                // break if we meet next heading
                 break;
             }
         }

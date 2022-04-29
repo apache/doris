@@ -32,7 +32,7 @@ REVOKE
 
 ### Description
 
- REVOKE 命令用于撤销指定用户或角色指定的权限。
+REVOKE 命令用于撤销指定用户或角色指定的权限。
 
 ```sql
 REVOKE privilege_list ON db_name[.tbl_name] FROM user_identity [ROLE role_name]

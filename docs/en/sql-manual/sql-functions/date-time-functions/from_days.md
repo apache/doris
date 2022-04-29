@@ -24,16 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# from_days
-## Description
-### Syntax
+## from_days
+### Description
+#### Syntax
 
 `DATE FROM_DAYS(INT N)`
 
 
 Calculate which day by the number of days from 0000-01-01
 
-## example
+### example
 
 ```
 mysql > select from u days (730669);
@@ -42,5 +42,5 @@ mysql > select from u days (730669);
 +-------------------+
 | 2000-07-03        |
 +-------------------+
-## keyword
+### keywords
 FROM_DAYS,FROM,DAYS

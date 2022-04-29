@@ -24,13 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# OUTFILE
+## OUTFILE
 
 ### Name
 
 OURFILE
 
-## description
+### description
 
 该语句用于使用 `SELECT INTO OUTFILE` 命令将查询结果的导出为文件。目前支持通过 Broker 进程, 通过 S3 协议, 或直接通过 HDFS 协议，导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。
     
@@ -85,7 +85,7 @@ INTO OUTFILE "file_path"
         AWS_SECRET_KEY
         AWS_REGION
 
-## example
+### example
 
 1. 使用 broker 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
     
@@ -247,7 +247,7 @@ INTO OUTFILE "file_path"
     最终生成文件如如果不大于 100MB，则为：`result_0.csv`。
     如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
 
-## keyword
+### keywords
     SELECT, INTO, OUTFILE
 
 ### Best Practice

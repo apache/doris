@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the license.
 -->
 
-# not regexp
-## description
-### syntax
+## not regexp
+### description
+#### syntax
 
 `BOOLEAN not regexp(VARCHAR str, VARCHAR pattern)`
 
 Perform regular matching on the string str, return false if it matches, and return true if it doesn't match. pattern is a regular expression.
 
-## example
+### example
 
 ```
 // Find all data in the k1 field that does not start with 'billie'
@@ -52,5 +52,5 @@ mysql> select k1 from test where k1 not regexp 'ok$';
 +------------+
 ```
 
-## keyword
+### keywords
 REGEXP, NOT, NOT REGEXP

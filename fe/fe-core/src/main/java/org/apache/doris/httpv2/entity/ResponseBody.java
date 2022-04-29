@@ -59,7 +59,6 @@ public class ResponseBody<T> {
         return this;
     }
 
-
     public String getMsg() {
         return msg;
     }
