@@ -63,7 +63,6 @@ public:
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return sizeof(T); }
     bool is_categorial() const override { return is_value_represented_by_integer(); }
-    bool can_be_inside_low_cardinality() const override { return true; }
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

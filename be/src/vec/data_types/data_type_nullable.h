@@ -77,9 +77,6 @@ public:
     bool is_nullable() const override { return true; }
     size_t get_size_of_value_in_memory() const override;
     bool only_null() const override;
-    bool can_be_inside_low_cardinality() const override {
-        return nested_data_type->can_be_inside_low_cardinality();
-    }
     std::string to_string(const IColumn& column, size_t row_num) const override;
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }

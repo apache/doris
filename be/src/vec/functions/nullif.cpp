@@ -65,16 +65,6 @@ public:
     }
 
     DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) const {
-        size_t num_full_ordinary_columns = 0;
-        ColumnsWithTypeAndName args_without_low_cardinality(arguments);
-
-        for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
-            bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const)
-                arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
-            if (!is_const) ++num_full_ordinary_columns;
-        }
-
         if (!arguments.empty()) {
             NullPresence null_presence = get_null_resense(arguments);
 

@@ -85,12 +85,6 @@ protected:
       */
     virtual bool use_default_implementation_for_constants() const { return false; }
 
-    /** If function arguments has single low cardinality column and all other arguments are constants, call function on nested column.
-      * Otherwise, convert all low cardinality columns to ordinary columns.
-      * Returns ColumnLowCardinality if at least one argument is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
     /** Some arguments could remain constant during this implementation.
       */
     virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
@@ -108,9 +102,6 @@ private:
                                                          const ColumnNumbers& args, size_t result,
                                                          size_t input_rows_count, bool dry_run,
                                                          bool* executed);
-    Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, size_t result,
-                                                   size_t input_rows_count, bool dry_run);
 };
 
 /// Function with known arguments and return type.
@@ -348,23 +339,10 @@ protected:
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
 
-    /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
-      * If function arguments has low cardinality types, convert them to ordinary types.
-      * get_return_type returns ColumnLowCardinality if at least one argument type is ColumnLowCardinality.
-      */
-    virtual bool use_default_implementation_for_low_cardinality_columns() const { return true; }
-
-    /// If it isn't, will convert all ColumnLowCardinality arguments to full columns.
-    virtual bool can_be_executed_on_low_cardinality_dictionary() const { return true; }
-
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
     virtual DataTypes get_variadic_argument_types_impl() const { return DataTypes(); }
-
-private:
-    DataTypePtr get_return_type_without_low_cardinality(
-            const ColumnsWithTypeAndName& arguments) const;
 };
 
 /// Previous function interface.
@@ -384,12 +362,8 @@ public:
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
     bool use_default_implementation_for_constants() const override { return false; }
-    bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {}; }
     bool can_be_executed_on_default_arguments() const override { return true; }
-    bool can_be_executed_on_low_cardinality_dictionary() const override {
-        return is_deterministic_in_scope_of_query();
-    }
     bool is_deterministic() const override { return true; }
     bool is_deterministic_in_scope_of_query() const override { return true; }
 
@@ -453,9 +427,6 @@ protected:
     }
     bool use_default_implementation_for_constants() const final {
         return function->use_default_implementation_for_constants();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const final {
-        return function->use_default_implementation_for_low_cardinality_columns();
     }
     ColumnNumbers get_arguments_that_are_always_constant() const final {
         return function->get_arguments_that_are_always_constant();
@@ -565,12 +536,6 @@ protected:
 
     bool use_default_implementation_for_nulls() const override {
         return function->use_default_implementation_for_nulls();
-    }
-    bool use_default_implementation_for_low_cardinality_columns() const override {
-        return function->use_default_implementation_for_low_cardinality_columns();
-    }
-    bool can_be_executed_on_low_cardinality_dictionary() const override {
-        return function->can_be_executed_on_low_cardinality_dictionary();
     }
 
     FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,

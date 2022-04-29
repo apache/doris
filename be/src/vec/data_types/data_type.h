@@ -226,11 +226,6 @@ public:
       */
     virtual bool can_be_inside_nullable() const { return false; }
 
-    virtual bool low_cardinality() const { return false; }
-
-    /// Strings, Numbers, Date, DateTime, Nullable
-    virtual bool can_be_inside_low_cardinality() const { return false; }
-
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void update_avg_value_size_hint(const IColumn& column, double& avg_value_size_hint);
 

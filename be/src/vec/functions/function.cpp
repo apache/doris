@@ -181,7 +181,7 @@ Status PreparedFunctionImpl::default_implementation_for_constant_arguments(
         temporary_argument_numbers[i] = i;
     }
 
-    RETURN_IF_ERROR(execute_without_low_cardinality_columns(
+    RETURN_IF_ERROR(execute(
             context, temporary_block, temporary_argument_numbers, arguments_size,
             temporary_block.rows(), dry_run));
 
@@ -218,8 +218,8 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
 
     if (null_presence.has_nullable) {
         Block temporary_block = create_block_with_nested_columns(block, args, result);
-        RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-                context, temporary_block, args, result, temporary_block.rows(), dry_run));
+        RETURN_IF_ERROR(execute(context, temporary_block, args, result, temporary_block.rows(),
+                                dry_run));
         block.get_by_position(result).column =
                 wrap_in_nullable(temporary_block.get_by_position(result).column, block, args,
                                  result, input_rows_count);
@@ -230,7 +230,7 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     return Status::OK();
 }
 
-Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
+Status PreparedFunctionImpl::execute(
         FunctionContext* context, Block& block, const ColumnNumbers& args, size_t result,
         size_t input_rows_count, bool dry_run) {
     bool executed = false;
@@ -251,28 +251,6 @@ Status PreparedFunctionImpl::execute_without_low_cardinality_columns(
         return execute_impl(context, block, args, result, input_rows_count);
 }
 
-Status PreparedFunctionImpl::execute(FunctionContext* context, Block& block,
-                                     const ColumnNumbers& args, size_t result,
-                                     size_t input_rows_count, bool dry_run) {
-    //    if (use_default_implementation_for_low_cardinality_columns()) {
-    //        auto& res = block.safe_get_by_position(result);
-    //        Block block_without_low_cardinality = block.clone_without_columns();
-    //
-    //        for (auto arg : args)
-    //            block_without_low_cardinality.safe_get_by_position(arg).column =
-    //                    block.safe_get_by_position(arg).column;
-    //
-    //        {
-    //            RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-    //                    context, block_without_low_cardinality, args, result, input_rows_count,
-    //                    dry_run));
-    //            res.column = block_without_low_cardinality.safe_get_by_position(result).column;
-    //        }
-    //    } else
-    return execute_without_low_cardinality_columns(context, block, args, result, input_rows_count,
-                                                   dry_run);
-}
-
 void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) const {
     if (is_variadic()) return;
 
@@ -283,8 +261,7 @@ void FunctionBuilderImpl::check_number_of_arguments(size_t number_of_arguments) 
             get_name(), number_of_arguments, expected_number_of_arguments);
 }
 
-DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
-        const ColumnsWithTypeAndName& arguments) const {
+DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
     check_number_of_arguments(arguments.size());
 
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
@@ -306,27 +283,5 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     }
 
     return get_return_type_impl(arguments);
-}
-
-DataTypePtr FunctionBuilderImpl::get_return_type(const ColumnsWithTypeAndName& arguments) const {
-    if (use_default_implementation_for_low_cardinality_columns()) {
-        size_t num_full_ordinary_columns = 0;
-
-        ColumnsWithTypeAndName args_without_low_cardinality(arguments);
-
-        for (ColumnWithTypeAndName& arg : args_without_low_cardinality) {
-            bool is_const = arg.column && is_column_const(*arg.column);
-            if (is_const)
-                arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
-            if (!is_const) ++num_full_ordinary_columns;
-        }
-
-        auto type_without_low_cardinality =
-                get_return_type_without_low_cardinality(args_without_low_cardinality);
-
-        return type_without_low_cardinality;
-    }
-
-    return get_return_type_without_low_cardinality(arguments);
 }
 } // namespace doris::vectorized

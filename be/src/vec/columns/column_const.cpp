@@ -42,10 +42,6 @@ ColumnPtr ColumnConst::convert_to_full_column() const {
     return data->replicate(Offsets(1, s));
 }
 
-ColumnPtr ColumnConst::remove_low_cardinality() const {
-    return ColumnConst::create(data->convert_to_full_column_if_low_cardinality(), s);
-}
-
 ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) const {
     if (s != filt.size()) {
         LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",

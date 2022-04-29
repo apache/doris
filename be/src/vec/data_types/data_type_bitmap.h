@@ -65,8 +65,6 @@ public:
 
     bool is_categorial() const override { return is_value_represented_by_integer(); }
 
-    bool can_be_inside_low_cardinality() const override { return false; }
-
     std::string to_string(const IColumn& column, size_t row_num) const override {
         return "BitMap()";
     }

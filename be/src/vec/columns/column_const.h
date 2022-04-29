@@ -46,8 +46,6 @@ public:
 
     ColumnPtr convert_to_full_column_if_const() const override { return convert_to_full_column(); }
 
-    ColumnPtr remove_low_cardinality() const;
-
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
     const char* get_family_name() const override { return "Const"; }
