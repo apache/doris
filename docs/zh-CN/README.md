@@ -89,7 +89,7 @@ cases:
     - logo: /images/home/logo-youdao.png
       alt: 有道
 actionText: 快速上手 →
-actionLink: /zh-CN/installing/compilation
+actionLink: /zh-CN/get-starting/get-starting
 articleText: 最新动态
 articleLink: /zh-CN/article/article-list
 ---
