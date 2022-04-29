@@ -153,10 +153,6 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     std::sort(writers.begin(), writers.end(), [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
         return lhs->get_mem_consumption_snapshot() > rhs->get_mem_consumption_snapshot();
     });
-<<<<<<< HEAD
-=======
-
->>>>>>> 462b7700f ([Bug] (fix) DeltaWriter::mem_consumption() coredump issue#9237)
     // Decide which writes should be flushed to reduce mem consumption.
     // The main idea is to flush at least one third of the mem_limit.
     // This is mainly to solve the following scenarios.
