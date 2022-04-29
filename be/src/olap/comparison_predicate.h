@@ -46,6 +46,7 @@ class VectorizedRowBatch;
         void evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,                \
                          bool* flags) const override;                                              \
         void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override; \
+                                                                                                   \
     private:                                                                                       \
         T _value;                                                                                  \
     };
