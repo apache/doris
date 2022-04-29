@@ -55,10 +55,6 @@ under the License.
         <property name="optional" value="true"/>
     </module>
 
-    <module name="Header">
-        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
-    </module>
-
     <!-- Checks for whitespace                               -->
     <!-- See http://checkstyle.org/config_whitespace.html -->
     <module name="FileTabCharacter">
