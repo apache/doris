@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 /*
@@ -31,6 +32,7 @@ import lombok.Getter;
  syntax:
       DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table
 */
+@AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
     
     @Getter
@@ -45,6 +47,9 @@ public class DropPolicyStmt extends DdlStmt {
     @Getter
     private final TableName tableName;
     
+    @Getter
+    private final UserIdentity user;
+    
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -55,13 +60,6 @@ public class DropPolicyStmt extends DdlStmt {
         }
     }
     
-    public DropPolicyStmt(boolean ifExists, String type, String policyName, TableName tableName) {
-        this.type = type;
-        this.ifExists = ifExists;
-        this.policyName = policyName;
-        this.tableName = tableName;
-    }
-    
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -70,6 +68,7 @@ public class DropPolicyStmt extends DdlStmt {
             sb.append("IF EXISTS ");
         }
         sb.append(policyName).append(" ON ").append(tableName.toSql());
+        sb.append(" TO ").append(user.getQualifiedUser());
         return sb.toString();
     }
 }

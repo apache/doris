@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import lombok.Getter;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -29,41 +27,41 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-import org.apache.commons.lang3.StringUtils;
+import lombok.Getter;
 
 /*
  Show policy statement
  syntax:
-      SHOW POLICY [FOR user]
+      SHOW ROW POLICY [FOR user]
 */
 public class ShowPolicyStmt extends ShowStmt {
-
+    
     @Getter
-    private String user;
-
-    public ShowPolicyStmt(String user) {
+    private String type;
+    
+    @Getter
+    private UserIdentity user;
+    
+    public ShowPolicyStmt(String type, UserIdentity user) {
+        this.type = type;
         this.user = user;
     }
-
+    
     public ShowPolicyStmt() {
     }
-
-    private static final ShowResultSetMetaData META_DATA =
-        ShowResultSetMetaData.builder()
-            .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
-            .addColumn(new Column("Type", ScalarType.createVarchar(20)))
-            .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
-            .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
-            .addColumn(new Column("User", ScalarType.createVarchar(20)))
-            .build();
-
-    @Override
-    public ShowResultSetMetaData getMetaData() {
-        return META_DATA;
-    }
-
+    
+    private static final ShowResultSetMetaData ROW_META_DATA =
+            ShowResultSetMetaData.builder()
+                    .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("Type", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
+                    .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
+                    .build();
+    
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -72,14 +70,19 @@ public class ShowPolicyStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-
+    
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW POLICY");
-        if (StringUtils.isNotEmpty(user)) {
+        sb.append("SHOW ROW POLICY");
+        if (user != null) {
             sb.append(" FOR ").append(user);
         }
         return sb.toString();
+    }
+    
+    @Override
+    public ShowResultSetMetaData getMetaData() {
+        return ROW_META_DATA;
     }
 }

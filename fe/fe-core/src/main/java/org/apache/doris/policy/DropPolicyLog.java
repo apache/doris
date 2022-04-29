@@ -22,6 +22,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -50,6 +51,9 @@ public class DropPolicyLog implements Writable {
     @SerializedName(value = "policyName")
     private String policyName;
     
+    @SerializedName(value = "user")
+    private UserIdentity user;
+    
     @SneakyThrows
     public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) {
         String curDb = stmt.getTableName().getDb();
@@ -58,7 +62,7 @@ public class DropPolicyLog implements Writable {
         }
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(curDb);
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-        return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(), stmt.getPolicyName());
+        return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(), stmt.getPolicyName(), stmt.getUser());
     }
     
     @Override

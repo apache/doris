@@ -17,23 +17,25 @@
 
 package org.apache.doris.policy;
 
-import lombok.Getter;
+import org.apache.doris.analysis.CompoundPredicate;
 
 import java.util.Arrays;
 
+import lombok.Getter;
+
 public enum FilterType {
-
-    PERMISSIVE("OR"),
-    RESTRICTIVE("AND");
-
-    FilterType(String op) {
+    
+    PERMISSIVE(CompoundPredicate.Operator.OR),
+    RESTRICTIVE(CompoundPredicate.Operator.AND);
+    
+    FilterType(CompoundPredicate.Operator op) {
         this.op = op;
     }
-
+    
     public static FilterType of(String name) {
         return Arrays.stream(FilterType.values()).filter(f -> f.name().equalsIgnoreCase(name)).findFirst().orElse(RESTRICTIVE);
     }
-
+    
     @Getter
-    private final String op;
+    private final CompoundPredicate.Operator op;
 }

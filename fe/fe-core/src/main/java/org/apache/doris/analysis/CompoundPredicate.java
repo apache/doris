@@ -43,47 +43,47 @@ import java.util.Objects;
 public class CompoundPredicate extends Predicate {
     private final static Logger LOG = LogManager.getLogger(CompoundPredicate.class);
     private final Operator op;
-
+    
     public static void initBuiltins(FunctionSet functionSet) {
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-            Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+                Operator.AND.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-            Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
+                Operator.OR.toString(), Lists.newArrayList(Type.BOOLEAN, Type.BOOLEAN), Type.BOOLEAN));
         functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-            Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
+                Operator.NOT.toString(), Lists.newArrayList(Type.BOOLEAN), Type.BOOLEAN));
     }
-
+    
     public CompoundPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkArgument(
-            op == Operator.NOT && e2 == null || op != Operator.NOT && e2 != null);
+                op == Operator.NOT && e2 == null || op != Operator.NOT && e2 != null);
         if (e2 != null) {
             children.add(e2);
         }
     }
-
+    
     protected CompoundPredicate(CompoundPredicate other) {
         super(other);
         op = other.op;
     }
-
+    
     @Override
     public Expr clone() {
         return new CompoundPredicate(this);
     }
-
+    
     public Operator getOp() {
         return op;
     }
-
+    
     @Override
     public boolean equals(Object obj) {
         return super.equals(obj) && ((CompoundPredicate) obj).op == op;
     }
-
+    
     @Override
     public String toSqlImpl() {
         if (children.size() == 1) {
@@ -93,7 +93,7 @@ public class CompoundPredicate extends Predicate {
             return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
         }
     }
-
+    
     @Override
     public String toDigestImpl() {
         if (children.size() == 1) {
@@ -108,40 +108,40 @@ public class CompoundPredicate extends Predicate {
         msg.node_type = TExprNodeType.COMPOUND_PRED;
         msg.setOpcode(op.toThrift());
     }
-
+    
     @Override
     public boolean isVectorized() {
         return false;
     }
-
+    
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-
+        
         // Check that children are predicates.
         for (Expr e : children) {
             if (!e.getType().equals(Type.BOOLEAN) && !e.getType().isNull()) {
                 throw new AnalysisException(String.format(
-                    "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but " +
-                        "returns type '%s'.",
-                    e.toSql(), toSql(), e.getType()));
+                        "Operand '%s' part of predicate " + "'%s' should return type 'BOOLEAN' but " +
+                                "returns type '%s'.",
+                        e.toSql(), toSql(), e.getType()));
             }
         }
-
+        
         if (getChild(0).selectivity == -1 || children.size() == 2 && getChild(
-            1).selectivity == -1) {
+                1).selectivity == -1) {
             // give up if we're missing an input
             selectivity = -1;
             return;
         }
-
+        
         switch (op) {
             case AND:
                 selectivity = getChild(0).selectivity * getChild(1).selectivity;
                 break;
             case OR:
                 selectivity = getChild(0).selectivity + getChild(1).selectivity - getChild(
-                    0).selectivity * getChild(1).selectivity;
+                        0).selectivity * getChild(1).selectivity;
                 break;
             case NOT:
                 selectivity = 1.0 - getChild(0).selectivity;
@@ -152,30 +152,30 @@ public class CompoundPredicate extends Predicate {
             LOG.debug(toSql() + " selectivity: " + Double.toString(selectivity));
         }
     }
-
+    
     public enum Operator {
         AND("AND", TExprOpcode.COMPOUND_AND),
         OR("OR", TExprOpcode.COMPOUND_OR),
         NOT("NOT", TExprOpcode.COMPOUND_NOT);
-
+        
         private final String      description;
         private final TExprOpcode thriftOp;
-
+        
         Operator(String description, TExprOpcode thriftOp) {
             this.description = description;
             this.thriftOp = thriftOp;
         }
-
+        
         @Override
         public String toString() {
             return description;
         }
-
+        
         public TExprOpcode toThrift() {
             return thriftOp;
         }
     }
-
+    
     /**
      * Negates a CompoundPredicate.
      */
@@ -187,7 +187,7 @@ public class CompoundPredicate extends Predicate {
         Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;
         return new CompoundPredicate(newOp, negatedLeft, negatedRight);
     }
-
+    
     // Create an AND predicate between two exprs, 'lhs' and 'rhs'. If
     // 'rhs' is null, simply return 'lhs'.
     public static Expr createConjunction(Expr lhs, Expr rhs) {
@@ -196,7 +196,7 @@ public class CompoundPredicate extends Predicate {
         }
         return new CompoundPredicate(Operator.AND, rhs, lhs);
     }
-
+    
     /**
      * Creates a conjunctive predicate from a list of exprs.
      */
@@ -208,11 +208,11 @@ public class CompoundPredicate extends Predicate {
                 continue;
             }
             conjunctivePred = new CompoundPredicate(CompoundPredicate.Operator.AND,
-                expr, conjunctivePred);
+                    expr, conjunctivePred);
         }
         return conjunctivePred;
     }
-
+    
     @Override
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
@@ -228,7 +228,7 @@ public class CompoundPredicate extends Predicate {
             final Expr leftChildValue = getChild(0);
             final Expr rightChildValue = getChild(1);
             if(!(leftChildValue instanceof BoolLiteral)
-                || !(rightChildValue instanceof BoolLiteral)) {
+                    || !(rightChildValue instanceof BoolLiteral)) {
                 return this;
             }
             final BoolLiteral leftBoolValue = (BoolLiteral)leftChildValue;
@@ -246,12 +246,12 @@ public class CompoundPredicate extends Predicate {
         }
         return new BoolLiteral(compoundResult);
     }
-
+    
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
-
+    
     @Override
     public boolean isNullable() {
         return hasNullableChild();

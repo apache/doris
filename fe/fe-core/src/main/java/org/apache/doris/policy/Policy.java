@@ -17,17 +17,17 @@
 
 package org.apache.doris.policy;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -42,41 +42,65 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
 @Data
 @AllArgsConstructor
 public class Policy implements Writable {
     private static final Logger LOG = LogManager.getLogger(Policy.class);
-
+    
+    public static final String ROW_POLICY = "ROW";
+    
     @SerializedName(value = "dbId")
     private long dbId;
-
+    
     @SerializedName(value = "tableId")
     private long tableId;
-
+    
     @SerializedName(value = "policyName")
     private String policyName;
-
+    
     /**
      * ROW
      **/
     @SerializedName(value = "type")
     private String type;
-
+    
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails
      **/
     @SerializedName(value = "filterType")
     private final FilterType filterType;
-
-    @SerializedName(value = "whereSql")
-    private String whereSql;
-
+    
+    private Expr wherePredicate;
+    
+    public Expr getWherePredicate() {
+        if (wherePredicate == null) {
+            try {
+                // todo npe
+                CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.parseAndAnalyzeStmt(this.originStmt, ConnectContext.get());
+                return stmt.getWherePredicate();
+            } catch (UserException e) {
+                LOG.warn("parse originStmt error", e);
+                return null;
+            }
+        }
+        return wherePredicate;
+    }
+    
     /**
      * bind user
      **/
     @SerializedName(value = "user")
-    private final String user;
-
+    private final UserIdentity user;
+    
+    /**
+     * use for Serialization/deserialization
+     **/
+    @SerializedName(value = "originStmt")
+    private String originStmt;
+    
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
         String curDb = stmt.getTableName().getDb();
         if (curDb == null) {
@@ -86,27 +110,27 @@ public class Policy implements Writable {
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
         UserIdentity userIdent = stmt.getUserIdent();
         userIdent.analyze(ConnectContext.get().getClusterName());
-        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate().toSql(), userIdent.getQualifiedUser());
+        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent, stmt.getOrigStmt().originStmt);
     }
-
+    
     public List<String> getShowInfo() throws AnalysisException {
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type, this.filterType.getOp(), this.whereSql, this.user);
+        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type, this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
-
+    
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-
+    
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Policy.class);
     }
-
+    
     @Override
     public Policy clone() {
-        return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.whereSql, this.user);
+        return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.wherePredicate, this.user, this.originStmt);
     }
 }
