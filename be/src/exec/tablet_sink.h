@@ -57,7 +57,7 @@ class TExpr;
 namespace vectorized {
 class Block;
 class MutableBlock;
-}
+} // namespace vectorized
 namespace stream_load {
 
 class OlapTableSink;
@@ -91,7 +91,7 @@ struct AddBatchCounter {
 // So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
 // Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
 template <typename T>
-class ReusableClosure final: public google::protobuf::Closure {
+class ReusableClosure final : public google::protobuf::Closure {
 public:
     ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
     ~ReusableClosure() override {
@@ -227,9 +227,7 @@ public:
 
     void clear_all_batches();
 
-    virtual void clear_all_blocks() {
-        LOG(FATAL) << "NodeChannel::clear_all_blocks not supported";
-    }
+    virtual void clear_all_blocks() { LOG(FATAL) << "NodeChannel::clear_all_blocks not supported"; }
 
     std::string channel_info() const {
         return fmt::format("{}, {}, node={}:{}", _name, _load_info, _node_info.host,
@@ -280,7 +278,7 @@ protected:
     // limit _pending_batches size
     std::atomic<size_t> _pending_batches_bytes {0};
     size_t _max_pending_batches_bytes {10 * 1024 * 1024};
-    std::mutex _pending_batches_lock; // reuse for vectorized
+    std::mutex _pending_batches_lock;          // reuse for vectorized
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
     std::shared_ptr<PBackendService_Stub> _stub = nullptr;
@@ -325,8 +323,8 @@ private:
 
 class IndexChannel {
 public:
-    IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec) :
-        _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
+    IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec)
+            : _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
         _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel");
     }
     ~IndexChannel() = default;

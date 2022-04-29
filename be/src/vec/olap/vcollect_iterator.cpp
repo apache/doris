@@ -213,7 +213,6 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     return Status::OK();
 }
 
-
 Status VCollectIterator::Level0Iterator::next(Block* block) {
     if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
         block->swap(*_ref.block);

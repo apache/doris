@@ -43,18 +43,17 @@ public:
     MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
              const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
              KeysType keys_type, RowsetWriter* rowset_writer,
-             const std::shared_ptr<MemTracker>& parent_tracker,
-             bool support_vec = false);
+             const std::shared_ptr<MemTracker>& parent_tracker, bool support_vec = false);
     ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
     std::shared_ptr<MemTracker>& mem_tracker() { return _mem_tracker; }
-    
+
     void insert(const Tuple* tuple);
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
-    
+
     /// Flush
     Status flush();
     Status close();
@@ -80,9 +79,9 @@ private:
         explicit RowInBlock(size_t i) : _row_pos(i) {}
 
         void init_agg_places(std::vector<vectorized::AggregateFunctionPtr>& agg_functions,
-                            int key_column_count) {
+                             int key_column_count) {
             _agg_places.resize(agg_functions.size());
-            for(int cid = 0; cid < agg_functions.size(); cid++) {
+            for (int cid = 0; cid < agg_functions.size(); cid++) {
                 if (cid < key_column_count) {
                     _agg_places[cid] = nullptr;
                 } else {
@@ -96,7 +95,7 @@ private:
 
         ~RowInBlock() {
             for (auto agg_place : _agg_places) {
-                delete [] agg_place;
+                delete[] agg_place;
             }
         }
     };
@@ -107,11 +106,12 @@ private:
         // call set_block before operator().
         // only first time insert block to create _input_mutable_block,
         // so can not Comparator of construct to set pblock
-        void set_block(vectorized::MutableBlock* pblock) {_pblock = pblock;}
+        void set_block(vectorized::MutableBlock* pblock) { _pblock = pblock; }
         int operator()(const RowInBlock* left, const RowInBlock* right) const;
+
     private:
         const Schema* _schema;
-        vectorized::MutableBlock* _pblock;// 对应Memtable::_input_mutable_block
+        vectorized::MutableBlock* _pblock; // 对应Memtable::_input_mutable_block
     };
 
 private:
@@ -137,7 +137,6 @@ public:
         Table::Iterator _it;
     };
 
-    
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
@@ -154,7 +153,7 @@ private:
 
     // TODO: change to unique_ptr of comparator
     std::shared_ptr<RowComparator> _row_comparator;
-    
+
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -187,7 +186,7 @@ private:
     // in unique or aggragate key model.
     int64_t _rows = 0;
 
-    //for vectorized 
+    //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
     vectorized::Block _collect_vskiplist_results();
@@ -198,7 +197,6 @@ private:
     std::vector<RowInBlock*> _row_in_blocks;
     size_t _mem_usage;
 }; // class MemTable
-
 
 inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
     os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()

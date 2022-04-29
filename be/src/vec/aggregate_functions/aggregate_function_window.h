@@ -451,8 +451,8 @@ AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
                                                      const Array& parameters,
                                                      bool result_is_nullable) {
     return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable, is_copy>(
-                    name, argument_types, parameters));
+            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable,
+                                         is_copy>(name, argument_types, parameters));
 }
 
 template <bool is_nullable, bool is_copy>
@@ -461,8 +461,8 @@ AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
                                                     const Array& parameters,
                                                     bool result_is_nullable) {
     return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLastData, is_nullable, is_copy>(
-                    name, argument_types, parameters));
+            create_function_single_value<WindowFunctionData, WindowFunctionLastData, is_nullable,
+                                         is_copy>(name, argument_types, parameters));
 }
 
 } // namespace doris::vectorized

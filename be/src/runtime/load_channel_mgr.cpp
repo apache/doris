@@ -95,8 +95,9 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     return Status::OK();
 }
 
-LoadChannel* LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                                     bool is_high_priority, const std::string& sender_ip, bool is_vec) {
+LoadChannel* LoadChannelMgr::_create_load_channel(const UniqueId& load_id, int64_t mem_limit,
+                                                  int64_t timeout_s, bool is_high_priority,
+                                                  const std::string& sender_ip, bool is_vec) {
     return new LoadChannel(load_id, mem_limit, timeout_s, is_high_priority, sender_ip, is_vec);
 }
 
@@ -120,8 +121,9 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
 
             bool is_high_priority = (params.has_is_high_priority() && params.is_high_priority());
-            channel.reset(_create_load_channel(load_id, job_max_memory, job_timeout_s, is_high_priority,
-                                          params.sender_ip(), params.is_vectorized()));
+            channel.reset(_create_load_channel(load_id, job_max_memory, job_timeout_s,
+                                               is_high_priority, params.sender_ip(),
+                                               params.is_vectorized()));
             _load_channels.insert({load_id, channel});
         }
     }
@@ -137,8 +139,7 @@ void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
     {
         std::lock_guard<std::mutex> l(_lock);
         _load_channels.erase(load_id);
-        auto handle =
-                _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
+        auto handle = _last_success_channel->insert(load_id.to_string(), nullptr, 1, dummy_deleter);
         _last_success_channel->release(handle);
     }
     VLOG_CRITICAL << "removed load channel " << load_id;

@@ -36,7 +36,7 @@ class ExprContext;
 namespace vectorized {
 class IColumn;
 using MutableColumnPtr = IColumn::MutablePtr;
-}
+} // namespace vectorized
 
 // The counter will be passed to each scanner.
 // Note that this struct is not thread safe.

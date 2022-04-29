@@ -71,17 +71,18 @@ private:
                                size_t num_rows) override;
         const void* get_data() const override;
         const void* get_data_at(size_t offset) const override;
+
     protected:
         PaddedPODArray<Slice> _slice;
         PaddedPODArray<char> _raw_data;
     };
 
-    class OlapColumnDataConvertorHLL final : public OlapColumnDataConvertorObject{
+    class OlapColumnDataConvertorHLL final : public OlapColumnDataConvertorObject {
     public:
         Status convert_to_olap() override;
     };
 
-    class OlapColumnDataConvertorBitMap final : public OlapColumnDataConvertorObject{
+    class OlapColumnDataConvertorBitMap final : public OlapColumnDataConvertorObject {
     public:
         Status convert_to_olap() override;
     };
@@ -190,8 +191,8 @@ private:
                 column_data = assert_cast<const vectorized::ColumnVector<T>*>(
                         nullable_column->get_nested_column_ptr().get());
             } else {
-                column_data = assert_cast<const vectorized::ColumnVector<T>*>(
-                        _typed_column.column.get());
+                column_data =
+                        assert_cast<const vectorized::ColumnVector<T>*>(_typed_column.column.get());
             }
 
             assert(column_data);

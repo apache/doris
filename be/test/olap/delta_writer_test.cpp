@@ -507,7 +507,7 @@ TEST_F(TestDeltaWriter, write) {
 }
 
 TEST_F(TestDeltaWriter, vec_write) {
-       TCreateTabletReq request;
+    TCreateTabletReq request;
     create_tablet_request(10004, 270068376, &request);
     Status res = k_engine->create_tablet(request);
     ASSERT_TRUE(res.ok());
@@ -517,13 +517,13 @@ TEST_F(TestDeltaWriter, vec_write) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-//     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
+    //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376,  WriteType::LOAD,       20002, 30002, load_id,
-                              tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
+                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);
@@ -734,8 +734,8 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377,  WriteType::LOAD,       20003, 30003, load_id,
-                              tuple_desc, &(tuple_desc->slots())};
+    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
+                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer, true);
     ASSERT_NE(delta_writer, nullptr);

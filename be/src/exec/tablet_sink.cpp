@@ -248,13 +248,15 @@ Status NodeChannel::open_wait() {
                     _add_batches_finished = true;
                 }
             } else {
-                _cancel_with_msg(fmt::format("{}, add batch req success but status isn't ok, err: {}",
-                                             channel_info(), status.get_error_msg()));
+                _cancel_with_msg(
+                        fmt::format("{}, add batch req success but status isn't ok, err: {}",
+                                    channel_info(), status.get_error_msg()));
             }
 
             if (result.has_execution_time_us()) {
                 _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
-                _add_batch_counter.add_batch_wait_execution_time_us += result.wait_execution_time_us();
+                _add_batch_counter.add_batch_wait_execution_time_us +=
+                        result.wait_execution_time_us();
                 _add_batch_counter.add_batch_num++;
             }
         });
@@ -643,8 +645,7 @@ OlapTableSink::OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
             *status = Expr::create_expr_trees(_pool, texprs, &_output_expr_ctxs);
         }
         _name = "OlapTableSink";
-    }
-    else {
+    } else {
         *status = Status::OK();
     }
     _transfer_data_by_brpc_attachment = config::transfer_data_by_brpc_attachment;
@@ -714,7 +715,8 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     if (!_is_vectorized) {
         // Prepare the exprs to run.
-        RETURN_IF_ERROR(Expr::prepare(_output_expr_ctxs, state, _input_row_desc, _expr_mem_tracker));
+        RETURN_IF_ERROR(
+                Expr::prepare(_output_expr_ctxs, state, _input_row_desc, _expr_mem_tracker));
     }
 
     // get table's tuple descriptor

@@ -306,7 +306,8 @@ Status BetaRowsetWriter::_create_segment_writer(
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer->reset(new segment_v2::SegmentWriter(wblock.get(), _num_segment, _context.tablet_schema,
-                                                _context.data_dir, _context.max_rows_per_segment, writer_options));
+                                                _context.data_dir, _context.max_rows_per_segment,
+                                                writer_options));
     {
         std::lock_guard<SpinLock> l(_lock);
         _wblocks.push_back(std::move(wblock));
