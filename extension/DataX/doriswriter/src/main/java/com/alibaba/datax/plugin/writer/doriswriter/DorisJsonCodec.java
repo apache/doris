@@ -28,8 +28,8 @@ import java.util.Map;
 public class DorisJsonCodec extends DorisCodec {
     private Map<String, Object> rowMap;
 
-    public DorisJsonCodec(final List<String> fieldNames) {
-        super(fieldNames);
+    public DorisJsonCodec(final List<String> fieldNames, final String timeZone) {
+        super(fieldNames, timeZone);
         this.rowMap = new HashMap<>(this.fieldNames.size());
     }
 

@@ -55,7 +55,7 @@ public class DorisWriter extends Writer {
         @Override
         public void init() {
             this.keys = new Key(super.getPluginJobConf());
-            this.rowCodec = new DorisJsonCodec(this.keys.getColumns());
+            this.rowCodec = new DorisJsonCodec(this.keys.getColumns(), this.keys.getTimeZone());
             this.dorisWriterEmitter = new DorisWriterEmitter(keys);
         }
 

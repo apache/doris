@@ -127,6 +127,12 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
       - 必选：是
       - 默认值：否
 
+* **timeZone**
+
+  - 描述：Doris 的时区。
+  - 必选：否
+  - 默认值：`+08:00`
+
 * **preSql**
 
   - 描述：写入数据到目的表前，会先执行这里的标准语句。
