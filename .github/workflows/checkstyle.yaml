@@ -32,7 +32,7 @@ jobs:
       - name: "Run java checkstyle"
         uses: dbelyaev/action-checkstyle@9eb1077
         with:
-          checkstyle_config: "fe/check/checkstyle/checkstyle.xml"
+          checkstyle_config: ./.github/actions/action-checkstyle
           checkstyle_version: 9.3
           workdir: "./fe"
           reporter: 'github-pr-review'
