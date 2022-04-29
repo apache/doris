@@ -48,7 +48,7 @@ import java.util.List;
  */
 public class InPredicate extends Predicate {
     private static final Logger LOG = LogManager.getLogger(InPredicate.class);
-    
+
     private static final String IN_SET_LOOKUP = "in_set_lookup";
     private static final String NOT_IN_SET_LOOKUP = "not_in_set_lookup";
     private static final String IN_ITERATE= "in_iterate";
@@ -56,9 +56,9 @@ public class InPredicate extends Predicate {
     private final boolean isNotIn;
     private static final String IN = "in";
     private static final String NOT_IN = "not_in";
-    
+
     private static final NullLiteral NULL_LITERAL = new NullLiteral();
-    
+
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
             if (t.isNull()) continue;
@@ -67,16 +67,16 @@ public class InPredicate extends Predicate {
             // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
             // semantics.
             if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
-            
+
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
-            
+
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::in_iterate", null, null, false));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(NOT_IN_ITERATE,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_iterate", null, null, false));
-            
+
             String prepareFn = "doris::InPredicate::set_lookup_prepare_" + typeString;
             String closeFn = "doris::InPredicate::set_lookup_close_" + typeString;
             functionSet.addBuiltin(ScalarFunction.createBuiltin(IN_SET_LOOKUP,
@@ -85,10 +85,10 @@ public class InPredicate extends Predicate {
             functionSet.addBuiltin(ScalarFunction.createBuiltin(NOT_IN_SET_LOOKUP,
                     Type.BOOLEAN, Lists.newArrayList(t, t), true,
                     "doris::InPredicate::not_in_set_lookup", prepareFn, closeFn, false));
-            
+
         }
     }
-    
+
     // First child is the comparison expr for which we
     // should check membership in the inList (the remaining children).
     public InPredicate(Expr compareExpr, List<Expr> inList, boolean isNotIn) {
@@ -96,22 +96,22 @@ public class InPredicate extends Predicate {
         children.addAll(inList);
         this.isNotIn = isNotIn;
     }
-    
+
     protected InPredicate(InPredicate other) {
         super(other);
         isNotIn = other.isNotIn();
     }
-    
+
     public int getInElementNum() {
         // the first child is compare expr
         return getChildren().size() - 1;
     }
-    
+
     @Override
     public InPredicate clone() {
         return new InPredicate(this);
     }
-    
+
     // C'tor for initializing an [NOT] IN predicate with a subquery child.
     public InPredicate(Expr compareExpr, Expr subquery, boolean isNotIn) {
         Preconditions.checkNotNull(compareExpr);
@@ -120,24 +120,24 @@ public class InPredicate extends Predicate {
         children.add(subquery);
         this.isNotIn = isNotIn;
     }
-    
+
     /**
      * Negates an InPredicate.
      */
     @Override
     public Expr negate() {
-        return new InPredicate(getChild(0), children.subList(1, children.size()),
-                !isNotIn);
+      return new InPredicate(getChild(0), children.subList(1, children.size()),
+          !isNotIn);
     }
-    
+
     public List<Expr> getListChildren() {
         return  children.subList(1, children.size());
     }
-    
+
     public boolean isNotIn() {
         return isNotIn;
     }
-    
+
     public boolean isLiteralChildren() {
         for (int i = 1; i < children.size(); ++i) {
             if (!(children.get(i) instanceof LiteralExpr)) {
@@ -146,12 +146,12 @@ public class InPredicate extends Predicate {
         }
         return true;
     }
-    
-    @Override
-    public void vectorizedAnalyze(Analyzer analyzer) {
+
+   @Override
+   public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-        
-        PrimitiveType type = getChild(0).getType().getPrimitiveType();
+
+       PrimitiveType type = getChild(0).getType().getPrimitiveType();
 
 //       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
 //               FunctionOperator.FILTER_IN, true, true, type);
@@ -159,8 +159,8 @@ public class InPredicate extends Predicate {
 //       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
 //       this.vectorOpcode = match.opcode;
 //       LOG.info(debugString() + " opcode: " + vectorOpcode);
-    }
-    
+   }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
@@ -170,14 +170,14 @@ public class InPredicate extends Predicate {
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
-                        toSql());
-            }
+                    toSql());
+            } 
             Subquery subquery = (Subquery)getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +
-                        subquery.toSql());
+                subquery.toSql());
             }
-            
+
             // Ensure that the column in the lhs of the IN predicate and the result of
             // the subquery are type compatible. No need to perform any
             // casting at this point. Any casting needed will be performed when the
@@ -190,7 +190,7 @@ public class InPredicate extends Predicate {
             analyzer.castAllToCompatibleType(children);
             vectorizedAnalyze(analyzer);
         }
-        
+
         boolean allConstant = true;
         for (int i = 1; i < children.size(); ++i) {
             if (!children.get(i).isConstant()) {
@@ -212,7 +212,7 @@ public class InPredicate extends Predicate {
                     argTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
             opcode = isNotIn ? TExprOpcode.FILTER_NEW_NOT_IN : TExprOpcode.FILTER_NEW_IN;
         }
-        
+
         Reference<SlotRef> slotRefRef = new Reference<SlotRef>();
         Reference<Integer> idxRef = new Reference<Integer>();
         if (isSingleColumnPredicate(slotRefRef, idxRef)
@@ -224,7 +224,7 @@ public class InPredicate extends Predicate {
             selectivity = Expr.DEFAULT_SELECTIVITY;
         }
     }
-    
+
     public InPredicate union(InPredicate inPredicate) {
         Preconditions.checkState(inPredicate.isLiteralChildren());
         Preconditions.checkState(this.isLiteralChildren());
@@ -235,7 +235,7 @@ public class InPredicate extends Predicate {
         InPredicate union = new InPredicate(getChild(0), unionChildren, isNotIn);
         return union;
     }
-    
+
     public InPredicate intersection(InPredicate inPredicate) {
         Preconditions.checkState(inPredicate.isLiteralChildren());
         Preconditions.checkState(this.isLiteralChildren());
@@ -245,7 +245,7 @@ public class InPredicate extends Predicate {
         InPredicate intersection = new InPredicate(getChild(0), intersectChildren, isNotIn);
         return intersection;
     }
-    
+
     @Override
     protected void toThrift(TExprNode msg) {
         // Can't serialize a predicate with a subquery
@@ -255,7 +255,7 @@ public class InPredicate extends Predicate {
         msg.setOpcode(opcode);
         msg.setVectorOpcode(vectorOpcode);
     }
-    
+
     @Override
     public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
@@ -268,7 +268,7 @@ public class InPredicate extends Predicate {
         strBuilder.append(")");
         return strBuilder.toString();
     }
-    
+
     @Override
     public String toDigestImpl() {
         StringBuilder strBuilder = new StringBuilder();
@@ -286,7 +286,7 @@ public class InPredicate extends Predicate {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
@@ -294,14 +294,14 @@ public class InPredicate extends Predicate {
         if (!(leftChildValue instanceof LiteralExpr) || !isLiteralChildren()) {
             return this;
         }
-        
+
         if (leftChildValue instanceof NullLiteral) {
             return leftChildValue;
         }
-        
+
         List<Expr> inListChildren = children.subList(1, children.size());
         boolean containsLeftChild = inListChildren.contains(leftChildValue);
-        
+
         // See QueryPlanTest.java testConstantInPredicate() for examples.
         // This logic should be same as logic in in_predicate.cpp: get_boolean_val()
         if (containsLeftChild) {
@@ -312,7 +312,7 @@ public class InPredicate extends Predicate {
         }
         return new BoolLiteral(isNotIn);
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (super.equals(obj)) {
@@ -323,7 +323,7 @@ public class InPredicate extends Predicate {
         }
         return false;
     }
-    
+
     @Override
     public boolean isNullable() {
         return hasNullableChild();
