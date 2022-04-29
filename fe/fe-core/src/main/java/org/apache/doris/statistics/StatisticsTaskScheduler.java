@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.StatisticsJob.JobState;
@@ -37,9 +38,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -58,7 +59,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // task n concurrent tasks from the queue
+        // step1: task n concurrent tasks from the queue
         List<StatisticsTask> tasks = peek();
 
         if (!tasks.isEmpty()) {
@@ -68,35 +69,26 @@ public class StatisticsTaskScheduler extends MasterDaemon {
             Map<Long, StatisticsJob> statisticsJobs = jobManager.getIdToStatisticsJob();
             Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap = Maps.newLinkedHashMap();
 
-            // begin to schedule tasks
             for (StatisticsTask task : tasks) {
                 queue.remove();
                 long jobId = task.getJobId();
                 StatisticsJob statisticsJob = statisticsJobs.get(jobId);
+
                 if (checkJobIsValid(jobId)) {
-                    try {
-                        // submit task to executor and update task and job state
-                        Future<StatisticsTaskResult> future = executor.submit(task);
-                        task.updateTaskState(TaskState.RUNNING);
-                        if (statisticsJob.getJobState() == JobState.SCHEDULING) {
-                            statisticsJob.updateJobState(JobState.RUNNING);
-                        }
-                        // save task info to be handled later
+                    // step2: execute task and save task result
+                    Future<StatisticsTaskResult> future = executor.submit(task);
+                    if (updateTaskAndJobState(task, statisticsJob)) {
                         Map<Long, Future<StatisticsTaskResult>> taskInfo = Maps.newHashMap();
                         taskInfo.put(task.getId(), future);
                         List<Map<Long, Future<StatisticsTaskResult>>> jobInfo = resultMap
-                            .getOrDefault(jobId, Lists.newArrayList());
+                                .getOrDefault(jobId, Lists.newArrayList());
                         jobInfo.add(taskInfo);
                         resultMap.put(jobId, jobInfo);
-                    } catch (RejectedExecutionException | IllegalStateException e) {
-                        task.updateTaskState(TaskState.FAILED);
-                        statisticsJob.updateJobState(JobState.FAILED);
-                        LOG.info("Failed to schedule statistics task(id={})", task.getId(), e);
                     }
                 }
             }
 
-            // handle task results
+            // step3: handle task results
             handleTaskResult(resultMap);
         }
     }
@@ -117,6 +109,37 @@ public class StatisticsTaskScheduler extends MasterDaemon {
             i--;
         }
         return tasks;
+    }
+
+    /**
+     * Update task and job state
+     *
+     * @param task statistics task
+     * @param job  statistics job
+     * @return true if update task and job state successfully.
+     */
+    private boolean updateTaskAndJobState(StatisticsTask task, StatisticsJob job) {
+        try {
+            // update task state
+            task.updateTaskState(TaskState.RUNNING);
+        } catch (DdlException e) {
+            LOG.info("Update statistics task state failed, taskId: " + task.getId(), e);
+        }
+
+        try {
+            // update job state
+            if (task.getTaskState() != TaskState.RUNNING) {
+                job.updateJobState(JobState.FAILED);
+            } else {
+                if (job.getJobState() == JobState.SCHEDULING) {
+                    job.updateJobState(JobState.RUNNING);
+                }
+            }
+        } catch (DdlException e) {
+            LOG.info("Update statistics job state failed, jobId: " + job.getId(), e);
+            return false;
+        }
+        return true;
     }
 
     private void handleTaskResult(Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap) {
@@ -146,13 +169,18 @@ public class StatisticsTaskScheduler extends MasterDaemon {
                                 // update column statistics
                                 statsManager.alterColumnStatistics(taskResult);
                             }
-                        } catch (TimeoutException | AnalysisException | ExecutionException | InterruptedException | IllegalStateException e) {
+                        } catch (AnalysisException | TimeoutException | ExecutionException
+                                | InterruptedException | CancellationException e) {
                             errorMsg = e.getMessage();
                             LOG.info("Failed to update statistics. jobId: {}, taskId: {}, e: {}", jobId, taskId, e);
                         }
 
-                        // update the task and job info
-                        statisticsJob.updateJobInfoByTaskId(taskId, errorMsg);
+                        try {
+                            // update the task and job info
+                            statisticsJob.updateJobInfoByTaskId(taskId, errorMsg);
+                        } catch (DdlException e) {
+                            LOG.info("Failed to update statistics job info. jobId: {}, taskId: {}, e: {}", jobId, taskId, e);
+                        }
                     }
                 }
             }
