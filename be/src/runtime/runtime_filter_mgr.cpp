@@ -138,8 +138,7 @@ Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
 }
 
 Status RuntimeFilterMergeControllerEntity::_init_with_desc(
-        const TRuntimeFilterDesc* runtime_filter_desc,
-        const TQueryOptions* query_options,
+        const TRuntimeFilterDesc* runtime_filter_desc, const TQueryOptions* query_options,
         const std::vector<doris::TRuntimeFilterTargetParams>* target_info,
         const int producer_size) {
     std::lock_guard<std::mutex> guard(_filter_map_mutex);
@@ -154,10 +153,12 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
 
     std::string filter_id = std::to_string(runtime_filter_desc->filter_id);
     // LOG(INFO) << "entity filter id:" << filter_id;
-    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, _fragment_instance_id);
+    cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options,
+                                   _fragment_instance_id);
     cntVal->tracker = MemTracker::create_tracker(
-            -1, thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id,
-            thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker());
+            -1,
+            tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->label() + ":FilterID:" + filter_id,
+            tls_ctx()->_thread_mem_tracker_mgr->mem_tracker());
     _filter_map.emplace(filter_id, cntVal);
     return Status::OK();
 }
@@ -179,7 +180,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id, UniqueId frag
         if (build_iter == runtime_filter_params.runtime_filter_builder_num.end()) {
             return Status::InternalError("runtime filter params meet error");
         }
-        _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second, build_iter->second);
+        _init_with_desc(&filterid_to_desc.second, &query_options, &target_iter->second,
+                        build_iter->second);
     }
     return Status::OK();
 }
@@ -290,7 +292,8 @@ Status RuntimeFilterMergeController::add_entity(
         _filter_controller_map[query_id_str] = *handle;
         const TRuntimeFilterParams& filter_params = params.params.runtime_filter_params;
         if (params.params.__isset.runtime_filter_params) {
-            RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params, params.query_options));
+            RETURN_IF_ERROR(handle->get()->init(query_id, fragment_instance_id, filter_params,
+                                                params.query_options));
         }
     } else {
         *handle = _filter_controller_map[query_id_str].lock();

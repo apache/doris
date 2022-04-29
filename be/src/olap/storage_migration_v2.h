@@ -44,7 +44,6 @@ public:
     Status process_storage_migration_v2(const TStorageMigrationReqV2& request);
 
 private:
-
     Status _get_versions_to_be_changed(TabletSharedPtr base_tablet,
                                        std::vector<Version>* versions_to_be_changed);
 
@@ -57,13 +56,14 @@ private:
 
     Status _do_process_storage_migration_v2(const TStorageMigrationReqV2& request);
 
-    Status _validate_migration_result(TabletSharedPtr new_tablet, const TStorageMigrationReqV2& request);
+    Status _validate_migration_result(TabletSharedPtr new_tablet,
+                                      const TStorageMigrationReqV2& request);
 
     Status _convert_historical_rowsets(const StorageMigrationParams& sm_params);
 
-    Status _generate_rowset_writer(
-            const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
-            RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet);
+    Status _generate_rowset_writer(const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
+                                   RowsetReaderSharedPtr rowset_reader,
+                                   RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet);
 
 private:
     StorageMigrationV2Handler();

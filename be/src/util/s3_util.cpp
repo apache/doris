@@ -29,7 +29,7 @@ namespace doris {
 const static std::string USE_PATH_STYLE = "use_path_style";
 
 ClientFactory::ClientFactory() {
-    _aws_options = Aws::SDKOptions{};
+    _aws_options = Aws::SDKOptions {};
     Aws::Utils::Logging::LogLevel logLevel =
             static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
     _aws_options.loggingOptions.logLevel = logLevel;
@@ -80,10 +80,12 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
         aws_config.maxConnections = std::atoi(properties.find(S3_MAX_CONN_SIZE)->second.c_str());
     }
     if (properties.find(S3_REQUEST_TIMEOUT_MS) != properties.end()) {
-        aws_config.requestTimeoutMs = std::atoi(properties.find(S3_REQUEST_TIMEOUT_MS)->second.c_str());
+        aws_config.requestTimeoutMs =
+                std::atoi(properties.find(S3_REQUEST_TIMEOUT_MS)->second.c_str());
     }
     if (properties.find(S3_CONN_TIMEOUT_MS) != properties.end()) {
-        aws_config.connectTimeoutMs = std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
+        aws_config.connectTimeoutMs =
+                std::atoi(properties.find(S3_CONN_TIMEOUT_MS)->second.c_str());
     }
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
@@ -91,9 +93,9 @@ std::shared_ptr<Aws::S3::S3Client> ClientFactory::create(
     if (properties.find(USE_PATH_STYLE) != properties.end()) {
         use_virtual_addressing = properties.find(USE_PATH_STYLE)->second == "true" ? false : true;
     }
-    return std::make_shared<Aws::S3::S3Client>(std::move(aws_cred), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            use_virtual_addressing);
+    return std::make_shared<Aws::S3::S3Client>(
+            std::move(aws_cred), std::move(aws_config),
+            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, use_virtual_addressing);
 }
 
 } // end namespace doris

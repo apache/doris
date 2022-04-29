@@ -29,7 +29,7 @@ enum ConfigActionType {
 // Update BE config.
 class ConfigAction : public HttpHandler {
 public:
-    ConfigAction(ConfigActionType type): _type(type) {}
+    ConfigAction(ConfigActionType type) : _type(type) {}
 
     virtual ~ConfigAction() {}
 
@@ -41,7 +41,6 @@ private:
     void handle_update_config(HttpRequest* req);
 
     void handle_show_config(HttpRequest* req);
-
 };
 
 } // namespace doris

@@ -18,7 +18,6 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/divide.cpp
 // and modified by Doris
 
-
 #include "vec/functions/function_binary_arithmetic_to_null_type.h"
 #include "vec/functions/simple_function_factory.h"
 
@@ -32,7 +31,8 @@ struct DivideFloatingImpl {
     static const constexpr bool allow_decimal = true;
 
     template <typename Result = DecimalV2Value>
-    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map, size_t index) {
+    static inline DecimalV2Value apply(DecimalV2Value a, DecimalV2Value b, NullMap& null_map,
+                                       size_t index) {
         null_map[index] = b.is_zero();
         return a / (b.is_zero() ? one : b);
     }

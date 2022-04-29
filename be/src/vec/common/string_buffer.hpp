@@ -40,8 +40,8 @@ public:
 
 class VectorBufferWriter final : public BufferWritable {
 public:
-    explicit VectorBufferWriter(ColumnString& vector) :
-        _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
+    explicit VectorBufferWriter(ColumnString& vector)
+            : _data(vector.get_chars()), _offsets(vector.get_offsets()) {}
 
     void write(const char* data, int len) override {
         _data.insert(data, data + len);
@@ -54,9 +54,7 @@ public:
         _now_offset = 0;
     }
 
-    ~VectorBufferWriter() {
-        DCHECK(_now_offset == 0);
-    }
+    ~VectorBufferWriter() { DCHECK(_now_offset == 0); }
 
 private:
     ColumnString::Chars& _data;

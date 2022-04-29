@@ -100,8 +100,7 @@ public:
     StringColumnDirectReader(uint32_t column_unique_id, uint32_t dictionary_size);
     ~StringColumnDirectReader();
 
-    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                    MemPool* mem_pool);
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool);
     Status seek(PositionProvider* positions);
     Status skip(uint64_t row_count);
     // Return the data of the current row and move the internal pointer backward
@@ -109,7 +108,7 @@ public:
     // length - the size of the buffer area when input, and the size of the string when returning
     Status next(char* buffer, uint32_t* length);
     Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
-                           int64_t* read_bytes);
+                       int64_t* read_bytes);
 
     size_t get_buffer_size() { return sizeof(RunLengthByteReader); }
 
@@ -132,13 +131,12 @@ class StringColumnDictionaryReader {
 public:
     StringColumnDictionaryReader(uint32_t column_unique_id, uint32_t dictionary_size);
     ~StringColumnDictionaryReader();
-    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                    MemPool* mem_pool);
+    Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool);
     Status seek(PositionProvider* positions);
     Status skip(uint64_t row_count);
     Status next(char* buffer, uint32_t* length);
     Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool,
-                           int64_t* read_bytes);
+                       int64_t* read_bytes);
 
     size_t get_buffer_size() { return sizeof(RunLengthByteReader) + _dictionary_size; }
 
@@ -189,7 +187,7 @@ public:
     // Input:
     //       streams-input stream
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats);
+                        MemPool* mem_pool, OlapReaderStatistics* stats);
 
     // Set the position of the next returned data
     // positions are the positions where each column needs to seek, ColumnReader passes (*positions)[_column_unique_id]
@@ -234,7 +232,7 @@ public:
     virtual ~DefaultValueReader() {}
 
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats) {
+                        MemPool* mem_pool, OlapReaderStatistics* stats) {
         switch (_type) {
         case OLAP_FIELD_TYPE_TINYINT: {
             _values = reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(int8_t)));
@@ -388,7 +386,7 @@ public:
     NullValueReader(uint32_t column_id, uint32_t column_unique_id)
             : ColumnReader(column_id, column_unique_id) {}
     Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
-                    OlapReaderStatistics* stats) override {
+                OlapReaderStatistics* stats) override {
         _is_null = reinterpret_cast<bool*>(mem_pool->allocate(size));
         memset(_is_null, 1, size);
         _stats = stats;
@@ -397,7 +395,7 @@ public:
     virtual Status seek(PositionProvider* positions) override { return Status::OK(); }
     virtual Status skip(uint64_t row_count) override { return Status::OK(); }
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size,
-                                   MemPool* mem_pool) override {
+                               MemPool* mem_pool) override {
         column_vector->set_no_nulls(false);
         column_vector->set_is_null(_is_null);
         _stats->bytes_read += size;
@@ -412,7 +410,7 @@ public:
     virtual ~TinyColumnReader();
 
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats);
+                        MemPool* mem_pool, OlapReaderStatistics* stats);
     virtual Status seek(PositionProvider* positions);
     virtual Status skip(uint64_t row_count);
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);
@@ -438,7 +436,7 @@ public:
     virtual ~IntegerColumnReaderWrapper() {}
 
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats) {
+                        MemPool* mem_pool, OlapReaderStatistics* stats) {
         Status res = ColumnReader::init(streams, size, mem_pool, stats);
 
         if (res.ok()) {
@@ -471,9 +469,7 @@ public:
 
         return Status::OK();
     }
-    virtual Status skip(uint64_t row_count) {
-        return _reader.skip(_count_none_nulls(row_count));
-    }
+    virtual Status skip(uint64_t row_count) { return _reader.skip(_count_none_nulls(row_count)); }
 
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
@@ -538,7 +534,7 @@ public:
     virtual ~FixLengthStringColumnReader() {}
 
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats) {
+                        MemPool* mem_pool, OlapReaderStatistics* stats) {
         Status res = ColumnReader::init(streams, size, mem_pool, stats);
 
         if (res.ok()) {
@@ -570,9 +566,7 @@ public:
 
         return Status::OK();
     }
-    virtual Status skip(uint64_t row_count) {
-        return _reader.skip(_count_none_nulls(row_count));
-    }
+    virtual Status skip(uint64_t row_count) { return _reader.skip(_count_none_nulls(row_count)); }
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
@@ -605,7 +599,7 @@ public:
               _max_length(max_length) {}
     virtual ~VarStringColumnReader() {}
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats) {
+                        MemPool* mem_pool, OlapReaderStatistics* stats) {
         Status res = ColumnReader::init(streams, size, mem_pool, stats);
         if (res.ok()) {
             res = _reader.init(streams, size, mem_pool);
@@ -636,9 +630,7 @@ public:
 
         return Status::OK();
     }
-    virtual Status skip(uint64_t row_count) {
-        return _reader.skip(_count_none_nulls(row_count));
-    }
+    virtual Status skip(uint64_t row_count) { return _reader.skip(_count_none_nulls(row_count)); }
 
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
@@ -672,7 +664,7 @@ public:
     virtual ~FloatintPointColumnReader() {}
 
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats) {
+                        MemPool* mem_pool, OlapReaderStatistics* stats) {
         if (nullptr == streams) {
             OLAP_LOG_WARNING("input streams is nullptr");
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -790,11 +782,11 @@ public:
     DecimalColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~DecimalColumnReader();
     Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size, MemPool* mem_pool,
-                    OlapReaderStatistics* stats) override;
+                OlapReaderStatistics* stats) override;
     virtual Status seek(PositionProvider* positions) override;
     virtual Status skip(uint64_t row_count) override;
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size,
-                                   MemPool* mem_pool) override;
+                               MemPool* mem_pool) override;
 
     virtual size_t get_buffer_size() override { return sizeof(RunLengthByteReader) * 2; }
 
@@ -810,7 +802,7 @@ public:
     LargeIntColumnReader(uint32_t column_id, uint32_t column_unique_id);
     virtual ~LargeIntColumnReader();
     virtual Status init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                            MemPool* mem_pool, OlapReaderStatistics* stats);
+                        MemPool* mem_pool, OlapReaderStatistics* stats);
     virtual Status seek(PositionProvider* positions);
     virtual Status skip(uint64_t row_count);
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool);

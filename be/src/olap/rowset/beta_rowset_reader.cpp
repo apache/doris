@@ -32,9 +32,7 @@
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-        : _context(nullptr),
-          _rowset(std::move(rowset)),
-          _stats(&_owned_stats) {
+        : _context(nullptr), _rowset(std::move(rowset)), _stats(&_owned_stats) {
     _rowset->acquire();
 }
 
@@ -48,7 +46,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
         _stats = _context->stats;
     }
     // SegmentIterator will load seek columns on demand
-    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(), *(_context->return_columns));
+    _schema = std::make_unique<Schema>(_context->tablet_schema->columns(),
+                                       *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
@@ -89,7 +88,8 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
     // load segments
     RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            _rowset, &_segment_cache_handle, read_context->reader_type == ReaderType::READER_QUERY));
+            _rowset, &_segment_cache_handle,
+            read_context->reader_type == ReaderType::READER_QUERY));
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
@@ -112,13 +112,16 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (config::enable_storage_vectorization && read_context->is_vec) {
-        if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-            final_iterator = vectorized::new_merge_iterator(iterators, read_context->sequence_id_idx);
+        if (read_context->need_ordered_result &&
+            _rowset->rowset_meta()->is_segments_overlapping()) {
+            final_iterator =
+                    vectorized::new_merge_iterator(iterators, read_context->sequence_id_idx);
         } else {
             final_iterator = vectorized::new_union_iterator(iterators);
         }
     } else {
-        if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+        if (read_context->need_ordered_result &&
+            _rowset->rowset_meta()->is_segments_overlapping()) {
             final_iterator = new_merge_iterator(iterators, read_context->sequence_id_idx);
         } else {
             final_iterator = new_union_iterator(iterators);
@@ -133,8 +136,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _iterator.reset(final_iterator);
 
     // init input block
-    _input_block.reset(new RowBlockV2(*_schema,
-            std::min(1024, read_context->batch_size)));
+    _input_block.reset(new RowBlockV2(*_schema, std::min(1024, read_context->batch_size)));
 
     if (!read_context->is_vec) {
         // init input/output block and row
@@ -227,7 +229,8 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
                 }
             }
             is_first = false;
-        } while (block->rows() < _context->batch_size); // here we should keep block.rows() < batch_size
+        } while (block->rows() <
+                 _context->batch_size); // here we should keep block.rows() < batch_size
     }
 
     return Status::OK();

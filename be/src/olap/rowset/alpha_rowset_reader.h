@@ -63,7 +63,7 @@ public:
     // It's ok, because we only get ref here, the block's owner is this reader.
     Status next_block(RowBlock** block) override;
 
-    Status next_block(vectorized::Block *block) override {
+    Status next_block(vectorized::Block* block) override {
         return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
 

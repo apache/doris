@@ -93,7 +93,8 @@ void ColumnString::insert_range_from(const IColumn& src, size_t start, size_t le
     }
 }
 
-void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
+void ColumnString::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                       const int* indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
         if (*x == -1) {
             ColumnString::insert_default();

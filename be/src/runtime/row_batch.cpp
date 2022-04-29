@@ -44,7 +44,7 @@ const int RowBatch::AT_CAPACITY_MEM_USAGE = 8 * 1024 * 1024;
 const int RowBatch::FIXED_LEN_BUFFER_LIMIT = AT_CAPACITY_MEM_USAGE / 2;
 
 RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
-        : _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()),
+        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(0),
           _num_uncommitted_rows(0),
@@ -70,7 +70,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity)
 // to allocated string data in special mempool
 // (change via python script that runs over Data_types.cc)
 RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
-        : _mem_tracker(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()),
+        : _mem_tracker(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()),
           _has_in_flight_row(false),
           _num_rows(input_batch.num_rows()),
           _num_uncommitted_rows(0),
@@ -173,7 +173,8 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const PRowBatch& input_batch)
 
                 CollectionValue* array_val =
                         tuple->get_collection_slot(slot_collection->tuple_offset());
-                CollectionValue::deserialize_collection(array_val, tuple_data, slot_collection->type());
+                CollectionValue::deserialize_collection(array_val, tuple_data,
+                                                        slot_collection->type());
             }
         }
     }
@@ -257,7 +258,7 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
                 continue;
             }
             // Record offset before creating copy (which increments offset and tuple_data)
-            mutable_tuple_offsets->Add((int32_t) offset);
+            mutable_tuple_offsets->Add((int32_t)offset);
             mutable_new_tuple_offsets->Add(offset);
             row->get_tuple(j)->deep_copy(*desc, &tuple_data, &offset, /* convert_ptrs */ true);
             CHECK_LE(offset, size);

@@ -60,15 +60,15 @@ public:
         auto end = str.len - 1;
 #ifdef __SSE2__
         char blank = ' ';
-        const auto pattern =  _mm_set1_epi8(blank);
+        const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i *>(str.ptr + end + 1 - REGISTER_SIZE));
+            const auto v_haystack = _mm_loadu_si128(
+                    reinterpret_cast<const __m128i*>(str.ptr + end + 1 - REGISTER_SIZE));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern);
             int offset = __builtin_clz(~(mask << REGISTER_SIZE));
             /// means not found
-            if (offset == 0)
-            {
+            if (offset == 0) {
                 return StringVal(str.ptr + begin, end - begin + 1);
             } else {
                 end -= offset;
@@ -92,9 +92,10 @@ public:
         auto end = str.len - 1;
 #ifdef __SSE2__
         char blank = ' ';
-        const auto pattern =  _mm_set1_epi8(blank);
+        const auto pattern = _mm_set1_epi8(blank);
         while (end - begin + 1 >= REGISTER_SIZE) {
-            const auto v_haystack = _mm_loadu_si128(reinterpret_cast<const __m128i *>(str.ptr + begin));
+            const auto v_haystack =
+                    _mm_loadu_si128(reinterpret_cast<const __m128i*>(str.ptr + begin));
             const auto v_against_pattern = _mm_cmpeq_epi8(v_haystack, pattern);
             const auto mask = _mm_movemask_epi8(v_against_pattern) ^ 0xffff;
             /// zero means not found
@@ -156,13 +157,15 @@ public:
 #if defined(__SSE2__)
         constexpr auto step = sizeof(uint64);
         if (src_str + step < src_str_end) {
-            const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i *>(hex_table));
+            const auto hex_map = _mm_loadu_si128(reinterpret_cast<const __m128i*>(hex_table));
             const auto mask_map = _mm_set1_epi8(0x0F);
 
             do {
                 auto data = _mm_loadu_si64(src_str);
-                auto hex_loc = _mm_and_si128(_mm_unpacklo_epi8(_mm_srli_epi64(data, 4), data), mask_map);
-                _mm_storeu_si128(reinterpret_cast<__m128i *>(dst_str), _mm_shuffle_epi8(hex_map, hex_loc));
+                auto hex_loc =
+                        _mm_and_si128(_mm_unpacklo_epi8(_mm_srli_epi64(data, 4), data), mask_map);
+                _mm_storeu_si128(reinterpret_cast<__m128i*>(dst_str),
+                                 _mm_shuffle_epi8(hex_map, hex_loc));
 
                 src_str += step;
                 dst_str += step * 2;
@@ -180,7 +183,7 @@ public:
         }
     }
 
-    static void to_lower(uint8_t * src, int64_t len, uint8_t * dst) {
+    static void to_lower(uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
@@ -188,7 +191,7 @@ public:
         lowerUpper.transfer(src, src + len, dst);
     }
 
-    static void to_upper(uint8_t * src, int64_t len, uint8_t * dst) {
+    static void to_upper(uint8_t* src, int64_t len, uint8_t* dst) {
         if (len <= 0) {
             return;
         }
@@ -196,5 +199,5 @@ public:
         lowerUpper.transfer(src, src + len, dst);
     }
 };
-}
-}
+} // namespace simd
+} // namespace doris

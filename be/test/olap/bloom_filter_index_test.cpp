@@ -79,9 +79,12 @@ TEST_F(TestBloomFilterIndex, normal_read_and_write) {
 TEST_F(TestBloomFilterIndex, abnormal_write) {
     char buffer[24];
     BloomFilterIndexWriter writer;
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(nullptr));
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(nullptr, 0));
-    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR), writer.write_to_buffer(buffer, 0));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
+              writer.write_to_buffer(nullptr));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
+              writer.write_to_buffer(nullptr, 0));
+    EXPECT_EQ(Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR),
+              writer.write_to_buffer(buffer, 0));
     EXPECT_EQ(sizeof(BloomFilterIndexHeader), writer.estimate_buffered_memory());
 }
 

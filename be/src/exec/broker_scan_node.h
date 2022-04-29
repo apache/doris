@@ -65,7 +65,6 @@ protected:
     // Write debug string of this into out.
     virtual void debug_string(int indentation_level, std::stringstream* out) const override;
 
-private:
     // Update process status to one failed status,
     // NOTE: Must hold the mutex of this scan node
     bool update_status(const Status& new_status) {
@@ -76,8 +75,12 @@ private:
         return false;
     }
 
+    std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
+                                                ScannerCounter* counter);
+
+private:
     // Create scanners to do scan job
-    Status start_scanners();
+    virtual Status start_scanners();
 
     // One scanner worker, This scanner will handle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length);
@@ -86,10 +89,8 @@ private:
     Status scanner_scan(const TBrokerScanRange& scan_range,
                         const std::vector<ExprContext*>& conjunct_ctxs, ScannerCounter* counter);
 
-    std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
-                                                ScannerCounter* counter);
-
-private:
+protected:
+    bool _vectorized = false;
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
     TupleDescriptor* _tuple_desc;

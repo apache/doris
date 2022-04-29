@@ -39,12 +39,11 @@ private:
     // check if task is timeout
     bool _is_timeout();
     Status _get_versions(int32_t start_version, int32_t* end_version,
-                             std::vector<RowsetSharedPtr>* consistent_rowsets);
+                         std::vector<RowsetSharedPtr>* consistent_rowsets);
     Status _check_running_txns();
     // caller should not hold migration lock, and 'migration_wlock' should not be nullptr
     // ownership of the migration lock is transferred to the caller if check succ
-    Status _check_running_txns_until_timeout(
-            std::unique_lock<std::shared_mutex>* migration_wlock);
+    Status _check_running_txns_until_timeout(std::unique_lock<std::shared_mutex>* migration_wlock);
 
     // if the size less than threshold, return true
     bool _is_rowsets_size_less_than_threshold(
@@ -61,9 +60,8 @@ private:
 
     // TODO: hkp
     // rewrite this function
-    Status _copy_index_and_data_files(
-            const std::string& full_path,
-            const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
+    Status _copy_index_and_data_files(const std::string& full_path,
+                                      const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
 
 private:
     // tablet to do migrated

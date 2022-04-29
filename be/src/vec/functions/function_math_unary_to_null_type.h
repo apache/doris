@@ -46,7 +46,8 @@ private:
     }
 
     template <typename T, typename ReturnType>
-    static void execute_in_iterations(const T* src_data, ReturnType* dst_data, NullMap& null_map, size_t size) {
+    static void execute_in_iterations(const T* src_data, ReturnType* dst_data, NullMap& null_map,
+                                      size_t size) {
         for (size_t i = 0; i < size; i++) {
             Impl::execute(&src_data[i], &dst_data[i], null_map[i]);
         }
@@ -67,7 +68,8 @@ private:
 
         execute_in_iterations(src_data.data(), dst_data.data(), null_map, size);
 
-        block.replace_by_position(result, ColumnNullable::create(std::move(dst), std::move(null_column)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(dst), std::move(null_column)));
         return true;
     }
 
@@ -91,7 +93,8 @@ private:
 
         execute_in_iterations(dst_data.data(), dst_data.data(), null_map, size);
 
-        block.replace_by_position(result, ColumnNullable::create(std::move(dst), std::move(null_column)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(dst), std::move(null_column)));
         return true;
     }
 

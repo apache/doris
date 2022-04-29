@@ -28,7 +28,7 @@ BloomFilterIndexReader::~BloomFilterIndexReader() {
 }
 
 Status BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool is_using_cache,
-                                        uint32_t hash_function_num, uint32_t bit_num) {
+                                    uint32_t hash_function_num, uint32_t bit_num) {
     Status res = Status::OK();
 
     _buffer = buffer;

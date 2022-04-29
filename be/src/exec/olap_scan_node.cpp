@@ -318,7 +318,8 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
             materialized_batch = _materialized_row_batches.front();
             DCHECK(materialized_batch != nullptr);
             _materialized_row_batches.pop_front();
-            _materialized_row_batches_bytes -= materialized_batch->tuple_data_pool()->total_reserved_bytes();
+            _materialized_row_batches_bytes -=
+                    materialized_batch->tuple_data_pool()->total_reserved_bytes();
         }
     }
 
@@ -777,7 +778,8 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
         auto tablet_id = scan_range->tablet_id;
         int32_t schema_hash = strtoul(scan_range->schema_hash.c_str(), nullptr, 10);
         std::string err;
-        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
+        TabletSharedPtr tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
         if (tablet == nullptr) {
             std::stringstream ss;
             ss << "failed to get tablet: " << tablet_id << " with schema hash: " << schema_hash
@@ -1212,7 +1214,8 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 std::string is_null_str;
                 // 1. dispose the where pred "A is null" and "A is not null"
                 if (root_expr->is_null_scalar_function(is_null_str) &&
-                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str, range)) {
+                    normalize_is_null_predicate(root_expr->get_child(0), slot, is_null_str,
+                                                range)) {
                     // if column is key column should push down conjunct storage engine
                     if (is_key_column(slot->col_name())) {
                         filter_conjuncts_index.emplace_back(conj_idx);

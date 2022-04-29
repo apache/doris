@@ -33,6 +33,11 @@ class MemTracker;
 class RuntimeState;
 class ExprContext;
 
+namespace vectorized {
+class IColumn;
+using MutableColumnPtr = IColumn::MutablePtr;
+} // namespace vectorized
+
 // The counter will be passed to each scanner.
 // Note that this struct is not thread safe.
 // So if we support concurrent scan in the future, we need to modify this struct.
@@ -54,7 +59,12 @@ public:
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
+
+    // Get next block
+    virtual Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
     virtual void close() = 0;
@@ -64,7 +74,7 @@ public:
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
-    
+
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;

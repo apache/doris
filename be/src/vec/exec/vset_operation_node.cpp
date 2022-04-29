@@ -37,7 +37,7 @@ struct HashTableBuild {
         using KeyGetter = typename HashTableContext::State;
         using Mapped = typename HashTableContext::Mapped;
         int64_t old_bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
-        
+
         Defer defer {[&]() {
             int64_t bucket_bytes = hash_table_ctx.hash_table.get_buffer_size_in_bytes();
             _operation_node->_hash_table_mem_tracker->consume(bucket_bytes - old_bucket_bytes);
@@ -231,7 +231,7 @@ void VSetOperationNode::hash_table_init() {
 Status VSetOperationNode::hash_table_build(RuntimeState* state) {
     RETURN_IF_ERROR(child(0)->open(state));
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB(
-                "Vec Set Operation Node, while constructing the hash table");
+            "Vec Set Operation Node, while constructing the hash table");
     Block block;
     MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
 
@@ -248,12 +248,14 @@ Status VSetOperationNode::hash_table_build(RuntimeState* state) {
         _hash_table_mem_tracker->consume(allocated_bytes);
         _mem_used += allocated_bytes;
 
-        if (block.rows() != 0) { mutable_block.merge(block); }
+        if (block.rows() != 0) {
+            mutable_block.merge(block);
+        }
 
         // make one block for each 4 gigabytes
-        constexpr static auto BUILD_BLOCK_MAX_SIZE =  4 * 1024UL * 1024UL * 1024UL;
+        constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
         if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
-             _build_blocks.emplace_back(mutable_block.to_block());
+            _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
             RETURN_IF_ERROR(process_build_block(_build_blocks[index], index));
@@ -282,8 +284,8 @@ Status VSetOperationNode::process_build_block(Block& block, uint8_t offset) {
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block,
-                                                                              raw_ptrs, this, offset);
+                    HashTableBuild<HashTableCtxType> hash_table_build_process(rows, block, raw_ptrs,
+                                                                              this, offset);
                     hash_table_build_process(arg);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -319,7 +321,7 @@ Status VSetOperationNode::extract_build_column(Block& block, ColumnRawPtrs& raw_
         RETURN_IF_ERROR(_child_expr_lists[0][i]->execute(&block, &result_col_id));
 
         block.get_by_position(result_col_id).column =
-                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         auto column = block.get_by_position(result_col_id).column.get();
 
         if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
@@ -349,7 +351,7 @@ Status VSetOperationNode::extract_probe_column(Block& block, ColumnRawPtrs& raw_
         RETURN_IF_ERROR(_child_expr_lists[child_id][i]->execute(&block, &result_col_id));
 
         block.get_by_position(result_col_id).column =
-                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
+                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         auto column = block.get_by_position(result_col_id).column.get();
 
         if (auto* nullable = check_and_get_column<ColumnNullable>(*column)) {

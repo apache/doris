@@ -38,9 +38,8 @@ Status EngineStorageMigrationTask::execute() {
     return _migrate();
 }
 
-Status EngineStorageMigrationTask::_get_versions(
-        int32_t start_version, int32_t* end_version,
-        std::vector<RowsetSharedPtr>* consistent_rowsets) {
+Status EngineStorageMigrationTask::_get_versions(int32_t start_version, int32_t* end_version,
+                                                 std::vector<RowsetSharedPtr>* consistent_rowsets) {
     std::shared_lock rdlock(_tablet->get_header_lock());
     const RowsetSharedPtr last_version = _tablet->rowset_with_max_version();
     if (last_version == nullptr) {
@@ -166,8 +165,7 @@ Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) 
 
     // if old tablet finished schema change, then the schema change status of the new tablet is DONE
     // else the schema change status of the new tablet is FAILED
-    TabletSharedPtr new_tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "tablet not found. tablet_id=" << tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
@@ -286,7 +284,9 @@ Status EngineStorageMigrationTask::_migrate() {
                 // force to copy the remaining data and index
                 res = _copy_index_and_data_files(full_path, temp_consistent_rowsets);
                 if (!res.ok()) {
-                    LOG(WARNING) << "fail to copy the remaining index and data files when migrate. res=" << res;
+                    LOG(WARNING)
+                            << "fail to copy the remaining index and data files when migrate. res="
+                            << res;
                     break;
                 }
             } else {

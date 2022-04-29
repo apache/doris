@@ -112,10 +112,10 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     return StringRef(nested_ref.data - s, nested_ref.size + s);
 }
 
-    void ColumnNullable::insert_join_null_data() {
-        get_nested_column().insert_default();
-        get_null_map_data().push_back(JOIN_NULL_HINT);
-    }
+void ColumnNullable::insert_join_null_data() {
+    get_nested_column().insert_default();
+    get_null_map_data().push_back(JOIN_NULL_HINT);
+}
 
 const char* ColumnNullable::deserialize_and_insert_from_arena(const char* pos) {
     UInt8 val = *reinterpret_cast<const UInt8*>(pos);
@@ -137,10 +137,13 @@ void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t 
     get_nested_column().insert_range_from(*nullable_col.nested_column, start, length);
 }
 
-void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
+void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                         const int* indices_end) {
     const ColumnNullable& src_concrete = assert_cast<const ColumnNullable&>(src);
-    get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin, indices_end);
-    get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin, indices_end);
+    get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
+                                            indices_end);
+    get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin,
+                                              indices_end);
 }
 
 void ColumnNullable::insert(const Field& x) {
@@ -192,8 +195,10 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, 
     const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
     ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;
     ColumnPtr null_map_ptr = nullable_col_ptr->null_map;
-    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
-    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(nest_col_ptr.get())));
+    RETURN_IF_ERROR(get_null_map_column().filter_by_selector(
+            sel, sel_size, const_cast<doris::vectorized::IColumn*>(null_map_ptr.get())));
     return Status::OK();
 }
 

@@ -132,10 +132,9 @@ Status ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool withou
         SAFE_DELETE(_segment_reader);
         std::string file_name;
         file_name = segment_group()->construct_data_file_path(block_pos.segment);
-        _segment_reader = new (std::nothrow)
-                SegmentReader(file_name, segment_group(), block_pos.segment, _seek_columns,
-                              _load_bf_columns, _conditions, _delete_handler, _delete_status,
-                              _lru_cache, _runtime_state, _stats);
+        _segment_reader = new (std::nothrow) SegmentReader(
+                file_name, segment_group(), block_pos.segment, _seek_columns, _load_bf_columns,
+                _conditions, _delete_handler, _delete_status, _lru_cache, _runtime_state, _stats);
         if (_segment_reader == nullptr) {
             OLAP_LOG_WARNING("fail to malloc segment reader.");
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
@@ -162,7 +161,7 @@ Status ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool withou
 }
 
 Status ColumnData::_find_position_by_short_key(const RowCursor& key, bool find_last_key,
-                                                   RowBlockPosition* position) {
+                                               RowBlockPosition* position) {
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, find_last_key, &tmp_pos);
     if (!res.ok()) {
@@ -182,7 +181,7 @@ Status ColumnData::_find_position_by_short_key(const RowCursor& key, bool find_l
 }
 
 Status ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_last_key,
-                                                  RowBlockPosition* position) {
+                                              RowBlockPosition* position) {
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, false, &tmp_pos);
     if (!res.ok()) {
@@ -253,8 +252,8 @@ Status ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_la
     }
 
     if (!(res = segment_group()->advance_row_block(*it_result, &start_position))) {
-        LOG(WARNING) << "fail to advance row_block. res=" << res 
-                     << " it_offset=" << *it_result << " start_pos=" << start_position.to_string();
+        LOG(WARNING) << "fail to advance row_block. res=" << res << " it_offset=" << *it_result
+                     << " start_pos=" << start_position.to_string();
         return res;
     }
 
@@ -292,11 +291,10 @@ Status ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool i
     bool without_filter = is_end_key;
     res = _seek_to_block(position, without_filter);
     if (!res.ok()) {
-        LOG(WARNING) << "fail to get row block. res=" << res 
-                    << " segment=" << position.segment 
-                    << " block_size=" << position.block_size
-                    << " data_offset=" << position.data_offset
-                    << " index_offset=" << position.index_offset;
+        LOG(WARNING) << "fail to get row block. res=" << res << " segment=" << position.segment
+                     << " block_size=" << position.block_size
+                     << " data_offset=" << position.data_offset
+                     << " index_offset=" << position.index_offset;
         return res;
     }
     res = _get_block(without_filter);
@@ -346,8 +344,8 @@ const RowCursor* ColumnData::seek_and_get_current_row(const RowBlockPosition& po
 }
 
 Status ColumnData::prepare_block_read(const RowCursor* start_key, bool find_start_key,
-                                          const RowCursor* end_key, bool find_end_key,
-                                          RowBlock** first_block) {
+                                      const RowCursor* end_key, bool find_end_key,
+                                      RowBlock** first_block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     set_eof(false);
     _end_key_is_set = false;
@@ -583,7 +581,7 @@ Status ColumnData::schema_change_init() {
 }
 
 Status ColumnData::_get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
-                                              int rows_read) {
+                                          int rows_read) {
     VectorizedRowBatch* vec_batch = nullptr;
     if (_is_normal_read) {
         vec_batch = _read_vector_batch.get();

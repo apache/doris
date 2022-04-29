@@ -236,7 +236,7 @@ TEST_F(ThreadPoolTest, TestRace) {
         // so an cast is needed to use std::bind
         EXPECT_TRUE(_pool
                             ->submit_func(std::bind(
-                                    (void(CountDownLatch::*)())(&CountDownLatch::count_down), &l))
+                                    (void (CountDownLatch::*)())(&CountDownLatch::count_down), &l))
                             .ok());
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit

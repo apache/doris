@@ -100,7 +100,7 @@ public class HiveScanNode extends BrokerScanNode {
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                         List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded);
+        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded, NodeType.HIVE_SCAN_NODE);
         this.hiveTable = (HiveTable) destTupleDesc.getTable();
     }
 

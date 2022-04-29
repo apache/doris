@@ -51,8 +51,7 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _need_agg_finalize(need_agg_finalize),
           _version(-1),
           _mem_tracker(MemTracker::create_tracker(
-                  tracker->limit(),
-                  tracker->label() + ":OlapScanner:" + thread_local_ctx.get()->thread_id_str(),
+                  tracker->limit(), tracker->label() + ":OlapScanner:" + tls_ctx()->thread_id_str(),
                   tracker)) {}
 
 Status OlapScanner::prepare(
@@ -302,7 +301,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             }
 
             if (tmp_object_pool.size() > 0) {
-                unused_object_pool.acquire_data(&tmp_object_pool); 
+                unused_object_pool.acquire_data(&tmp_object_pool);
             }
 
             if (unused_object_pool.size() >= config::object_pool_buffer_size) {

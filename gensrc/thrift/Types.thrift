@@ -551,6 +551,9 @@ enum TFileType {
 struct TTabletCommitInfo {
     1: required i64 tabletId
     2: required i64 backendId
+    // Every load job should check if the global dict is valid, if the global dict
+    // is invalid then should sent the invalid column names to FE
+    3: optional list<string> invalid_dict_cols  
 }
 
 struct TErrorTabletInfo {

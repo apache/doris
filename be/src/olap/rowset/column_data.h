@@ -51,16 +51,15 @@ public:
     Status init();
 
     Status prepare_block_read(const RowCursor* start_key, bool find_start_key,
-                                  const RowCursor* end_key, bool find_end_key,
-                                  RowBlock** first_block);
+                              const RowCursor* end_key, bool find_end_key, RowBlock** first_block);
 
     Status get_next_block(RowBlock** row_block);
 
     void set_read_params(const std::vector<uint32_t>& return_columns,
                          const std::vector<uint32_t>& seek_columns,
                          const std::set<uint32_t>& load_bf_columns, const Conditions& conditions,
-                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates, bool is_using_cache,
-                         RuntimeState* runtime_state);
+                         std::shared_ptr<std::vector<ColumnPredicate*>> col_predicates,
+                         bool is_using_cache, RuntimeState* runtime_state);
 
     Status get_first_row_block(RowBlock** row_block);
 
@@ -114,9 +113,9 @@ private:
     Status _seek_to_block(const RowBlockPosition& block_pos, bool without_filter);
 
     Status _find_position_by_short_key(const RowCursor& key, bool find_last_key,
-                                           RowBlockPosition* position);
+                                       RowBlockPosition* position);
     Status _find_position_by_full_key(const RowCursor& key, bool find_last_key,
-                                          RowBlockPosition* position);
+                                      RowBlockPosition* position);
 
     // Used in _seek_to_row, this function will goto next row that valid for this
     // ColumnData
@@ -125,7 +124,7 @@ private:
     // get block from reader, just read vector batch from _current_segment.
     // The read batch return by got_batch.
     Status _get_block_from_reader(VectorizedRowBatch** got_batch, bool without_filter,
-                                      int rows_read);
+                                  int rows_read);
 
     // get block from segment reader. If this function returns OLAP_SUCCESS
     Status _get_block(bool without_filter, int rows_read = 0);

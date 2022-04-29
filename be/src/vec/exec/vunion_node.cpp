@@ -125,8 +125,10 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
     DCHECK_LT(_child_idx, _children.size());
 
     bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock = mem_reuse ? MutableBlock::build_mutable_block(block) :
-        MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+    MutableBlock mblock =
+            mem_reuse ? MutableBlock::build_mutable_block(block)
+                      : MutableBlock(Block(
+                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
 
     Block child_block;
     while (has_more_materialized() && mblock.rows() <= state->batch_size()) {
@@ -157,9 +159,9 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
             // Unless we are inside a subplan expecting to call open()/get_next() on the child
             // again, the child can be closed at this point.
             // TODO: Recheck whether is_in_subplan() is right
-//            if (!is_in_subplan()) {
-//                child(_child_idx)->close(state);
-//            }
+            //            if (!is_in_subplan()) {
+            //                child(_child_idx)->close(state);
+            //            }
             ++_child_idx;
         }
     }
@@ -177,12 +179,14 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     DCHECK_LT(_const_expr_list_idx, _const_expr_lists.size());
 
     bool mem_reuse = block->mem_reuse();
-    MutableBlock mblock = mem_reuse ? MutableBlock::build_mutable_block(block) :
-        MutableBlock(Block(VectorizedUtils::create_columns_with_type_and_name(row_desc())));
+    MutableBlock mblock =
+            mem_reuse ? MutableBlock::build_mutable_block(block)
+                      : MutableBlock(Block(
+                                VectorizedUtils::create_columns_with_type_and_name(row_desc())));
     for (; _const_expr_list_idx < _const_expr_lists.size(); ++_const_expr_list_idx) {
         Block tmp_block;
         tmp_block.insert({vectorized::ColumnUInt8::create(1),
-                    std::make_shared<vectorized::DataTypeUInt8>(), ""});
+                          std::make_shared<vectorized::DataTypeUInt8>(), ""});
         int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
@@ -201,7 +205,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
     // need add one row to make sure the union node exec const expr return at least one row
     if (block->rows() == 0) {
         block->insert({vectorized::ColumnUInt8::create(1),
-                    std::make_shared<vectorized::DataTypeUInt8>(), ""});
+                       std::make_shared<vectorized::DataTypeUInt8>(), ""});
     }
 
     return Status::OK();

@@ -26,10 +26,11 @@
 
 namespace doris::vectorized {
 
-static const std::string agg_reader_suffix = "_reader";
+static auto constexpr AGG_READER_SUFFIX = "_reader";
+static auto constexpr AGG_LOAD_SUFFIX = "_load";
 
-void register_aggregate_function_reader(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory);
 
-void register_aggregate_function_reader_no_spread(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory);
 
 } // namespace doris::vectorized
