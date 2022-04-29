@@ -109,8 +109,33 @@ void VLiteral::init(const TExprNode& node) {
         case TYPE_DECIMALV2: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
-            DecimalV2Value value(node.decimal_literal.value);
-            field = DecimalField<Decimal128>(value.value(), value.scale());
+            if (config::enable_decimalv3) {
+                DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
+                                                      node.type.types[0].scalar_type.scale);
+                WhichDataType which(type_ptr->get_type_id());
+                if (which.is_decimal32()) {
+                    auto val = typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
+                                       ->parse_from_string(node.decimal_literal.value);
+                    auto scale = typeid_cast<const DataTypeDecimal<Decimal32>*>(type_ptr.get())
+                                         ->get_scale();
+                    field = DecimalField<Decimal32>(val, scale);
+                } else if (which.is_decimal64()) {
+                    auto val = typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
+                                       ->parse_from_string(node.decimal_literal.value);
+                    auto scale = typeid_cast<const DataTypeDecimal<Decimal64>*>(type_ptr.get())
+                                         ->get_scale();
+                    field = DecimalField<Decimal64>(val, scale);
+                } else if (which.is_decimal128()) {
+                    auto val = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+                                       ->parse_from_string(node.decimal_literal.value);
+                    auto scale = typeid_cast<const DataTypeDecimal<Decimal128>*>(type_ptr.get())
+                                         ->get_scale();
+                    field = DecimalField<Decimal128>(val, scale);
+                }
+            } else {
+                DecimalV2Value value(node.decimal_literal.value);
+                field = DecimalField<Decimal128>(value.value(), value.scale());
+            }
             break;
         }
         default: {

@@ -118,6 +118,17 @@ MutableColumnPtr DataTypeDecimal<T>::create_column() const {
     return ColumnType::create(0, scale);
 }
 
+template <typename T>
+T DataTypeDecimal<T>::parse_from_string(const std::string& str) const {
+    StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
+    T value = StringParser::string_to_decimal<__int128>(str.c_str(), str.size(), precision, scale,
+                                                        &result);
+    if (result != StringParser::PARSE_SUCCESS) {
+        LOG(FATAL) << "Failed to parse string of decimal";
+    }
+    return value;
+}
+
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value) {
     if (precision_value < min_decimal_precision() ||
         precision_value > max_decimal_precision<Decimal128>()) {

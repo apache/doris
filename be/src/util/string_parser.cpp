@@ -20,11 +20,28 @@
 
 #include "string_parser.hpp"
 
+#include "vec/common/int_exp.h"
+
 namespace doris {
 
 template <>
 __int128 StringParser::numeric_limits<__int128>(bool negative) {
     return negative ? MIN_INT128 : MAX_INT128;
+}
+
+template <>
+int32_t StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i32(scale);
+}
+
+template <>
+int64_t StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i64(scale);
+}
+
+template <>
+__int128 StringParser::get_scale_multiplier(int scale) {
+    return common::exp10_i128(scale);
 }
 
 } // namespace doris
