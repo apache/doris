@@ -30,9 +30,9 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: "Run java checkstyle"
-        uses: dbelyaev/action-checkstyle@9eb1077
+        uses: ./.github/actions/action-checkstyle
         with:
-          checkstyle_config: ./.github/actions/action-checkstyle
+          checkstyle_config: fe/check/checkstyle/checkstyle.xml
           checkstyle_version: 9.3
           workdir: "./fe"
           reporter: 'github-pr-review'
