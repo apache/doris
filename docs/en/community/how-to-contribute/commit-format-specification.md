@@ -46,7 +46,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * style: Code style adjustment
         * typo: Code or Document correction
         * refactor: Code refactoring (no function changes involved)
-        * performance: Performance optimization
+        * performance/optimize: Performance optimization
         * test: Addition or repair of unit test
         * chore: Modification of build tool
         * revert: Revert a previous commit
@@ -78,7 +78,9 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * log
         * cache
         * config
+        * vectorization
         * docs
+        * profile
 
         Some tips：
 
