@@ -123,7 +123,7 @@ private:
     int64_t _segment_counter = 0;
 
     std::mutex _lock;
-    
+
     // use in vectorized load
     bool _is_vec;
 
