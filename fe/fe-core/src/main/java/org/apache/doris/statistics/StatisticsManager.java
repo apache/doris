@@ -43,7 +43,7 @@ import java.util.Map;
 public class StatisticsManager {
     private final static Logger LOG = LogManager.getLogger(StatisticsManager.class);
 
-    private final Statistics statistics;
+    private Statistics statistics;
 
     public StatisticsManager() {
         statistics = new Statistics();
