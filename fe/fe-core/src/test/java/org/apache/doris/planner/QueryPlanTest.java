@@ -2119,4 +2119,28 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
     }
+
+    @Test
+    public void testMetaQuery() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE meta_scan_test (v1 int, v2 varchar)\n" +
+            "DISTRIBUTED BY HASH(v1)\n" +
+            "BUCKETS 3\n" +
+            "PROPERTIES(\n" +
+            "    \"replication_num\"=\"1\"\n" +
+            ");");
+        String sql = "SELECT global_dict(v1) FROM test.meta_scan_test [META]";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainString.contains("META_SCAN"));
+        String errorSQL = "SELECT global_dict(v1) FROM test.meta_scan_test [META] group by test.v1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Cannot impose the global_dict function on the SQL which have GROUP BY clause"));
+        errorSQL = "SELECT global_dict(v1), count(*) FROM test.meta_scan_test [META]";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Mix the global_dict with other aggregate function is not permitted"));
+        errorSQL = "SELECT global_dict(v1), global_dict(v2) FROM test.meta_scan_test [META]";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Multiple global_dict function is not supported for now"));
+
+    }
 }
