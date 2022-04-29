@@ -348,7 +348,7 @@ public:
         SegmentWriterOptions opts;
         DataDir data_dir(kSegmentDir);
         data_dir.init();
-        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, &data_dir, opts);
+        SegmentWriter writer(wblock.get(), 0, &_tablet_schema, &data_dir, INT32_MAX, opts);
         writer.init(1024);
 
         RowCursor row;

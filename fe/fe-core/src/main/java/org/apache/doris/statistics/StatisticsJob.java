@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -157,94 +158,84 @@ public class StatisticsJob {
         return progress;
     }
 
-    public void updateJobState(JobState newState) throws IllegalStateException {
+    public void updateJobState(JobState newState) throws DdlException {
         LOG.info("To change statistics job(id={}) state from {} to {}", id, jobState, newState);
         writeLock();
-
+        JobState fromState = jobState;
         try {
-            // PENDING -> SCHEDULING/FAILED/CANCELLED
-            if (jobState == JobState.PENDING) {
-                if (newState == JobState.SCHEDULING) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else {
-                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
-                    throw new IllegalStateException("Invalid job state transition from PENDING to " + newState);
-                }
-                return;
-            }
-
-            // SCHEDULING -> RUNNING/FAILED/CANCELLED
-            if (jobState == JobState.SCHEDULING) {
-                if (newState == JobState.RUNNING) {
-                    this.jobState = newState;
-                    // job start running, set start time
-                    this.startTime = System.currentTimeMillis();
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                }  else {
-                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
-                    throw new IllegalStateException("Invalid job state transition from SCHEDULING to " + newState);
-                }
-                return;
-            }
-
-            // RUNNING -> FINISHED/FAILED/CANCELLED
-            if (jobState == JobState.RUNNING) {
-                if (newState == JobState.FINISHED) {
-                    // set finish time
-                    this.finishTime = System.currentTimeMillis();
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.FAILED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                } else if (newState == JobState.CANCELLED) {
-                    this.jobState = newState;
-                    LOG.info("Statistics job(id={}) state changed from {} to {}", id, jobState, newState);
-                }  else {
-                    LOG.info("Invalid statistics job(id={}) state transition from {} to {}", id, jobState, newState);
-                    throw new IllegalStateException("Invalid job state transition from RUNNING to " + newState);
-                }
-                return;
-            }
-
-            // unsupported transition
-            LOG.info("Invalid job(id={}) state transition from {} to {}", id, jobState, newState);
-            throw new IllegalStateException("Invalid job state transition from " + jobState + " to " + newState);
+            unprotectedUpdateJobState(newState);
+        } catch (DdlException e) {
+            LOG.warn(e.getMessage(), e);
+            throw e;
         } finally {
             writeUnlock();
-            LOG.info("Statistics job(id={}) current state is {} ", id, jobState);
         }
+        LOG.info("Statistics job(id={}) state changed from {} to {}", id, fromState, jobState);
     }
 
-    public void updateJobInfoByTaskId(Long taskId, String errorMsg) {
-        writeLock();
+    private void unprotectedUpdateJobState(JobState newState) throws DdlException {
+        // PENDING -> PENDING/SCHEDULING/FAILED/CANCELLED
+        if (jobState == JobState.PENDING) {
+            switch (newState) {
+                case PENDING:
+                case SCHEDULING:
+                    break;
+                case FAILED:
+                case CANCELLED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        }
+        // SCHEDULING -> RUNNING/FAILED/CANCELLED
+        else if (jobState == JobState.SCHEDULING) {
+            switch (newState) {
+                case RUNNING:
+                    startTime = System.currentTimeMillis();
+                    break;
+                case FAILED:
+                case CANCELLED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        }
+        // RUNNING -> FINISHED/FAILED/CANCELLED
+        else if (jobState == JobState.RUNNING) {
+            switch (newState) {
+                case FINISHED:
+                case FAILED:
+                case CANCELLED:
+                    // set finish time
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        } else {
+            // TODO
+            throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+        }
+        jobState = newState;
+    }
 
+    public void updateJobInfoByTaskId(Long taskId, String errorMsg) throws DdlException {
+        writeLock();
         try {
-            for (StatisticsTask task : this.tasks) {
+            for (StatisticsTask task : tasks) {
                 if (taskId == task.getId()) {
                     if (Strings.isNullOrEmpty(errorMsg)) {
-                        this.progress += 1;
-                        if (this.progress == this.tasks.size()) {
-                            updateJobState(StatisticsJob.JobState.FINISHED);
+                        progress += 1;
+                        if (progress == tasks.size()) {
+                            unprotectedUpdateJobState(StatisticsJob.JobState.FINISHED);
                         }
                         task.updateTaskState(StatisticsTask.TaskState.FINISHED);
                     } else {
-                        this.errorMsgs.add(errorMsg);
+                        errorMsgs.add(errorMsg);
                         task.updateTaskState(StatisticsTask.TaskState.FAILED);
-                        updateJobState(StatisticsJob.JobState.FAILED);
+                        unprotectedUpdateJobState(StatisticsJob.JobState.FAILED);
                     }
                     return;
                 }

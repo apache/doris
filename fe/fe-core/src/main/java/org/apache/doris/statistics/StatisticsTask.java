@@ -18,6 +18,7 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -135,10 +136,9 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     @Override
     public abstract StatisticsTaskResult call() throws Exception;
 
-    public void updateTaskState(TaskState newState) throws IllegalStateException{
+    // please retain job lock firstly
+    public void updateTaskState(TaskState newState) throws DdlException {
         LOG.info("To change statistics task(id={}) state from {} to {}", id, taskState, newState);
-        writeLock();
-
         try {
             // PENDING -> RUNNING/FAILED
             if (taskState == TaskState.PENDING) {
@@ -152,7 +152,7 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
                     LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
                 } else {
                     LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new IllegalStateException("Invalid task state transition from PENDING to " + newState);
+                    throw new DdlException("Invalid task state transition from PENDING to " + newState);
                 }
                 return;
             }
@@ -169,14 +169,13 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
                     LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
                 } else {
                     LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new IllegalStateException("Invalid task state transition from RUNNING to " + newState);
+                    throw new DdlException("Invalid task state transition from RUNNING to " + newState);
                 }
             }
 
             LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-            throw new IllegalStateException("Invalid task state transition from " + taskState + " to " + newState);
+            throw new DdlException("Invalid task state transition from " + taskState + " to " + newState);
         } finally {
-            writeUnlock();
             LOG.info("Statistics task(id={}) current state is {}", id, taskState);
         }
     }

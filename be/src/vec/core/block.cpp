@@ -862,6 +862,15 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
     }
 }
 
+void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
+    auto& block_data = block->get_columns_with_type_and_name();
+    for (size_t i = 0; i < _columns.size(); ++i) {
+        auto& dst = _columns[i];
+        auto& src = *block_data[i].column.get();
+        dst->insert_range_from(src, row_begin, length);
+    }
+}
+
 Block MutableBlock::to_block(int start_column) {
     return to_block(start_column, _columns.size());
 }
@@ -954,4 +963,13 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
         }
     }
 }
+size_t MutableBlock::allocated_bytes() const {
+    size_t res = 0;
+    for (const auto& col : _columns) {
+        res += col->allocated_bytes();
+    }
+
+    return res;
+}
+
 } // namespace doris::vectorized

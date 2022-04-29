@@ -89,7 +89,7 @@ cases:
     - logo: /images/home/logo-youdao.png
       alt: 有道
 actionText: Quick Start →
-actionLink: /en/installing/compilation
+actionLink: /en/get-starting/get-starting
 articleText: Latest News
 articleLink: /en/article/article-list
 ---

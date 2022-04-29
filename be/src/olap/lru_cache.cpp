@@ -475,8 +475,7 @@ Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t 
                                        CachePriority priority) {
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(),
-                                                                                charge);
+    tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), charge);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, priority);
