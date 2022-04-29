@@ -338,7 +338,9 @@ Like the slave node in mysql, Canal Server also needs to save the latest consump
 
 ### Configure Target Table Properties
 
-User needs to first create the target table which is corresponding to the MySQL side.
+User needs to first create the target table which is corresponding to the MySQL side
+
+**! !  The Doris table structure and the Mysql table structure must be consistent ! !**
 
 Binlog Load can only support unique target tables from now, and the batch delete feature of the target table must be activated.
 

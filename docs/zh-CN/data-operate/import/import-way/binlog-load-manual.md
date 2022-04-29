@@ -335,6 +335,8 @@ canal client调用get命令时，canal server会产生数据batch发送给client
 
 用户需要先在Doris端创建好与Mysql端对应的目标表
 
+**！！Doris表结构和Mysql表结构必须保持一致！！**
+
 Binlog Load只能支持Unique类型的目标表，且必须激活目标表的Batch Delete功能。
 
 开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)中的批量删除功能。
