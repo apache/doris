@@ -1515,7 +1515,8 @@ The Apache Software License, Version 2.0
     * brpc: 1.0.0
     * rocksdb: 5.14.2
     * arrow: 7.0.0
-    * S2: 0.9.0
+    * Abseil: LTS 20211102
+    * S2: 0.10.0
     * croaringbitmap: 0.4.0
     * parallel-hashmap: 1.33
     * orc: 1.7.2
