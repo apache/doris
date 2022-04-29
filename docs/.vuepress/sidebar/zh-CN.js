@@ -106,7 +106,7 @@ module.exports = [
               "jdbc-load",
               "load-atomicity",
               "load-data-convert",
-              "load-strict-mode", 
+              "load-strict-mode",
             ],
           },
           {
@@ -121,9 +121,9 @@ module.exports = [
               "stream-load-manual",
               "s3-load-manual",
               "insert-into-manual",
-              "load-json-format", 
+              "load-json-format",
             ],
-          },                
+          },
         ],
       },
       {
@@ -200,14 +200,14 @@ module.exports = [
       "time-zone",
       "small-file-mgr",
       {
-          title: "最佳实践",
-          directoryPath: "best-practice/",
-          initialOpenGroupIndex: -1,
-          children: [
-            "query-analysis",
-            "import-analysis",
-            "debug-log"
-          ],
+        title: "最佳实践",
+        directoryPath: "best-practice/",
+        initialOpenGroupIndex: -1,
+        children: [
+          "query-analysis",
+          "import-analysis",
+          "debug-log"
+        ],
       }
     ],
   },
@@ -658,7 +658,7 @@ module.exports = [
                   "DROP-TABLE",
                   "TRUNCATE-TABLE",
                 ],
-              },              
+              },
             ],
           },
           {
@@ -695,7 +695,7 @@ module.exports = [
                   "UPDATE",
                 ],
               },
-              "OUTFILE"             
+              "OUTFILE"
             ],
           },
           {
@@ -834,9 +834,9 @@ module.exports = [
         directoryPath: "cluster-management/",
         initialOpenGroupIndex: -1,
         children: [
-           "upgrade",
-           "elastic-expansion",
-           "load-balancing"
+          "upgrade",
+          "elastic-expansion",
+          "load-balancing"
         ],
       },
       {

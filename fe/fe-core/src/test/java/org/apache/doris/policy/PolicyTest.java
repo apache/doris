@@ -20,8 +20,10 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -35,8 +37,8 @@ import java.io.File;
 import java.util.UUID;
 
 public class PolicyTest {
-    
-    private static String runningDir = "fe/mocked/policyTest/" + UUID.randomUUID().toString() + "/";
+
+    private static String runningDir = "fe/mocked/policyTest/" + UUID.randomUUID() + "/";
 
     private static ConnectContext connectContext;
 
@@ -54,11 +56,13 @@ public class PolicyTest {
         Catalog.getCurrentCatalog().getDb("test");
 
         MetricRepo.init();
-        createTable("create table test.table1\n" +
+        Catalog.getCurrentCatalog().changeDb(connectContext, "default_cluster:test");
+        createTable("create table table1\n" +
             "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
             "properties(\"replication_num\" = \"1\");");
-        CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) UtFrameUtils.parseAndAnalyzeStmt("CREATE POLICY test_row_policy ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)", connectContext);
-        Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(createPolicyStmt);
+        createTable("create table table2\n" +
+            "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
+            "properties(\"replication_num\" = \"1\");");
     }
 
     @AfterClass
@@ -66,22 +70,58 @@ public class PolicyTest {
         File file = new File(runningDir);
         file.delete();
     }
-    
+
     @Test
-    public void testSql() throws Exception {
-        String queryStr = "select * from test.table1";
+    public void testReWriteSql() throws Exception {
+        Catalog.getCurrentCatalog().changeDb(connectContext, "default_cluster:test");
+        createPolicy("CREATE POLICY test_row_policy ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)");
+        String queryStr = "EXPLAIN select * from test.table1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        System.out.println(explainString);
         Assert.assertTrue(explainString.contains("`k1` = 1"));
     }
-    
+
+    @Test
+    public void testDuplicateAddPolicy() throws Exception {
+        createPolicy("CREATE POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)");
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "the policy test_row_policy1 already create",
+            () -> createPolicy("CREATE POLICY test_row_policy1 ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)"));
+    }
+
+    @Test
+    public void testShowPolicy() throws Exception {
+        createPolicy("CREATE POLICY test_row_policy3 ON test.table1 AS PERMISSIVE TO root USING (k1 = 1)");
+        createPolicy("CREATE POLICY test_row_policy4 ON test.table1 AS PERMISSIVE TO root USING (k2 = 1)");
+        int firstSize = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(ConnectContext.get().getCurrentDbId(), "root").size();
+        Assert.assertTrue(firstSize > 0);
+        dropPolicy("DROP POLICY test_row_policy3 ON test.table1");
+        dropPolicy("DROP POLICY test_row_policy4 ON test.table1");
+        int secondSize = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(ConnectContext.get().getCurrentDbId(), "root").size();
+        Assert.assertEquals(2, firstSize - secondSize);
+    }
+
+    @Test
+    public void testMergeFilter() throws Exception {
+        createPolicy("CREATE POLICY test_row_policy1 ON test.table2 AS PERMISSIVE TO root USING (k1 = 1)");
+        createPolicy("CREATE POLICY test_row_policy2 ON test.table2 AS PERMISSIVE TO root USING (k2 = 1)");
+        // filterType use last
+        createPolicy("CREATE POLICY test_row_policy3 ON test.table2 AS RESTRICTIVE TO root USING (k2 = 2)");
+        String queryStr = "EXPLAIN select * from test.table2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("`k1` = 1, `k2` = 1, `k2` = 2"));
+    }
+
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
-    
+
     private static void createPolicy(String sql) throws Exception {
         CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(createPolicyStmt);
+    }
+
+    private static void dropPolicy(String sql) throws Exception {
+        DropPolicyStmt stmt = (DropPolicyStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getPolicyMgr().dropPolicy(stmt);
     }
 }

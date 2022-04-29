@@ -51,6 +51,7 @@ public class ShowPolicyStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
         ShowResultSetMetaData.builder()
             .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
+            .addColumn(new Column("DbName", ScalarType.createVarchar(100)))
             .addColumn(new Column("TableName", ScalarType.createVarchar(100)))
             .addColumn(new Column("Type", ScalarType.createVarchar(20)))
             .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))

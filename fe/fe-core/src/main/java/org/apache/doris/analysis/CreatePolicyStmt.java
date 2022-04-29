@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import lombok.Getter;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -29,31 +30,31 @@ import org.apache.doris.qe.ConnectContext;
 /*
  Create policy statement
  syntax:
-      CREATE [ROW] POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO admin USING (a = ’xxx‘)
+      CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO admin USING (a = ’xxx‘)
 */
 public class CreatePolicyStmt extends DdlStmt {
-    
+
     @Getter
     private final String type;
-    
+
     @Getter
     private final boolean ifNotExists;
-    
+
     @Getter
     private final String policyName;
-    
+
     @Getter
     private final TableName tableName;
-    
+
     @Getter
     private final FilterType filterType;
-    
+
     @Getter
     private final UserIdentity userIdent;
-    
+
     @Getter
-    private final Expr wherePredicate;
-    
+    private Expr wherePredicate;
+
     public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity userIdent, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
@@ -63,7 +64,7 @@ public class CreatePolicyStmt extends DdlStmt {
         this.userIdent = userIdent;
         this.wherePredicate = wherePredicate;
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -73,7 +74,7 @@ public class CreatePolicyStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-    
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();

@@ -2222,6 +2222,7 @@ public class ShowExecutor {
         } else {
             policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(currentDbId, showStmt.getUser());
         }
+        LOG.info("policies={}", policies);
         for (Policy policy : policies) {
             rows.add(policy.getShowInfo());
         }

@@ -1429,6 +1429,6 @@ public class EditLog {
     }
     
     public void logDropPolicy(DropPolicyLog log) {
-        logEdit(OperationType.OP_CREATE_POLICY, log);
+        logEdit(OperationType.OP_DROP_POLICY, log);
     }
 }

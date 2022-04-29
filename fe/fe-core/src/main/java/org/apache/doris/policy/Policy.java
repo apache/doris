@@ -19,10 +19,8 @@ package org.apache.doris.policy;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.Setter;
 
 import org.apache.doris.analysis.CreatePolicyStmt;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -70,11 +68,8 @@ public class Policy implements Writable {
     @SerializedName(value = "filterType")
     private final FilterType filterType;
 
-    /**
-     * filter sql
-     **/
-    @Setter
-    private Expr wherePredicate;
+    @SerializedName(value = "whereSql")
+    private String whereSql;
 
     /**
      * bind user
@@ -91,24 +86,27 @@ public class Policy implements Writable {
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
         UserIdentity userIdent = stmt.getUserIdent();
         userIdent.analyze(ConnectContext.get().getClusterName());
-        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent.getQualifiedUser());
+        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate().toSql(), userIdent.getQualifiedUser());
     }
 
     public List<String> getShowInfo() throws AnalysisException {
-        return Lists.newArrayList(this.policyName, Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId).getTableOrAnalysisException(this.tableId).getName(), this.type, this.filterType.name(), this.wherePredicate != null ? this.wherePredicate.toSql() : null, this.user);
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId);
+        Table table = database.getTableOrAnalysisException(this.tableId);
+        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type, this.filterType.getOp(), this.whereSql, this.user);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Expr.writeTo(wherePredicate, out);
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static Policy read(DataInput in) throws IOException {
-        Expr expr = Expr.readIn(in);
         String json = Text.readString(in);
-        Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
-        policy.setWherePredicate(expr);
-        return policy;
+        return GsonUtils.GSON.fromJson(json, Policy.class);
+    }
+
+    @Override
+    public Policy clone() {
+        return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.whereSql, this.user);
     }
 }

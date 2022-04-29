@@ -18,23 +18,22 @@
 package org.apache.doris.policy;
 
 import lombok.Getter;
-import org.apache.doris.analysis.CompoundPredicate;
 
 import java.util.Arrays;
 
 public enum FilterType {
-    
-    PERMISSIVE(CompoundPredicate.Operator.OR),
-    RESTRICTIVE(CompoundPredicate.Operator.AND);
-    
-    FilterType(CompoundPredicate.Operator op) {
+
+    PERMISSIVE("OR"),
+    RESTRICTIVE("AND");
+
+    FilterType(String op) {
         this.op = op;
     }
-    
+
     public static FilterType of(String name) {
         return Arrays.stream(FilterType.values()).filter(f -> f.name().equalsIgnoreCase(name)).findFirst().orElse(RESTRICTIVE);
     }
 
     @Getter
-    private final CompoundPredicate.Operator op;
+    private final String op;
 }

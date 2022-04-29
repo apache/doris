@@ -310,7 +310,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CreatePolicyStmt) {
             catalog.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
-            catalog.getPolicyMgr().dropSqlBlockRule((DropPolicyStmt) ddlStmt);
+            catalog.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }

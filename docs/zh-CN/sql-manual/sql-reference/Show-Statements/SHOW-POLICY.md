@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW-SQL-BLOCK-RULE",
+    "title": "SHOW-POLICY",
     "language": "zh-CN"
 }
 ---
@@ -24,28 +24,28 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## SHOW-SQL-BLOCK-RULE
+## SHOW-POLICY
 
 ### Name
 
-SHOW SQL  BLOCK RULE
+SHOW POLICY
 
 ### Description
 
-查看已配置的SQL阻止规则，不指定规则名则为查看所有规则。
+查看当前 DB 下的安全策略
 
 语法：
 
 ```sql
-SHOW SQL_BLOCK_RULE [FOR RULE_NAME];
+SHOW POLICY [FOR user]
 ```
 
 ### Example
 
-1. 查看所有规则。
+1. 查看所有安全策略。
 
     ```sql
-    mysql> SHOW SQL_BLOCK_RULE;
+    mysql> SHOW POLICY;
     +------------+------------------------+---------+--------------+-----------+-------------+--------+--------+
     | Name       | Sql                    | SqlHash | PartitionNum | TabletNum | Cardinality | Global | Enable |
     +------------+------------------------+---------+--------------+-----------+-------------+--------+--------+
@@ -55,7 +55,7 @@ SHOW SQL_BLOCK_RULE [FOR RULE_NAME];
     2 rows in set (0.01 sec)
     ```
     
-2. 指定规则名查询
+2. 指定用户名查询
 
     ```sql
     mysql> SHOW SQL_BLOCK_RULE FOR test_rule2;
@@ -71,7 +71,7 @@ SHOW SQL_BLOCK_RULE [FOR RULE_NAME];
 
 ### Keywords
 
-    SHOW, SQL_BLOCK_RULE
+    SHOW, POLICY
 
 ### Best Practice
 

@@ -32,7 +32,10 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.qe.ConnectContext;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -1164,15 +1167,9 @@ public class StmtRewriter {
             if (matchPolicy == null) {
                 continue;
             }
-            SelectList selectList = new SelectList();
-            selectList.addItem(SelectListItem.createStarItem(tableRef.getName()));
-            SelectStmt stmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(tableRef)),
-                matchPolicy.getWherePredicate(),
-                null,
-                null,
-                null,
-                LimitElement.NO_LIMIT);
+            // Because the db/table may be renamed, so live format
+            String selectSql = String.format("select * from %s where %s", tableName, matchPolicy.getWhereSql());
+            SelectStmt stmt = (SelectStmt) SqlParserUtils.parseAndAnalyzeStmt(selectSql, ConnectContext.get());
             selectStmt.fromClause_.set(i, new InlineViewRef(String.format("policy_rewrite_%s_%s", tableName, matchPolicy.getPolicyName()), stmt));
         }
 
