@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Committer Guide",
+    "title": "Contributor Guide",
     "language": "en"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Committer Guide
+# Contributor Guide
 
-## New Committer Guidelines
+## New Contributor Guidelines
 
 ### Subscribe to the public mailing lists
 
@@ -66,11 +66,11 @@ and you will be able to manage issues and pull request directly through our Gith
 
 ## Pull Request Guidelines
 
-1. During a PR, there are three types of roles. Contributor: the PR submitter; Reviewer: the person who needs to make code-level review on the PR; and Moderator: the person responsible for coordinating the entire PR process. For example, the moderator should assign reviewers, push the author to make changes according to the comments, set different tags for the PR, and merge the PR etc. For a specific PR, a person may act in different roles, such as when a committer submitted one PR, he may himself be both the contributor and the moderator of that PR.
+1. During a PR, there are three types of roles. Contributor: the PR submitter; Reviewer: the person who needs to make code-level review on the PR; and Moderator: the person responsible for coordinating the entire PR process. For example, the moderator should assign reviewers, push the author to make changes according to the comments, set different tags for the PR, and merge the PR etc. For a specific PR, a person may act in different roles, such as when a contributor submitted one PR, he may himself be both the contributor and the moderator of that PR.
 
-2. Committers can assign a PR to itself as a moderator. After assigning it to themselves, the other committer will know that this PR has been in charge.
+2. Contributors can assign a PR to itself as a moderator. After assigning it to themselves, the other contributor will know that this PR has been in charge.
 
-3. The committer is encouraged to act as a moderator for its own PR.
+3. The contributor is encouraged to act as a moderator for its own PR.
 
 4. The reviewer needs to perform a code-level review, refer Code Review Guidelines
 
