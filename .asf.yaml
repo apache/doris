@@ -33,7 +33,7 @@ github:
     master:
       required_status_checks:
       # if strict is true, means "Require branches to be up to date before merging".
-        strict: false
+        strict: true
         contexts:
           # - Clang Formatter
           - Build Extensions
