@@ -87,7 +87,7 @@ TEST_F(MetricsTest, CounterPerf) {
     static const int kThreadLoopCount = LOOP_LESS_OR_MORE(1000, 1000000);
     // volatile int64_t
     {
-        volatile int64_t sum = 0;
+        int64_t sum = 0;
         MonotonicStopWatch watch;
         watch.start();
         for (int i = 0; i < kLoopCount; ++i) {

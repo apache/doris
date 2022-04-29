@@ -377,6 +377,13 @@ add_executable(doris_be_test
     ${VEC_TEST_FILES}
 )
 
+find_package(absl REQUIRED)
+
+target_link_libraries(doris_be_test
+    absl::flat_hash_set
+    absl::str_format
+)
+
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
 
@@ -384,6 +391,11 @@ add_executable(benchmark_tool
     tools/benchmark_tool.cpp
     testutil/test_util.cpp
     olap/tablet_schema_helper.cpp
+)
+
+target_link_libraries(benchmark_tool
+    absl::flat_hash_set
+    absl::str_format
 )
 
 target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
