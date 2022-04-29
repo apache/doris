@@ -138,7 +138,14 @@ public class BrokerScanNode extends LoadScanNode {
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                           List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName);
+        super(id, destTupleDesc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        this.fileStatusesList = fileStatusesList;
+        this.filesAdded = filesAdded;
+    }
+
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded, NodeType nodeType) {
+        super(id, destTupleDesc, planNodeName, nodeType);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
     }
