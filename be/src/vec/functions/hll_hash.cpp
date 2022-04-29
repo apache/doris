@@ -38,7 +38,8 @@ struct HLLHash {
         for (size_t i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            uint64_t hash_value = HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
+            uint64_t hash_value =
+                    HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
             res_data[i].update(hash_value);
         }
     }
@@ -46,7 +47,6 @@ struct HLLHash {
     static void vector_nullable(const ColumnString::Chars& data,
                                 const ColumnString::Offsets& offsets, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
-
         auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
         auto& res_data = res_column->get_data();
         size_t size = offsets.size();
@@ -57,7 +57,8 @@ struct HLLHash {
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 size_t str_size = offsets[i] - offsets[i - 1] - 1;
-                uint64_t hash_value = HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
+                uint64_t hash_value =
+                        HashUtil::murmur_hash64A(raw_str, str_size, HashUtil::MURMUR_SEED);
                 res_data[i].update(hash_value);
             }
         }

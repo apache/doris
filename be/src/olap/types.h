@@ -1287,4 +1287,3 @@ inline const TypeInfo* get_collection_type_info<OLAP_FIELD_TYPE_ARRAY>() {
 }
 
 } // namespace doris
-

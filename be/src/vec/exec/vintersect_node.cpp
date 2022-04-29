@@ -45,7 +45,7 @@ Status VIntersectNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(VSetOperationNode::open(state));
     bool eos = false;
     Status st;
-    
+
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) {
             refresh_hash_table<true>();
@@ -98,7 +98,8 @@ Status VIntersectNode::get_next(RuntimeState* state, Block* output_block, bool* 
             },
             _hash_table_variants);
 
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
     reached_limit(output_block, eos);
 
     return st;

@@ -28,17 +28,14 @@ namespace doris {
 // we use this class to shield the upper layer from the need to deal with the platform environment
 // when creating a raeder or writer.
 //
-// If in the arm64 environment, creating a reader or writer through this class will return an error. 
+// If in the arm64 environment, creating a reader or writer through this class will return an error.
 class HdfsReaderWriter {
 public:
-    static Status create_reader(const THdfsParams& hdfs_params,
-            const std::string& path,
-            int64_t start_offset,
-            FileReader** reader);
+    static Status create_reader(const THdfsParams& hdfs_params, const std::string& path,
+                                int64_t start_offset, FileReader** reader);
 
     static Status create_writer(std::map<std::string, std::string>& properties,
-            const std::string& path,
-            FileWriter** writer);
+                                const std::string& path, FileWriter** writer);
 };
 
 } // namespace doris

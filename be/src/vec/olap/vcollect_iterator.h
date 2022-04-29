@@ -185,7 +185,7 @@ private:
         std::unique_ptr<MergeHeap> _heap;
 
         // batch size, get from TabletReader
-        int _batch_size; 
+        int _batch_size;
     };
 
     std::unique_ptr<LevelIterator> _inner_iter;

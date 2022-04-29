@@ -60,9 +60,8 @@ struct SegmentWriterOptions {
 class SegmentWriter {
 public:
     explicit SegmentWriter(fs::WritableBlock* block, uint32_t segment_id,
-                           const TabletSchema* tablet_schema,
-                           DataDir* data_dir, uint32_t max_row_per_segment,
-                           const SegmentWriterOptions& opts);
+                           const TabletSchema* tablet_schema, DataDir* data_dir,
+                           uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
     Status init(uint32_t write_mbytes_per_sec);
@@ -80,7 +79,8 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id, const TabletColumn& column);
+    static void init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
+                                 const TabletColumn& column);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -113,8 +113,8 @@ private:
     uint32_t _row_count = 0;
 
     vectorized::OlapBlockDataConvertor _olap_data_convertor;
-    std::vector< const KeyCoder* > _short_key_coders;
-    std::vector< uint16_t > _short_key_index_size;
+    std::vector<const KeyCoder*> _short_key_coders;
+    std::vector<uint16_t> _short_key_index_size;
     size_t _short_key_row_pos = 0;
 };
 

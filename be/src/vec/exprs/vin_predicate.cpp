@@ -30,9 +30,7 @@
 namespace doris::vectorized {
 
 VInPredicate::VInPredicate(const TExprNode& node)
-        : VExpr(node),
-          _is_not_in(node.in_predicate.is_not_in),
-          _is_prepare(false) {}
+        : VExpr(node), _is_not_in(node.in_predicate.is_not_in), _is_prepare(false) {}
 
 Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
                              VExprContext* context) {

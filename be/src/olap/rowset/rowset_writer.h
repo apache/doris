@@ -53,7 +53,7 @@ public:
 
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                           const SchemaMapping& schema_mapping) = 0;
+                                                       const SchemaMapping& schema_mapping) = 0;
 
     virtual Status add_rowset_for_migration(RowsetSharedPtr rowset) = 0;
 
@@ -64,7 +64,7 @@ public:
     virtual Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
         return Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED);
     }
-    
+
     // finish building and return pointer to the built rowset (guaranteed to be inited).
     // return nullptr when failed
     virtual RowsetSharedPtr build() = 0;

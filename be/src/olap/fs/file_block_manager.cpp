@@ -131,7 +131,8 @@ FileWritableBlock::FileWritableBlock(FileBlockManager* block_manager, const File
 
 FileWritableBlock::~FileWritableBlock() {
     if (_state != CLOSED) {
-        WARN_IF_ERROR(abort(), strings::Substitute("Failed to close block $0", _path_desc.filepath));
+        WARN_IF_ERROR(abort(),
+                      strings::Substitute("Failed to close block $0", _path_desc.filepath));
     }
 }
 
@@ -162,13 +163,15 @@ Status FileWritableBlock::append(const Slice& data) {
 }
 
 Status FileWritableBlock::appendv(const Slice* data, size_t data_cnt) {
-    DCHECK(_state == CLEAN || _state == DIRTY) << "path=" << _path_desc.filepath << " invalid state=" << _state;
+    DCHECK(_state == CLEAN || _state == DIRTY)
+            << "path=" << _path_desc.filepath << " invalid state=" << _state;
     RETURN_IF_ERROR(_writer->appendv(data, data_cnt));
     _state = DIRTY;
 
     // Calculate the amount of data written
-    size_t bytes_written = accumulate(data, data + data_cnt, static_cast<size_t>(0),
-                                      [](size_t sum, const Slice& curr) { return sum + curr.size; });
+    size_t bytes_written =
+            accumulate(data, data + data_cnt, static_cast<size_t>(0),
+                       [](size_t sum, const Slice& curr) { return sum + curr.size; });
     _bytes_appended += bytes_written;
     return Status::OK();
 }
@@ -218,7 +221,8 @@ Status FileWritableBlock::_close(SyncMode mode) {
         if (sync.ok()) {
             sync = _block_manager->_sync_metadata(_path_desc.filepath);
         }
-        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0", _path_desc.filepath));
+        WARN_IF_ERROR(sync, strings::Substitute("Failed to sync when closing block $0",
+                                                _path_desc.filepath));
     }
     Status close = _writer->close();
 
@@ -365,8 +369,7 @@ Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t re
 ////////////////////////////////////////////////////////////
 
 FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts)
-        : _env(DCHECK_NOTNULL(env)),
-          _opts(std::move(opts)) {
+        : _env(DCHECK_NOTNULL(env)), _opts(std::move(opts)) {
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }
@@ -436,10 +439,12 @@ Status FileBlockManager::delete_block(const FilePathDesc& path_desc, bool is_dir
     return Status::OK();
 }
 
-Status FileBlockManager::link_file(const FilePathDesc& src_path_desc, const FilePathDesc& dest_path_desc) {
+Status FileBlockManager::link_file(const FilePathDesc& src_path_desc,
+                                   const FilePathDesc& dest_path_desc) {
     if (link(src_path_desc.filepath.c_str(), dest_path_desc.filepath.c_str()) != 0) {
         LOG(WARNING) << "fail to create hard link. from=" << src_path_desc.filepath << ", "
-                     << "to=" << dest_path_desc.filepath << ", " << "errno=" << Errno::no();
+                     << "to=" << dest_path_desc.filepath << ", "
+                     << "errno=" << Errno::no();
         return Status::InternalError("link file failed");
     }
     return Status::OK();

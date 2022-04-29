@@ -219,7 +219,8 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 }
 
 template <typename T>
-void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) {
+void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin,
+                                          const int* indices_end) {
     const Self& src_vec = assert_cast<const Self&>(src);
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
@@ -232,9 +233,10 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices
             // 1. nullable column : offset == -1 means is null at the here, set true here
             // 2. real data column : offset == -1 what at is meaningless
             // 3. JOIN_NULL_HINT only use in outer join to hint the null is produced by outer join
-            data[origin_size + i] = (offset == -1) ? T{JOIN_NULL_HINT} : src_vec.get_element(offset);
+            data[origin_size + i] =
+                    (offset == -1) ? T {JOIN_NULL_HINT} : src_vec.get_element(offset);
         } else {
-            data[origin_size + i] = (offset == -1) ? T{0} : src_vec.get_element(offset);
+            data[origin_size + i] = (offset == -1) ? T {0} : src_vec.get_element(offset);
         }
     }
 }

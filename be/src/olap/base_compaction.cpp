@@ -139,7 +139,8 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     int64_t interval_since_last_base_compaction = time(nullptr) - base_creation_time;
     if (interval_since_last_base_compaction > interval_threshold) {
         VLOG_NOTICE << "satisfy the base compaction policy. tablet=" << _tablet->full_name()
-                    << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction
+                    << ", interval_since_last_base_compaction="
+                    << interval_since_last_base_compaction
                     << ", interval_threshold=" << interval_threshold;
         return Status::OK();
     }

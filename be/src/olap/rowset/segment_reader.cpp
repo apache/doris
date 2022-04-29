@@ -225,8 +225,8 @@ Status SegmentReader::init(bool is_using_cache) {
     return Status::OK();
 }
 
-Status SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_block,
-                                        bool without_filter, uint32_t* next_block_id, bool* eof) {
+Status SegmentReader::seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter,
+                                    uint32_t* next_block_id, bool* eof) {
     Status res = Status::OK();
 
     if (!_is_data_loaded) {
@@ -781,8 +781,7 @@ Status SegmentReader::_create_reader(size_t* buffer_size) {
     return Status::OK();
 }
 
-Status SegmentReader::_seek_to_block_directly(int64_t block_id,
-                                                  const std::vector<uint32_t>& cids) {
+Status SegmentReader::_seek_to_block_directly(int64_t block_id, const std::vector<uint32_t>& cids) {
     if (!_need_to_seek_block && block_id == _current_block_id) {
         // no need to execute seek
         return Status::OK();

@@ -123,8 +123,7 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     }
     VLOG_ROW << "Channel::send_batch() instance_id=" << _fragment_instance_id
              << " dest_node=" << _dest_node_id << " to_host=" << _brpc_dest_addr.hostname
-	     << " _packet_seq=" << _packet_seq
-	     << " row_desc=" << _row_desc.debug_string();
+             << " _packet_seq=" << _packet_seq << " row_desc=" << _row_desc.debug_string();
     if (_is_transfer_chain && (_send_query_statistics_with_every_batch || eos)) {
         auto statistic = _brpc_request.mutable_query_statistics();
         _parent->_query_statistics->to_pb(statistic);
@@ -141,8 +140,8 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
 
     if (_brpc_request.has_block()) {
         request_block_transfer_attachment<PTransmitDataParams,
-            RefCountClosure<PTransmitDataResult>>(&_brpc_request, _parent->_column_values_buffer,
-                    _closure);
+                                          RefCountClosure<PTransmitDataResult>>(
+                &_brpc_request, _parent->_column_values_buffer, _closure);
     }
 
     _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
@@ -415,7 +414,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
                 }
             }
             // rollover
-            _roll_pb_block(); 
+            _roll_pb_block();
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
@@ -492,8 +491,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block) {
         }
 
         Block::erase_useless_column(block, column_to_keep);
-        RETURN_IF_ERROR(
-                channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(), hash_vals, rows, block));
+        RETURN_IF_ERROR(channel_add_rows(_channel_shared_ptrs, _channel_shared_ptrs.size(),
+                                         hash_vals, rows, block));
     } else {
         // Range partition
         // 1. calculate range
@@ -532,7 +531,8 @@ Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_rece
         SCOPED_TIMER(_serialize_batch_timer);
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
-        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes, &_column_values_buffer));
+        RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
+                                       &_column_values_buffer));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

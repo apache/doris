@@ -263,7 +263,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     }
 
     // get format of this put
-    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() && boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
+        boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
         return Status::InternalError("compress data of JSON format is not supported.");
     }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
@@ -353,8 +354,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         bb->flip();
         auto st = ctx->body_sink->append(bb);
         if (!st.ok()) {
-            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg()
-                         << ", " << ctx->brief();
+            LOG(WARNING) << "append body content failed. errmsg=" << st.get_error_msg() << ", "
+                         << ctx->brief();
             ctx->status = st;
             return;
         }
@@ -508,7 +509,8 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
 
     if (!http_req->header(HTTP_SEND_BATCH_PARALLELISM).empty()) {
         try {
-            request.__set_send_batch_parallelism(std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
+            request.__set_send_batch_parallelism(
+                    std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid send_batch_parallelism format");
         }
@@ -603,10 +605,12 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
 void StreamLoadAction::_sava_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
-        std::string key = std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
+        std::string key =
+                std::to_string(ctx->start_millis + ctx->load_cost_millis) + "_" + ctx->label;
         auto st = stream_load_recorder->put(key, str);
         if (st.ok()) {
-            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label << ", key: " << key;
+            LOG(INFO) << "put stream_load_record rocksdb successfully. label: " << ctx->label
+                      << ", key: " << key;
         }
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";

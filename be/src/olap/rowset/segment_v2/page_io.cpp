@@ -47,7 +47,7 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec, double min
             Slice compressed_slice(buf);
             RETURN_IF_ERROR(codec->compress(body, &compressed_slice));
             buf.resize(compressed_slice.get_size());
-    
+
             double space_saving = 1.0 - static_cast<double>(buf.size()) / uncompressed_size;
             // return compressed body only when it saves more than min_space_saving
             if (space_saving > 0 && space_saving >= min_space_saving) {
@@ -116,8 +116,10 @@ Status PageIO::read_and_decompress_page(const PageReadOptions& opts, PageHandle*
 
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath, opts.page_pointer.offset);
-    if (opts.use_page_cache && cache->is_cache_available(opts.type) && cache->lookup(cache_key, &cache_handle, opts.type)) {
+    StoragePageCache::CacheKey cache_key(opts.rblock->path_desc().filepath,
+                                         opts.page_pointer.offset);
+    if (opts.use_page_cache && cache->is_cache_available(opts.type) &&
+        cache->lookup(cache_key, &cache_handle, opts.type)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         opts.stats->cached_pages_num++;

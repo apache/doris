@@ -39,12 +39,12 @@ public:
 
     Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc, const RowsetId& rowset_id,
-                                         int segment_id);
+    static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc,
+                                          const RowsetId& rowset_id, int segment_id);
 
     Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count, size_t key_num,
-                           std::vector<OlapTuple>* ranges) override;
+                       uint64_t request_block_row_count, size_t key_num,
+                       std::vector<OlapTuple>* ranges) override;
 
     Status remove() override;
 
@@ -52,8 +52,8 @@ public:
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    Status upload_files_to(const FilePathDesc& dir_desc,
-                           const RowsetId& new_rowset_id, bool delete_src = false) override;
+    Status upload_files_to(const FilePathDesc& dir_desc, const RowsetId& new_rowset_id,
+                           bool delete_src = false) override;
 
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {

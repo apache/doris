@@ -80,7 +80,7 @@ public:
     //      block with next_block_id would read if get_block called again.
     //      this field is used to set batch's limit when client found logical end is reach
     Status seek_to_block(uint32_t first_block, uint32_t last_block, bool without_filter,
-                             uint32_t* next_block_id, bool* eof);
+                         uint32_t* next_block_id, bool* eof);
 
     // get vector batch from this segment.
     // next_block_id:
@@ -166,7 +166,7 @@ private:
     // Load the index, read the index of the required column into memory
     Status _load_index(bool is_using_cache);
 
-    // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file, 
+    // Read all the columns, the complete stream, (here just create the stream, because there is no mmap in the orc file,
     // it means the actual data is read, but there is no actual read here, just circle the required range)
     Status _read_all_data_streams(size_t* buffer_size);
 
@@ -309,7 +309,7 @@ private:
     uint8_t* _include_blocks;
     uint32_t _remain_block;
     bool _need_block_filter; // Used in combination with include blocks, if none of them are in, no longer read
-    bool _is_using_mmap;     // When this flag is true, use mmap to read the file
+    bool _is_using_mmap; // When this flag is true, use mmap to read the file
     bool _is_data_loaded;
     size_t _buffer_size;
 
