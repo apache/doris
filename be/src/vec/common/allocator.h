@@ -148,6 +148,13 @@ public:
                                                   doris::TStatusCode::VEC_CANNOT_MREMAP);
 
             /// No need for zero-fill, because mmap guarantees it.
+
+            if constexpr (mmap_populate) {
+                // MAP_POPULATE seems have no effect for mremap as for mmap,
+                // Clear enlarged memory range explicitly to pre-fault the pages
+                if (new_size > old_size)
+                    memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
+            }
         } else if (new_size < MMAP_THRESHOLD) {
             /// Small allocs that requires a copy. Assume there's enough memory in system. Call CurrentMemoryTracker once.
             // CurrentMemoryTracker::realloc(old_size, new_size);
