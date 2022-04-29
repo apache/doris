@@ -184,6 +184,23 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
 
+    public static final com.google.common.base.Predicate<Expr> IS_VARCHAR_SLOT_REF_IMPLICIT_CAST =
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) {
+                    // exclude explicit cast. for example: cast(k1 as date)
+                    if (!arg.isImplicitCast()) {
+                        return false;
+                    }
+                    List<Expr> children = arg.getChildren();
+                    if (children.isEmpty()) {
+                        return false;
+                    }
+                    Expr child = children.get(0);
+                    return child instanceof SlotRef && child.getType().isVarchar();
+                }
+            };
+
     public void setSelectivity() {
         selectivity = -1;
     }

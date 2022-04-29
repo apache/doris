@@ -103,6 +103,15 @@ public class TupleDescriptor {
         return slots;
     }
 
+    public SlotDescriptor getSlot(int slotId) {
+        for (SlotDescriptor slotDesc : slots) {
+            if (slotDesc.getId().asInt() == slotId) {
+                return slotDesc;
+            }
+        }
+        return null;
+    }
+
     public void setCardinality(long cardinality) {
         this.cardinality = cardinality;
     }

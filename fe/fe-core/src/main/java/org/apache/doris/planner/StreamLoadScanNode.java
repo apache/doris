@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.task.LoadTaskInfo;
@@ -137,7 +138,8 @@ public class StreamLoadScanNode extends LoadScanNode {
         }
 
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
-                exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
+                exprsByName, analyzer, srcTupleDesc, slotDescByName, params,
+                taskInfo.getFormatType(), VectorizedUtil.isVectorized());
 
         // analyze where statement
         initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);

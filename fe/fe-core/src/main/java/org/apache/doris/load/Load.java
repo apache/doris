@@ -95,6 +95,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
@@ -931,7 +932,7 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, false, false);
     }
 
     /*
@@ -941,10 +942,11 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                   TFileFormatType formatType, boolean useVectorizedLoad) throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
-                srcTupleDesc, slotDescByName, params, true);
+                srcTupleDesc, slotDescByName, params, formatType, useVectorizedLoad, true);
     }
 
     /*
@@ -959,6 +961,7 @@ public class Load {
                                     Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                     Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                     Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                    TFileFormatType formatType, boolean useVectorizedLoad,
                                     boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
@@ -1044,26 +1047,52 @@ public class Load {
         if (!needInitSlotAndAnalyzeExprs) {
             return;
         }
-
+        Set<String> exprArgsColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            if (importColumnDesc.isColumn()) {
+                continue;
+            }
+            List<SlotRef> slots = Lists.newArrayList();
+            importColumnDesc.getExpr().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                String slotColumnName = slot.getColumnName();
+                exprArgsColumns.add(slotColumnName);
+            }
+        }
+        Set<String> excludedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
-            String realColName = tbl.getColumn(columnName) == null ? columnName
+            Column tblColumn = tbl.getColumn(columnName);
+            String realColName =  tblColumn == null ? columnName
                     : tbl.getColumn(columnName).getName();
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                // only support parquet format now
+                if (exprArgsColumns.contains(columnName) || formatType != TFileFormatType.FORMAT_PARQUET
+                    || !useVectorizedLoad) {
+                    // columns in expr args should be parsed as varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    excludedColumns.add(realColName);
+                    // ISSUE A: src slot should be nullable even if the column is not nullable.
+                    // because src slot is what we read from file, not represent to real column value.
+                    // If column is not nullable, error will be thrown when filling the dest slot,
+                    // which is not nullable.
+                    slotDesc.setIsNullable(true);
+                } else {
+                    // in vectorized load,
+                    // columns from files like parquet files can be parsed as the type in table schema
+                    slotDesc.setType(tblColumn.getType());
+                    slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                    // non-nullable column is allowed in vectorized load with parquet format
+                    slotDesc.setIsNullable(tblColumn.isAllowNull());
+                }
                 slotDesc.setIsMaterialized(true);
-                // ISSUE A: src slot should be nullable even if the column is not nullable.
-                // because src slot is what we read from file, not represent to real column value.
-                // If column is not nullable, error will be thrown when filling the dest slot,
-                // which is not nullable.
-                slotDesc.setIsNullable(true);
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 params.addToSrcSlotIds(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
@@ -1082,7 +1111,29 @@ public class Load {
         }
 
         LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
+        // we only support parquet format now
+        // use implicit deduction to convert columns that are not in the doris table from varchar to a more appropriate type
+        if (useVectorizedLoad && formatType == TFileFormatType.FORMAT_PARQUET) {
+            // analyze all exprs
+            Map<String, Expr> cloneExprsByName = Maps.newHashMap(exprsByName);
+            Map<String, Expr> cloneMvDefineExpr = Maps.newHashMap(mvDefineExpr);
+            analyzeAllExprs(tbl, analyzer, cloneExprsByName, cloneMvDefineExpr, slotDescByName, useVectorizedLoad);
+            // columns that only exist in mapping expr args, replace type with inferred from exprs,
+            // if there are more than one, choose the last except varchar type
+            // for example:
+            // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME
+            replaceVarcharWithCastType(cloneExprsByName, srcTupleDesc, excludedColumns);
+        }
 
+        // in vectorized load, reanalyze exprs with castExpr type
+        // otherwise analyze exprs with varchar type
+        analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName, useVectorizedLoad);
+        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    private static void analyzeAllExprs(Table tbl, Analyzer analyzer, Map<String, Expr> exprsByName,
+                                            Map<String, Expr> mvDefineExpr, Map<String, SlotDescriptor> slotDescByName,
+                                            boolean useVectorizedLoad) throws UserException {
         // analyze all exprs
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
             ExprSubstitutionMap smap = new ExprSubstitutionMap();
@@ -1146,7 +1197,44 @@ public class Load {
 
             exprsByName.put(entry.getKey(), expr);
         }
-        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+    /**
+     * @param excludedColumns: columns that the type should not be inferred from expr.
+     *                         1. column exists in both schema and expr args.
+     */
+    private static void replaceVarcharWithCastType(Map<String, Expr> exprsByName, TupleDescriptor srcTupleDesc,
+                                               Set<String> excludedColumns) throws UserException {
+        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
+            List<CastExpr> casts = Lists.newArrayList();
+            // exclude explicit cast. for example: cast(k1 as date)
+            entry.getValue().collect(Expr.IS_VARCHAR_SLOT_REF_IMPLICIT_CAST, casts);
+            if (casts.isEmpty()) {
+                continue;
+            }
+
+            for (CastExpr cast : casts) {
+                Expr child = cast.getChild(0);
+                Type type = cast.getType();
+                if (type.isVarchar()) {
+                    continue;
+                }
+
+                SlotRef slotRef = (SlotRef) child;
+                String columnName = slotRef.getColumn().getName();
+                if (excludedColumns.contains(columnName)) {
+                    continue;
+                }
+
+                // replace src slot desc with cast return type
+                int slotId = slotRef.getSlotId().asInt();
+                SlotDescriptor srcSlotDesc = srcTupleDesc.getSlot(slotId);
+                if (srcSlotDesc == null) {
+                    throw new UserException("Unknown source slot descriptor. id: " + slotId);
+                }
+                srcSlotDesc.setType(type);
+                srcSlotDesc.setColumn(new Column(columnName, type));
+            }
+        }
     }
 
     public static void rewriteColumns(LoadTaskInfo.ImportColumnDescs columnDescs) {

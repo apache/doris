@@ -272,7 +272,7 @@ Status VParquetScanner::cast_src_block(Block* block) {
         {
             arg,
             {
-                DataTypeString().create_column_const(arg.column->size(), remove_nullable(return_type)->get_name()),
+                DataTypeString().create_column_const(arg.column->size(), remove_nullable(return_type)->get_family_name()),
                 std::make_shared<DataTypeString>(),
                 ""
             }
