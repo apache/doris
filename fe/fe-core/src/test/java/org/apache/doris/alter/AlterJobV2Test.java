@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.catalog.Catalog;
@@ -85,6 +86,11 @@ public class AlterJobV2Test {
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
     }
 
+    private static void createMaterializedView(String sql) throws Exception {
+        CreateMaterializedViewStmt stmt = (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getAlterInstance().processCreateMaterializedView(stmt);
+    }
+
     @Test
     public void testSchemaChange() throws Exception {
         // 1. process a schema change job
@@ -138,7 +144,7 @@ public class AlterJobV2Test {
         System.out.println(showResultSet.getMetaData());
         System.out.println(showResultSet.getResultRows());
     }
-    
+
     @Test
     @Deprecated
     public void testAlterSegmentV2() throws Exception {
@@ -216,5 +222,38 @@ public class AlterJobV2Test {
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
+    }
+
+    @Test
+    public void testCreateMVForListPartitionTable() throws Exception {
+        createTable("CREATE TABLE test.list_tbl (\n" +
+                "city VARCHAR(20) NOT NULL,\n" +
+                "user_id BIGINT NOT NULL,\n" +
+                "date DATE NOT NULL,\n" +
+                "age SMALLINT NOT NULL,\n" +
+                "sex TINYINT NOT NULL,\n" +
+                "cost BIGINT NOT NULL DEFAULT \"0\"\n" +
+                ") DUPLICATE KEY(city) PARTITION BY LIST(city) (\n" +
+                "PARTITION p_bj\n" +
+                "VALUES IN (\"beijing\"),\n" +
+                "PARTITION p_gz\n" +
+                "VALUES IN (\"guangzhou\"),\n" +
+                "PARTITION p_sz\n" +
+                "VALUES IN (\"shenzhen\")\n" +
+                ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
+
+        createMaterializedView("create materialized view list_view as\n" +
+                "select city,\n" +
+                "user_id,\n" +
+                "date,\n" +
+                "sum(cost)\n" +
+                "from\n" +
+                "test.list_tbl\n" +
+                "group by\n" +
+                "city,\n" +
+                "user_id,\n" +
+                "date;");
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
     }
 }
