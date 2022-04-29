@@ -29,7 +29,6 @@ public:
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~VBrokerScanner() override = default;
 
-    using BrokerScanner::get_next;
     Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
 
 private:
