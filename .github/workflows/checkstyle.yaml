@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: "Run java checkstyle"
-        uses: dbelyaev/action-checkstyle@9eb107730361c56564c02b2912828d0036e4f18f
+        uses: dbelyaev/action-checkstyle@9eb1077
         with:
           checkstyle_config: "fe/check/checkstyle/checkstyle.xml"
           checkstyle_version: 9.3
