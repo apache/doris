@@ -52,7 +52,7 @@ public class StatisticsManager {
     public void alterTableStatistics(AlterTableStatsStmt stmt)
             throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
-        statistics.updateTableStats(table.getId(), stmt.getProperties());
+        statistics.updateTableStats(table.getId(), stmt.getStatsTypeToValue());
     }
 
     public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws AnalysisException {
@@ -63,7 +63,7 @@ public class StatisticsManager {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
         // match type and column value
-        statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getProperties());
+        statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getStatsTypeToValue());
     }
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
@@ -139,8 +139,8 @@ public class StatisticsManager {
         StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
         validateTableAndColumn(categoryDesc);
         long tblId = categoryDesc.getTableId();
-        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        statistics.updateTableStats(tblId, statsNameToValue);
+        Map<StatsType, String> statsTypeToValue = taskResult.getStatsTypeToValue();
+        statistics.updateTableStats(tblId, statsTypeToValue);
     }
 
     public void alterColumnStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
@@ -152,8 +152,8 @@ public class StatisticsManager {
         Table table = db.getTableOrAnalysisException(tblId);
         String columnName = categoryDesc.getColumnName();
         Type columnType = table.getColumn(columnName).getType();
-        Map<String, String> statsNameToValue = taskResult.getStatsNameToValue();
-        statistics.updateColumnStats(tblId, columnName, columnType, statsNameToValue);
+        Map<StatsType, String> statsTypeToValue = taskResult.getStatsTypeToValue();
+        statistics.updateColumnStats(tblId, columnName, columnType, statsTypeToValue);
     }
 
     private Table validateTableName(TableName dbTableName) throws AnalysisException {
