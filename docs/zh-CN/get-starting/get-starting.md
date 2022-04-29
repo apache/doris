@@ -151,7 +151,7 @@ Doris 采用 MySQL 协议进行通信，用户可通过 MySQL Client 或者 MySQ
 
 默认使用 Http 协议进行 WebUI 访问，在浏览器输入以下格式地址访问
 
-```cql
+```
 http://FE_IP:FE_HTTP_PORT(默认8030)
 ```
 

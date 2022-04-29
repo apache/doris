@@ -502,7 +502,7 @@ module.exports = [
           },
           {
             title: "Encryption Functions",
-            directoryPath: "encrypt-dixgest-functions/",
+            directoryPath: "encrypt-digest-functions/",
             initialOpenGroupIndex: -1,
             children: [
               "aes",
