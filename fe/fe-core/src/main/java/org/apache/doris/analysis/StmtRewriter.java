@@ -1178,7 +1178,7 @@ public class StmtRewriter {
                 continue;
             }
             SelectList selectList = new SelectList();
-            selectList.addItem(SelectListItem.createStarItem(tableRef.getName()));
+            selectList.addItem(SelectListItem.createStarItem(tableRef.getAliasAsName()));
 
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
@@ -1187,10 +1187,10 @@ public class StmtRewriter {
                     null,
                     null,
                     LimitElement.NO_LIMIT);
-            selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().toSql(), stmt));
+            selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
+            selectStmt.analyze(analyzer);
+            LOG.warn("selectStmt={}", selectStmt.toSql());
         }
-        String sql = selectStmt.toSql();
-        LOG.info("sql={}", sql);
     }
 }
 
