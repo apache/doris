@@ -286,8 +286,8 @@ class RegressionTest {
             if (it.name.endsWith(".groovy")) {
                 ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
                         config, [], { name -> true })
-                SuiteScript pluginScript = new GroovyFileSource(it).toScript(context, shell)
                 try {
+                    SuiteScript pluginScript = new GroovyFileSource(it).toScript(context, shell)
                     log.info("Begin to load plugin: ${it.getCanonicalPath()}")
                     pluginScript.run()
                     log.info("Loaded plugin: ${it.getCanonicalPath()}")
