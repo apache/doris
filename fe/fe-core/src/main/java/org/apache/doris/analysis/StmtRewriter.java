@@ -1179,7 +1179,7 @@ public class StmtRewriter {
             }
             SelectList selectList = new SelectList();
             selectList.addItem(SelectListItem.createStarItem(tableRef.getAliasAsName()));
-
+            
             SelectStmt stmt = new SelectStmt(selectList,
                     new FromClause(Lists.newArrayList(tableRef)),
                     matchPolicy.getWherePredicate(),
@@ -1189,7 +1189,6 @@ public class StmtRewriter {
                     LimitElement.NO_LIMIT);
             selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
             selectStmt.analyze(analyzer);
-            LOG.warn("selectStmt={}", selectStmt.toSql());
         }
     }
 }

@@ -20,15 +20,20 @@ package org.apache.doris.policy;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
@@ -181,6 +186,24 @@ public class PolicyMgr implements Writable {
         } finally {
             readUnlock();
         }
+    }
+    
+    public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = Lists.newArrayList();
+        List<Policy> policies;
+        long currentDbId = ConnectContext.get().getCurrentDbId();
+        if (showStmt.getUser() == null) {
+            policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbPolicies(currentDbId);
+        } else {
+            policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbUserPolicies(currentDbId, showStmt.getUser().getQualifiedUser());
+        }
+        for (Policy policy : policies) {
+            if (policy.getWherePredicate() == null) {
+                continue;
+            }
+            rows.add(policy.getShowInfo());
+        }
+        return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void updateAllMergePolicyMap() {

@@ -44,8 +44,8 @@ AS {RESTRICTIVE|PERMISSIVE} TO root USING (id in (1, 2));
 
 参数说明：
 
-- RESTRICTIVE：将一组策略通过 AND 连接
-- PERMISSIVE：将一组策略通过 OR 连接
+- filterType：RESTRICTIVE 将一组策略通过 AND 连接, PERMISSIVE 将一组策略通过 OR 连接
+- 配置多个策略首先合并 RESTRICTIVE 的策略，再添加 PERMISSIVE 的策略
 
 ### Example
 
@@ -71,7 +71,7 @@ AS {RESTRICTIVE|PERMISSIVE} TO root USING (id in (1, 2));
    当我们执行对 table1 的查询时被改写后的 sql 为
 
    ```sql
-   select * from (select * from table1 where (c1 = 'a' and c2 = 'b') or c3 = 'c' or c4 = 'd' as policy_rewrite_table1_test_row_policy_1)
+   select * from (select * from table1 where c1 = 'a' and c2 = 'b' or c3 = 'c' or c4 = 'd')
    ```
 
 ### Keywords

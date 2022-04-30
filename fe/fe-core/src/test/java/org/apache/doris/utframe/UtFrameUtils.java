@@ -107,6 +107,7 @@ public class UtFrameUtils {
                 throw new AnalysisException(errorMessage, e);
             }
         }
+        statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         statementBase.analyze(analyzer);
         statementBase.setOrigStmt(new OriginStatement(originStmt, 0));
         return statementBase;

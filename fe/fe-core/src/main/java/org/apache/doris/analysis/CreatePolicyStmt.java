@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import lombok.Getter;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,34 +25,36 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.qe.ConnectContext;
 
+import lombok.Getter;
+
 /*
  Create policy statement
  syntax:
       CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO admin USING (a = ’xxx‘)
 */
 public class CreatePolicyStmt extends DdlStmt {
-
+    
     @Getter
     private final String type;
-
+    
     @Getter
     private final boolean ifNotExists;
-
+    
     @Getter
     private final String policyName;
-
+    
     @Getter
     private final TableName tableName;
-
+    
     @Getter
     private final FilterType filterType;
-
+    
     @Getter
     private final UserIdentity user;
-
+    
     @Getter
     private Expr wherePredicate;
-
+    
     public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity user, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
@@ -64,17 +64,18 @@ public class CreatePolicyStmt extends DdlStmt {
         this.user = user;
         this.wherePredicate = wherePredicate;
     }
-
+    
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        this.tableName.analyze(analyzer);
+        tableName.analyze(analyzer);
+        user.analyze(analyzer.getClusterName());
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-
+    
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
@@ -83,7 +84,7 @@ public class CreatePolicyStmt extends DdlStmt {
             sb.append("IF NOT EXISTS");
         }
         sb.append(policyName).append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-            .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+                .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
         return sb.toString();
     }
 }

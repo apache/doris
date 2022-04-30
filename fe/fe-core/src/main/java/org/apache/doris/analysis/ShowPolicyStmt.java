@@ -65,8 +65,8 @@ public class ShowPolicyStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (this.user != null) {
-            this.user.analyze(analyzer.getClusterName());
+        if (user != null) {
+            user.analyze(analyzer.getClusterName());
         }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
