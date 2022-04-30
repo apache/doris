@@ -38,7 +38,7 @@ github:
           - Clang Formatter
           - Build Extensions
           - License Check
-          - P0 regression (Doris P0 regression)
+          - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
 
