@@ -69,6 +69,11 @@ Doris provides support for Spark/Flink to read data stored in Doris through Conn
 
 [apache/incubator-doris-spark-connector](https://github.com/apache/incubator-doris-spark-connector)
 
+## Doris Manager 
+
+Doris provides one-click visual automatic installation and deployment, cluster management and monitoring tools for clusters.
+[Doris Manager](https://github.com/apache/incubator-doris-manager)
+
 ## Report issues or submit pull request
 
 If you find any bugs, feel free to file a [GitHub issue](https://github.com/apache/incubator-doris/issues) or fix it by submitting a [pull request](https://github.com/apache/incubator-doris/pulls).
