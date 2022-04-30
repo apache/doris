@@ -43,7 +43,7 @@ The main advantages of Doris are the simplicity (of developing, deploying and us
 
 ## License
 
-[Apache License, Version 2.0](http://www.apache.org/licenses/LICENSE-2.0)
+[Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 
 > **Note**
 > Some licenses of the third-party dependencies are not compatible with Apache 2.0 License. So you need to disable
@@ -55,11 +55,11 @@ Doris mainly integrates the technology of [Google Mesa](https://research.google/
 
 ## Compile and install
 
-See [Compilation](http://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
+See [Compilation](https://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
 
 ## Getting start
 
-See [Basic Usage](http://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
+See [Basic Usage](https://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html)
 
 ## Doris Connector
 
@@ -89,6 +89,6 @@ Contact us through the following mailing list.
 
 ## Links
 
-* Doris official site - <http://doris.incubator.apache.org>
+* Doris official site - <https://doris.incubator.apache.org>
 * Developer Mailing list - <dev@doris.apache.org>. Mail to <dev-subscribe@doris.apache.org>, follow the reply to subscribe the mail list.
 * Slack channel - [Join the Slack](https://join.slack.com/t/apachedoriscommunity/shared_invite/zt-11jb8gesh-7IukzSrdea6mqoG0HB4gZg)
