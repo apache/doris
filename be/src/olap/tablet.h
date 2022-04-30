@@ -53,7 +53,8 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-            const StorageParamPB& storage_param, DataDir* data_dir = nullptr);
+                                                   const StorageParamPB& storage_param,
+                                                   DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir,
            const std::string& cumulative_compaction_type = "");
@@ -69,7 +70,7 @@ public:
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                                  const std::vector<Version>& versions_to_delete);
+                              const std::vector<Version>& versions_to_delete);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -118,8 +119,8 @@ public:
     // Given spec_version, find a continuous version path and store it in version_path.
     // If quiet is true, then only "does this path exist" is returned.
     Status capture_consistent_versions(const Version& spec_version,
-                                           std::vector<Version>* version_path,
-                                           bool quiet = false) const;
+                                       std::vector<Version>* version_path,
+                                       bool quiet = false) const;
     // if quiet is true, no error log will be printed if there are missing versions
     Status check_version_integrity(const Version& version, bool quiet = false);
     bool check_version_exist(const Version& version) const;
@@ -127,12 +128,12 @@ public:
             std::vector<std::pair<Version, RowsetSharedPtr>>* version_rowsets) const;
 
     Status capture_consistent_rowsets(const Version& spec_version,
-                                          std::vector<RowsetSharedPtr>* rowsets) const;
+                                      std::vector<RowsetSharedPtr>* rowsets) const;
     Status capture_rs_readers(const Version& spec_version,
-                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const;
+                              std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
     Status capture_rs_readers(const std::vector<Version>& version_path,
-                                  std::vector<RowsetReaderSharedPtr>* rs_readers) const;
+                              std::vector<RowsetReaderSharedPtr>* rs_readers) const;
 
     DelPredicateArray delete_predicates() { return _tablet_meta->delete_predicates(); }
     void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
@@ -167,7 +168,7 @@ public:
 
     // operation for query
     Status split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                           uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
+                       uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
@@ -271,7 +272,7 @@ private:
     /// but also delete the version in rowset meta vector.
     void _delete_stale_rowset_by_version(const Version& version);
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
-                                                    std::vector<RowsetSharedPtr>* rowsets) const;
+                                                std::vector<RowsetSharedPtr>* rowsets) const;
 
     const uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
@@ -453,4 +454,3 @@ inline size_t Tablet::row_size() const {
 }
 
 } // namespace doris
-

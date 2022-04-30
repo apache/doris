@@ -41,9 +41,7 @@ public:
         return fmt::format_to(buffer, "{}", value) - buffer;
     }
 
-    static std::string to_string(__int128 value) {
-        return fmt::format("{}", value);
-    }
+    static std::string to_string(__int128 value) { return fmt::format("{}", value); }
 };
 
 std::ostream& operator<<(std::ostream& os, __int128 const& value);
@@ -55,7 +53,11 @@ std::size_t hash_value(LargeIntValue const& value);
 } // namespace doris
 
 // Thirdparty printers like gtest needs operator<< to be exported into global namespace, so that ADL will work.
-inline std::ostream& operator<<(std::ostream& os, __int128 const& value) { return doris::operator<<(os, value); }
-inline std::istream& operator>>(std::istream& is, __int128& value) { return doris::operator>>(is, value); }
+inline std::ostream& operator<<(std::ostream& os, __int128 const& value) {
+    return doris::operator<<(os, value);
+}
+inline std::istream& operator>>(std::istream& is, __int128& value) {
+    return doris::operator>>(is, value);
+}
 
 #endif

@@ -107,7 +107,7 @@ public:
 
         for (int i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
-            data[origin_size + i] = offset == -1 ? T{} : src_vec.get_element(offset);
+            data[origin_size + i] = offset == -1 ? T {} : src_vec.get_element(offset);
         }
     }
 

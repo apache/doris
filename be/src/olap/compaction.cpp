@@ -86,8 +86,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    auto res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
-                                     _output_rs_writer.get(), &stats);
+    auto res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                      _output_rs_writer.get(), &stats);
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
@@ -193,7 +193,7 @@ void Compaction::gc_output_rowset() {
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
 Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                        std::vector<Version>* missing_version) {
+                                                    std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
         return Status::OK();
     }

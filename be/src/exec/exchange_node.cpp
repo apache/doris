@@ -80,6 +80,7 @@ Status ExchangeNode::prepare(RuntimeState* state) {
 Status ExchangeNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
+    ADD_THREAD_LOCAL_MEM_TRACKER(_stream_recvr->mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_sort_exec_exprs.open(state));
@@ -215,7 +216,6 @@ Status ExchangeNode::get_next_merging(RuntimeState* state, RowBatch* output_batc
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Exchange, while merging next."));
 
-    ADD_THREAD_LOCAL_MEM_TRACKER(_stream_recvr->mem_tracker());
     RETURN_IF_ERROR(_stream_recvr->get_next(output_batch, eos));
     while ((_num_rows_skipped < _offset)) {
         _num_rows_skipped += output_batch->num_rows();

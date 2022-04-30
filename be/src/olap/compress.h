@@ -53,4 +53,3 @@ Status lz4_compress(StorageByteBuffer* in, StorageByteBuffer* out, bool* smaller
 Status lz4_decompress(StorageByteBuffer* in, StorageByteBuffer* out);
 
 } // namespace doris
-

@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -29,17 +30,17 @@ public class MarkDownParserTest {
     @Test
     public void testNormal() throws UserException {
         List<String> lines = Lists.newArrayList();
-        lines.add("# SHOW TABLES");
-        lines.add("## name");
+        lines.add("## SHOW TABLES");
+        lines.add("### name");
         lines.add("SHOW TABLES");
-        lines.add("## description");
+        lines.add("### description");
         lines.add("SYNTAX:");
         lines.add("\tSHOW TABLES [FROM] database");
-        lines.add("## example");
+        lines.add("### example");
         lines.add("show tables;");
-        lines.add("## keyword");
+        lines.add("### keywords");
         lines.add("SHOW, TABLES");
-        lines.add("## url");
+        lines.add("### url");
         lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
@@ -47,7 +48,7 @@ public class MarkDownParserTest {
         Assert.assertEquals("SHOW TABLES\n", map.get("SHOW TABLES").get("name"));
         Assert.assertEquals("SYNTAX:\n\tSHOW TABLES [FROM] database\n", map.get("SHOW TABLES").get("description"));
         Assert.assertEquals("show tables;\n", map.get("SHOW TABLES").get("example"));
-        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keyword"));
+        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keywords"));
         Assert.assertEquals("http://www.baidu.com\n", map.get("SHOW TABLES").get("url"));
         for (Map.Entry<String, Map<String, String>> doc : map.entrySet()) {
             Assert.assertEquals("SHOW TABLES\n", doc.getValue().get("NAme"));
@@ -58,26 +59,30 @@ public class MarkDownParserTest {
     public void testMultiDoc() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add(" name");
-        lines.add("# SHOW TABLES");
-        lines.add("## name");
+        lines.add("## SHOW TABLES");
+        lines.add("### name");
         lines.add("SHOW TABLES");
-        lines.add("## description");
+        lines.add("### description");
         lines.add("SYNTAX:\n\tSHOW TABLES [FROM] database");
-        lines.add("## example");
+        lines.add("### example");
         lines.add("show tables;");
-        lines.add("## keyword");
+        lines.add("### keywords");
         lines.add("SHOW, TABLES");
-        lines.add("## url");
+        lines.add("### url");
         lines.add("http://www.baidu.com");
-        lines.add("# SHOW DATABASES");
-        lines.add("# DATABASES");
+        lines.add("## SHOW DATABASES");
+        lines.add("### description");
+        lines.add("### keywords");
+        lines.add("## DATABASES");
+        lines.add("### description");
+        lines.add("### keywords");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
         Assert.assertNotNull(map.get("SHOW TABLES"));
         Assert.assertEquals("SHOW TABLES\n", map.get("SHOW TABLES").get("name"));
         Assert.assertEquals("SYNTAX:\n\tSHOW TABLES [FROM] database\n", map.get("SHOW TABLES").get("description"));
         Assert.assertEquals("show tables;\n", map.get("SHOW TABLES").get("example"));
-        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keyword"));
+        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keywords"));
         Assert.assertEquals("http://www.baidu.com\n", map.get("SHOW TABLES").get("url"));
         Assert.assertNotNull(map.get("SHOW DATABASES"));
         Assert.assertNotNull(map.get("DATABASES"));
@@ -117,71 +122,55 @@ public class MarkDownParserTest {
         Assert.fail("No exception throws.");
     }
 
-//    When encounter a headlevel at 3 or greater, we ignore it rather than throw exception
-//    @Test(expected = UserException.class)
-//    public void testErrorState() throws UserException {
-//        List<String> lines = Lists.newArrayList();
-//        lines.add("# SHOW TABLES");
-//        lines.add("## name");
-//        lines.add("### name");
-//        MarkDownParser parser = new MarkDownParser(lines);
-//        Map<String, Map<String, String>> map = parser.parse();
-//        Assert.fail("No exception throws.");
-//    }
-
     @Test
     public void testMultiHeadLevel() throws UserException {
         List<String> lines = Lists.newArrayList();
-        lines.add("# SHOW TABLES");
-        lines.add("## name");
+        lines.add("## SHOW TABLES");
+        lines.add("### name");
         lines.add(" SHOW TABLES");
-        lines.add("## description");
-        lines.add("###Syntax");
+        lines.add("### description");
+        lines.add("####Syntax");
         lines.add("SYNTAX:\n\tSHOW TABLES [FROM] database");
         lines.add("####Parameter");
         lines.add(">table_name");
-        lines.add("## example");
+        lines.add("### example");
         lines.add("show tables;");
-        lines.add("### Exam1");
+        lines.add("#### Exam1");
         lines.add("exam1");
-        lines.add("## keyword");
+        lines.add("### keywords");
         lines.add("SHOW, TABLES");
-        lines.add("## url");
+        lines.add("### url");
         lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
         Assert.assertNotNull(map.get("SHOW TABLES"));
         Assert.assertEquals(" SHOW TABLES\n", map.get("SHOW TABLES").get("name"));
-        Assert.assertEquals("Syntax\nSYNTAX:\n\tSHOW TABLES [FROM] database\nParameter\n>table_name\n", map.get("SHOW TABLES").get("description"));
-        Assert.assertEquals("show tables;\n Exam1\nexam1\n", map.get("SHOW TABLES").get("example"));
-        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keyword"));
+        Assert.assertEquals("####Syntax\nSYNTAX:\n\tSHOW TABLES [FROM] database\n####Parameter\n>table_name\n", map.get("SHOW TABLES").get("description"));
+        Assert.assertEquals("show tables;\n#### Exam1\nexam1\n", map.get("SHOW TABLES").get("example"));
+        Assert.assertEquals("SHOW, TABLES\n", map.get("SHOW TABLES").get("keywords"));
         Assert.assertEquals("http://www.baidu.com\n", map.get("SHOW TABLES").get("url"));
     }
 
-
-    @Test
+    // the level of "description" is wrong
+    @Test(expected = DdlException.class)
     public void testEmptyTitle() throws UserException {
         List<String> lines = Lists.newArrayList();
         lines.add("#");
         lines.add("## ");
         lines.add("SHOW TABLES");
-        lines.add("## ");
+        lines.add("## description");
         lines.add("SYNTAX:\n\tSHOW TABLES [FROM] database");
-        lines.add("## example");
+        lines.add("### example");
         lines.add("show tables;");
-        lines.add("## keyword");
+        lines.add("### keywords");
         lines.add("SHOW, TABLES");
-        lines.add("## url");
+        lines.add("### url");
         lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
-        Assert.assertNotNull(map.get(""));
-        Assert.assertEquals("SYNTAX:\n\tSHOW TABLES [FROM] database\n", map.get("").get(""));
-        Assert.assertEquals("show tables;\n", map.get("").get("example"));
-        Assert.assertEquals("SHOW, TABLES\n", map.get("").get("keyword"));
-        Assert.assertEquals("http://www.baidu.com\n", map.get("").get("url"));
     }
 
+    // no valid topic
     @Test
     public void testOneName() throws UserException {
         List<String> lines = Lists.newArrayList();
@@ -189,7 +178,6 @@ public class MarkDownParserTest {
         lines.add("# TABLE");
         MarkDownParser parser = new MarkDownParser(lines);
         Map<String, Map<String, String>> map = parser.parse();
-        Assert.assertNotNull(map.get("TABLE"));
-        Assert.assertNotNull(map.get("TABLES"));
+        Assert.assertTrue(map.isEmpty());
     }
 }

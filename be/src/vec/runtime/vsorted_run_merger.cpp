@@ -30,10 +30,16 @@ using std::vector;
 
 namespace doris::vectorized {
 
-VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext *>& ordering_expr, const std::vector<bool>& is_asc_order,
-            const std::vector<bool>& nulls_first, const size_t batch_size, int64_t limit, size_t offset, RuntimeProfile* profile)
-        :_ordering_expr(ordering_expr), _is_asc_order(is_asc_order), _nulls_first(nulls_first), _batch_size(batch_size),
-        _limit(limit), _offset(offset){
+VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_expr,
+                                   const std::vector<bool>& is_asc_order,
+                                   const std::vector<bool>& nulls_first, const size_t batch_size,
+                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+        : _ordering_expr(ordering_expr),
+          _is_asc_order(is_asc_order),
+          _nulls_first(nulls_first),
+          _batch_size(batch_size),
+          _limit(limit),
+          _offset(offset) {
     _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
@@ -85,8 +91,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
             if (current->block_ptr() != nullptr) {
                 for (int i = 0; i < current->all_columns.size(); i++) {
                     auto& column_with_type = current->block_ptr()->get_by_position(i);
-                    column_with_type.column = column_with_type.column->cut(current->pos,
-                            current->rows - current->pos);
+                    column_with_type.column = column_with_type.column->cut(
+                            current->pos, current->rows - current->pos);
                 }
                 current->block_ptr()->swap(*output_block);
                 *eos = !has_next_block(current);
@@ -97,8 +103,8 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
     } else {
         size_t num_columns = _empty_block.columns();
         bool mem_reuse = output_block->mem_reuse();
-        MutableColumns merged_columns = mem_reuse ?
-                output_block->mutate_columns() : _empty_block.clone_empty_columns();
+        MutableColumns merged_columns =
+                mem_reuse ? output_block->mutate_columns() : _empty_block.clone_empty_columns();
 
         /// Take rows from queue in right order and push to 'merged'.
         size_t merged_rows = 0;
@@ -114,8 +120,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 ++merged_rows;
             }
             next_heap(current);
-            if (merged_rows == _batch_size)
-                break;
+            if (merged_rows == _batch_size) break;
         }
 
         if (merged_rows == 0) {
@@ -146,9 +151,9 @@ void VSortedRunMerger::next_heap(SortCursor& current) {
     }
 }
 
-inline bool VSortedRunMerger::has_next_block(doris::vectorized::SortCursor &current) {
+inline bool VSortedRunMerger::has_next_block(doris::vectorized::SortCursor& current) {
     ScopedTimer<MonotonicStopWatch> timer(_get_next_block_timer);
     return current->has_next_block();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

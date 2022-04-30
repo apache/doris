@@ -24,7 +24,7 @@ namespace doris {
 std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
 
 // Default Posix Env
-Env *Env::Default() {
+Env* Env::Default() {
     return _posix_env.get();
 }
 

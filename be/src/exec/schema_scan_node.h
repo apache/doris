@@ -62,6 +62,7 @@ private:
     void debug_string(int indentation_level, std::stringstream* out) const override;
     // Copy one row from schema table to input tuple
     void copy_one_row();
+
 protected:
     bool _is_init;
     const std::string _table_name;

@@ -20,16 +20,19 @@ package org.apache.doris.statistics;
 import org.apache.doris.analysis.AnalyzeStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /***
  * Used to store statistics job info,
@@ -46,6 +49,8 @@ public class StatisticsJob {
         FAILED,
         CANCELLED
     }
+
+    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private final long id = Catalog.getCurrentCatalog().getNextId();
 
@@ -89,52 +94,155 @@ public class StatisticsJob {
         this.properties = properties == null ? Maps.newHashMap() : properties;
     }
 
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public long getDbId() {
-        return this.dbId;
+        return dbId;
     }
 
     public Set<Long> getTblIds() {
-        return this.tblIds;
+        return tblIds;
     }
 
     public Map<Long, List<String>> getTableIdToColumnName() {
-        return this.tableIdToColumnName;
+        return tableIdToColumnName;
     }
 
     public Map<String, String> getProperties() {
-        return this.properties;
+        return properties;
     }
 
     public List<StatisticsTask> getTasks() {
-        return this.tasks;
+        return tasks;
     }
 
     public List<String> getErrorMsgs() {
-        return this.errorMsgs;
+        return errorMsgs;
     }
 
     public JobState getJobState() {
-        return this.jobState;
+        return jobState;
     }
 
     public long getCreateTime() {
-        return this.createTime;
+        return createTime;
     }
 
     public long getStartTime() {
-        return this.startTime;
+        return startTime;
     }
 
     public long getFinishTime() {
-        return this.finishTime;
+        return finishTime;
     }
 
     public int getProgress() {
-        return this.progress;
+        return progress;
+    }
+
+    public void updateJobState(JobState newState) throws DdlException {
+        LOG.info("To change statistics job(id={}) state from {} to {}", id, jobState, newState);
+        writeLock();
+        JobState fromState = jobState;
+        try {
+            unprotectedUpdateJobState(newState);
+        } catch (DdlException e) {
+            LOG.warn(e.getMessage(), e);
+            throw e;
+        } finally {
+            writeUnlock();
+        }
+        LOG.info("Statistics job(id={}) state changed from {} to {}", id, fromState, jobState);
+    }
+
+    private void unprotectedUpdateJobState(JobState newState) throws DdlException {
+        // PENDING -> PENDING/SCHEDULING/FAILED/CANCELLED
+        if (jobState == JobState.PENDING) {
+            switch (newState) {
+                case PENDING:
+                case SCHEDULING:
+                    break;
+                case FAILED:
+                case CANCELLED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        }
+        // SCHEDULING -> RUNNING/FAILED/CANCELLED
+        else if (jobState == JobState.SCHEDULING) {
+            switch (newState) {
+                case RUNNING:
+                    startTime = System.currentTimeMillis();
+                    break;
+                case FAILED:
+                case CANCELLED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        }
+        // RUNNING -> FINISHED/FAILED/CANCELLED
+        else if (jobState == JobState.RUNNING) {
+            switch (newState) {
+                case FINISHED:
+                case FAILED:
+                case CANCELLED:
+                    // set finish time
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+            }
+        } else {
+            // TODO
+            throw new DdlException("Invalid job state transition from " + jobState + " to " + newState);
+        }
+        jobState = newState;
+    }
+
+    public void updateJobInfoByTaskId(Long taskId, String errorMsg) throws DdlException {
+        writeLock();
+        try {
+            for (StatisticsTask task : tasks) {
+                if (taskId == task.getId()) {
+                    if (Strings.isNullOrEmpty(errorMsg)) {
+                        progress += 1;
+                        if (progress == tasks.size()) {
+                            unprotectedUpdateJobState(StatisticsJob.JobState.FINISHED);
+                        }
+                        task.updateTaskState(StatisticsTask.TaskState.FINISHED);
+                    } else {
+                        errorMsgs.add(errorMsg);
+                        task.updateTaskState(StatisticsTask.TaskState.FAILED);
+                        unprotectedUpdateJobState(StatisticsJob.JobState.FAILED);
+                    }
+                    return;
+                }
+            }
+        } finally {
+            writeUnlock();
+        }
     }
 
     /**

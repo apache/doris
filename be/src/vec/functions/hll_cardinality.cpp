@@ -29,8 +29,7 @@ struct HLLCardinality {
 
     using ReturnType = DataTypeNumber<Int64>;
 
-    static void vector(const std::vector<HyperLogLog>& data,
-                       MutableColumnPtr& col_res) {
+    static void vector(const std::vector<HyperLogLog>& data, MutableColumnPtr& col_res) {
         typename ColumnVector<Int64>::Container& res =
                 reinterpret_cast<ColumnVector<Int64>*>(col_res.get())->get_data();
 
@@ -80,8 +79,10 @@ public:
 
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);
-        if (const ColumnNullable* col_nullable = check_and_get_column<ColumnNullable>(column.get())) {
-            const ColumnHLL* col = check_and_get_column<ColumnHLL>(col_nullable->get_nested_column_ptr().get());
+        if (const ColumnNullable* col_nullable =
+                    check_and_get_column<ColumnNullable>(column.get())) {
+            const ColumnHLL* col =
+                    check_and_get_column<ColumnHLL>(col_nullable->get_nested_column_ptr().get());
             const ColumnUInt8* col_nullmap = check_and_get_column<ColumnUInt8>(
                     col_nullable->get_null_map_column_ptr().get());
 

@@ -49,8 +49,8 @@ class SegmentGroup {
 
 public:
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
-                 const std::string& rowset_path_prefix, Version version,
-                 bool delete_flag, int segment_group_id, int32_t num_segments);
+                 const std::string& rowset_path_prefix, Version version, bool delete_flag,
+                 int segment_group_id, int32_t num_segments);
 
     SegmentGroup(int64_t tablet_id, const RowsetId& rowset_id, const TabletSchema* tablet_schema,
                  const std::string& rowset_path_prefix, bool delete_flag, int32_t segment_group_id,
@@ -74,7 +74,7 @@ public:
             const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields);
 
     Status add_zone_maps(std::vector<std::pair<std::string, std::string>>& zone_map_strings,
-                             std::vector<bool>& null_vec);
+                         std::vector<bool>& null_vec);
 
     const std::vector<std::pair<WrapperField*, WrapperField*>>& get_zone_maps() {
         return _zone_maps;
@@ -89,7 +89,7 @@ public:
     // Finds position of first row block contain the smallest key equal
     // to or greater than 'key'. Returns true on success.
     Status find_short_key(const RowCursor& key, RowCursor* helper_cursor, bool find_last,
-                              RowBlockPosition* position) const;
+                          RowBlockPosition* position) const;
 
     // Returns position of the first row block in the index.
     Status find_first_row_block(RowBlockPosition* position) const;
@@ -106,7 +106,7 @@ public:
     // the midpoint between those two positions.  Returns the distance
     // between low and high as computed by ComputeDistance.
     Status find_mid_point(const RowBlockPosition& low, const RowBlockPosition& high,
-                              RowBlockPosition* output, uint32_t* dis) const;
+                          RowBlockPosition* output, uint32_t* dis) const;
 
     Status find_prev_point(const RowBlockPosition& current, RowBlockPosition* prev) const;
 
@@ -152,9 +152,7 @@ public:
     bool delete_flag() const { return _delete_flag; }
 
     int32_t segment_group_id() const { return _segment_group_id; }
-    void set_segment_group_id(int32_t segment_group_id) {
-        _segment_group_id = segment_group_id;
-    }
+    void set_segment_group_id(int32_t segment_group_id) { _segment_group_id = segment_group_id; }
 
     PUniqueId load_id() const { return _load_id; }
     void set_load_id(const PUniqueId& load_id) { _load_id = load_id; }
@@ -232,10 +230,10 @@ public:
     const RowsetId& rowset_id() { return _rowset_id; }
 
     Status convert_from_old_files(const std::string& snapshot_path,
-                                      std::vector<std::string>* success_links);
+                                  std::vector<std::string>* success_links);
 
     Status convert_to_old_files(const std::string& snapshot_path,
-                                    std::vector<std::string>* success_links);
+                                std::vector<std::string>* success_links);
 
     Status remove_old_files(std::vector<std::string>* links_to_remove);
 

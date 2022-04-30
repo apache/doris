@@ -41,7 +41,7 @@ struct DivideIntegralByConstantImpl : BinaryOperationImplBase<A, B, DivideIntegr
     static void vector_constant(const PaddedPODArray<A>& a, B b, PaddedPODArray<ResultType>& c) {
         // TODO: Support return null in the furture
         if (UNLIKELY(b == 0)) {
-//            throw Exception("Division by zero", TStatusCode::VEC_ILLEGAL_DIVISION);
+            //            throw Exception("Division by zero", TStatusCode::VEC_ILLEGAL_DIVISION);
             memset(c.data(), 0, sizeof(ResultType) * c.size());
             return;
         }

@@ -55,10 +55,10 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(storage_migration_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "storage_migration"}}));
 
-
 StorageMigrationV2Handler::StorageMigrationV2Handler()
         : _mem_tracker(MemTracker::create_tracker(
-                -1, "StorageMigrationV2Handler", StorageEngine::instance()->storage_migration_mem_tracker())) {
+                  -1, "StorageMigrationV2Handler",
+                  StorageEngine::instance()->storage_migration_mem_tracker())) {
     REGISTER_HOOK_METRIC(storage_migration_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
 }
@@ -67,7 +67,8 @@ StorageMigrationV2Handler::~StorageMigrationV2Handler() {
     DEREGISTER_HOOK_METRIC(storage_migration_mem_consumption);
 }
 
-Status StorageMigrationV2Handler::process_storage_migration_v2(const TStorageMigrationReqV2& request) {
+Status StorageMigrationV2Handler::process_storage_migration_v2(
+        const TStorageMigrationReqV2& request) {
     LOG(INFO) << "begin to do request storage_migration: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", migration_version=" << request.migration_version;
@@ -79,7 +80,8 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(const TStorageMig
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
     // Lock schema_change_lock util schema change info is stored in tablet header
-    std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(), std::try_to_lock);
+    std::unique_lock<std::mutex> schema_change_lock(base_tablet->get_schema_change_lock(),
+                                                    std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "failed to obtain schema change lock. "
                      << "base_tablet=" << request.base_tablet_id;
@@ -91,7 +93,8 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(const TStorageMig
     return res;
 }
 
-Status StorageMigrationV2Handler::_do_process_storage_migration_v2(const TStorageMigrationReqV2& request) {
+Status StorageMigrationV2Handler::_do_process_storage_migration_v2(
+        const TStorageMigrationReqV2& request) {
     Status res = Status::OK();
     TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
             request.base_tablet_id, request.base_schema_hash);
@@ -121,7 +124,8 @@ Status StorageMigrationV2Handler::_do_process_storage_migration_v2(const TStorag
         return res;
     }
 
-    LOG(INFO) << "finish to validate storage_migration request. begin to migrate data from base tablet "
+    LOG(INFO) << "finish to validate storage_migration request. begin to migrate data from base "
+                 "tablet "
                  "to new tablet"
               << " base_tablet=" << base_tablet->full_name()
               << " new_tablet=" << new_tablet->full_name();
@@ -217,11 +221,11 @@ Status StorageMigrationV2Handler::_do_process_storage_migration_v2(const TStorag
                 }
             }
 
-            res = delete_handler.init(base_tablet->tablet_schema(), base_tablet->delete_predicates(),
-                                      end_version);
+            res = delete_handler.init(base_tablet->tablet_schema(),
+                                      base_tablet->delete_predicates(), end_version);
             if (!res.ok()) {
-                LOG(WARNING) << "init delete handler failed. base_tablet=" << base_tablet->full_name()
-                             << ", end_version=" << end_version;
+                LOG(WARNING) << "init delete handler failed. base_tablet="
+                             << base_tablet->full_name() << ", end_version=" << end_version;
 
                 // release delete handlers which have been inited successfully.
                 delete_handler.finalize();
@@ -305,7 +309,8 @@ Status StorageMigrationV2Handler::_get_versions_to_be_changed(
     return Status::OK();
 }
 
-Status StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigrationParams& sm_params) {
+Status StorageMigrationV2Handler::_convert_historical_rowsets(
+        const StorageMigrationParams& sm_params) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << sm_params.base_tablet->full_name()
               << ", new_tablet=" << sm_params.new_tablet->full_name();
@@ -350,12 +355,12 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigra
         }
 
         if ((res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
-                sm_params.new_tablet->tablet_path_desc(),
-                rs_reader, rowset_writer.get(), new_tablet)) != OLAP_SUCCESS) {
+                                           sm_params.new_tablet->tablet_path_desc(), rs_reader,
+                                           rowset_writer.get(), new_tablet)) != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to add_rowset. version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
-            new_tablet->data_dir()->remove_pending_ids(
-                    ROWSET_ID_PREFIX + rowset_writer->rowset_id().to_string());
+            new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
+                                                       rowset_writer->rowset_id().to_string());
             goto PROCESS_ALTER_EXIT;
         }
         new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
@@ -392,8 +397,8 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigra
                    << " version=" << rs_reader->version().first << "-"
                    << rs_reader->version().second;
     }
-    // XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
-    PROCESS_ALTER_EXIT : {
+// XXX:The SchemaChange state should not be canceled at this time, because the new Delta has to be converted to the old and new Schema version
+PROCESS_ALTER_EXIT : {
     // save tablet meta here because rowset meta is not saved during add rowset
     std::lock_guard<std::shared_mutex> new_wlock(sm_params.new_tablet->get_header_lock());
     sm_params.new_tablet->save_meta();
@@ -409,8 +414,8 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(const StorageMigra
     return res;
 }
 
-Status StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr new_tablet,
-                                                       const TStorageMigrationReqV2& request) {
+Status StorageMigrationV2Handler::_validate_migration_result(
+        TabletSharedPtr new_tablet, const TStorageMigrationReqV2& request) {
     Version max_continuous_version = {-1, 0};
     new_tablet->max_continuous_version_from_beginning(&max_continuous_version);
     LOG(INFO) << "find max continuous version of tablet=" << new_tablet->full_name()
@@ -434,13 +439,15 @@ Status StorageMigrationV2Handler::_validate_migration_result(TabletSharedPtr new
     return Status::OK();
 }
 
-Status StorageMigrationV2Handler::_generate_rowset_writer(
-        const FilePathDesc& src_desc, const FilePathDesc& dst_desc,
-        RowsetReaderSharedPtr rowset_reader, RowsetWriter* new_rowset_writer, TabletSharedPtr new_tablet) {
+Status StorageMigrationV2Handler::_generate_rowset_writer(const FilePathDesc& src_desc,
+                                                          const FilePathDesc& dst_desc,
+                                                          RowsetReaderSharedPtr rowset_reader,
+                                                          RowsetWriter* new_rowset_writer,
+                                                          TabletSharedPtr new_tablet) {
     if (!src_desc.is_remote() && dst_desc.is_remote()) {
         string remote_file_param_path = dst_desc.filepath + REMOTE_FILE_PARAM;
         rapidjson::StringBuffer strbuf;
-        rapidjson::PrettyWriter <rapidjson::StringBuffer> writer(strbuf);
+        rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
         writer.StartObject();
         writer.Key(TABLET_UID.c_str());
         writer.String(TabletUid(new_tablet->tablet_uid()).to_string().c_str());
@@ -451,8 +458,8 @@ Status StorageMigrationV2Handler::_generate_rowset_writer(
                 Env::Default(), Slice(std::string(strbuf.GetString())), remote_file_param_path);
         // strbuf.GetString() format: {"tablet_uid": "a84cfb67d3ad3d62-87fd8b3ae9bdad84", "storage_name": "s3_name"}
         if (!st.ok()) {
-            LOG(WARNING) << "fail to write tablet_uid and storage_name. path=" << remote_file_param_path
-                         << ", error:" << st.to_string();
+            LOG(WARNING) << "fail to write tablet_uid and storage_name. path="
+                         << remote_file_param_path << ", error:" << st.to_string();
             return Status::OLAPInternalError(OLAP_ERR_COPY_FILE_ERROR);
         }
         LOG(INFO) << "write storage_param successfully: " << remote_file_param_path;

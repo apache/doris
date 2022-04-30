@@ -37,7 +37,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer(){};
+    virtual ~HeartbeatServer() {};
 
     virtual void init_cluster_id();
 
@@ -66,7 +66,7 @@ private:
 }; // class HeartBeatServer
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port,
-                                    ThriftServer** heart_beat_server, uint32_t worker_thread_num,
-                                    TMasterInfo* local_master_info);
+                               ThriftServer** heart_beat_server, uint32_t worker_thread_num,
+                               TMasterInfo* local_master_info);
 } // namespace doris
 #endif // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H

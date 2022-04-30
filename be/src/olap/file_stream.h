@@ -272,4 +272,3 @@ inline Status ReadOnlyFileStream::read_all(char* buffer, uint64_t* buffer_size) 
 }
 
 } // namespace doris
-

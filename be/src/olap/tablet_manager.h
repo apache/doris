@@ -75,10 +75,11 @@ public:
             const std::unordered_set<TTabletId>& tablet_submitted_compaction, uint32_t* score,
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false, std::string* err = nullptr);
-
-    TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid, bool include_deleted = false,
+    TabletSharedPtr get_tablet(TTabletId tablet_id, bool include_deleted = false,
                                std::string* err = nullptr);
+
+    TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
+                               bool include_deleted = false, std::string* err = nullptr);
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -100,14 +101,13 @@ public:
     // parse tablet header msg to generate tablet object
     // - restore: whether the request is from restore tablet action,
     //   where we should change tablet status from shutdown back to running
-    Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-                                     TSchemaHash schema_hash, const std::string& header,
-                                     bool update_meta, bool force = false, bool restore = false,
-                                     bool check_path = true);
+    Status load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id, TSchemaHash schema_hash,
+                                 const std::string& header, bool update_meta, bool force = false,
+                                 bool restore = false, bool check_path = true);
 
     Status load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
-                                    const std::string& schema_hash_path, bool force = false,
-                                    bool restore = false);
+                                const std::string& schema_hash_path, bool force = false,
+                                bool restore = false);
 
     // 获取所有tables的名字
     //
@@ -138,6 +138,8 @@ public:
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
 
+    void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
@@ -145,11 +147,11 @@ private:
     // Return OLAP_SUCCESS, if run ok
     //        OLAP_ERR_TABLE_INSERT_DUPLICATION_ERROR, if find duplication
     //        Status::OLAPInternalError(OLAP_ERR_NOT_INITED), if not inited
-    Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet, bool update_meta, bool force);
+    Status _add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
+                                bool update_meta, bool force);
 
-    Status _add_tablet_to_map_unlocked(TTabletId tablet_id, 
-                                           const TabletSharedPtr& tablet, bool update_meta,
-                                           bool keep_files, bool drop_old);
+    Status _add_tablet_to_map_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
+                                       bool update_meta, bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
     Status _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
@@ -159,7 +161,8 @@ private:
     Status _drop_tablet_unlocked(TTabletId tablet_id, bool keep_files);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
-    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted, std::string* err);
+    TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,
+                                         std::string* err);
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
@@ -170,17 +173,19 @@ private:
                                                          const Tablet* base_tablet,
                                                          const std::vector<DataDir*>& data_dirs);
     Status _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
-                                            const bool is_schema_change_tablet,
-                                            const Tablet* base_tablet,
-                                            TabletMetaSharedPtr* tablet_meta);
-    
+                                        const bool is_schema_change_tablet,
+                                        const Tablet* base_tablet,
+                                        TabletMetaSharedPtr* tablet_meta);
+
     void _add_tablet_to_partition(const TabletSharedPtr& tablet);
 
     void _remove_tablet_from_partition(const TabletSharedPtr& tablet);
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
-    Status _get_storage_param(DataDir* data_dir, const std::string& storage_name, StorageParamPB* storage_param);
+    Status _get_storage_param(DataDir* data_dir, const std::string& storage_name,
+                              StorageParamPB* storage_param);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -214,7 +219,8 @@ private:
     std::vector<TabletSharedPtr> _shutdown_tablets;
 
     std::mutex _tablet_stat_cache_mutex;
-    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache = std::make_shared<std::vector<TTabletStat>>();
+    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =
+            std::make_shared<std::vector<TTabletStat>>();
 
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 
@@ -222,4 +228,3 @@ private:
 };
 
 } // namespace doris
-

@@ -57,7 +57,8 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {}
+          _scanner_eof(false) {
+}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());
@@ -155,7 +156,18 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
+Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
+    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
+    if (_success) {
+        free_expr_local_allocations();
+        *fill_tuple = true;
+    } else {
+        *fill_tuple = false;
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     // filter src tuple by preceding filter first
     if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
         _counter->num_rows_unselected++;

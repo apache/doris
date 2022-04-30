@@ -463,6 +463,13 @@ void SegmentIterator::_init_lazy_materialization() {
         }
         _opts.delete_condition_predicates->get_all_column_ids(predicate_columns);
 
+        // ARRAY column do not support lazy materialization read
+        for (auto cid : _schema.column_ids()) {
+            if (_schema.column(cid)->type() == OLAP_FIELD_TYPE_ARRAY) {
+                predicate_columns.insert(cid);
+            }
+        }
+
         // when all return columns have predicates, disable lazy materialization to avoid its overhead
         if (_schema.column_ids().size() > predicate_columns.size()) {
             _lazy_materialization_read = true;
@@ -628,7 +635,7 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
                 type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::BF ||
                 predicate->type() == PredicateType::IN_LIST ||
-                predicate->type() == PredicateType::NO_IN_LIST) {
+                predicate->type() == PredicateType::NOT_IN_LIST) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
                 _is_all_column_basic_type = false;
@@ -856,6 +863,7 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
         return;
     }
 
+    uint16_t original_size = *selected_size_ptr;
     for (auto predicate : _short_cir_eval_predicate) {
         auto column_id = predicate->column_id();
         auto& short_cir_column = _current_return_columns[column_id];
@@ -865,13 +873,15 @@ void SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_rowid_
             predicate->type() == PredicateType::GT || predicate->type() == PredicateType::GE) {
             col_ptr->convert_dict_codes_if_necessary();
         }
-        predicate->set_dict_code_if_necessary(*short_cir_column);
         predicate->evaluate(*short_cir_column, vec_sel_rowid_idx, selected_size_ptr);
     }
+    _opts.stats->rows_vec_cond_filtered += original_size - *selected_size_ptr;
 
     // evaluate delete condition
+    original_size = *selected_size_ptr;
     _opts.delete_condition_predicates->evaluate(_current_return_columns, vec_sel_rowid_idx,
                                                 selected_size_ptr);
+    _opts.stats->rows_vec_del_cond_filtered += original_size - *selected_size_ptr;
 }
 
 void SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,

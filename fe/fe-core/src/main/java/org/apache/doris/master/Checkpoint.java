@@ -32,6 +32,8 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,19 +73,23 @@ public class Checkpoint extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        doCheckpoint();
+        try {
+            doCheckpoint();
+        } catch (CheckpointException e) {
+            LOG.warn("failed to do checkpoint.", e);
+        }
     }
 
     // public for unit test, so that we can trigger checkpoint manually.
     // DO NOT call it manually outside the unit test.
-    public synchronized void doCheckpoint() {
+    public synchronized void doCheckpoint() throws CheckpointException {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
         try {
             storage = new Storage(imageDir);
             // get max image version
-            imageVersion = storage.getImageSeq();
+            imageVersion = storage.getLatestImageSeq();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
             LOG.info("last checkpoint journal id: {}, current finalized journal id: {}", imageVersion, checkPointVersion);
@@ -111,6 +117,8 @@ public class Checkpoint extends MasterDaemon {
         catalog = Catalog.getCurrentCatalog();
         catalog.setEditLog(editLog);
         createStaticFieldForCkpt();
+        boolean exceptionCaught = false;
+        String latestImageFilePath = null;
         try {
             catalog.loadImage(imageDir);
             catalog.replayJournal(checkPointVersion);
@@ -119,24 +127,52 @@ public class Checkpoint extends MasterDaemon {
                         checkPointVersion, catalog.getReplayedJournalId()));
             }
             catalog.fixBugAfterMetadataReplayed(false);
-            catalog.saveImage();
+            latestImageFilePath = catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
+
+            // destroy checkpoint catalog, reclaim memory
+            catalog = null;
+            Catalog.destroyCheckpoint();
+            destroyStaticFieldForCkpt();
+
+            // Load image to verify if the newly generated image file is valid
+            // If success, do all the following jobs
+            // If failed, just return
+            catalog = Catalog.getCurrentCatalog();
+            createStaticFieldForCkpt();
+            catalog.loadImage(imageDir);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_SUCCESS.increase(1L);
             }
             LOG.info("checkpoint finished save image.{}", replayedJournalId);
         } catch (Throwable e) {
-            e.printStackTrace();
+            exceptionCaught = true;
             LOG.error("Exception when generate new image file", e);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_IMAGE_WRITE_FAILED.increase(1L);
             }
-            return;
+            throw new CheckpointException(e.getMessage(), e);
         } finally {
             // destroy checkpoint catalog, reclaim memory
             catalog = null;
             Catalog.destroyCheckpoint();
             destroyStaticFieldForCkpt();
+            // if new image generated && exception caught, delete the latest image here
+            // delete the newest image file, cuz it is invalid
+            if ((!Strings.isNullOrEmpty(latestImageFilePath)) && exceptionCaught) {
+                MetaCleaner cleaner = new MetaCleaner(Config.meta_dir + "/image");
+                try {
+                    cleaner.cleanTheLatestInvalidImageFile(latestImageFilePath);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_SUCCESS.increase(1L);
+                    }
+                } catch (Throwable ex) {
+                    LOG.error("Master delete latest invalid image file failed.", ex);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_IMAGE_CLEAN_FAILED.increase(1L);
+                    }
+                }
+            }
         }
 
         // push image file to all the other non master nodes
@@ -184,7 +220,9 @@ public class Checkpoint extends MasterDaemon {
         if (successPushed == otherNodesCount) {
             try {
                 long minOtherNodesJournalId = Long.MAX_VALUE;
-                long deleteVersion = checkPointVersion;
+                // Actually, storage.getLatestValidatedImageSeq returns number before this
+                // checkpoint.
+                long deleteVersion = storage.getLatestValidatedImageSeq();
                 if (successPushed > 0) {
                     for (Frontend fe : allFrontends) {
                         String host = fe.getHost();
@@ -220,7 +258,7 @@ public class Checkpoint extends MasterDaemon {
                             }
                         }
                     }
-                    deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
+                    deleteVersion = Math.min(minOtherNodesJournalId, deleteVersion);
                 }
 
                 editLog.deleteJournals(deleteVersion + 1);

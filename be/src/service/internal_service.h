@@ -64,6 +64,11 @@ public:
                                  PTabletWriterAddBatchResult* response,
                                  google::protobuf::Closure* done) override;
 
+    void tablet_writer_add_block(google::protobuf::RpcController* controller,
+                                 const PTabletWriterAddBlockRequest* request,
+                                 PTabletWriterAddBlockResult* response,
+                                 google::protobuf::Closure* done) override;
+
     void tablet_writer_cancel(google::protobuf::RpcController* controller,
                               const PTabletWriterCancelRequest* request,
                               PTabletWriterCancelResult* response,

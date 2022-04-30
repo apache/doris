@@ -39,12 +39,12 @@ AggFnEvaluator::AggFnEvaluator(const TExprNode& desc)
           _exec_timer(nullptr),
           _merge_timer(nullptr),
           _expr_timer(nullptr) {
-        bool nullable = true;
-        if (desc.__isset.is_nullable) {
-            nullable = desc.is_nullable;
-        }
-        _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
+    bool nullable = true;
+    if (desc.__isset.is_nullable) {
+        nullable = desc.is_nullable;
     }
+    _data_type = DataTypeFactory::instance().create_data_type(_return_type, nullable);
+}
 
 Status AggFnEvaluator::create(ObjectPool* pool, const TExpr& desc, AggFnEvaluator** result) {
     *result = pool->add(new AggFnEvaluator(desc.nodes[0]));
@@ -87,8 +87,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc, M
         child_expr_name.emplace_back(_input_exprs_ctxs[i]->root()->expr_name());
     }
 
-    _function = AggregateFunctionSimpleFactory::instance().get(_fn.name.function_name, argument_types,
-                                                               params, _data_type->is_nullable());
+    _function = AggregateFunctionSimpleFactory::instance().get(
+            _fn.name.function_name, argument_types, params, _data_type->is_nullable());
     if (_function == nullptr) {
         return Status::InternalError(
                 fmt::format("Agg Function {} is not implemented", _fn.name.function_name));

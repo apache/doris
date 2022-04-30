@@ -559,7 +559,7 @@ void VersionGraph::_add_vertex_to_graph(int64_t vertex_value) {
 }
 
 Status VersionGraph::capture_consistent_versions(const Version& spec_version,
-                                                     std::vector<Version>* version_path) const {
+                                                 std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specified version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;

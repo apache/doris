@@ -274,7 +274,7 @@ private:
 
     template <bool CHECK_LIMIT_FIRST>
     Status ALWAYS_INLINE allocate_safely(int64_t size, int alignment, uint8_t*& ret,
-                                             Status* rst = nullptr) {
+                                         Status* rst = nullptr) {
         uint8_t* result = allocate<CHECK_LIMIT_FIRST>(size, alignment, rst);
         if (result == nullptr) {
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);

@@ -52,7 +52,7 @@ public:
     DataTypeDateTime();
 
     const char* get_family_name() const override { return "DateTime"; }
-    std::string do_get_name() const override {return "DateTime"; }
+    std::string do_get_name() const override { return "DateTime"; }
     TypeIndex get_type_id() const override { return TypeIndex::DateTime; }
 
     bool can_be_used_as_version() const override { return true; }

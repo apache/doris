@@ -29,8 +29,7 @@ public:
 
 private:
     static SchemaScanner::ColumnDesc _s_cols_statistics[];
-
 };
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_STATISTICS_SCANNER_H

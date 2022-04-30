@@ -189,4 +189,3 @@ inline Status InStream::read(char* buffer, uint64_t* buf_size) {
 }
 
 } // namespace doris
-
