@@ -28,10 +28,13 @@ under the License.
 ### description
 #### Syntax
 
-`DOUBLE ST_Distance_Sphere(DOUBLE x_lng, DOUBLE x_lat, DOUBLE y_lng, DOUBLE x_lat)`
+`DOUBLE ST_Distance_Sphere(DOUBLE x_lng, DOUBLE x_lat, DOUBLE y_lng, DOUBLE y_lat)`
 
 
 计算地球两点之间的球面距离，单位为 米。传入的参数分别为X点的经度，X点的纬度，Y点的经度，Y点的纬度。
+
+x_lng 和 y_lng 都是经度数据，合理的取值范围是 [-180, 180]。
+y_lat 和 y_lat 都是维度数据，合理的取值范围是 [-90, 90]。
 
 ### example
 
