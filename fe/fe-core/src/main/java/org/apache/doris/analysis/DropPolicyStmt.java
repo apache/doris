@@ -30,7 +30,7 @@ import lombok.Getter;
 /*
  Drop policy statement
  syntax:
-      DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table
+      DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user]
 */
 @AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
@@ -71,7 +71,9 @@ public class DropPolicyStmt extends DdlStmt {
             sb.append("IF EXISTS ");
         }
         sb.append(policyName).append(" ON ").append(tableName.toSql());
-        sb.append(" TO ").append(user.getQualifiedUser());
+        if (user != null) {
+            sb.append(" FOR ").append(user.getQualifiedUser());
+        }
         return sb.toString();
     }
 }

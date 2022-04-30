@@ -30,7 +30,7 @@ import lombok.Getter;
 /*
  Create policy statement
  syntax:
-      CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO admin USING (a = ’xxx‘)
+      CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
 */
 public class CreatePolicyStmt extends DdlStmt {
     
