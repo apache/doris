@@ -268,3 +268,13 @@ http {
 ### Q12. Doris编译安装JDK版本不兼容问题
 
 在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation.html)
+
+### Q13. 本地启动 FE 或者启动单元测试报错 Cannot find external parser table action_table.dat
+执行如下命令
+```
+cd fe && mvn clean install -DskipTests
+```
+如果还报同样的错误，手动执行如下命令
+```
+cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.dat fe-core/target/classes/org/apache/doris/analysis
+```
