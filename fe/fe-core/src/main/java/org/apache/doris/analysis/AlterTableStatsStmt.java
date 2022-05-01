@@ -24,22 +24,25 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.StatsType;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 import java.util.Optional;
 
 public class AlterTableStatsStmt extends DdlStmt {
 
-    private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
             .add(TableStats.DATA_SIZE)
             .add(TableStats.ROW_COUNT)
             .build();
 
     private TableName tableName;
     private Map<String, String> properties;
+    public final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
     public AlterTableStatsStmt(TableName tableName, Map<String, String> properties) {
         this.tableName = tableName;
@@ -52,8 +55,8 @@ public class AlterTableStatsStmt extends DdlStmt {
         // check table name
         tableName.analyze(analyzer);
         // check properties
-        Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity.toLowerCase())).findFirst();
+        Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
+            .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }
@@ -65,13 +68,18 @@ public class AlterTableStatsStmt extends DdlStmt {
                     ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
+        // get statsTypeToValue
+        properties.forEach((key, value) -> {
+            StatsType statsType = StatsType.fromString(key);
+            statsTypeToValue.put(statsType, value);
+        });
     }
 
     public TableName getTableName() {
         return tableName;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public Map<StatsType, String> getStatsTypeToValue() {
+        return statsTypeToValue;
     }
 }

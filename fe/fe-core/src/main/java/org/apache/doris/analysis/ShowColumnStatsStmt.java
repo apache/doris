@@ -31,12 +31,12 @@ public class ShowColumnStatsStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("column_name")
-                    .add(ColumnStats.NDV)
-                    .add(ColumnStats.AVG_SIZE)
-                    .add(ColumnStats.MAX_SIZE)
-                    .add(ColumnStats.NUM_NULLS)
-                    .add(ColumnStats.MIN_VALUE)
-                    .add(ColumnStats.MAX_VALUE)
+                    .add(ColumnStats.NDV.getValue())
+                    .add(ColumnStats.AVG_SIZE.getValue())
+                    .add(ColumnStats.MAX_SIZE.getValue())
+                    .add(ColumnStats.NUM_NULLS.getValue())
+                    .add(ColumnStats.MIN_VALUE.getValue())
+                    .add(ColumnStats.MAX_VALUE.getValue())
                     .build();
 
     private TableName tableName;
