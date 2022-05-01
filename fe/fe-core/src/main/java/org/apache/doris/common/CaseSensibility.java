@@ -22,7 +22,7 @@ public enum CaseSensibility {
     DATABASE(true),
     TABLE(true),
     ROLLUP(true),
-    PARTITION(true),
+    PARTITION(false),
     COLUMN(false),
     USER(true),
     ROLE(false),
