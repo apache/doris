@@ -37,7 +37,7 @@ under the License.
 ## 规则
 
 对SQL规则增删改查
-- 创建SQL阻止规则，更多创建语法请参阅[CREATE SQL BLOCK RULE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE.html)
+- 创建SQL阻止规则，更多创建语法请参阅[CREATE SQL BLOCK RULE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE.html)
     - sql：匹配规则(基于正则匹配,特殊字符需要转译)，可选，默认值为 "NULL"
     - sqlHash: sql hash值，用于完全匹配，我们会在`fe.audit.log`打印这个值，可选，这个参数和sql只能二选一，默认值为 "NULL"
     - partition_num: 一个扫描节点会扫描的最大partition数量，默认值为0L
@@ -65,12 +65,12 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = sql match regex sql block rule:
 CREATE SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "30", "cardinality"="10000000000","global"="false","enable"="true")
 ```
 
-- 查看已配置的SQL阻止规则，不指定规则名则为查看所有规则，具体语法请参阅 [SHOW SQL BLOCK RULE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-SQL-BLOCK-RULE.html)
+- 查看已配置的SQL阻止规则，不指定规则名则为查看所有规则，具体语法请参阅 [SHOW SQL BLOCK RULE](../sql-manual/sql-reference/Show-Statements/SHOW-SQL-BLOCK-RULE.html)
 
 ```sql
 SHOW SQL_BLOCK_RULE [FOR RULE_NAME]
 ```
-- 修改SQL阻止规则，允许对sql/sqlHash/partition_num/tablet_num/cardinality/global/enable等每一项进行修改，具体语法请参阅[ALTER SQL BLOCK  RULE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE.html)
+- 修改SQL阻止规则，允许对sql/sqlHash/partition_num/tablet_num/cardinality/global/enable等每一项进行修改，具体语法请参阅[ALTER SQL BLOCK  RULE](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE.html)
     - sql 和 sqlHash 不能同时被设置。这意味着，如果一个rule设置了sql或者sqlHash，则另一个属性将无法被修改
     - sql/sqlHash 和 partition_num/tablet_num/cardinality 不能同时被设置。举个例子，如果一个rule设置了partition_num，那么sql或者sqlHash将无法被修改
 ```sql
@@ -81,7 +81,7 @@ ALTER SQL_BLOCK_RULE test_rule PROPERTIES("sql"="select \\* from test_table","en
 ALTER SQL_BLOCK_RULE test_rule2 PROPERTIES("partition_num" = "10","tablet_num"="300","enable"="true")
 ```
 
-- 删除SQL阻止规则，支持多规则，以`,`隔开，具体语法请参阅 [DROP SQL BLOCK RULR](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.html)
+- 删除SQL阻止规则，支持多规则，以`,`隔开，具体语法请参阅 [DROP SQL BLOCK RULR](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-SQL-BLOCK-RULE.html)
 ```
 DROP SQL_BLOCK_RULE test_rule1,test_rule2
 ```

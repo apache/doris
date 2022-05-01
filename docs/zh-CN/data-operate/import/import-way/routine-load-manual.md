@@ -80,7 +80,7 @@ under the License.
 
 ### 创建任务
 
-创建例行导入任务的的详细语法可以连接到 Doris 后，查看[CREATE ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html)命令手册，或者执行 `HELP ROUTINE LOAD;` 查看语法帮助。
+创建例行导入任务的的详细语法可以连接到 Doris 后，查看[CREATE ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html)命令手册，或者执行 `HELP ROUTINE LOAD;` 查看语法帮助。
 
 下面我们以几个例子说明如何创建Routine Load任务：
 
@@ -311,7 +311,7 @@ CREATE ROUTINE LOAD example_db.test1 ON example_tbl
 
 ### 修改作业属性
 
-用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看或参阅 [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html)。
+用户可以修改已经创建的作业。具体说明可以通过 `HELP ALTER ROUTINE LOAD;` 命令查看或参阅 [ALTER ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/ALTER-ROUTINE-LOAD.html)。
 
 ### 作业控制
 

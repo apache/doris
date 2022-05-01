@@ -487,4 +487,4 @@ Note: The bitmap type only supports positive integers. If there are negative Num
 
 ## More Help
 
-For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED- VIEW.html) and [DROP MATERIALIZED VIEW](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.
+For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED- VIEW.html) and [DROP MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.

@@ -28,7 +28,7 @@ under the License.
 
 Doris 中的所有导入操作都有原子性保证，即一个导入作业中的数据要么全部成功，要么全部失败。不会出现仅部分数据导入成功的情况。
 
-在 [BROKER LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 中我们也可以实现多多表的原子性导入。
+在 [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 中我们也可以实现多多表的原子性导入。
 
 对于表所附属的 [物化视图](../../../advanced/materialized-view.html)，也同时保证和基表的原子性和一致性。
 

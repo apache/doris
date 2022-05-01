@@ -114,4 +114,4 @@ After the user executes the UPDATE command, the system performs the following th
 
 ## More Help
 
-For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.
+For more detailed syntax used by **data update**, please refer to the [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.html) command manual , you can also enter `HELP UPDATE` in the Mysql client command line to get more help information.

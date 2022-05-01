@@ -47,7 +47,7 @@ This document introduces how to use this feature and the considerations.
 Iceberg tables can be created in Doris in two ways. You do not need to declare the column definitions of the table when creating an external table, Doris can automatically convert them based on the column definitions of the table in Iceberg.
 
 1. Create a separate external table to mount the Iceberg table.  
-   The syntax can be viewed in [CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html).
+   The syntax can be viewed in [CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html).
 
     ```sql
     -- Syntax
@@ -74,7 +74,7 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     ```
 
 2. Create an Iceberg database to mount the corresponding Iceberg database on the remote side, and mount all the tables under the database.  
-   You can check the syntax with [CREATE DATABASE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-DATABASE.html).
+   You can check the syntax with [CREATE DATABASE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE.html).
 
     ```sql
     -- Syntax
@@ -142,7 +142,7 @@ You can also create an Iceberg table by explicitly specifying the column definit
 
 ### Show table structure
 
-Show table structure can be viewed by [SHOW CREATE TABLE](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-CREATE-TABLE.html).
+Show table structure can be viewed by [SHOW CREATE TABLE](../../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-TABLE.html).
     
 ### Synchronized mounts
 

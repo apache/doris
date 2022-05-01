@@ -26,7 +26,7 @@ under the License.
 
 # C++ 代码分析
 
-Doris支持使用[Clangd](https://clangd.llvm.org/)和[Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/)进行代码静态分析。Clangd和Clang-Tidy在[LDB-toolchain](https://doris.apache.org/zh-CN/installing/compilation-with-ldb-toolchain)中已经内置，另外也可以自己安装或者编译。
+Doris支持使用[Clangd](https://clangd.llvm.org/)和[Clang-Tidy](https://clang.llvm.org/extra/clang-tidy/)进行代码静态分析。Clangd和Clang-Tidy在[LDB-toolchain](../install/source-install/compilation-with-ldb-toolchain.html)中已经内置，另外也可以自己安装或者编译。
 
 ### Clang-Tidy
 Clang-Tidy中可以做一些代码分析的配置,配置文件`.clang-tidy`在Doris根目录下。

@@ -51,7 +51,7 @@ under the License.
 
 物化视图则在覆盖了 Rollup 的功能的同时，还能支持更丰富的聚合函数。所以物化视图其实是 Rollup 的一个超集。
 
-也就是说，之前 [ALTER TABLE ADD ROLLUP](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md) 语法支持的功能现在均可以通过 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 实现。
+也就是说，之前 [ALTER TABLE ADD ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.md) 语法支持的功能现在均可以通过 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 实现。
 
 ## 使用物化视图
 
@@ -74,7 +74,7 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 
 创建物化视图是一个异步的操作，也就是说用户成功提交创建任务后，Doris 会在后台对存量的数据进行计算，直到创建成功。
 
-具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.html) 。
+具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.html) 。
 
 ### 支持聚合函数
 
@@ -144,7 +144,7 @@ MySQL [test]> desc mv_test all;
 
 如果用户不再需要物化视图，则可以通过命令删除物化视图。
 
-具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) 
+具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) 
 
 
 
@@ -484,4 +484,4 @@ MySQL [test]> desc advertiser_view_record;
 
 ## 更多帮助
 
-关于物化视图使用的更多详细语法及最佳实践，请参阅 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 和 [DROP MATERIALIZED VIEW](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE MATERIALIZED VIEW` 和`HELP DROP MATERIALIZED VIEW`  获取更多帮助信息。
+关于物化视图使用的更多详细语法及最佳实践，请参阅 [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 和 [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE MATERIALIZED VIEW` 和`HELP DROP MATERIALIZED VIEW`  获取更多帮助信息。

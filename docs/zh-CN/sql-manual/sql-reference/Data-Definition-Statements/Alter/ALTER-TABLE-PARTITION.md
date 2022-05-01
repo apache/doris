@@ -62,7 +62,7 @@ partition_desc ["key"="value"]
 - 分区为左闭右开区间，如果用户仅指定右边界，系统会自动确定左边界
 - 如果没有指定分桶方式，则自动使用建表使用的分桶方式
 - 如指定分桶方式，只能修改分桶数，不可修改分桶方式或分桶列
-- ["key"="value"] 部分可以设置分区的一些属性，具体说明见 [CREATE TABLE](./sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+- ["key"="value"] 部分可以设置分区的一些属性，具体说明见 [CREATE TABLE](./sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 - 如果建表时用户未显式创建Partition,则不支持通过ALTER的方式增加分区
 
 2. 删除分区
