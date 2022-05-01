@@ -94,7 +94,9 @@ module.exports = {
             text: 'Download', link: '/en/downloads/downloads'
           }
         ],
-        sidebar: convertSidebar(require('./sidebar/en.js'), '/en/'),
+        sidebar: {
+          '/en/': convertSidebar(require('./sidebar/en.js'), '/en/')
+        },
         article: {
           metaTime: 'Date',
           metaAuthor: 'Author',
