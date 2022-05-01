@@ -25,7 +25,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * The StatisticsTask belongs to one StatisticsJob.
@@ -48,8 +47,6 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         FAILED
     }
 
-    protected final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     protected long id = Catalog.getCurrentCatalog().getNextId();
     protected long jobId;
     protected StatsGranularityDesc granularityDesc;
@@ -71,24 +68,8 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
         this.statsTypeList = statsTypeList;
     }
 
-    public void readLock() {
-        lock.readLock().lock();
-    }
-
-    public void readUnlock() {
-        lock.readLock().unlock();
-    }
-
-    protected void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    protected void writeUnlock() {
-        lock.writeLock().unlock();
-    }
-
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public void setId(long id) {
@@ -96,35 +77,35 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     }
 
     public long getJobId() {
-        return this.jobId;
+        return jobId;
     }
 
     public StatsGranularityDesc getGranularityDesc() {
-        return this.granularityDesc;
+        return granularityDesc;
     }
 
     public StatsCategoryDesc getCategoryDesc() {
-        return this.categoryDesc;
+        return categoryDesc;
     }
 
     public List<StatsType> getStatsTypeList() {
-        return this.statsTypeList;
+        return statsTypeList;
     }
 
     public TaskState getTaskState() {
-        return this.taskState;
+        return taskState;
     }
 
     public long getCreateTime() {
-        return this.createTime;
+        return createTime;
     }
 
     public long getStartTime() {
-        return this.startTime;
+        return startTime;
     }
 
     public long getFinishTime() {
-        return this.finishTime;
+        return finishTime;
     }
 
     /**
@@ -139,44 +120,38 @@ public abstract class StatisticsTask implements Callable<StatisticsTaskResult> {
     // please retain job lock firstly
     public void updateTaskState(TaskState newState) throws DdlException {
         LOG.info("To change statistics task(id={}) state from {} to {}", id, taskState, newState);
-        try {
-            // PENDING -> RUNNING/FAILED
-            if (taskState == TaskState.PENDING) {
-                if (newState == TaskState.RUNNING) {
-                    taskState = newState;
-                    // task start running, set start time
+        String errorMsg = "Invalid statistics task state transition from ";
+
+        // PENDING -> RUNNING/FAILED
+        if (taskState == TaskState.PENDING) {
+            switch (newState) {
+                case RUNNING:
                     startTime = System.currentTimeMillis();
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else if (newState == TaskState.FAILED) {
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else {
-                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new DdlException("Invalid task state transition from PENDING to " + newState);
-                }
-                return;
-            }
-
-            // RUNNING -> FINISHED/FAILED
-            if (taskState == TaskState.RUNNING) {
-                if (newState == TaskState.FINISHED) {
-                    // set finish time
+                    break;
+                case FAILED:
                     finishTime = System.currentTimeMillis();
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else if (newState == TaskState.FAILED) {
-                    taskState = newState;
-                    LOG.info("Statistics task(id={}) state changed from {} to {}", id, taskState, newState);
-                } else {
-                    LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-                    throw new DdlException("Invalid task state transition from RUNNING to " + newState);
-                }
+                    break;
+                default:
+                    throw new DdlException(errorMsg + taskState + " to " + newState);
             }
-
-            LOG.info("Invalid task(id={}) state transition from {} to {}", id, taskState, newState);
-            throw new DdlException("Invalid task state transition from " + taskState + " to " + newState);
-        } finally {
-            LOG.info("Statistics task(id={}) current state is {}", id, taskState);
         }
+        // RUNNING -> FINISHED/FAILED
+        else if (taskState == TaskState.RUNNING) {
+            switch (newState) {
+                case FINISHED:
+                case FAILED:
+                    finishTime = System.currentTimeMillis();
+                    break;
+                default:
+                    throw new DdlException(errorMsg + taskState + " to " + newState);
+            }
+        }
+        // unsupported state transition
+        else {
+            throw new DdlException(errorMsg + taskState + " to " + newState);
+        }
+
+        LOG.info("Statistics job(id={}) state changed from {} to {}", id, taskState, newState);
+        taskState = newState;
     }
 }

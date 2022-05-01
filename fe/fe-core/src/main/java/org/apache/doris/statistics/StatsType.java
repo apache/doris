@@ -18,12 +18,30 @@
 package org.apache.doris.statistics;
 
 public enum StatsType {
-    ROW_COUNT,
-    DATA_SIZE,
-    NDV,
-    AVG_SIZE,
-    MAX_SIZE,
-    NUM_NULLS,
-    MIN_VALUE,
-    MAX_VALUE
+    ROW_COUNT("row_count"),
+    DATA_SIZE("data_size"),
+    NDV("ndv"),
+    AVG_SIZE("avg_size"),
+    MAX_SIZE("max_size"),
+    NUM_NULLS("num_nulls"),
+    MIN_VALUE("min_value"),
+    MAX_VALUE("max_value"),
+    MAX_COL_LENS("max_col_lens"),
+    AVG_COL_LENS("avg_col_lens");
+    private final String value;
+    StatsType(String value) {
+        this.value = value;
+    }
+    public String getValue() {
+        return value;
+    }
+
+    public static StatsType fromString(String value) {
+        for (StatsType type : StatsType.values()) {
+            if (type.value.equalsIgnoreCase(value)) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("Invalid StatsType: " + value);
+    }
 }

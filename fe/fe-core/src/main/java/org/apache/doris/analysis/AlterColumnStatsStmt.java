@@ -25,15 +25,17 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStats;
+import org.apache.doris.statistics.StatsType;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 import java.util.Optional;
 
 public class AlterColumnStatsStmt extends DdlStmt {
 
-    private static final ImmutableSet<String> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+    private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
             .add(ColumnStats.NDV)
             .add(ColumnStats.AVG_SIZE)
             .add(ColumnStats.MAX_SIZE)
@@ -45,6 +47,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
     private TableName tableName;
     private String columnName;
     private Map<String, String> properties;
+    public final Map<StatsType, String> statsTypeToValue = Maps.newHashMap();
 
     public AlterColumnStatsStmt(TableName tableName, String columnName, Map<String, String> properties) {
         this.tableName = tableName;
@@ -58,8 +61,8 @@ public class AlterColumnStatsStmt extends DdlStmt {
         // check table name
         tableName.analyze(analyzer);
         // check properties
-        Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !CONFIGURABLE_PROPERTIES_SET.contains(entity.toLowerCase())).findFirst();
+        Optional<StatsType> optional = properties.keySet().stream().map(StatsType::fromString)
+            .filter(statsType -> !CONFIGURABLE_PROPERTIES_SET.contains(statsType)).findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid statistic");
         }
@@ -71,6 +74,11 @@ public class AlterColumnStatsStmt extends DdlStmt {
                     ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
         }
+        // get statsTypeToValue
+        properties.forEach((key, value) -> {
+            StatsType statsType = StatsType.fromString(key);
+            statsTypeToValue.put(statsType, value);
+        });
     }
 
     public TableName getTableName() {
@@ -81,7 +89,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         return columnName;
     }
 
-    public Map<String, String> getProperties() {
-        return properties;
+    public Map<StatsType, String> getStatsTypeToValue() {
+        return statsTypeToValue;
     }
 }
