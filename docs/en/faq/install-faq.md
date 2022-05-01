@@ -269,3 +269,12 @@ This is a bug in bdbje that has not yet been resolved. In this case, you can onl
 
 When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.html)
 
+### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
+Run the following command
+```
+cd fe && mvn clean install -DskipTests
+```
+If the same error is reported, Run the following command
+```
+cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.dat fe-core/target/classes/org/apache/doris/analysis
+```
