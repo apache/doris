@@ -153,7 +153,11 @@ You can try to compile Doris directly in your own Linux environment.
 
        If you are using Ubuntu 16.04 or newer, you can use the following command to install the dependencies
 
-       `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python autopoint pkg-config`
+       ```
+       sudo apt-get install build-essential openjdk-8-jdk maven byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python autopoint pkg-config
+       apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'
+       apt-get update && apt-get install cmake
+       ```
 
        If you are using CentOS you can use the following command to install the dependencies
 
@@ -167,9 +171,11 @@ You can try to compile Doris directly in your own Linux environment.
 
        ```
        sudo apt install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python
-       sudo add-apt-repository ppa:ubuntu-toolchain-r/ppa
+       sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
        sudo apt update
-       sudo apt install gcc-10 g++-10
+       sudo apt install gcc-11 g++-11
+       ln -s /usr/bin/g++-11 /usr/bin/g++
+       ln -s /usr/bin/gcc-11 /usr/bin/gcc
        sudo apt-get install autoconf automake libtool autopoint
        ```
         If you are using CentOS you can use the following command to install the dependencies
