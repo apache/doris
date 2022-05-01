@@ -2108,7 +2108,7 @@ public class Catalog {
     }
 
     public long saveAlterJob(CountingDataOutputStream dos, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
+        Map<Long, AlterJobV2> alterJobsV2;
         if (type == JobType.ROLLUP) {
             alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
