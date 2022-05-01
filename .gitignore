@@ -5,7 +5,6 @@
 *.iml
 *.swp
 *.jar
-*.zip
 *.gz
 *.log
 *.so.tmp
