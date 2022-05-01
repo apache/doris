@@ -69,7 +69,7 @@ public class OlapMetaScanNode extends ScanNode {
 
     public OlapMetaScanNode(PlanNodeId id,
                             TupleDescriptor tupleDesc) {
-        super(id, tupleDesc, NODE_NAME);
+        super(id, tupleDesc, NODE_NAME, NodeType.META_SCAN_NODE);
         this.olapTable = (OlapTable) tupleDesc.getTable();
     }
 

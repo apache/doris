@@ -194,6 +194,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         ODBC_SCAN_NODE,
         OLAP_SCAN_NODE,
         SCHEMA_SCAN_NODE,
+        META_SCAN_NODE
     }
 
     public String getPlanNodeName() {
