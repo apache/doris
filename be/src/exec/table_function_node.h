@@ -32,14 +32,15 @@ public:
     TableFunctionNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~TableFunctionNode();
 
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
-    virtual Status open(RuntimeState* state);
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status close(RuntimeState* state);
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status close(RuntimeState* state) override;
 
 protected:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);
+    bool _is_inner_and_empty();
 
     // return:
     //  0: all fns are eos
