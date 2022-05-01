@@ -28,18 +28,37 @@ under the License.
 
 ## Compile
 
-Running the build.sh script under the manager path directly will generate the installation and running package -- output under the manager path, including:
-1. Doris Manager's running package doris-manager.jar
-2. The running configuration folder conf
-3. Start the script start_manager.sh
-4. Stop the script stop_manager.sh
-
+The build.sh script directly under the manager path
+```shell
+cd incubator-doris-manager
+sh build.sh
+````
+After the compilation is completed, the output directory of the installation package will be generated under the manager path. The directory structure is as follows
+````text
+├── agent //agent directory
+│ ├── bin
+│ │ ├── agent_start.sh
+│ │ ├── agent_stop.sh
+│ │ └── download_doris.sh
+│ ├── config
+│ │ └── application.properties
+│ └── lib
+│ └── dm-agent.jar
+└── server //server directory
+     ├── bin
+     │ ├── start_manager.sh   //Doris Manager startup script
+     │ └── stop_manager.sh    //Doris Manager stop script
+     ├── conf
+     │ └── manager.conf       //Doris Manager configuration file
+     ├── lib
+     │ └── doris-manager.jar  //Doris Manager's running package doris-manager.jar
+     └── web-resource
+````
 ## Run
 
 ### 1 Configuration
 
-Enter the generated installation and running package, view the configuration file conf path, and open the configuration file manager.conf in the path. The configuration items to focus on are as follows:
-
+Modify the configuration file `server/conf/manager.conf`, and focus on the following configuration items:
 ````$xslt
 The service's startup http port
 STUDIO_PORT=8080
@@ -92,10 +111,10 @@ DB_MIN_IDLE=10
 
 ### 2 Start
 
-After the configuration modification is completed, go back to the installation and run package and run the following command directly
-
-````$xslt
-nohup sh ./start_manager.sh > start.log 2>&1 &
+After the configuration modification is completed, start doris manger
+````shell
+cd server
+sh bin/start_manager.sh
 ````
 
 Check the logs in the logs to determine whether the program started successfully
