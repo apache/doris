@@ -17,14 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import lombok.Getter;
-
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import lombok.Getter;
 
 /**
  * Represents a CREATE TABLE AS SELECT (CTAS) statement
@@ -54,6 +54,9 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         this.insertStmt = new InsertStmt(createTableStmt.getDbTbl(), queryStmt.clone());
     }
     
+    /**
+     * Cannot analyze insertStmt because the table has not been created yet
+     **/
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // first: we analyze queryStmt before create table.
@@ -73,6 +76,5 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         if (columnNames != null && columnNames.size() != resultExprs.size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_COL_NUMBER_NOT_MATCH);
         }
-        // Cannot analyze insertStmt because the table has not been created yet
     }
 }
