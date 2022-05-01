@@ -158,7 +158,6 @@ public class ShowAction extends RestBaseController {
              parentThread.getParent() != null;
              parentThread = parentThread.getParent()) {
         }
-        ;
         feInfo.put("thread_cnt", String.valueOf(parentThread.activeCount()));
 
         return ResponseEntityBuilder.ok(feInfo);

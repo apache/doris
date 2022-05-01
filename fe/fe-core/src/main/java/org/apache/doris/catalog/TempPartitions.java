@@ -57,7 +57,7 @@ public class TempPartitions implements Writable, GsonPostProcessable {
         nameToPartition.put(partition.getName(), partition);
     }
     public long getUpdateTime() {
-        long updateTime = -1l;
+        long updateTime = -1L;
         for (Partition p : idToPartition.values()) {
             if (p.getVisibleVersionTime() > updateTime) {
                 updateTime = p.getVisibleVersionTime();
