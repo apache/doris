@@ -78,6 +78,16 @@ Status TableFunctionNode::_prepare_output_slot_ids(const TPlanNode& tnode) {
     return Status::OK();
 }
 
+bool TableFunctionNode::_is_inner_and_empty() {
+    for (int i = 0; i < _fn_num; i++) {
+        // if any table function is not outer and has empty result, go to next child row
+        if (!_fns[i]->is_outer() && _fns[i]->current_empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Status TableFunctionNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
@@ -230,9 +240,10 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
             }
         }
 
+        bool skip_child_row = false;
         while (true) {
             int idx = _find_last_fn_eos_idx();
-            if (idx == 0) {
+            if (idx == 0 || skip_child_row) {
                 // all table functions' results are exhausted, process next child row
                 RETURN_IF_ERROR(_process_next_child_row());
                 if (_child_batch_exhausted) {
@@ -244,6 +255,11 @@ Status TableFunctionNode::get_next(RuntimeState* state, RowBatch* row_batch, boo
                     // continue to process next child row
                     continue;
                 }
+            }
+
+            // if any table function is not outer and has empty result, go to next child row
+            if (skip_child_row = _is_inner_and_empty(); skip_child_row) {
+                continue;
             }
 
             // get slots from every table function

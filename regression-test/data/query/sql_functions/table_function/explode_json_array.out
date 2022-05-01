@@ -22,10 +22,6 @@
 60	8
 
 -- !explode_json_array3 --
-100	John	30	1	Street 1	\N
-200	Mary	\N	1	Street 2	\N
-300	Mike	80	3	Street 3	\N
-400	Dan	50	4	Street 4	\N
 
 -- !explode_json_array4 --
 100	John	30	1	Street 1	1.23	1
