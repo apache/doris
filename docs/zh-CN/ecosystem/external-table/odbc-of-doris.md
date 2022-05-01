@@ -44,7 +44,7 @@ ODBC External Table Of Doris 提供了Doris通过数据库访问的标准接口(
 
 ### Doris中创建ODBC的外表
 
-具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 
 #### 1. 不使用Resource创建ODBC的外表
 

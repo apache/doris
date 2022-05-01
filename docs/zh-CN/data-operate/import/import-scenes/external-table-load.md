@@ -39,7 +39,7 @@ Doris 可以创建通过 ODBC 协议访问的外部表。创建完成后，可�
 
 ## 创建外部表
 
-创建 ODBC 外部表的详细介绍请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 语法帮助手册。
+创建 ODBC 外部表的详细介绍请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 语法帮助手册。
 
 这里仅通过示例说明使用方式。
 
@@ -104,7 +104,7 @@ PROPERTIES (
    );
    ```
 
-   关于创建 Doris 表的详细说明，请参阅 [CREATE-TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 语法帮助。
+   关于创建 Doris 表的详细说明，请参阅 [CREATE-TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 语法帮助。
 
 2. 导入数据 (从 `ext_oracle_demo`表 导入到 `doris_oralce_tbl` 表)
 
@@ -123,6 +123,6 @@ PROPERTIES (
 
 ## 更多帮助
 
-关于 CREATE EXTERNAL TABLE 的更多详细语法和最佳实践，请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 命令手册。
+关于 CREATE EXTERNAL TABLE 的更多详细语法和最佳实践，请参阅 [CREATE EXTERNAL TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) 命令手册。
 
 Doris ODBC 更多使用示例请参考 [文章列表](https://doris.apache.org/zh-CN/article/article-list.html) 。

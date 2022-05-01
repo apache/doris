@@ -244,7 +244,7 @@ FROM data_source [data_source_properties]
 
      当参数的 value 为一个文件时，需要在 value 前加上关键词："FILE:"。
 
-     关于如何创建文件，请参阅 [CREATE FILE](http://palo.baidu.com/docs/SQL手册/语法帮助/DML/ROUTINE-LOAD/#语法错误或该链接未生效-) 命令文档。
+     关于如何创建文件，请参阅 [CREATE FILE](../../Data-Definition-Statements/Create/CREATE-FILE.md) 命令文档。
 
      更多支持的自定义参数，请参阅 librdkafka 的官方 CONFIGURATION 文档中，client 端的配置项。如：
 

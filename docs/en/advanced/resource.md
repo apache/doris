@@ -41,15 +41,15 @@ There are three main commands for resource management: `create resource`, `drop 
 
 1. CREATE RESOURCE
 
-    This statement is used to create a resource. For details, please refer to [CREATE RESOURCE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-RESOURCE.html).
+    This statement is used to create a resource. For details, please refer to [CREATE RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.html).
 
 2. DROP RESOURCE
 
-    This command can delete an existing resource. For details, see [DROP RESOURCE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-RESOURCE.html).
+    This command can delete an existing resource. For details, see [DROP RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE.html).
 
 3. SHOW RESOURCES
 
-    This command can view the resources that the user has permission to use. For details, see [SHOW RESOURCES](../sql-manual/sql-reference-v2/Show-Statements/SHOW-RESOURCES.html).
+    This command can view the resources that the user has permission to use. For details, see [SHOW RESOURCES](../sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES.html).
 
 ## Resources Supported
 

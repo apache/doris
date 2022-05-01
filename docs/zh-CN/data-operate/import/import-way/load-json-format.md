@@ -32,8 +32,8 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
 
 目前只有以下导入方式支持 Json 格式的数据导入：
 
-- 将本地 JSON 格式的文件通过 [STREAM LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 方式导入。
-- 通过 [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) 订阅并消费 Kafka 中的 JSON 格式消息。
+- 将本地 JSON 格式的文件通过 [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 方式导入。
+- 通过 [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) 订阅并消费 Kafka 中的 JSON 格式消息。
 
 暂不支持其他方式的 JSON 格式数据导入。
 
@@ -81,7 +81,7 @@ Doris 支持导入 JSON 格式的数据。本文档主要说明在进行JSON格�
 
 ### fuzzy_parse 参数
 
-在 [STREAM LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html)中，可以添加 `fuzzy_parse` 参数来加速 JSON 数据的导入效率。
+在 [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html)中，可以添加 `fuzzy_parse` 参数来加速 JSON 数据的导入效率。
 
 这个参数通常用于导入 **以 Array 表示的多行数据** 这种格式，所以一般要配合 `strip_outer_array=true` 使用。
 

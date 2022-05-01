@@ -49,7 +49,7 @@ PUT /api/{db}/{table}/_stream_load
 
 1. Create a table
 
-   Use the `CREATE TABLE` command to create a table in the `demo` to store the data to be imported. For the specific import method, please refer to the [CREATE TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual. An example is as follows:
+   Use the `CREATE TABLE` command to create a table in the `demo` to store the data to be imported. For the specific import method, please refer to the [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual. An example is as follows:
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_local_file_test
@@ -74,7 +74,7 @@ PUT /api/{db}/{table}/_stream_load
    - host:port is the HTTP protocol port of BE, the default is 8040, which can be viewed on the Doris cluster WEB UI page.
    - label: Label can be specified in the Header to uniquely identify this import task.
 
-   For more advanced operations of the Stream Load command, see [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) Command documentation.
+   For more advanced operations of the Stream Load command, see [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) Command documentation.
 
 3. Wait for the import result
 
@@ -102,7 +102,7 @@ PUT /api/{db}/{table}/_stream_load
    ````
 
    - The status of the `Status` field is `Success`, which means the import is successful.
-   - For details of other fields, please refer to the [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) command documentation.
+   - For details of other fields, please refer to the [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) command documentation.
 
 ## Import suggestion
 

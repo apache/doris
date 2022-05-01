@@ -32,7 +32,7 @@ Delete is different from other import methods. It is a synchronization process, 
 
 ## Syntax
 
-Please refer to the official website for the [DELETE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) syntax of the delete operation.
+Please refer to the official website for the [DELETE](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) syntax of the delete operation.
 
 ## Delete Result
 
@@ -158,4 +158,4 @@ Unlike the Insert into command, delete cannot specify `label` manually. For the 
 
 ## More Help
 
-For more detailed syntax used by **delete**, see the [delete](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) command manual, You can also enter `HELP DELETE` in the Mysql client command line to get more help information
+For more detailed syntax used by **delete**, see the [delete](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) command manual, You can also enter `HELP DELETE` in the Mysql client command line to get more help information
