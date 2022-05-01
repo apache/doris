@@ -1290,7 +1290,7 @@ public class OlapTable extends Table {
         partNames.addAll(copied.getPartitionNames());
 
         // partition name is case insensitive:
-        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(n -> n.toLowerCase()).collect(Collectors.toSet());
+        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(String::toLowerCase).collect(Collectors.toSet());
         for (String partName : partNames) {
             if (!lowerReservedPartitionNames.contains(partName.toLowerCase())) {
                 copied.dropPartitionAndReserveTablet(partName);
