@@ -112,10 +112,8 @@ public:
     }
 
     template <class Function>
-    void register_table_function() {
-        function_creators[Function::name] = &createDefaultFunction<Function>;
-        function_creators[std::string(Function::name) + COMBINATOR_SUFFIX_OUTER] =
-                &createDefaultFunction<Function>;
+    void register_function(std::string name) {
+        function_creators[name] = &createDefaultFunction<Function>;
     }
 
     void register_alias(const std::string& name, const std::string& alias) {
