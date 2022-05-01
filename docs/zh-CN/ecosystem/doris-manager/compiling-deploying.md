@@ -27,15 +27,36 @@ under the License.
 # 编译与部署
 
 ## 编译
-直接运行manager路径下的build.sh脚本，会在manager路径下生成安装运行包——output，其中包括:
-1、Doris Manager的运行包doris-manager.jar
-2、运行的配置文件夹conf
-3、启动脚本start_manager.sh
-4、停止脚本stop_manager.sh
+直接在manager路径下的build.sh脚本
+```shell
+cd incubator-doris-manager
+sh build.sh
+```
+编译完成后会在manager路径下生成安装包output目录，目录结构如下
+```text
+├── agent  //agent 目录
+│   ├── bin
+│   │	├── agent_start.sh
+│   │	├── agent_stop.sh
+│   │	└── download_doris.sh
+│   ├── config
+│   │	└── application.properties
+│   └── lib
+│   	└── dm-agent.jar
+└── server  //server 目录
+    ├── bin
+    │	├── start_manager.sh   //Doris Manager启动脚本
+    │	└── stop_manager.sh    //Doris Manager停止脚本
+    ├── conf
+    │	└── manager.conf       //Doris Manager配置文件
+    ├── lib
+    │	└── doris-manager.jar  //Doris Manager的运行包doris-manager.jar
+    └── web-resource         
+```
 
 ## 运行
 ### 1 配置
-进入生成的安装运行包，查看配置文件conf路径，打开路径中的配置文件manager.conf，重点关注的配置项内容如下：
+修改配置文件`server/conf/manager.conf`，重点关注的配置项内容如下：
 ```$xslt
 服务的启动http端口
 STUDIO_PORT=8080
@@ -87,9 +108,10 @@ DB_MIN_IDLE=10
 ```
 
 ### 2 启动
-配置修改完成后，回到安装运行包，直接运行如下命令
+配置修改完成后，启动doris manger
 ```$xslt
-nohup sh ./start_manager.sh > start.log 2>&1 &
+cd server
+sh bin/start_manager.sh
 ```
 查看logs中的日志即可判断程序是否启动成功
 
