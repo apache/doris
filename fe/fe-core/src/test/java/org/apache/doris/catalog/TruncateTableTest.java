@@ -56,12 +56,53 @@ public class TruncateTableTest {
                                         "properties('replication_num' = '1');";
         createDb(createDbStmtStr);
         createTable(createTableStr);
+
+        String createTable2 = "CREATE TABLE test.case_sensitive_table (\n" +
+                "  `date_id` date NULL COMMENT \"\",\n" +
+                "  `column2` tinyint(4) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`date_id`, `column2`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`date_id`)\n" +
+                "(\n" +
+                "PARTITION p20211006 VALUES [('2021-10-06'), ('2021-10-07')),\n" +
+                "PARTITION P20211007 VALUES [('2021-10-07'), ('2021-10-08')),\n" +
+                "PARTITION P20211008 VALUES [('2021-10-08'), ('2021-10-09')))\n" +
+                "DISTRIBUTED BY HASH(`column2`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
+                ");";
+
+        createTable(createTable2);
     }
 
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
         file.delete();
+    }
+
+    @Test
+    public void testTruncateWithCaseInsensitivePartitionName() throws Exception {
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
+        OlapTable tbl = db.getOlapTableOrDdlException("case_sensitive_table");
+        long p20211006Id = tbl.getPartition("P20211006").getId();
+        long p20211007Id = tbl.getPartition("P20211007").getId();
+        long p20211008Id = tbl.getPartition("p20211008").getId();
+        // truncate p20211008(real name is P20211008)
+        String truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION p20211008; \n";
+        TruncateTableStmt truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Assert.assertNotEquals(p20211008Id, tbl.getPartition("p20211008").getId());
+        // 2. truncate P20211007
+        truncateStr = "TRUNCATE TABLE test.case_sensitive_table PARTITION P20211007; \n";
+        truncateTableStmt = (TruncateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(truncateStr, connectContext);
+        Catalog.getCurrentCatalog().truncateTable(truncateTableStmt);
+        Assert.assertEquals(3, tbl.getPartitionInfo().idToDataProperty.size());
+        Assert.assertNotEquals(p20211007Id, tbl.getPartition("p20211007").getId());
+        Assert.assertEquals(p20211006Id, tbl.getPartition("p20211006").getId());
+        Assert.assertNotNull(tbl.getPartition("p20211006"));
+        Assert.assertNotNull(tbl.getPartition("P20211006"));
     }
 
     @Test

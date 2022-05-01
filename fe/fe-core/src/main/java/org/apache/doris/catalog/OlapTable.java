@@ -1286,11 +1286,13 @@ public class OlapTable extends Table {
             return copied;
         }
 
-        Set<String> partNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> partNames = Sets.newHashSet();
         partNames.addAll(copied.getPartitionNames());
 
+        // partition name is case insensitive:
+        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(String::toLowerCase).collect(Collectors.toSet());
         for (String partName : partNames) {
-            if (!reservedPartitions.contains(partName)) {
+            if (!lowerReservedPartitionNames.contains(partName.toLowerCase())) {
                 copied.dropPartitionAndReserveTablet(partName);
             }
         }
