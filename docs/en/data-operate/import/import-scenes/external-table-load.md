@@ -38,7 +38,7 @@ This document describes how to create external tables accessed through the ODBC 
 
 ## create external table
 
-For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) syntax help manual.
+For a detailed introduction to creating ODBC external tables, please refer to the [CREATE ODBC TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE.html) syntax help manual.
 
 Here is just an example of how to use it.
 
@@ -103,7 +103,7 @@ Here we create an `ext_oracle_demo` external table and reference the `oracle_tes
    );
    ````
 
-   For detailed instructions on creating Doris tables, see [CREATE-TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) syntax help.
+   For detailed instructions on creating Doris tables, see [CREATE-TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) syntax help.
 
 2. Import data (from `ext_oracle_demo` table to `doris_oralce_tbl` table)
 

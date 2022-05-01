@@ -47,7 +47,7 @@ File management has three main commands: `CREATE FILE`, `SHOW FILE` and `DROP FI
 
 ### CREATE FILE
 
-This statement is used to create and upload a file to the Doris cluster. For details, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.md).
+This statement is used to create and upload a file to the Doris cluster. For details, see [CREATE FILE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.md).
 
 Examples:
 
@@ -75,7 +75,7 @@ Examples:
 
 ### SHOW FILE
 
-This statement can view the files that have been created successfully. For details, see [SHOW FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.md).
+This statement can view the files that have been created successfully. For details, see [SHOW FILE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE.md).
 
 Examples:
 
@@ -87,7 +87,7 @@ Examples:
 
 ### DROP FILE
 
-This statement can view and delete an already created file. For specific operations, see [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.md).
+This statement can view and delete an already created file. For specific operations, see [DROP FILE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE.md).
 
 Examples:
 
@@ -129,4 +129,4 @@ Because the file meta-information and content are stored in FE memory. So by def
 
 ## More Help
 
-For more detailed syntax and best practices used by the file manager, see [CREATE FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-FILE.html), [DROP FILE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-FILE.html) and [SHOW FILE](../sql-manual/sql-reference-v2/Show-Statements/SHOW-FILE.md) command manual, you can also enter `HELP CREATE FILE`, `HELP DROP FILE` and `HELP SHOW FILE` in the MySql client command line to get more help information.
+For more detailed syntax and best practices used by the file manager, see [CREATE FILE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FILE.html), [DROP FILE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-FILE.html) and [SHOW FILE](../sql-manual/sql-reference/Show-Statements/SHOW-FILE.md) command manual, you can also enter `HELP CREATE FILE`, `HELP DROP FILE` and `HELP SHOW FILE` in the MySql client command line to get more help information.

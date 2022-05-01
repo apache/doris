@@ -44,7 +44,7 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 
 ### Doris 中创建 Hive 的外表
 
-具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 
 ```sql
 -- 语法
