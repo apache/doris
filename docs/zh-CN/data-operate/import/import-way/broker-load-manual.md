@@ -28,7 +28,7 @@ under the License.
 
 Broker load 是一个异步的导入方式，支持的数据源取决于 [Broker](../../../advanced/broker.html) 进程支持的数据源。
 
-用户需要通过 MySQL 协议 创建 [Broker load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 导入，并通过查看导入命令检查导入结果。
+用户需要通过 MySQL 协议 创建 [Broker load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 导入，并通过查看导入命令检查导入结果。
 
 ## 适用场景
 
@@ -76,7 +76,7 @@ BE 在执行的过程中会从 Broker 拉取数据，在对数据 transform 之�
 
 ## 开始导入
 
-下面我们通过几个实际的场景示例来看 [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 的使用
+下面我们通过几个实际的场景示例来看 [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 的使用
 
 ### Hive 分区表的数据导入
 
@@ -109,7 +109,7 @@ lines terminated by '\n'
 load data local inpath '/opt/custorm' into table ods_demo_detail;
 ```
 
-2. 创建 Doris 表，具体建表语法参照：[CREATE TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+2. 创建 Doris 表，具体建表语法参照：[CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 
 ```
 CREATE TABLE `doris_ods_test_detail` (
@@ -147,7 +147,7 @@ PROPERTIES (
 
 3. 开始导入数据
 
-   具体语法参照： [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 
+   具体语法参照： [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 
 ```sql
 LOAD LABEL broker_load_2022_03_23
 (
@@ -253,13 +253,13 @@ LOAD LABEL demo.label_20220402
         );
 ```
 
-这里的具体 参数可以参照：  [Broker](../../../advanced/broker.html)  及 [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 文档
+这里的具体 参数可以参照：  [Broker](../../../advanced/broker.html)  及 [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 文档
 
 ## 查看导入状态
 
 我们可以通过下面的命令查看上面导入任务的状态信息，
 
-具体的查看导入状态的语法参考 [SHOW LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD.html)
+具体的查看导入状态的语法参考 [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.html)
 
 ```sql
 mysql> show load order by createtime desc limit 1\G;
@@ -284,7 +284,7 @@ LoadFinishTime: 2022-04-01 18:59:11
 
 ## 取消导入
 
-当 Broker load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 [CANCEL LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CANCEL-LOAD.html) 查看。
+当 Broker load 作业状态不为 CANCELLED 或 FINISHED 时，可以被用户手动取消。取消时需要指定待取消导入任务的 Label 。取消导入命令语法可执行 [CANCEL LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CANCEL-LOAD.html) 查看。
 
 例如：撤销数据库 demo 上， label 为 broker_load_2022_03_23 的导入作业
 
@@ -395,7 +395,7 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 可以在提交 LOAD 作业前，先执行 `set enable_profile=true` 打开会话变量。然后提交导入作业。待导入作业完成后，可以在 FE 的 web 页面的 `Queris` 标签中查看到导入作业的 Profile。
 
-可以查看 [SHOW LOAD PROFILE](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD-PROFILE.html) 帮助文档，获取更多使用帮助信息。
+可以查看 [SHOW LOAD PROFILE](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE.html) 帮助文档，获取更多使用帮助信息。
 
 这个 Profile 可以帮助分析导入作业的运行状态。
 
@@ -434,4 +434,4 @@ FE 的配置参数 `async_loading_load_task_pool_size` 用于限制同时运行�
 
 ## 更多帮助
 
-关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
+关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。

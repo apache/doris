@@ -465,4 +465,4 @@ When dynamic partitioning feature is disabled, Doris will no longer manage parti
 
 ## More Help
 
-For more detailed syntax and best practices for using dynamic partitions, see [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-DYNAMIC-PARTITION.md) Command manual, you can also enter `HELP ALTER TABLE` in the MySql client command line for more help information.
+For more detailed syntax and best practices for using dynamic partitions, see [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION.md) Command manual, you can also enter `HELP ALTER TABLE` in the MySql client command line for more help information.

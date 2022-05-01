@@ -30,7 +30,7 @@ Here we introduce some of Doris's advanced features.
 
 ## Table Structural Change
 
-Schema of the table can be modified using the [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.html) command, including the following modifications:
+Schema of the table can be modified using the [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.html) command, including the following modifications:
 
 * Additional columns
 * Delete columns
@@ -94,7 +94,7 @@ For more help, see `HELP ALTER TABLE`.
 
 Rollup can be understood as a materialized index structure of Table. **materialized** because data is store as a concrete ("materialized") table independently, and **indexing** means that Rollup can adjust column order to increase the hit rate of prefix index, or reduce key column to increase data aggregation.
 
-Use [ALTER TABLE ROLLUP](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.html) to perform various rollup changes.
+Use [ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.html) to perform various rollup changes.
 
 Examples are given below.
 

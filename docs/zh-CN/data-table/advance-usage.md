@@ -30,7 +30,7 @@ under the License.
 
 ## 表结构变更
 
-使用 [ALTER TABLE COLUMN](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.html) 命令可以修改表的 Schema，包括如下修改：
+使用 [ALTER TABLE COLUMN](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-COLUMN.html) 命令可以修改表的 Schema，包括如下修改：
 
 - 增加列
 - 删除列
@@ -94,7 +94,7 @@ CANCEL ALTER TABLE COLUMN FROM table1;
 
 Rollup 可以理解为 Table 的一个物化索引结构。**物化** 是因为其数据在物理上独立存储，而 **索引** 的意思是，Rollup可以调整列顺序以增加前缀索引的命中率，也可以减少key列以增加数据的聚合度。
 
-使用[ALTER TABLE ROLLUP](../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.html)可以进行Rollup的各种变更操作。
+使用[ALTER TABLE ROLLUP](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-ROLLUP.html)可以进行Rollup的各种变更操作。
 
 以下举例说明
 

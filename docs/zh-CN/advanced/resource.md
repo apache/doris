@@ -40,15 +40,15 @@ under the License.
 
 1. CREATE RESOURCE
 
-   该语句用于创建资源。具体操作可参考 [CREATE RESOURCE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-RESOURCE.html)。
+   该语句用于创建资源。具体操作可参考 [CREATE RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.html)。
 
 2. DROP RESOURCE
 
-   该命令可以删除一个已存在的资源。具体操作见 [DROP RESOURCE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-RESOURCE.html) 。
+   该命令可以删除一个已存在的资源。具体操作见 [DROP RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE.html) 。
 
 3. SHOW RESOURCES
 
-   该命令可以查看用户有使用权限的资源。具体操作见  [SHOW RESOURCES](../sql-manual/sql-reference-v2/Show-Statements/SHOW-RESOURCES.html)。
+   该命令可以查看用户有使用权限的资源。具体操作见  [SHOW RESOURCES](../sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES.html)。
 
 ## 支持的资源
 

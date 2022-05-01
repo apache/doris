@@ -28,7 +28,7 @@ under the License.
 
 All import operations in Doris have atomicity guarantees, that is, the data in an import job either all succeed or all fail. It will not happen that only part of the data is imported successfully.
 
-In [BROKER LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) we can also implement atomic import of multiple tables .
+In [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) we can also implement atomic import of multiple tables .
 
 For the [materialized view](../../../advanced/materialized-view.html) attached to the table, atomicity and consistency with the base table are also guaranteed.
 

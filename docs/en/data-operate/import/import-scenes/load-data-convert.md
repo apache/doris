@@ -28,7 +28,7 @@ under the License.
 
 ## Supported import methods
 
-- [BROKER LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html)
+- [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html)
 
   ```sql
   LOAD LABEL example_db.label1
@@ -48,7 +48,7 @@ under the License.
   );
   ````
 
-- [STREAM LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html)
+- [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html)
 
   ```bash
   curl
@@ -60,7 +60,7 @@ under the License.
   http://host:port/api/testDb/testTbl/_stream_load
   ````
 
-- [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html)
+- [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html)
 
   ```sql
   CREATE ROUTINE LOAD example_db.label1 ON my_table

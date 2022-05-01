@@ -78,7 +78,7 @@ under the License.
 
 ## 修改代码和提交PR（Pull Request）
 
-您可以下载代码，编译安装，部署运行试一试（可以参考[编译文档](../../installing/compilation.md)），看看是否与您预想的一样工作。如果有问题，您可以直接联系我们，提 Issue 或者通过阅读和分析源代码自己修复。
+您可以下载代码，编译安装，部署运行试一试（可以参考[编译文档](../../installing/source-install/compilation.md)），看看是否与您预想的一样工作。如果有问题，您可以直接联系我们，提 Issue 或者通过阅读和分析源代码自己修复。
 
 无论是修复 Bug 还是增加 Feature，我们都非常欢迎。如果您希望给 Doris 提交代码，您需要从 GitHub 上 fork 代码库至您的项目空间下，为您提交的代码创建一个新的分支，添加源项目为upstream，并提交PR。
 提交PR的方式可以参考文档 [Pull Request](./pull-request.md)。

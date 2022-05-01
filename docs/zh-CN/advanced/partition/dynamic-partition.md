@@ -76,7 +76,7 @@ under the License.
 
 - `dynamic_partition.time_unit`
 
-  动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`。分别表示按天、按星期、按月进行分区创建或删除。
+  动态分区调度的单位。可指定为 `HOUR`、`DAY`、`WEEK`、`MONTH`。分别表示按小时、按天、按星期、按月进行分区创建或删除。
 
   当指定为 `HOUR` 时，动态创建的分区名后缀格式为 `yyyyMMddHH`，例如`2020032501`。小时为单位的分区列数据类型不能为 DATE。
 
@@ -455,4 +455,4 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
 ## 更多帮助
 
-关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。
+关于动态分区使用的更多详细语法及最佳实践，请参阅 [SHOW DYNAMIC PARTITION](../../sql-manual/sql-reference/Show-Statements/SHOW-DYNAMIC-PARTITION.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP ALTER TABLE` 获取更多帮助信息。

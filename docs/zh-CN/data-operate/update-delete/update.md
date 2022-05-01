@@ -113,5 +113,5 @@ Query OK, 1 row affected (0.11 sec)
 
 ## 更多帮助
 
-关于 **数据更新** 使用的更多详细语法，请参阅 [update](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP UPDATE` 获取更多帮助信息。
+关于 **数据更新** 使用的更多详细语法，请参阅 [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP UPDATE` 获取更多帮助信息。
 

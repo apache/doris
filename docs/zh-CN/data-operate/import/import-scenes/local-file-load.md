@@ -50,7 +50,7 @@ PUT /api/{db}/{table}/_stream_load
 
 1. 创建一张表
 
-   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。示例如下：
+   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。示例如下：
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_local_file_test
@@ -75,7 +75,7 @@ PUT /api/{db}/{table}/_stream_load
    - host:port 为 BE 的 HTTP 协议端口，默认是 8040，可以在 Doris 集群 WEB UI页面查看。
    - label: 可以在 Header 中指定 Label 唯一标识这个导入任务。
 
-   关于 Stream Load 命令的更多高级操作，请参阅 [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
+   关于 Stream Load 命令的更多高级操作，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
 
 3. 等待导入结果
 
@@ -103,7 +103,7 @@ PUT /api/{db}/{table}/_stream_load
    ```
 
    - `Status` 字段状态为 `Success` 即表示导入成功。
-   - 其他字段的详细介绍，请参阅 [Stream Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
+   - 其他字段的详细介绍，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令文档。
 
 ## 导入建议
 
