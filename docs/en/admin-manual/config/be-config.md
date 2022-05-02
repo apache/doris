@@ -212,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-默认值: 20G
+default: 20G
 
 Clean up pages that may be saved by the buffer pool
 
@@ -1257,7 +1257,7 @@ The polling interval of the TabletMeta Checkpoint thread
 
 ### `tablet_stat_cache_update_interval_second`
 
-默认值: 10
+default: 10
 
 The minimum number of Rowsets for TabletMeta Checkpoint
 
