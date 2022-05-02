@@ -41,29 +41,33 @@ struct ScannerCounter;
 class BrokerScanNode : public ScanNode {
 public:
     BrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~BrokerScanNode();
+    ~BrokerScanNode() override;
 
     // Called after create this scan node
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     // Prepare partition infos & set up timer
-    virtual Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     // Start broker scan using ParquetScanner or BrokerScanner.
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     // Fill the next row batch by calling next() on the scanner,
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close the scanner, and report errors.
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     // No use
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
     // Write debug string of this into out.
-    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 
 private:
     // Update process status to one failed status,
