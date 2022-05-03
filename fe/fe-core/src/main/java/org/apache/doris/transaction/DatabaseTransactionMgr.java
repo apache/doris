@@ -569,7 +569,7 @@ public class DatabaseTransactionMgr {
                                   TxnCommitAttachment txnCommitAttachment, Boolean is2PC)
             throws UserException {
         // check status
-        // the caller method already own db lock, we do not obtain db lock here
+        // the caller method already own tables' write lock
         Database db = catalog.getDbOrMetaException(dbId);
         TransactionState transactionState;
         readLock();
@@ -644,7 +644,7 @@ public class DatabaseTransactionMgr {
         LOG.info("transaction:[{}] successfully committed", transactionState);
     }
 
-    public boolean publishTransaction(Database db, long transactionId, long timeoutMillis) throws TransactionCommitFailedException {
+    public boolean waitForTransactionFinished(Database db, long transactionId, long timeoutMillis) throws TransactionCommitFailedException {
         TransactionState transactionState = null;
         readLock();
         try {
@@ -857,48 +857,24 @@ public class DatabaseTransactionMgr {
                         }
                     }
 
+                    // check success replica number for each tablet.
+                    // a success replica means:
+                    //  1. Not in errorReplicaIds: succeed in both commit and publish phase
+                    //  2. last failed version < 0: is a health replica before
+                    //  3. version catch up: not with a stale version
+                    // Here we only check number, the replica version will be updated in updateCatalogAfterVisible()
                     for (MaterializedIndex index : allIndices) {
                         for (Tablet tablet : index.getTablets()) {
                             int healthReplicaNum = 0;
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!errorReplicaIds.contains(replica.getId())
-                                        && replica.getLastFailedVersion() < 0) {
-                                    // this means the replica is a healthy replica,
-                                    // it is healthy in the past and does not have error in current load
+                                if (!errorReplicaIds.contains(replica.getId()) && replica.getLastFailedVersion() < 0) {
                                     if (replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
-                                        // during rollup, the rollup replica's last failed version < 0,
-                                        // it may be treated as a normal replica.
-                                        // the replica is not failed during commit or publish
-                                        // during upgrade, one replica's last version maybe invalid,
-                                        // has to compare version hash.
-
-                                        // Here we still update the replica's info even if we failed to publish
-                                        // this txn, for the following case:
-                                        // replica A,B,C is successfully committed, but only A is successfully
-                                        // published,
-                                        // B and C is crashed, now we need a Clone task to repair this tablet.
-                                        // So, here we update A's version info, so that clone task will clone
-                                        // the latest version of data.
-
-                                        replica.updateVersionInfo(partitionCommitInfo.getVersion(),
-                                                replica.getDataSize(), replica.getRowCount());
                                         ++healthReplicaNum;
-                                    } else {
-                                        // this means the replica has error in the past, but we did not observe it
-                                        // during upgrade, one job maybe in quorum finished state, for example, A,B,C 3 replica
-                                        // A,B 's version is 10, C's version is 10 but C' 10 is abnormal should be rollback
-                                        // then we will detect this and set C's last failed version to 10 and last success version to 11
-                                        // this logic has to be replayed in checkpoint thread
-                                        replica.updateVersionInfo(replica.getVersion(),
-                                                partition.getVisibleVersion(), 
-                                                partitionCommitInfo.getVersion());
-                                        LOG.warn("transaction state {} has error, the replica [{}] not appeared in error replica list "
-                                                + " and its version not equal to partition commit version or commit version - 1"
-                                                + " if its not a upgrade stage, its a fatal error. ", transactionState, replica);
                                     }
                                 } else if (replica.getVersion() >= partitionCommitInfo.getVersion()) {
                                     // the replica's version is larger than or equal to current transaction partition's version
                                     // the replica is normal, then remove it from error replica ids
+                                    // TODO(cmy): actually I have no idea why we need this check
                                     errorReplicaIds.remove(replica.getId());
                                     ++healthReplicaNum;
                                 }
@@ -1490,14 +1466,19 @@ public class DatabaseTransactionMgr {
             for (PartitionCommitInfo partitionCommitInfo : tableCommitInfo.getIdToPartitionCommitInfo().values()) {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 Partition partition = table.getPartition(partitionId);
+                if (partition == null) {
+                    LOG.warn("partition {} of table {} does not exist when update catalog after committed. transaction: {}, db: {}",
+                            partitionId, tableId, transactionState.getTransactionId(), db.getId());
+                    continue;
+                }
                 List<MaterializedIndex> allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
                         for (Replica replica : tablet.getReplicas()) {
                             if (errorReplicaIds.contains(replica.getId())) {
-                                // should not use partition.getNextVersion and partition.getNextVersionHash because partition's next version hash is generated locally
-                                // should get from transaction state
+                                // TODO(cmy): do we need to update last failed version here?
+                                // because in updateCatalogAfterVisible, it will be updated again.
                                 replica.updateLastFailedVersion(partitionCommitInfo.getVersion());
                             }
                         }
@@ -1522,6 +1503,11 @@ public class DatabaseTransactionMgr {
                 long partitionId = partitionCommitInfo.getPartitionId();
                 long newCommitVersion = partitionCommitInfo.getVersion();
                 Partition partition = table.getPartition(partitionId);
+                if (partition == null) {
+                    LOG.warn("partition {} in table {} does not exist when update catalog after visible. transaction: {}, db: {}",
+                            partitionId, tableId, transactionState.getTransactionId(), db.getId());
+                    continue;
+                }
                 List<MaterializedIndex> allIndices = partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL);
                 for (MaterializedIndex index : allIndices) {
                     for (Tablet tablet : index.getTablets()) {
@@ -1531,7 +1517,7 @@ public class DatabaseTransactionMgr {
                             long lastSuccessVersion = replica.getLastSuccessVersion();
                             if (!errorReplicaIds.contains(replica.getId())) {
                                 if (replica.getLastFailedVersion() > 0) {
-                                    // if the replica is a failed replica, then not changing version and version hash
+                                    // if the replica is a failed replica, then not changing version
                                     newVersion = replica.getVersion();
                                 } else if (!replica.checkVersionCatchUp(partition.getVisibleVersion(), true)) {
                                     // this means the replica has error in the past, but we did not observe it
