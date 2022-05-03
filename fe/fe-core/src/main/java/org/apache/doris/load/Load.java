@@ -1045,12 +1045,23 @@ public class Load {
             return;
         }
 
+        Set<String> tmpSet = Sets.newHashSet();
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            if (importColumnDesc.getExpr() == null) {
+                tmpSet.add(importColumnDesc.getColumnName());
+            }
+        }
+
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
-            String realColName = tbl.getColumn(columnName) == null ? columnName
-                    : tbl.getColumn(columnName).getName();
+            String realColName;
+            if (tbl.getColumn(columnName) == null || tmpSet.contains(columnName) ){
+                realColName = columnName;
+            } else {
+                    realColName = tbl.getColumn(columnName).getName();
+            }
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);

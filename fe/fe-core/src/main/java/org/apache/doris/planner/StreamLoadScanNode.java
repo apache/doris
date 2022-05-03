@@ -66,8 +66,8 @@ public class StreamLoadScanNode extends LoadScanNode {
     private TupleDescriptor srcTupleDesc;
     private TBrokerScanRange brokerScanRange;
 
-    private Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
-    private Map<String, Expr> exprsByName = Maps.newHashMap();
+    private Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private Map<String, Expr> exprsByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
