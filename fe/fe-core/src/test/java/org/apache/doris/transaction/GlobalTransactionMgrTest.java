@@ -67,11 +67,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import mockit.Injectable;
-import mockit.Mocked;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class GlobalTransactionMgrTest {
 
@@ -526,7 +527,9 @@ public class GlobalTransactionMgrTest {
         Replica replica1 = tablet.getReplicaById(CatalogTestUtil.testReplicaId1);
         Replica replica2 = tablet.getReplicaById(CatalogTestUtil.testReplicaId2);
         Replica replica3 = tablet.getReplicaById(CatalogTestUtil.testReplicaId3);
-        assertEquals(CatalogTestUtil.testStartVersion + 1, replica1.getVersion());
+        // because after calling `finishTransaction`, the txn state is COMMITTED, not VISIBLE,
+        // so all replicas' version are not changed.
+        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
         assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
         assertEquals(-1, replica1.getLastFailedVersion());
