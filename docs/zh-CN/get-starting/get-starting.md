@@ -32,7 +32,7 @@ under the License.
 1. CPU：2C（最低）8C（推荐）
 2. 内存：4G（最低）48G（推荐）
 3. 硬盘：100G（最低）400G（推荐）
-4. 平台：MacOS（Inter）、LinuxOS、Windows虚拟机
+4. 平台：MacOS（Intel）、LinuxOS、Windows虚拟机
 5. 系统：CentOS（7.1及以上）、Ubuntu（16.04 及以上）
 6. 软件：JDK（1.8及以上）、GCC（4.8.2 及以上）
 
