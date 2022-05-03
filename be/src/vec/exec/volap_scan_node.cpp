@@ -77,10 +77,7 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
     for (int i = 0; i < pre_block_count; ++i) {
         auto block = new Block(_tuple_desc->slots(), _block_size);
         _free_blocks.emplace_back(block);
-        _buffered_bytes += block->allocated_bytes();
     }
-
-    _block_mem_tracker->consume(_buffered_bytes);
 
     // read from scanner
     while (LIKELY(status.ok())) {
@@ -420,7 +417,6 @@ Status VOlapScanNode::close(RuntimeState* state) {
     std::for_each(_scan_blocks.begin(), _scan_blocks.end(), std::default_delete<Block>());
     _scan_row_batches_bytes = 0;
     std::for_each(_free_blocks.begin(), _free_blocks.end(), std::default_delete<Block>());
-    _block_mem_tracker->release(_buffered_bytes);
 
     // OlapScanNode terminate by exception
     // so that initiative close the Scanner
@@ -547,7 +543,6 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     get_free_block = false;
 
     auto block = new Block(_tuple_desc->slots(), _block_size);
-    _buffered_bytes += block->allocated_bytes();
     return block;
 }
 
