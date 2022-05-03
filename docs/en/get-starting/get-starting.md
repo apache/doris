@@ -32,13 +32,13 @@ under the License.
 1. CPU: 2C (minimum) 8C (recommended)
 2. Memory: 4G (minimum) 48G (recommended)
 3. Hard disk: 100G (minimum) 400G (recommended)
-4. Platform: MacOS (Inter), LinuxOS, Windows virtual machine
+4. Platform: MacOS (Intel), LinuxOS, Windows virtual machine
 5. System: CentOS (7.1 and above), Ubuntu (16.04 and above)
 6. Software: JDK (1.8 and above), GCC (4.8.2 and above)
 
 ## Stand-alone deployment
 
-**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
+** Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
 
 1. Set the maximum number of open file handles in the system
 
@@ -121,7 +121,7 @@ under the License.
    > 3. You can also check whether the startup is successful through the following connection: http://fe_host:fe_http_port/api/bootstrap If it returns: {"status":"OK","msg":"Success"}, it means the startup is successful, and the rest , there may be a problem.
    > 4. Visit http://fe_host:fe_http_port in the external environment to check whether you can access the WebUI interface. The default login account is root and the password is empty.
    >
-   > **Note: If you can't see the startup failure information in fe.log, maybe you can see it in fe.out. **
+   > ** Note: If you can't see the startup failure information in fe.log, maybe you can see it in fe.out. **
 
    Verify that BE is successfully started
 
@@ -132,7 +132,7 @@ under the License.
    > 5. At the same time, if there is a data query, you should be able to see the log that keeps scrolling, and there is a log of execute time is xxx, indicating that the BE has been started successfully and the query is normal.
    > 6. You can also check whether the startup is successful through the following connection: http://be_host:be_http_port/api/health If it returns: {"status": "OK","msg": "To Be Added"}, it means the startup is successful, In other cases, there may be problems.
    >
-   > **Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out.**
+   > ** Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out. **
 
    Register BE to FE (using MySQL-Client, you need to install it yourself)
 
