@@ -2500,9 +2500,10 @@ void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst
     WindowFunnelState* state = new WindowFunnelState();
     dst->ptr = (uint8_t*)state;
     // constant args at index 0 and 1
-    DCHECK(ctx->is_arg_constant(0));
-    BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
-    state->window = window->val;
+    if (ctx->is_arg_constant(0)) {
+        BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
+        state->window = window->val;
+    }
     // TODO handle mode in the future
 }
 
