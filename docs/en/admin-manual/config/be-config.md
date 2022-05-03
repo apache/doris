@@ -101,25 +101,31 @@ There are two ways to configure BE configuration items:
 
 ### `alter_tablet_worker_count`
 
-Default：3
+Default: 3
 
 The number of threads making schema changes
 
-### `base_compaction_check_interval_seconds`
+### `generate_compaction_tasks_min_interval_ms`
 
-Default：60 （s）
+Default: 10 (ms)
 
-BaseCompaction thread polling interval
+Minimal interval (ms) to generate compaction tasks
+
+### `enable_vectorized_compaction`
+
+Default: false
+
+Whether to enable vectorized compaction
 
 ### `base_compaction_interval_seconds_since_last_operation`
 
-Default：86400
+Default: 86400
 
 One of the triggering conditions of BaseCompaction: the interval since the last BaseCompaction
 
 ### `base_compaction_num_cumulative_deltas`
 
-Default：5
+Default: 5
 
 One of the triggering conditions of BaseCompaction: The limit of the number of Cumulative files to be reached. After reaching this limit, BaseCompaction will be triggered
 
@@ -150,13 +156,13 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 ### `base_compaction_write_mbytes_per_sec`
 
-Default：5（MB）
+Default: 5（MB）
 
 Maximum disk write speed per second of BaseCompaction task
 
 ### `base_cumulative_delta_ratio`
 
-Default：0.3  （30%）
+Default: 0.3  （30%）
 
 One of the trigger conditions of BaseCompaction: Cumulative file size reaches the proportion of Base file
 
@@ -206,7 +212,7 @@ User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
-默认值：20G
+default: 20G
 
 Clean up pages that may be saved by the buffer pool
 
@@ -226,25 +232,25 @@ The maximum amount of memory available in the BE buffer pool. The buffer pool is
 
 ### `check_consistency_worker_count`
 
-Default：1
+Default: 1
 
 The number of worker threads to calculate the checksum of the tablet
 
 ### `chunk_reserved_bytes_limit`
 
-Default：2147483648
+Default: 2147483648
 
 The reserved bytes limit of Chunk Allocator is 2GB by default. Increasing this variable can improve performance, but it will get more free memory that other modules cannot use.
 
 ### `clear_transaction_task_worker_count`
 
-Default：1
+Default: 1
 
 Number of threads used to clean up transactions
 
 ### `clone_worker_count`
 
-Default：3
+Default: 3
 
 Number of threads used to perform cloning tasks
 
@@ -258,13 +264,13 @@ This value is usually delivered by the FE to the BE by the heartbeat, no need to
 
 ### `column_dictionary_key_ratio_threshold`
 
-Default：0
+Default: 0
 
 The value ratio of string type, less than this ratio, using dictionary compression algorithm
 
 ### `column_dictionary_key_size_threshold`
 
-Default：0
+Default: 0
 
 Dictionary compression column size, less than this value using dictionary compression algorithm
 
@@ -305,7 +311,7 @@ tablet_score = compaction_tablet_scan_frequency_factor * tablet_scan_frequency +
 
 ### `create_tablet_worker_count`
 
-Default：3
+Default: 3
 
 Number of worker threads for BE to create a tablet
 
@@ -325,19 +331,13 @@ Generally it needs to be turned off. When you want to manually operate the compa
 
 ### `cumulative_compaction_budgeted_bytes`
 
-Default：104857600
+Default: 104857600
 
 One of the trigger conditions of BaseCompaction: Singleton file size limit, 100MB
 
-### `cumulative_compaction_check_interval_seconds`
-
-Default：10 (s)
-
-CumulativeCompaction thread polling interval
-
 ### `cumulative_compaction_skip_window_seconds`
 
-Default：30（s）
+Default: 30（s）
 
 CumulativeCompaction skips the most recently released increments to prevent compacting versions that may be queried (in case the query planning phase takes some time). Change the parameter is to set the skipped window time size
 
@@ -419,13 +419,13 @@ In some deployment environments, the `conf/` directory may be overwritten due to
 
 ### `delete_worker_count`
 
-Default：3
+Default: 3
 
 Number of threads performing data deletion tasks
 
 ### `disable_mem_pools`
 
-Default：false
+Default: false
 
 Whether to disable the memory cache pool, it is not disabled by default
 
@@ -437,13 +437,13 @@ Whether to disable the memory cache pool, it is not disabled by default
 
 ### `disk_stat_monitor_interval`
 
-Default：5（s）
+Default: 5（s）
 
 Disk status check interval
 
 ### `doris_cgroups`
 
-Default：empty
+Default: empty
 
 Cgroups assigned to doris
 
@@ -475,7 +475,7 @@ When the concurrency cannot be improved in high concurrency scenarios, try to re
 
 ### `doris_scanner_row_num`
 
-Default：16384
+Default: 16384
 
 The maximum number of data rows returned by each scanning thread in a single execution
 
@@ -493,31 +493,31 @@ The maximum number of data rows returned by each scanning thread in a single exe
 
 ### `download_low_speed_limit_kbps`
 
-Default：50 (KB/s)
+Default: 50 (KB/s)
 
 Minimum download speed
 
 ### `download_low_speed_time`
 
-Default：300（s）
+Default: 300（s）
 
 Download time limit, 300 seconds by default
 
 ### `download_worker_count`
 
-Default：1
+Default: 1
 
 The number of download threads, the default is 1
 
 ### `drop_tablet_worker_count`
 
-Default：3
+Default: 3
 
 Number of threads to delete tablet
 
 ### `enable_metric_calculator`
 
-Default：true
+Default: true
 
 If set to true, the metric calculator will run to collect BE-related indicator information, if set to false, it will not run
 
@@ -540,31 +540,31 @@ If set to true, the metric calculator will run to collect BE-related indicator i
 
 ### `enable_system_metrics`
 
-Default：true
+Default: true
 
 User control to turn on and off system indicators.
 
 ### `enable_token_check`
 
-Default：true
+Default: true
 
 Used for forward compatibility, will be removed later.
 
 ### `es_http_timeout_ms`
 
-Default：5000 （ms）
+Default: 5000 （ms）
 
 The timeout period for connecting to ES via http, the default is 5 seconds.
 
 ### `es_scroll_keepalive`
 
-Default：5m
+Default: 5m
 
 es scroll Keeplive hold time, the default is 5 minutes
 
 ### `etl_thread_pool_queue_size`
 
-Default：256
+Default: 256
 
 The size of the ETL thread pool
 
@@ -578,20 +578,20 @@ The size of the ETL thread pool
 
 ### `file_descriptor_cache_capacity`
 
-Default：32768
+Default: 32768
 
 File handle cache capacity, 32768 file handles are cached by default.
 
 ### `cache_clean_interval`
 
-Default：1800(s)
+Default: 1800(s)
 
 File handle cache cleaning interval, used to clean up file handles that have not been used for a long time.
 Also the clean interval of Segment Cache.
 
 ### `flush_thread_num_per_store`
 
-Default：2
+Default: 2
 
 The number of threads used to refresh the memory table per store
 
@@ -599,17 +599,17 @@ The number of threads used to refresh the memory table per store
 
 ### `fragment_pool_queue_size`
 
-Default：2048
+Default: 2048
 
 The upper limit of query requests that can be processed on a single node
 
 ### `fragment_pool_thread_num_min`
 
-Default：64
+Default: 64
 
 ### `fragment_pool_thread_num_max`
 
-Default：256
+Default: 256
 
 The above two parameters are to set the number of query threads. By default, a minimum of 64 threads will be started, subsequent query requests will dynamically create threads, and a maximum of 256 threads will be created.
 
@@ -626,7 +626,7 @@ The above two parameters are to set the number of query threads. By default, a m
 
 ### `ignore_broken_disk`
 
-Default：false
+Default: false
 
 When BE start, If there is a broken disk, BE process will exit by default.Otherwise, we will ignore the broken disk
 
@@ -662,37 +662,37 @@ When configured as true, the program will run normally and ignore this error. In
 
 ### inc_rowset_expired_sec
 
-Default：1800 （s）
+Default: 1800 （s）
 
 Import activated data, storage engine retention time, used for incremental cloning
 
 ### `index_stream_cache_capacity`
 
-Default：10737418240
+Default: 10737418240
 
 BloomFilter/Min/Max and other statistical information cache capacity
 
 ### `kafka_broker_version_fallback`
 
-Default：0.10.0
+Default: 0.10.0
 
 If the dependent Kafka version is lower than the Kafka client version that routine load depends on, the value set by the fallback version kafka_broker_version_fallback will be used, and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
 
 ### `load_data_reserve_hours`
 
-Default：4（hour）
+Default: 4（hour）
 
 Used for mini load. The mini load data file will be deleted after this time
 
 ### `load_error_log_reserve_hours`
 
-Default：48 （hour）
+Default: 48 （hour）
 
 The load error log will be deleted after this time
 
 ### `load_process_max_memory_limit_bytes`
 
-Default：107374182400
+Default: 107374182400
 
 The upper limit of memory occupied by all imported threads on a single node, default value: 100G
 
@@ -700,7 +700,7 @@ Set these default values very large, because we don't want to affect load perfor
 
 ### `load_process_max_memory_limit_percent`
 
-Default：80 (%)
+Default: 80 (%)
 
 The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 80%
 
@@ -708,25 +708,25 @@ Set these default values very large, because we don't want to affect load perfor
 
 ### `log_buffer_level`
 
-Default：empty
+Default: empty
 
 The log flushing strategy is kept in memory by default
 
 ### `madvise_huge_pages`
 
-Default：false
+Default: false
 
 Whether to use linux memory huge pages, not enabled by default
 
 ### `make_snapshot_worker_count`
 
-Default：5
+Default: 5
 
 Number of threads making snapshots
 
 ### `max_client_cache_size_per_host`
 
-Default：10
+Default: 10
 
 The maximum number of client caches per host. There are multiple client caches in BE, but currently we use the same cache size configuration. If necessary, use different configurations to set up different client-side caches
 
@@ -738,43 +738,43 @@ The maximum number of client caches per host. There are multiple client caches i
 
 ### `max_consumer_num_per_group`
 
-Default：3
+Default: 3
 
 The maximum number of consumers in a data consumer group, used for routine load
 
 ### `min_cumulative_compaction_num_singleton_deltas`
 
-Default：5
+Default: 5
 
 Cumulative compaction strategy: the minimum number of incremental files
 
 ### `max_cumulative_compaction_num_singleton_deltas`
 
-Default：1000
+Default: 1000
 
 Cumulative compaction strategy: the maximum number of incremental files
 
 ### `max_download_speed_kbps`
 
-Default：50000 （KB/s）
+Default: 50000 （KB/s）
 
 Maximum download speed limit
 
 ### `max_free_io_buffers`
 
-Default：128
+Default: 128
 
 For each io buffer size, the maximum number of buffers that IoMgr will reserve ranges from 1024B to 8MB buffers, up to about 2GB buffers.
 
 ### `max_garbage_sweep_interval`
 
-Default：3600
+Default: 3600
 
 The maximum interval for disk garbage cleaning, the default is one hour
 
 ### `max_memory_sink_batch_count`
 
-Default：20
+Default: 20
 
 The maximum external scan cache batch count, which means that the cache max_memory_cache_batch_count * batch_size row, the default is 20, and the default value of batch_size is 1024, which means that 20 * 1024 rows will be cached
 
@@ -800,7 +800,7 @@ The maximum external scan cache batch count, which means that the cache max_memo
 
 ### `max_runnings_transactions_per_txn_map`
 
-Default：100
+Default: 100
 
 Max number of txns for every txn_partition_map in txn manager, this is a self protection to avoid too many txns saving in manager
 
@@ -812,7 +812,7 @@ Max number of txns for every txn_partition_map in txn manager, this is a self pr
 
 ### `max_tablet_num_per_shard`
 
-Default：1024
+Default: 1024
 
 The number of sliced tablets, plan the layout of the tablet, and avoid too many tablet subdirectories in the repeated directory
 
@@ -830,31 +830,31 @@ The number of sliced tablets, plan the layout of the tablet, and avoid too many 
 
 ### `memory_limitation_per_thread_for_schema_change`
 
-Default：2 （G）
+Default: 2 （G）
 
 Maximum memory allowed for a single schema change task
 
 ### `memory_maintenance_sleep_time_s`
 
-Default：10
+Default: 10
 
 Sleep time (in seconds) between memory maintenance iterations
 
 ### `memory_max_alignment`
 
-Default：16
+Default: 16
 
 Maximum alignment memory
 
 ### `read_size`
 
-Default：8388608
+Default: 8388608
 
 The read size is the read size sent to the os. There is a trade-off between latency and the whole process, getting to keep the disk busy but not introducing seeks. For 8 MB reads, random io and sequential io have similar performance
 
 ### `min_buffer_size`
 
-Default：1024
+Default: 1024
 
 Minimum read buffer size (in bytes)
 
@@ -873,19 +873,19 @@ Minimum read buffer size (in bytes)
 
 ### `min_file_descriptor_number`
 
-Default：60000
+Default: 60000
 
 The lower limit required by the file handle limit of the BE process
 
 ### `min_garbage_sweep_interval`
 
-Default：180
+Default: 180
 
 The minimum interval between disk garbage cleaning, time seconds
 
 ### `mmap_buffers`
 
-Default：false
+Default: false
 
 Whether to use mmap to allocate memory, not used by default
 
@@ -897,67 +897,67 @@ Whether to use mmap to allocate memory, not used by default
 
 ### `num_disks`
 
-Defalut：0
+Defalut: 0
 
 Control the number of disks on the machine. If it is 0, it comes from the system settings
 
 ### `num_threads_per_core`
 
-Default：3
+Default: 3
 
 Control the number of threads that each core runs. Usually choose 2 times or 3 times the number of cores. This keeps the core busy without causing excessive jitter
 
 ### `num_threads_per_disk`
 
-Default：0
+Default: 0
 
 The maximum number of threads per disk is also the maximum queue depth of each disk
 
 ### `number_tablet_writer_threads`
 
-Default：16
+Default: 16
 
 Number of tablet write threads
 
 ### `path_gc_check`
 
-Default：true
+Default: true
 
 Whether to enable the recycle scan data thread check, it is enabled by default
 
 ### `path_gc_check_interval_second`
 
-Default：86400
+Default: 86400
 
 Recycle scan data thread check interval, in seconds
 
 ### `path_gc_check_step`
 
-Default：1000
+Default: 1000
 
 ### `path_gc_check_step_interval_ms`
 
-Default：10 (ms)
+Default: 10 (ms)
 
 ### `path_scan_interval_second`
 
-Default：86400
+Default: 86400
 
 ### `pending_data_expire_time_sec`
 
-Default：1800 
+Default: 1800 
 
 The maximum duration of unvalidated data retained by the storage engine, the default unit: seconds
 
 ### `periodic_counter_update_period_ms`
 
-Default：500
+Default: 500
 
 Update rate counter and sampling counter cycle, default unit: milliseconds
 
 ### `plugin_path`
 
-Default：${DORIS_HOME}/plugin
+Default: ${DORIS_HOME}/plugin
 
 pliugin path
 
@@ -969,43 +969,43 @@ pliugin path
 
 ### `pprof_profile_dir`
 
-Default ：${DORIS_HOME}/log
+Default : ${DORIS_HOME}/log
 
 pprof profile save directory
 
 ### `priority_networks`
 
-Default：empty
+Default: empty
 
 Declare a selection strategy for those servers with many IPs. Note that at most one ip should match this list. This is a semicolon-separated list in CIDR notation, such as 10.10.10.0/24. If there is no IP matching this rule, one will be randomly selected
 
 ### `priority_queue_remaining_tasks_increased_frequency`
 
-Default：512
+Default: 512
 
  the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 
 ### `publish_version_worker_count`
 
-Default：8
+Default: 8
 
 the count of thread to publish version
 
 ### `pull_load_task_dir`
 
-Default：${DORIS_HOME}/var/pull_load
+Default: ${DORIS_HOME}/var/pull_load
 
 Pull the directory of the laod task
 
 ### `push_worker_count_high_priority`
 
-Default：3
+Default: 3
 
 Import the number of threads for processing HIGH priority tasks
 
 ### `push_worker_count_normal_priority`
 
-Default：3
+Default: 3
 
 Import the number of threads for processing NORMAL priority tasks
 
@@ -1024,43 +1024,43 @@ Import the number of threads for processing NORMAL priority tasks
 
 ### `release_snapshot_worker_count`
 
-Default：5
+Default: 5
 
 Number of threads releasing snapshots
 
 ### `report_disk_state_interval_seconds`
 
-Default：60
+Default: 60
 
 The interval time for the agent to report the disk status to FE, unit (seconds)
 
 ### `report_tablet_interval_seconds`
 
-Default：60
+Default: 60
 
 The interval time for the agent to report the olap table to the FE, in seconds
 
 ### `report_task_interval_seconds`
 
-Default：10
+Default: 10
 
 The interval time for the agent to report the task signature to FE, unit (seconds)
 
 ### `result_buffer_cancelled_interval_time`
 
-Default：300
+Default: 300
 
 Result buffer cancellation time (unit: second)
 
 ### `routine_load_thread_pool_size`
 
-Default：10
+Default: 10
 
 The thread pool size of the routine load task. This should be greater than the FE configuration'max_concurrent_task_num_per_be' (default 5)
 
 ### `row_nums_check`
 
-Default：true
+Default: true
 
 Check row nums for BE/CE and schema change. true is open, false is closed
 
@@ -1073,7 +1073,7 @@ Check row nums for BE/CE and schema change. true is open, false is closed
 
 ### `scan_context_gc_interval_min`
 
-Default：5
+Default: 5
 
 This configuration is used for the context gc thread scheduling cycle. Note: The unit is minutes, and the default is 5 minutes
 
@@ -1096,43 +1096,43 @@ This configuration is used for the context gc thread scheduling cycle. Note: The
 
 ### `small_file_dir`
 
-Default：${DORIS_HOME}/lib/small_file/
+Default: ${DORIS_HOME}/lib/small_file/
 
 Directory for saving files downloaded by SmallFileMgr
 
 ### `snapshot_expire_time_sec`
 
-Default：172800
+Default: 172800
 
 Snapshot file cleaning interval, default value: 48 hours
 
 ### `status_report_interval`
 
-Default：5
+Default: 5
 
 Interval between profile reports; unit: seconds
 
 ### `storage_flood_stage_left_capacity_bytes`
 
-Default：1073741824
+Default: 1073741824
 
 The min bytes that should be left of a data dir，default value:1G
 
 ### `storage_flood_stage_usage_percent`
 
-Default：95 （95%）
+Default: 95 （95%）
 
 The storage_flood_stage_usage_percent and storage_flood_stage_left_capacity_bytes configurations limit the maximum usage of the capacity of the data directory.
 
 ### `storage_medium_migrate_count`
 
-Default：1
+Default: 1
 
 the count of thread to clone
 
 ### `storage_page_cache_limit`
 
-Default：20%
+Default: 20%
 
 Cache for storage page size
 
@@ -1189,13 +1189,13 @@ Some data formats, such as JSON, cannot be split. Doris must read all the data i
 
 ### `streaming_load_rpc_max_alive_time_sec`
 
-Default：1200
+Default: 1200
 
 The lifetime of TabletsChannel. If the channel does not receive any data at this time, the channel will be deleted, unit: second
 
 ### `sync_tablet_meta`
 
-Default：false
+Default: false
 
 Whether the storage engine opens sync and keeps it to the disk
 
@@ -1213,37 +1213,37 @@ Log Level: INFO < WARNING < ERROR < FATAL
 
 ### `sys_log_roll_mode`
 
-Default：SIZE-MB-1024
+Default: SIZE-MB-1024
 
 The size of the log split, one log file is split every 1G
 
 ### `sys_log_roll_num`
 
-Default：10
+Default: 10
 
 Number of log files kept
 
 ### `sys_log_verbose_level`
 
-Defaultl：10
+Defaultl: 10
 
 Log display level, used to control the log output at the beginning of VLOG in the code
 
 ### `sys_log_verbose_modules`
 
-Default：empty
+Default: empty
 
 Log printing module, writing olap will only print the log under the olap module
 
 ### `tablet_map_shard_size`
 
-Default：1
+Default: 1
 
 tablet_map_lock fragment size, the value is 2^n, n=0,1,2,3,4, this is for better tablet management
 
 ### `tablet_meta_checkpoint_min_interval_secs`
 
-Default：600（s）
+Default: 600（s）
 
 The polling interval of the TabletMeta Checkpoint thread
 
@@ -1257,7 +1257,7 @@ The polling interval of the TabletMeta Checkpoint thread
 
 ### `tablet_stat_cache_update_interval_second`
 
-默认值：10
+default: 10
 
 The minimum number of Rowsets for TabletMeta Checkpoint
 
@@ -1271,7 +1271,7 @@ When writing is too frequent and the disk time is insufficient, you can configur
 
 ### `tablet_writer_open_rpc_timeout_sec`
 
-Default：300
+Default: 300
 
 Update interval of tablet state cache, unit: second
 
@@ -1285,7 +1285,7 @@ When meet '[E1011]The server is overcrowded' error, you can tune the configurati
 
 ### `tc_free_memory_rate`
 
-Default：20   (%)
+Default: 20   (%)
 
 Available memory, value range: [0-100]
 
@@ -1299,7 +1299,7 @@ If the system is found to be in a high-stress scenario and a large number of thr
 
 ### `tc_use_memory_min`
 
-Default：10737418240
+Default: 10737418240
 
 The minimum memory of TCmalloc, when the memory used is less than this, it is not returned to the operating system
 
@@ -1311,13 +1311,13 @@ The minimum memory of TCmalloc, when the memory used is less than this, it is no
 
 ### `thrift_connect_timeout_seconds`
 
-Default：3
+Default: 3
 
 The default thrift client connection timeout time (unit: seconds)
 
 ### `thrift_rpc_timeout_ms`
 
-Default：5000
+Default: 5000
 
 thrift default timeout time, default: 5 seconds
 
@@ -1338,43 +1338,43 @@ If the parameter is `THREAD_POOL`, the model is a blocking I/O model.
 
 ### `trash_file_expire_time_sec`
 
-Default：259200
+Default: 259200
 
 The interval for cleaning the recycle bin is 72 hours. When the disk space is insufficient, the file retention period under trash may not comply with this parameter
 
 ### `txn_commit_rpc_timeout_ms`
 
-Default：10000
+Default: 10000
 
 txn submit rpc timeout, the default is 10 seconds
 
 ### `txn_map_shard_size`
 
-Default：128
+Default: 128
 
 txn_map_lock fragment size, the value is 2^n, n=0,1,2,3,4. This is an enhancement to improve the performance of managing txn
 
 ### `txn_shard_size`
 
-Default：1024
+Default: 1024
 
 txn_lock shard size, the value is 2^n, n=0,1,2,3,4, this is an enhancement function that can improve the performance of submitting and publishing txn
 
 ### `unused_rowset_monitor_interval`
 
-Default：30
+Default: 30
 
 Time interval for clearing expired Rowset, unit: second
 
 ### `upload_worker_count`
 
-Default：1
+Default: 1
 
 Maximum number of threads for uploading files
 
 ### `use_mmap_allocate_chunk`
 
-Default：false
+Default: false
 
 Whether to use mmap to allocate blocks. If you enable this feature, it is best to increase the value of vm.max_map_count, its default value is 65530. You can use "sysctl -w vm.max_map_count=262144" or "echo 262144> /proc/sys/vm/" to operate max_map_count as root. When this setting is true, you must set chunk_reserved_bytes_limit to a relatively low Big number, otherwise the performance is very very bad
 
@@ -1386,7 +1386,7 @@ udf function directory
 
 ### `webserver_num_workers`
 
-Default：48
+Default: 48
 
 Webserver default number of worker threads
 
@@ -1398,7 +1398,7 @@ Webserver default number of worker threads
 
 ### `write_buffer_size`
 
-Default：104857600
+Default: 104857600
 
 The size of the buffer before flashing
 
