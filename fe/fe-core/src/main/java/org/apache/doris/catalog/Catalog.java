@@ -6975,10 +6975,7 @@ public class Catalog {
                     replica.setBad(true);
                     break;
                 case MISSING_VERSION:
-                    // The absolute value is meaningless, as long as it is greater than 0.
-                    // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
-                    // it will be considered a version missing replica and will be handled accordingly.
-                    replica.setLastFailedVersion(1L);
+                    replica.updateLastFailedVersion(info.lastFailedVersion);
                     break;
                 default:
                     break;
