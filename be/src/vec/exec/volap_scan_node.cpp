@@ -543,6 +543,7 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
     get_free_block = false;
 
     auto block = new Block(_tuple_desc->slots(), _block_size);
+    _mem_tracker->Consume(block->allocated_bytes());
     _buffered_bytes += block->allocated_bytes();
     return block;
 }

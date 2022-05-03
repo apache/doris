@@ -348,8 +348,7 @@ Status OlapScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eo
                          << Tuple::to_string(row->get_tuple(0), *_tuple_desc);
             }
         }
-        __sync_fetch_and_sub(&_buffered_bytes,
-                             row_batch->tuple_data_pool()->total_reserved_bytes());
+        _buffered_bytes -= row_batch->tuple_data_pool()->total_reserved_bytes();
 
         delete materialized_batch;
         return Status::OK();
@@ -1376,7 +1375,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 
     int64_t mem_limit = 512 * 1024 * 1024;
     // TODO(zc): use memory limit
-    int64_t mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
+    int64_t mem_consume = _buffered_bytes;
     if (state->fragment_mem_tracker() != nullptr) {
         mem_limit = state->fragment_mem_tracker()->limit();
         mem_consume = state->fragment_mem_tracker()->consumption();
@@ -1400,10 +1399,9 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         {
             std::unique_lock<std::mutex> l(_scan_batches_lock);
             assigned_thread_num = _running_thread;
-            // int64_t buf_bytes = __sync_fetch_and_add(&_buffered_bytes, 0);
             // How many thread can apply to this query
             size_t thread_slot_num = 0;
-            mem_consume = __sync_fetch_and_add(&_buffered_bytes, 0);
+            mem_consume = _buffered_bytes;
             if (state->fragment_mem_tracker() != nullptr) {
                 mem_consume = state->fragment_mem_tracker()->consumption();
             }
@@ -1617,8 +1615,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
             row_batch = nullptr;
         } else {
             row_batchs.push_back(row_batch);
-            __sync_fetch_and_add(&_buffered_bytes,
-                                 row_batch->tuple_data_pool()->total_reserved_bytes());
+            _buffered_bytes += row_batch->tuple_data_pool()->total_reserved_bytes();
             raw_bytes_read += row_batch->tuple_data_pool()->total_reserved_bytes();
         }
         raw_rows_read = scanner->raw_rows_read();
