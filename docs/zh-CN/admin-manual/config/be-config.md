@@ -101,11 +101,17 @@ BE 的配置项有两种方式进行配置：
 
 进行schema change的线程数
 
-### `base_compaction_check_interval_seconds`
+### `generate_compaction_tasks_min_interval_ms`
 
-默认值：60 （s）
+默认值：10 （ms）
 
-BaseCompaction线程轮询的间隔
+生成compaction作业的最小间隔时间（ms）
+
+### `enable_vectorized_compaction`
+
+默认值：false
+
+是否开启向量化compaction
 
 ### `base_compaction_interval_seconds_since_last_operation`
 
@@ -324,12 +330,6 @@ BE创建tablet的工作线程数
 默认值：104857600
 
 BaseCompaction触发条件之一：Singleton文件大小限制，100MB
-
-### `cumulative_compaction_check_interval_seconds`
-
-默认值：10 （s）
-
-CumulativeCompaction线程轮询的间隔
 
 ### `cumulative_compaction_skip_window_seconds`
 
