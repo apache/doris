@@ -86,10 +86,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    auto res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
-                                      _output_rs_writer.get(), &stats);
+    Status res;
+    if (config::enable_vectorized_compaction) {
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                     _output_rs_writer.get(), &stats);
+    } else {
+        res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                    _output_rs_writer.get(), &stats);
+    }
+    string merge_type = config::enable_vectorized_compaction ? "v" : "";
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
                      << ", output_version=" << _output_version;
         return res;
@@ -132,8 +139,8 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         current_max_version = _tablet->rowset_with_max_version()->end_version();
     }
 
-    LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version
+    LOG(INFO) << "succeed to do " << merge_type << compaction_name()
+              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
               << ". elapsed time=" << watch.get_elapse_second()
