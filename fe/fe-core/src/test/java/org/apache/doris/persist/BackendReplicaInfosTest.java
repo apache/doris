@@ -49,7 +49,7 @@ public class BackendReplicaInfosTest {
 
         BackendReplicasInfo info = new BackendReplicasInfo(beId);
         info.addBadReplica(tabletId1);
-        info.addMissingVersionReplica(tabletId2);
+        info.addMissingVersionReplica(tabletId2, 11);
         checkInfo(info);
         info.write(dos);
         dos.flush();
@@ -73,6 +73,7 @@ public class BackendReplicaInfosTest {
                 Assert.assertEquals(BackendReplicasInfo.ReportInfoType.BAD, reportInfo.type);
             } else if (reportInfo.tabletId == tabletId2) {
                 Assert.assertEquals(BackendReplicasInfo.ReportInfoType.MISSING_VERSION, reportInfo.type);
+                Assert.assertEquals(11, reportInfo.lastFailedVersion);
             } else {
                 Assert.fail("unknown tablet id: " + reportInfo.tabletId);
             }

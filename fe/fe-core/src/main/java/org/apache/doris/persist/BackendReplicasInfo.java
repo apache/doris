@@ -44,11 +44,11 @@ public class BackendReplicasInfo implements Writable {
     }
 
     public void addBadReplica(long tabletId) {
-        replicaReportInfos.add(new ReplicaReportInfo(tabletId, ReportInfoType.BAD));
+        replicaReportInfos.add(new ReplicaReportInfo(tabletId, -1, ReportInfoType.BAD));
     }
 
-    public void addMissingVersionReplica(long tabletId) {
-        replicaReportInfos.add(new ReplicaReportInfo(tabletId, ReportInfoType.MISSING_VERSION));
+    public void addMissingVersionReplica(long tabletId, long lastFailedVersion) {
+        replicaReportInfos.add(new ReplicaReportInfo(tabletId, lastFailedVersion, ReportInfoType.MISSING_VERSION));
     }
 
     public long getBackendId() {
@@ -84,9 +84,12 @@ public class BackendReplicasInfo implements Writable {
         public long tabletId;
         @SerializedName(value = "type")
         public ReportInfoType type;
+        @SerializedName(value = "lastFailedVersion")
+        public long lastFailedVersion;
 
-        public ReplicaReportInfo(long tabletId, ReportInfoType type) {
+        public ReplicaReportInfo(long tabletId, long lastFailedVersion, ReportInfoType type) {
             this.tabletId = tabletId;
+            this.lastFailedVersion = lastFailedVersion;
             this.type = type;
         }
 
@@ -98,7 +101,12 @@ public class BackendReplicasInfo implements Writable {
 
         public static ReplicaReportInfo read(DataInput in) throws IOException {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, ReplicaReportInfo.class);
+            ReplicaReportInfo info = GsonUtils.GSON.fromJson(json, ReplicaReportInfo.class);
+            if (info.type == ReportInfoType.MISSING_VERSION && info.lastFailedVersion <= 0) {
+                // FIXME(cmy): Just for compatibility, should be remove in v1.2
+                info.lastFailedVersion = 1;
+            }
+            return info;
         }
     }
 

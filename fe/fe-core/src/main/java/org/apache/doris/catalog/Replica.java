@@ -309,7 +309,7 @@ public class Replica implements Writable {
 
         if (newVersion < this.version) {
             // This case means that replica meta version has been updated by ReportHandler before
-            // For example, the publish version daemon has already sent some publish verison tasks to one be to publish version 2, 3, 4, 5, 6,
+            // For example, the publish version daemon has already sent some publish version tasks to one be to publish version 2, 3, 4, 5, 6,
             // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
             // for other be to finish most of publish version tasks to update replica version in fe.
             // At the moment, the replica version in fe is 4, when ReportHandler sync tablet, it find reported replica version in be is 6 and then
