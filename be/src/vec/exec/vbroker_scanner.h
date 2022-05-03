@@ -29,7 +29,8 @@ public:
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~VBrokerScanner() override = default;
 
-    virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override {
+    virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                            bool* fill_tuple) override {
         return Status::NotSupported("Not Implemented get next");
     }
 

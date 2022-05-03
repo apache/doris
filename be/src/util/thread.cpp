@@ -258,7 +258,7 @@ Thread::~Thread() {
     }
 }
 
-void Thread::set_self_name(const std::string &name) {
+void Thread::set_self_name(const std::string& name) {
     ThreadMgr::set_thread_name(name, current_thread_id());
 }
 
