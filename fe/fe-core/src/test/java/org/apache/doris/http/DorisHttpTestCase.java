@@ -318,7 +318,7 @@ abstract public class DorisHttpTestCase {
                 return new SchemaChangeHandler();
             }
             @Mock
-            MaterializedViewHandler getRollupHandler() {
+            MaterializedViewHandler getMaterializedViewHandler() {
                 return new MaterializedViewHandler();
             }
             @Mock
