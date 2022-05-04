@@ -45,7 +45,7 @@ Status SetOperationNode::prepare(RuntimeState* state) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     for (size_t i = 0; i < _child_expr_lists.size(); ++i) {

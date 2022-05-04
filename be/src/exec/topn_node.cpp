@@ -63,7 +63,7 @@ Status TopNNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
-    _tuple_pool.reset(new MemPool(mem_tracker()));
+    _tuple_pool.reset(new MemPool(mem_tracker().get()));
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                              expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);

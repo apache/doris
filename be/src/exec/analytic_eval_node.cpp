@@ -146,9 +146,9 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     DCHECK(child(0)->row_desc().is_prefix_of(row_desc()));
     _child_tuple_desc = child(0)->row_desc().tuple_descriptors()[0];
-    _curr_tuple_pool.reset(new MemPool(mem_tracker()));
-    _prev_tuple_pool.reset(new MemPool(mem_tracker()));
-    _mem_pool.reset(new MemPool(mem_tracker()));
+    _curr_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _prev_tuple_pool.reset(new MemPool(mem_tracker().get()));
+    _mem_pool.reset(new MemPool(mem_tracker().get()));
 
     _evaluation_timer = ADD_TIMER(runtime_profile(), "EvaluationTime");
     DCHECK_EQ(_result_tuple_desc->slots().size(), _evaluators.size());

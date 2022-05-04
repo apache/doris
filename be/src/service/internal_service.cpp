@@ -132,6 +132,8 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD,
+                                      _exec_env->load_channel_mgr()->mem_tracker());
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
             attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
@@ -166,6 +168,8 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
         int64_t execution_time_ns = 0;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
+            SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::LOAD,
+                                      _exec_env->load_channel_mgr()->mem_tracker());
             brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
             attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
             auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);

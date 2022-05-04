@@ -52,7 +52,7 @@ Status BlockingJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
     SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
 
-    _build_pool.reset(new MemPool(mem_tracker()));
+    _build_pool.reset(new MemPool(mem_tracker().get()));
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _left_child_timer = ADD_TIMER(runtime_profile(), "LeftChildTime");
     _build_row_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);

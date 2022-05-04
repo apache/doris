@@ -42,7 +42,7 @@ doris::Status VExprContext::prepare(doris::RuntimeState* state,
     _prepared = true;
     _mem_tracker = tracker;
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
-    _pool.reset(new MemPool(_mem_tracker));
+    _pool.reset(new MemPool(_mem_tracker.get()));
     return _root->prepare(state, row_desc, this);
 }
 

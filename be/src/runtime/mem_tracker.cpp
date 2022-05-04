@@ -326,6 +326,7 @@ bool MemTracker::gc_memory(int64_t max_consumption) {
     if (pre_gc_consumption < max_consumption) return false;
 
     int64_t curr_consumption = pre_gc_consumption;
+    // Free some extra memory to avoid frequent GC, 4M is an empirical value, maybe it will be tested later.
     const int64_t EXTRA_BYTES_TO_FREE = 4L * 1024L * 1024L * 1024L;
     // Try to free up some memory
     for (int i = 0; i < _gc_functions.size(); ++i) {
