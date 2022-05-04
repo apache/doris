@@ -347,7 +347,12 @@ public class MaterializedViewHandler extends AlterHandler {
                 mvColumns, baseSchemaHash, mvSchemaHash,
                 mvKeysType, mvShortKeyColumnCount, origStmt);
         String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
-        mvJob.setStorageFormat(TStorageFormat.V2);
+        if (mvName.equals(newStorageFormatIndexName)) {
+            mvJob.setStorageFormat(TStorageFormat.V2);
+        } else {
+            // use base table's storage format as the mv's format
+            mvJob.setStorageFormat(olapTable.getStorageFormat());
+        }
 
         /*
          * create all rollup indexes. and set state.

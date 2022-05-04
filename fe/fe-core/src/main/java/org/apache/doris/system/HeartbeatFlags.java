@@ -36,11 +36,13 @@ public class HeartbeatFlags {
 
 	public long getHeartbeatFlags() {
 		long heartbeatFlags = 0;
-		if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
+		// If user set default rowset type to ALPHA, then convert it to beta, because 
+		// alpha rowset will be removed
+		if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType) 
+				|| "alpha".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
 			heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
 		} else {
-			throw new IllegalArgumentException("DEFAULT_ROWSET_TYPE in global "
-					+ "variable should be set to beta rowset");
+			throw new IllegalArgumentException("unknown DEFAULT_ROWSET_TYPE in global variable");
 		}
 
 		return heartbeatFlags;

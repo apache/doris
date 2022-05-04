@@ -221,6 +221,10 @@ public class TableProperty implements Writable {
     }
 
     public TStorageFormat getStorageFormat() {
+    	// Force convert all V1 table to V2 table
+    	if (storageFormat == TStorageFormat.V1) {
+    		return TStorageFormat.V2;
+    	}
         return storageFormat;
     }
 
