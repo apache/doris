@@ -172,12 +172,6 @@ Default：false
 
 If set to true, FE will be started in BDBJE debug mode
 
-### enable_alpha_rowset
-
-Default：false
-
-Whether to support the creation of alpha rowset tables.  The default is false and should only be used in emergency situations,  this config should be remove in some future version
-
 ### enable_http_server_v2
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
