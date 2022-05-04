@@ -62,7 +62,7 @@ public:
     Status init();
     bool init_succeeded();
 
-    bool bad();
+    bool normal();
 
     void register_tablet_into_dir();
     void deregister_tablet_from_dir();
@@ -170,7 +170,7 @@ public:
     Status split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
                        uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
 
-    void set_bad(bool is_bad) { _is_bad = is_bad; }
+    void set_bad(bool is_normal) { _is_normal = is_normal; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
     void set_last_cumu_compaction_failure_time(int64_t millis) {
@@ -309,7 +309,7 @@ private:
     // this policy is judged and computed by TimestampedVersionTracker.
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _stale_rs_version_map;
     // if this tablet is broken, set to true. default is false
-    std::atomic<bool> _is_bad;
+    std::atomic<bool> _is_normal;
     // timestamp of last cumu compaction failure
     std::atomic<int64_t> _last_cumu_compaction_failure_millis;
     // timestamp of last base compaction failure
@@ -355,8 +355,8 @@ inline bool Tablet::init_succeeded() {
     return _init_once.has_called() && _init_once.stored_result().ok();
 }
 
-inline bool Tablet::bad() {
-    return !_is_bad && _data_dir->bad();
+inline bool Tablet::normal() {
+    return !_is_normal && _data_dir->normal();
 }
 
 inline void Tablet::register_tablet_into_dir() {

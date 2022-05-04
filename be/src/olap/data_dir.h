@@ -54,8 +54,8 @@ public:
     const std::string& path() const { return _path_desc.filepath; }
     const FilePathDesc& path_desc() const { return _path_desc; }
     size_t path_hash() const { return _path_hash; }
-    bool bad() const { return _is_bad; }
-    void set_bad(bool is_bad) { _is_bad = is_bad; }
+    bool normal() const { return _is_normal; }
+    void set_normal(bool is_normal) { _is_normal = is_normal; }
     int32_t cluster_id() const { return _cluster_id; }
     bool cluster_id_incomplete() const { return _cluster_id_incomplete; }
 
@@ -65,7 +65,7 @@ public:
         info.path_hash = _path_hash;
         info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
-        info.is_bad = _is_bad;
+        info.is_normal = _is_normal;
         info.storage_medium = _storage_medium;
         return info;
     }
@@ -173,7 +173,7 @@ private:
     // the actual capacity of the disk of this data dir
     int64_t _disk_capacity_bytes;
     TStorageMedium::type _storage_medium;
-    bool _is_bad;
+    bool _is_normal;
 
     TabletManager* _tablet_manager;
     TxnManager* _txn_manager;

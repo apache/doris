@@ -1154,7 +1154,7 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_disk_total_capacity(root_path_info.disk_capacity);
             disk.__set_data_used_capacity(root_path_info.data_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
-            disk.__set_used(root_path_info.is_bad);
+            disk.__set_used(root_path_info.normal);
             disks[root_path_info.path_desc.filepath] = disk;
         }
         request.__set_disks(disks);

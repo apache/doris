@@ -65,7 +65,7 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
                DataDir* data_dir, const std::string& cumulative_compaction_type)
         : BaseTablet(tablet_meta, storage_param, data_dir),
-          _is_bad(false),
+          _is_normal(false),
           _last_cumu_compaction_failure_millis(0),
           _last_base_compaction_failure_millis(0),
           _last_cumu_compaction_success_millis(0),
@@ -698,7 +698,7 @@ bool Tablet::can_do_compaction(size_t path_hash, CompactionType compaction_type)
         return false;
     }
 
-    if (data_dir()->path_hash() != path_hash || !bad() || !init_succeeded()) {
+    if (data_dir()->path_hash() != path_hash || !normal() || !init_succeeded()) {
         return false;
     }
 

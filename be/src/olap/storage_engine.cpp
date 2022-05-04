@@ -280,7 +280,7 @@ void StorageEngine::_update_storage_medium_type_count() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& it : _store_map) {
-        if (it.second->bad()) {
+        if (it.second->is_normal) {
             available_storage_medium_types.insert(it.second->storage_medium());
         }
     }
@@ -323,7 +323,7 @@ std::vector<DataDir*> StorageEngine::get_stores() {
         }
     } else {
         for (auto& it : _store_map) {
-            if (it.second->bad()) {
+            if (it.second->normal()) {
                 stores.push_back(it.second);
             }
         }
@@ -472,7 +472,7 @@ std::vector<DataDir*> StorageEngine::get_stores_for_create_tablet(
     {
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
-            if (it.second->bad()) {
+            if (it.second->normal()) {
                 if (_available_storage_medium_type_count == 1 ||
                     it.second->storage_medium() == storage_medium ||
                     (it.second->storage_medium() == TStorageMedium::REMOTE_CACHE &&
@@ -528,7 +528,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 
         for (auto& it : _store_map) {
             ++total_root_path_num;
-            if (it.second->bad()) {
+            if (it.second->normal()) {
                 continue;
             }
             it.second->clear_tablets(&tablet_info_vec);
@@ -672,7 +672,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
         LOG(INFO) << "Start to sweep path " << info.path_desc.filepath;
-        if (!info.is_bad) {
+        if (!info.normal()) {
             continue;
         }
 
