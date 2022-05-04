@@ -171,12 +171,6 @@ FE 的配置项有两种方式进行配置：
 
 如果设置为 true，FE 将在 BDBJE 调试模式下启动，在 Web 页面 `System->bdbje` 可以查看相关信息，否则不可以查看
 
-### `enable_alpha_rowset`
-
-默认值：false
-
-是否支持创建 alpha rowset。默认为 false，只应在紧急情况下使用，此配置应在未来的某个版本中删除
-
 ### `enable_http_server_v2`
 
 默认值：从官方 0.14.0 release 版之后默认是 true，之前默认 false
