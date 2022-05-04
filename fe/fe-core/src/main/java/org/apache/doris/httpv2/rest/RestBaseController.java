@@ -85,7 +85,7 @@ public class RestBaseController extends BaseController {
             //It is estimated that it is compatible with the standard format of username:password. .
             //So here we feel that we can assemble it completely by hand.
             String clusterName = ConnectContext.get() == null ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
-            userInfo = authInfo.fullUserName+
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
                 "@" + clusterName  +
                 ":" + authInfo.password;
         }
