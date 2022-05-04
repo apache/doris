@@ -74,10 +74,17 @@ public class RestBaseController extends BaseController {
         String urlStr = request.getRequestURI();
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
-            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
-            // Fix username@cluster:passwod is modified to cluster: username:passwod causes authentication failure
-            // @see https://github.com/apache/incubator-doris/issues/8100
-            String clusterName = ConnectContext.get().getClusterName();
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request)；
+            //username@cluster:password
+            //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
+            //This is to go directly to BE, but in fact,
+            //BE still needs to take this authentication information and send RPC to FE to parse the authentication information,
+            //so in the end, the format of this authentication information is parsed on the FE side.
+            //The normal format for fullUserName is actually default_cluster:username
+            //I don't know why the format username@default_cluster is used in parseAuthInfo.
+            //It is estimated that it is compatible with the standard format of username:password. .
+            //So here we feel that we can assemble it completely by hand.
+            String clusterName = ConnectContext.get() == null ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
             userInfo = authInfo.fullUserName+
                 "@" + clusterName  +
                 ":" + authInfo.password;
