@@ -447,8 +447,8 @@ public class PropertyAnalyzer {
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
-            throw new AnalysisException("Storage format V1 has been deprecated since version 0.14," +
-                    " please use V2 instead");
+            throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
+            		+ "please use V2 instead");
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
