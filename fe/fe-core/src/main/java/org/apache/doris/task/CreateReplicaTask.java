@@ -76,8 +76,10 @@ public class CreateReplicaTask extends AgentTask {
     // if base tablet id is set, BE will create the replica on same disk as this base tablet
     private long baseTabletId = -1;
     private int baseSchemaHash = -1;
-
-    private TStorageFormat storageFormat = null;
+    
+    // V2 is beta rowset, v1 is alpha rowset
+    // TODO should unify the naming of v1(alpha rowset), v2(beta rowset), it is very confused to read code
+    private TStorageFormat storageFormat = TStorageFormat.V2;	
 
     // true if this task is created by recover request(See comment of Config.recover_with_empty_tablet)
     private boolean isRecoverTask = false;
@@ -187,7 +189,7 @@ public class CreateReplicaTask extends AgentTask {
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
-        this.storageFormat = storageFormat;
+    	this.storageFormat = storageFormat;
     }
 
     public TCreateTabletReq toThrift() {
