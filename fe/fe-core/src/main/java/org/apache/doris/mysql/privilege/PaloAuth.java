@@ -82,7 +82,7 @@ public class PaloAuth implements Writable {
     private TablePrivTable tablePrivTable = new TablePrivTable();
     private ResourcePrivTable resourcePrivTable = new ResourcePrivTable();
 
-    private RoleManager roleManager = new RoleManager();;
+    private RoleManager roleManager = new RoleManager();
     private UserPropertyMgr propertyMgr = new UserPropertyMgr();
 
     private LdapInfo ldapInfo = new LdapInfo();

@@ -439,7 +439,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (partitionInfo.getType() == PartitionType.RANGE) {
             recoverItem = new RangePartitionItem(recoverRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            recoverItem = recoverPartitionInfo.getListPartitionItem();;
+            recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
         // check if partition item is invalid
         if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
