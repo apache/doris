@@ -193,23 +193,43 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
     return Status::OK();
 }
 
+Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                     size_t num_rows) {
+    size_t offset = 0;
+    auto next_run_step = [&]() {
+        size_t step = 1;
+        for (auto i = offset + 1; i < num_rows; ++i) {
+            if (null_map[offset] == null_map[i])
+                step++;
+            else
+                break;
+        }
+        return step;
+    };
+
+    do {
+        auto step = next_run_step();
+        if (null_map[offset]) {
+            RETURN_IF_ERROR(append_nulls(step));
+            *ptr += get_field()->size() * step;
+        } else {
+            // TODO:
+            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  2. support array vectorized load and ptr offset add
+            RETURN_IF_ERROR(append_data(ptr, step));
+        }
+        offset += step;
+    } while (offset < num_rows);
+
+    return Status::OK();
+}
+
 Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
     assert(data && num_rows > 0);
+    const auto* ptr = (const uint8_t*)data;
     if (nullmap) {
-        size_t bitmap_size = BitmapSize(num_rows);
-        if (_null_bitmap.size() < bitmap_size) {
-            _null_bitmap.resize(bitmap_size);
-        }
-        uint8_t* bitmap_data = _null_bitmap.data();
-        memset(bitmap_data, 0, bitmap_size);
-        for (size_t i = 0; i < num_rows; ++i) {
-            if (nullmap[i]) {
-                BitmapSet(bitmap_data, i);
-            }
-        }
-        return append_nullable(bitmap_data, data, num_rows);
+        return append_nullable(nullmap, &ptr, num_rows);
     } else {
-        const uint8_t* ptr = (const uint8_t*)data;
         return append_data(&ptr, num_rows);
     }
 }
