@@ -91,6 +91,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_exec_env->load_channel_mgr()->mem_tracker());
     VLOG_RPC << "tablet writer open, id=" << request->id() << ", index_id=" << request->index_id()
              << ", txn_id=" << request->txn_id();
     brpc::ClosureGuard closure_guard(done);
@@ -162,7 +163,6 @@ void PInternalServiceImpl::tablet_writer_add_batch(google::protobuf::RpcControll
     // exhausted, so we put this to a local thread pool to process
     int64_t submit_task_time_ns = MonotonicNanos();
     _tablet_worker_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
-        SCOPED_SWITCH_BTHREAD();
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;

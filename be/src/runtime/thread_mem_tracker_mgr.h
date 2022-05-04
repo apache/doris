@@ -70,8 +70,6 @@ public:
     // to avoid memory tracking loss.
     void init();
 
-    void init_bthread();
-
     void clear_untracked_mems();
 
     // After attach, the current thread TCMalloc Hook starts to consume/release task mem_tracker
@@ -186,14 +184,6 @@ inline void ThreadMemTrackerMgr::init() {
     _untracked_mems[0] = 0;
     _mem_tracker_labels.clear();
     _mem_tracker_labels[0] = MemTracker::get_process_tracker()->label();
-}
-
-inline void ThreadMemTrackerMgr::init_bthread() {
-    init();
-    // `is_attach_task=true` when using `SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER`.
-    // This means that trackers cached in `_mem_trackers` are expected to be emptied later,
-    // preventing trackers from being released in time.
-    _task_id = "brpc";
 }
 
 inline void ThreadMemTrackerMgr::clear_untracked_mems() {

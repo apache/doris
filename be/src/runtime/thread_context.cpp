@@ -92,7 +92,8 @@ SwitchThreadMemTracker<Existed>::SwitchThreadMemTracker(
         DCHECK(mem_tracker);
         // The thread tracker must be switched after the attach task, otherwise switching
         // in the main thread will cause the cached tracker not be cleaned up in time.
-        DCHECK(in_task == false || tls_ctx()->_thread_mem_tracker_mgr->is_attach_task());
+        DCHECK(in_task == false || tls_ctx()->type() != ThreadContext::TaskType::UNKNOWN)
+                << ",tls ctx type=" << tls_ctx()->type();
         if (Existed) {
             _old_tracker_id = tls_ctx()->_thread_mem_tracker_mgr->update_tracker<true>(mem_tracker);
         } else {
@@ -139,19 +140,21 @@ SwitchBthread::SwitchBthread() {
     if (tls == nullptr) {
         // Create thread-local data on demand.
         tls = new ThreadContext;
-        tls->_thread_mem_tracker_mgr->init_bthread();
         // set the data so that next time bthread_getspecific in the thread returns the data.
         CHECK_EQ(0, bthread_setspecific(btls_key, tls));
     } else {
+        DCHECK(tls->type() == ThreadContext::TaskType::UNKNOWN);
         tls->_thread_mem_tracker_mgr->clear_untracked_mems();
-        tls->_thread_mem_tracker_mgr->init_bthread();
     }
+    tls->_thread_mem_tracker_mgr->init();
+    tls->set_type(ThreadContext::TaskType::BRPC);
 }
 
 SwitchBthread::~SwitchBthread() {
     DCHECK(tls != nullptr);
     tls->_thread_mem_tracker_mgr->clear_untracked_mems();
     tls->_thread_mem_tracker_mgr->init();
+    tls->set_type(ThreadContext::TaskType::UNKNOWN);
 #ifndef NDEBUG
     DorisMetrics::instance()->switch_bthread_count->increment(1);
 #endif

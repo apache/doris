@@ -105,7 +105,8 @@ public:
         QUERY = 1,
         LOAD = 2,
         COMPACTION = 3,
-        STORAGE = 4
+        STORAGE = 4,
+        BRPC = 5
         // to be added ...
     };
     inline static const std::string TaskTypeStr[] = {"UNKNOWN", "QUERY", "LOAD", "COMPACTION",
@@ -122,9 +123,10 @@ public:
     void attach(const TaskType& type, const std::string& task_id,
                 const TUniqueId& fragment_instance_id,
                 const std::shared_ptr<doris::MemTracker>& mem_tracker) {
-        DCHECK(_type == TaskType::UNKNOWN && _task_id == "")
-                << ",old tracker label: " << mem_tracker->label()
-                << ",new tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
+        DCHECK((_type == TaskType::UNKNOWN || _type == TaskType::BRPC) && _task_id == "")
+                << ",new tracker label: " << mem_tracker->label()
+                << ",old tracker label: " << _thread_mem_tracker_mgr->mem_tracker()->label();
+        DCHECK(type != TaskType::UNKNOWN);
         _type = type;
         _task_id = task_id;
         _fragment_instance_id = fragment_instance_id;
@@ -139,6 +141,8 @@ public:
         _thread_mem_tracker_mgr->detach_task();
     }
 
+    const TaskType& type() const { return _type; }
+    const void set_type(const TaskType& type) { _type = type; }
     const std::string& task_id() const { return _task_id; }
     const std::string& thread_id_str() const { return _thread_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
