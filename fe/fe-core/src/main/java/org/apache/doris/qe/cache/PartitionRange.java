@@ -562,7 +562,6 @@ public class PartitionRange {
             return null;
         }
         PartitionColumnFilter partitionColumnFilter = new PartitionColumnFilter();
-        ;
         for (Expr expr : partitionKeyPredicate.getChildren()) {
             if (expr instanceof BinaryPredicate) {
                 BinaryPredicate binPredicate = (BinaryPredicate) expr;
