@@ -142,7 +142,7 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         builder.append("]; ");
 
-        builder.append("bucket num: ").append(bucketNum).append("; ");;
+        builder.append("bucket num: ").append(bucketNum).append("; ");
 
         return builder.toString();
     }

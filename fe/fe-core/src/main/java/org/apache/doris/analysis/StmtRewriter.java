@@ -327,7 +327,7 @@ public class StmtRewriter {
     private static boolean hasSubqueryInDisjunction(Expr expr) {
         if (!(expr instanceof CompoundPredicate)) {
             return false;
-        };
+        }
         if (Expr.IS_OR_PREDICATE.apply(expr)) {
             return expr.contains(Subquery.class);
         }

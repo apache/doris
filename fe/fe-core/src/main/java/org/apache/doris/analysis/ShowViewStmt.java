@@ -51,7 +51,7 @@ public class ShowViewStmt extends ShowStmt {
     private String db;
     private TableName tbl;
 
-    private List<View> matchViews = Lists.newArrayList();;
+    private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewStmt(String db, TableName tbl) {
         this.db = db;

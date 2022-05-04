@@ -42,6 +42,7 @@ under the License.
     </module>
     <module name="NewlineAtEndOfFile">
         <property name="lineSeparator" value="lf"/>
+        <property name="severity" value="error"/>
     </module>
 
     <module name="RegexpSingleline">
@@ -71,7 +72,9 @@ under the License.
             <property name="tokens" value="VARIABLE_DEF"/>
             <property name="allowSamelineMultipleAnnotations" value="true"/>
         </module>
-        <module name="MissingOverride"/>
+        <module name="MissingOverride">
+            <property name="severity" value="error"/>
+        </module>
         <module name="MissingDeprecated"/>
 
         <!-- Block Checks -->
@@ -140,7 +143,9 @@ under the License.
 
         <!-- Headers -->
         <!-- Imports -->
-        <module name="AvoidStarImport"/>
+        <module name="AvoidStarImport">
+            <property name="severity" value="error"/>
+        </module>
         <module name="AvoidStaticImport"/>
         <module name="CustomImportOrder">
             <property name="sortImportsInGroupAlphabetically" value="true"/>
@@ -148,8 +153,15 @@ under the License.
             <property name="customImportOrderRules" value="SAME_PACKAGE(3)###THIRD_PARTY_PACKAGE###STANDARD_JAVA_PACKAGE"/>
             <property name="tokens" value="IMPORT, STATIC_IMPORT, PACKAGE_DEF"/>
         </module>
-        <module name="RedundantImport"/>
-        <module name="UnusedImports"/>
+        <module name="RedundantImport">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="UnusedImports">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="EmptyStatement">
+            <property name="severity" value="error"/>
+        </module>
 
         <!-- Javadoc Comments -->
         <module name="AtclauseOrder">
@@ -210,7 +222,9 @@ under the License.
             <property name="arrayInitIndent" value="4"/>
         </module>
         <module name="OuterTypeFilename"/>
-        <module name="UpperEll"/>
+        <module name="UpperEll">
+            <property name="severity" value="error"/>
+        </module>
 
         <!-- Modifiers -->
         <module name="ModifierOrder"/>
