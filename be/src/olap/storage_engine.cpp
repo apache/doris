@@ -137,7 +137,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
           _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
           _memtable_flush_executor(nullptr),
-          _default_rowset_type(ALPHA_ROWSET),
+          _default_rowset_type(BETA_ROWSET),
           _heartbeat_flags(nullptr),
           _stream_load_recorder(nullptr) {
     _s_instance = this;
@@ -916,8 +916,13 @@ void StorageEngine::_parse_default_rowset_type() {
     boost::to_upper(default_rowset_type_config);
     if (default_rowset_type_config == "BETA") {
         _default_rowset_type = BETA_ROWSET;
-    } else {
+    } else if (default_rowset_type_config == "ALPHA") {
         _default_rowset_type = ALPHA_ROWSET;
+        LOG(WARNING) << "default_rowset_type in be.conf should be set to beta, alpha is not "
+                        "supported any more";
+    } else {
+        LOG(FATAL) << "unknown value " << default_rowset_type_config
+                   << " in default_rowset_type in be.conf";
     }
 }
 
