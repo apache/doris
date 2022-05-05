@@ -424,10 +424,11 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore() {
-        // disable dynamic partition
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore();
         }
+        // remove colocate property.
+        setColocateGroup(null);
     }
 
     public Status resetIdsForRestore(Catalog catalog, Database db, ReplicaAllocation restoreReplicaAlloc) {
