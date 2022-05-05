@@ -88,6 +88,8 @@ public:
         return start_thread(category, name, std::bind(f, a1, a2, a3, a4, a5, a6), NO_FLAGS, holder);
     }
 
+    static void set_self_name(const std::string& name);
+
     ~Thread();
 
     // Blocks until this thread finishes execution. Once this method returns, the thread
