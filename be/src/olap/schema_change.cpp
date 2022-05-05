@@ -1159,8 +1159,6 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
     reset_merged_rows();
     reset_filtered_rows();
 
-    bool use_beta_rowset = new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET;
-
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
     RowBlock* ref_row_block = nullptr;
     rowset_reader->next_block(&ref_row_block);
@@ -1190,14 +1188,10 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
 
             // enter here while memory limitation is reached.
             RowsetSharedPtr rowset;
-            RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
-            if (use_beta_rowset) {
-                new_rowset_type = BETA_ROWSET;
-            }
             if (!_internal_sorting(
                         row_block_arr,
                         Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                        new_tablet, new_rowset_type, segments_overlap, &rowset)) {
+                        new_tablet, segments_overlap, &rowset)) {
                 LOG(WARNING) << "failed to sorting internally.";
                 return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
             }
@@ -1246,13 +1240,9 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
         // enter here while memory limitation is reached.
         RowsetSharedPtr rowset = nullptr;
 
-        RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
-        if (use_beta_rowset) {
-            new_rowset_type = BETA_ROWSET;
-        }
         if (!_internal_sorting(row_block_arr,
                                Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                               new_tablet, new_rowset_type, segments_overlap, &rowset)) {
+                               new_tablet, segments_overlap, &rowset)) {
             LOG(WARNING) << "failed to sorting internally.";
             return Status::OLAPInternalError(OLAP_ERR_ALTER_STATUS_ERR);
         }
@@ -1304,7 +1294,6 @@ Status SchemaChangeWithSorting::process(RowsetReaderSharedPtr rowset_reader,
 
 bool SchemaChangeWithSorting::_internal_sorting(const std::vector<RowBlock*>& row_block_arr,
                                                 const Version& version, TabletSharedPtr new_tablet,
-                                                RowsetTypePB new_rowset_type,
                                                 SegmentsOverlapPB segments_overlap,
                                                 RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
