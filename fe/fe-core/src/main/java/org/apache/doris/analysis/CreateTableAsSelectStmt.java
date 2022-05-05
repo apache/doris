@@ -27,7 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Represents a CREATE TABLE AS SELECT (CTAS) statement
+ * Represents a CREATE TABLE AS SELECT (CTAS) statement.
  * Syntax:
  * CREATE TABLE table_name [( column_name_list )]
  * opt_engine opt_partition opt_properties KW_AS query_stmt
@@ -55,7 +55,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
     }
 
     /**
-     * Cannot analyze insertStmt because the table has not been created yet
+     * Cannot analyze insertStmt because the table has not been created yet.
      */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
