@@ -996,7 +996,7 @@ TEST_F(TestColumn, ConvertIntToBitmap) {
     TabletSchema mv_tablet_schema;
     mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
 
-    RowBlockChanger row_block_changer(mv_tablet_schema);
+    RowBlockChanger row_block_changer(mv_tablet_schema, DescriptorTbl());
     ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
     column_mapping->ref_column = 0;
     column_mapping = row_block_changer.get_mutable_column_mapping(1);
@@ -1079,7 +1079,7 @@ TEST_F(TestColumn, ConvertCharToHLL) {
     TabletSchema mv_tablet_schema;
     mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
 
-    RowBlockChanger row_block_changer(mv_tablet_schema);
+    RowBlockChanger row_block_changer(mv_tablet_schema, DescriptorTbl());
     ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
     column_mapping->ref_column = 0;
     column_mapping = row_block_changer.get_mutable_column_mapping(1);
@@ -1160,7 +1160,7 @@ TEST_F(TestColumn, ConvertCharToCount) {
     TabletSchema mv_tablet_schema;
     mv_tablet_schema.init_from_pb(mv_tablet_schema_pb);
 
-    RowBlockChanger row_block_changer(mv_tablet_schema);
+    RowBlockChanger row_block_changer(mv_tablet_schema, DescriptorTbl());
     ColumnMapping* column_mapping = row_block_changer.get_mutable_column_mapping(0);
     column_mapping->ref_column = 0;
     column_mapping = row_block_changer.get_mutable_column_mapping(1);

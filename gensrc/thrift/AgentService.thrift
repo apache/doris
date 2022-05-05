@@ -149,6 +149,7 @@ struct TAlterTabletReqV2 {
     6: optional Types.TVersionHash alter_version_hash // Deprecated
     7: optional list<TAlterMaterializedViewParam> materialized_view_params
     8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
+    9: optional Descriptors.TDescriptorTable desc_tbl
 }
 
 struct TAlterMaterializedViewParam {

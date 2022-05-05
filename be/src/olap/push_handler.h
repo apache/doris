@@ -80,6 +80,9 @@ private:
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 
+    ObjectPool _pool;
+    DescriptorTbl* _desc_tbl = nullptr;
+
     int64_t _write_bytes = 0;
     int64_t _write_rows = 0;
     DISALLOW_COPY_AND_ASSIGN(PushHandler);

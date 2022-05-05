@@ -195,10 +195,10 @@ protected:
             return ret;
         }
 
-        void swap(intrusive_ptr& rhs) {
+        void swap(const intrusive_ptr& rhs) {
             T* tmp = t;
             t = rhs.t;
-            rhs.t = tmp;
+            const_cast<intrusive_ptr&>(rhs).t = tmp;
         }
 
         T& operator*() const& { return *t; }

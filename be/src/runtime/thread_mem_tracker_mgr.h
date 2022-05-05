@@ -24,7 +24,7 @@
 
 namespace doris {
 
-typedef void (*ERRCALLBACK)();
+using ERRCALLBACK = void (*)();
 
 struct ConsumeErrCallBackInfo {
     std::string cancel_msg;

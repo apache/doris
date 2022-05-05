@@ -130,6 +130,20 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
     TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
 }
 
+RuntimeState::RuntimeState()
+        : _profile("<unnamed>"),
+          _obj_pool(new ObjectPool()),
+          _data_stream_recvrs_pool(new ObjectPool()),
+          _unreported_error_idx(0),
+          _is_cancelled(false),
+          _per_fragment_instance_idx(0) {
+    _query_options.batch_size = DEFAULT_BATCH_SIZE;
+    _timezone = TimezoneUtils::default_time_zone;
+    _timestamp_ms = 0;
+    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    _exec_env = ExecEnv::GetInstance();
+}
+
 RuntimeState::~RuntimeState() {
     _block_mgr2.reset();
     // close error log file

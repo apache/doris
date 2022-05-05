@@ -28,6 +28,7 @@
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
 #include "olap/null_predicate.h"
+#include "olap/olap_common.h"
 #include "olap/row.h"
 #include "olap/row_block.h"
 #include "olap/row_cursor.h"
@@ -316,7 +317,8 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
-                read_params.reader_type == READER_BASE_COMPACTION) &&
+                read_params.reader_type == READER_BASE_COMPACTION ||
+                read_params.reader_type == READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
