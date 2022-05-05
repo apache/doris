@@ -81,20 +81,21 @@ public class FunctionCallExpr extends Expr {
 
     private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-                    .add("stddev").add("stddev_val").add("stddev_samp")
+                    .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final ImmutableSet<String> DECIMAL_SAME_TYPE_SET =
-        new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-            .add("min").add("max").add("lead").add("lag")
-            .add("first_value").add("last_value").add("abs")
-            .add("positive").add("negative").build();
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("min").add("max").add("lead").add("lag")
+                    .add("first_value").add("last_value").add("abs")
+                    .add("positive").add("negative").build();
     private static final ImmutableSet<String> DECIMAL_WIDER_TYPE_SET =
-        new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
-            .add("sum").add("avg").add("multi_distinct_sum").build();
+            new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
+                    .add("sum").add("avg").add("multi_distinct_sum").build();
     private static final  ImmutableSet<String> DECIMAL_FUNCTION_SET =
-        new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
-            .addAll(DECIMAL_SAME_TYPE_SET)
-            .addAll(DECIMAL_WIDER_TYPE_SET).build();
+            new ImmutableSortedSet.Builder<>(String.CASE_INSENSITIVE_ORDER)
+                    .addAll(DECIMAL_SAME_TYPE_SET)
+                    .addAll(DECIMAL_WIDER_TYPE_SET)
+                    .addAll(STDDEV_FUNCTION_SET).build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     // use to record the num of json_object parameters 
@@ -1042,6 +1043,8 @@ public class FunctionCallExpr extends Expr {
             } else if (DECIMAL_WIDER_TYPE_SET.contains(fnName.getFunction())) {
                 this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION,
                     ((ScalarType) argTypes[0]).getScalarScale());
+            } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
+                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION, 9);
             }
         }
         // rewrite return type if is nested type function
