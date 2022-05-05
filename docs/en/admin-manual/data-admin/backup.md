@@ -52,6 +52,8 @@ The backup operation is to upload the data of the specified table or partition d
 ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
 ```
 
+4. Backup and Restore operation will NOT keep the `colocate_with` property of a table.
+
 ## Start Backup
 
 1. Create a hdfs remote warehouse example_repo:

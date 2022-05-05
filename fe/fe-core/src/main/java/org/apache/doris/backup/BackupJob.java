@@ -507,6 +507,8 @@ public class BackupJob extends AbstractJob {
                         status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
                         return;
                     }
+
+                    removeUnsupportProperties(copiedTbl);
                     copiedTables.add(copiedTbl);
                 } else if (table.getType() == TableType.VIEW) {
                     View view = (View) table;
@@ -543,6 +545,11 @@ public class BackupJob extends AbstractJob {
         backupMeta = new BackupMeta(copiedTables, copiedResources);
     }
 
+    private void removeUnsupportProperties(OlapTable tbl) {
+        // We cannot support the colocate attribute because the colocate information is not backed up
+        // synchronously when backing up.
+        tbl.setColocateGroup(null);
+    }
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
