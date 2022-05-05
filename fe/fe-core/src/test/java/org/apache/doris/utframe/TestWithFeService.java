@@ -92,8 +92,6 @@ public abstract class TestWithFeService {
 
     @BeforeAll
     public final void beforeAll() throws Exception {
-        // todo: delete
-        System.out.println("before all");
         connectContext = createDefaultCtx();
         createDorisCluster();
         runBeforeAll();
@@ -101,8 +99,6 @@ public abstract class TestWithFeService {
 
     @AfterAll
     public final void afterAll() throws Exception {
-        // todo: delete
-        System.out.println("after all");
         runAfterAll();
         cleanDorisFeDir(runningDir);
     }
