@@ -37,6 +37,7 @@ class ConfigOptions {
     static Option feHttpPasswordOpt
     static Option pathOpt
     static Option dataOpt
+    static Option pluginOpt
     static Option suiteOpt
     static Option excludeSuiteOpt
     static Option groupsOpt
@@ -116,6 +117,14 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("dataPath")
                 .desc("the data path")
+                .build()
+        pluginOpt = Option.builder("plugin")
+                .argName("pluginPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("plugin")
+                .desc("the plugin path")
                 .build()
         suiteOpt = Option.builder("s")
                 .argName("suiteName")
@@ -267,6 +276,7 @@ class ConfigOptions {
                 .addOption(passwordOpt)
                 .addOption(pathOpt)
                 .addOption(dataOpt)
+                .addOption(pluginOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
                 .addOption(excludeSuiteOpt)
