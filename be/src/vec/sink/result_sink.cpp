@@ -37,11 +37,6 @@ VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>
         _sink_type = sink.type;
     }
 
-    if (_sink_type == TResultSinkType::FILE) {
-        CHECK(sink.__isset.file_options);
-        _file_opts.reset(new ResultFileOptions(sink.file_options));
-    }
-
     _name = "ResultSink";
 }
 
@@ -75,13 +70,6 @@ Status VResultSink::prepare(RuntimeState* state) {
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
-    case TResultSinkType::FILE:
-        CHECK(_file_opts.get() != nullptr);
-        return Status::InternalError("Unsupport vfile result sink type");
-        // TODO:
-        /*      _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,*/
-        /*_profile, _sender.get()));*/
-        //        break;
     default:
         return Status::InternalError("Unknown result sink type");
     }

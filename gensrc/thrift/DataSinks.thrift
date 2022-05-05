@@ -38,7 +38,7 @@ enum TDataSinkType {
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
-    FILE
+    FILE,    // deprecated, should not be used any more. FileResultSink is covered by TRESULT_FILE_SINK for concurrent purpose.
 }
 
 struct TResultFileSinkOptions {
@@ -75,7 +75,7 @@ struct TDataStreamSink {
 
 struct TResultSink {
     1: optional TResultSinkType type;
-    2: optional TResultFileSinkOptions file_options
+    2: optional TResultFileSinkOptions file_options // deprecated
 }
 
 struct TResultFileSink {
