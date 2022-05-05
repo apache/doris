@@ -278,3 +278,16 @@ If the same error is reported, Run the following command
 ```
 cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.dat fe-core/target/classes/org/apache/doris/analysis
 ```
+
+### ### Q14. Doris upgrades to version 1.0 or later and reports error ``Failed to set ciphers to use (2026)` in MySQL appearance via ODBC.
+This problem occurs after doris upgrades to version 1.0 and uses Connector/ODBC 8.0.x or higher. Connector/ODBC 8.0.x has multiple access methods, such as `/usr/lib64/libmyodbc8w.so` which is installed via yum and relies on ` libssl.so.10` and `libcrypto.so.10`.
+In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the doris binary package, so this can lead to openssl conflicts and errors like the following
+```
+ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
+```
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1,1. For details, see the [ODBC exterior documentation](. /extending-doris/odbc-of-doris.md)
+You can verify the version of openssl used by MySQL ODBC Driver by
+```
+ldd /path/to/libmyodbc8w.so |grep libssl.so
+```
+If the output contains ``libssl.so.10``, there may be problems using it, if it contains ``libssl.so.1.1``, it is compatible with doris 1.0

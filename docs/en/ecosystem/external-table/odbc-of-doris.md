@@ -110,7 +110,10 @@ Parameter | Description
 **type** | The type of external database, currently supports Oracle, MySQL and PostgerSQL
 **user** | The user name of database
 **password** | password for the user
+**charset** | charset of connection
 
+Remark：
+In addition to adding the above parameters to `PROPERTIES`, you can also add parameters specific to each database's ODBC driver implementation, such as `sslverify` for mysql, etc.
 
 ##### Installation and configuration of ODBC driver
 
