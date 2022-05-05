@@ -109,6 +109,13 @@ testSuites = ""
 // 默认会加载的用例目录, 可以通过run-regression-test.sh --run -d来动态指定和覆盖
 testDirectories = ""
 
+// 排除这些组的用例，可通过run-regression-test.sh --run -xg来动态指定和覆盖
+excludeGroups = ""
+// 排除这些suite，可通过run-regression-test.sh --run -xs来动态指定和覆盖
+excludeSuites = ""
+// 排除这些目录，可通过run-regression-test.sh --run -xd来动态指定和覆盖
+excludeDirectories = ""
+
 // 其他自定义配置
 customConf1 = "test_custom_conf_value"
 ```
@@ -516,6 +523,15 @@ thread, lazyCheck, events, connect, selectUnionAll
 
 # 测试demo目录下的sql_action
 ./run-regression-test.sh --run -d demo -s sql_action
+
+# 测试demo目录下用例，排除sql_action用例
+./run-regression-test.sh --run -d demo -xs sql_action
+
+# 排除demo目录的用例
+./run-regression-test.sh --run -xd demo
+
+# 排除demo group的用例
+./run-regression-test.sh --run -xg demo
 
 # 自定义配置
 ./run-regression-test.sh --run -conf a=b

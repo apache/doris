@@ -173,18 +173,39 @@ class RegressionTest {
         return recorder
     }
 
-    static boolean canRun(Config config, String suiteName, String group) {
-        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
-        if (config.suiteWildcard.size() == 0 ||
-                (suiteName != null && (config.suiteWildcard.any {
-                suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
-                }))) {
-            if (config.groups == null || config.groups.isEmpty()
-                    || !config.groups.intersect(suiteGroups).isEmpty()) {
-                return true
-            }
+    static boolean filterSuites(Config config, String suiteName) {
+        if (config.suiteWildcard.isEmpty() && config.excludeSuiteWildcard.isEmpty()) {
+            return true
         }
-        return false
+        if (!config.suiteWildcard.isEmpty() && !config.suiteWildcard.any {
+                    suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
+                }) {
+            return false
+        }
+        if (!config.excludeSuiteWildcard.isEmpty() && config.excludeSuiteWildcard.any {
+                    excludeSuiteWildcard -> Wildcard.match(suiteName, excludeSuiteWildcard)
+                }) {
+            return false
+        }
+        return true
+    }
+
+    static boolean filterGroups(Config config, String group) {
+        if (config.groups.isEmpty() && config.excludeGroupSet.isEmpty()) {
+            return true
+        }
+        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
+        if (!config.groups.isEmpty() && config.groups.intersect(suiteGroups).isEmpty()) {
+            return false
+        }
+        if (!config.excludeGroupSet.isEmpty() && !config.excludeGroupSet.intersect(suiteGroups).isEmpty()) {
+            return false
+        }
+        return true
+    }
+
+    static boolean canRun(Config config, String suiteName, String group) {
+        return filterGroups(config, group) && filterSuites(config, suiteName)
     }
 
     static List<EventListener> getEventListeners(Config config, Recorder recorder) {
@@ -226,7 +247,7 @@ class RegressionTest {
             String successList = recorder.successList.collect { info ->
                 "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
             }.join('\n')
-            log.info("SuccessList suites:\n${successList}".toString())
+            log.info("Success suites:\n${successList}".toString())
         }
 
         // print failure list
