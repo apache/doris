@@ -21,34 +21,26 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.DorisAssert;
+import org.apache.doris.utframe.TestWithFeService;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.util.UUID;
-
-public class AggregateTest {
-
-    private static String baseDir = "fe";
-    private static String runningDir = baseDir + "/mocked/AggregateTest/"
-            + UUID.randomUUID().toString() + "/";
+public class AggregateTest extends TestWithFeService {
     private static final String TABLE_NAME = "table1";
     private static final String DB_NAME = "db1";
     private static DorisAssert dorisAssert;
 
-    @BeforeClass
-    public static void beforeClass() throws Exception{
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, " +
-                "deptno int, salary int, commission int, time DATETIME) "
-                + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
-        dorisAssert.withTable(createTableSQL);
+                                    "deptno int, salary int, commission int, time DATETIME) "
+                                    + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
+        createTable(createTableSQL);
     }
 
     /**
@@ -180,10 +172,5 @@ public class AggregateTest {
             }
             Assert.fail("must be AnalysisException.");
         } while(false);
-    }
-
-    @AfterClass
-    public static void afterClass() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(baseDir);
     }
 }

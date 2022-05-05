@@ -17,29 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.utframe.UtFrameUtils;
-
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.util.UUID;
+import org.apache.doris.common.FeConstants;
 
 public class RangePartitionPruneTest extends PartitionPruneTestBase {
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        runningDir = "fe/mocked/RangePartitionPruneTest/" + UUID.randomUUID().toString() + "/";
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createDatabase("test");
 
         String singleColumnPartitionTable =
             "CREATE TABLE `test`.`t1` (\n" +
@@ -117,15 +104,10 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
                 "DISTRIBUTED BY HASH(`k1`) BUCKETS 10\n" +
                 "PROPERTIES ('replication_num' = '1');";
 
-        createTable(singleColumnPartitionTable);
-        createTable(notNullSingleColumnPartitionTable);
-        createTable(multipleColumnsPartitionTable);
-        createTable(notNullMultipleColumnsPartitionTable);
-    }
-
-    @AfterClass
-    public static void tearDown() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+        createTables(singleColumnPartitionTable,
+            notNullSingleColumnPartitionTable,
+            multipleColumnsPartitionTable,
+            notNullMultipleColumnsPartitionTable);
     }
 
     private void initTestCases() {

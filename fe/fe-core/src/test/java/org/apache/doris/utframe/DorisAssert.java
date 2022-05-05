@@ -50,6 +50,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+/**
+ * This class is deprecated.
+ * If you want to start a FE server in unit test, please let your
+ * test class extend {@link TestWithFeService}.
+ */
+@Deprecated
 public class DorisAssert {
 
     private ConnectContext ctx;

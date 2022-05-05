@@ -17,63 +17,54 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.junit.After;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.ExpectedException;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.util.List;
-import java.util.UUID;
 
-public class PlannerTest {
-    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
-    private static ConnectContext ctx;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-    @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
+public class PlannerTest extends TestWithFeService {
 
-    @After
-    public void tearDown() throws Exception {
-        FileUtils.deleteDirectory(new File(runningDir));
-    }
+    @Override
+    protected void runBeforeAll() throws Exception {
+        // Create database `db1`.
+        createDatabase("db1");
 
-    @BeforeClass
-    public static void setUp() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-        ctx = UtFrameUtils.createDefaultCtx();
-        String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
-                + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        // Create tables.
+        String tbl1 = "create table db1.tbl1(" +
+                          "k1 varchar(32), " +
+                          "k2 varchar(32), " +
+                          "k3 varchar(32), " +
+                          "k4 int) " +
+                          "AGGREGATE KEY(k1, k2,k3,k4) " +
+                          "distributed by hash(k1) buckets 3 " +
+                          "properties('replication_num' = '1');";
 
-        createTblStmtStr = "create table db1.tbl2(k1 int, k2 int sum) "
-                + "AGGREGATE KEY(k1) partition by range(k1) () distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        String tbl2 = "create table db1.tbl2(" +
+                          "k1 int, " +
+                          "k2 int sum) " +
+                          "AGGREGATE KEY(k1) " +
+                          "partition by range(k1) () " +
+                          "distributed by hash(k1) buckets 3 " +
+                          "properties('replication_num' = '1');";
 
-        createTblStmtStr = "create table db1.tbl3 (k1 date, k2 varchar(128) NULL, k3 varchar(5000) NULL) "
-                + "DUPLICATE KEY(k1, k2, k3) distributed by hash(k1) buckets 1 properties ('replication_num' = '1');";
-        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        String tbl3 = "create table db1.tbl3 (" +
+                        "k1 date, " +
+                        "k2 varchar(128) NULL, " +
+                        "k3 varchar(5000) NULL) " +
+                        "DUPLICATE KEY(k1, k2, k3) " +
+                        "distributed by hash(k1) buckets 1 " +
+                        "properties ('replication_num' = '1');";
+        createTables(tbl1, tbl2, tbl3);
     }
 
     @Test
@@ -87,7 +78,7 @@ public class PlannerTest {
                 + "  db1.tbl1 b\n"
                 + "  on (a.k1 = b.k1)\n"
                 + "where b.k1 = 'a'";
-        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
@@ -112,7 +103,7 @@ public class PlannerTest {
                 + "   union all\n"
                 + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
                 + "   order by 3 limit 3)";
-        StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+        StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
         List<PlanFragment> fragments2 = planner2.getFragments();
@@ -128,7 +119,7 @@ public class PlannerTest {
                 + "  db1.tbl1 b\n"
                 + "  on (a.k1 = b.k1)\n"
                 + "where b.k1 = 'a'";
-        StmtExecutor stmtExecutor3 = new StmtExecutor(ctx, sql3);
+        StmtExecutor stmtExecutor3 = new StmtExecutor(connectContext, sql3);
         stmtExecutor3.execute();
         Planner planner3 = stmtExecutor3.planner();
         List<PlanFragment> fragments3 = planner3.getFragments();
@@ -154,7 +145,7 @@ public class PlannerTest {
                 + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
                 + "   order by 3 limit 3)";
 
-        StmtExecutor stmtExecutor4 = new StmtExecutor(ctx, sql4);
+        StmtExecutor stmtExecutor4 = new StmtExecutor(connectContext, sql4);
         stmtExecutor4.execute();
         Planner planner4 = stmtExecutor4.planner();
         List<PlanFragment> fragments4 = planner4.getFragments();
@@ -170,7 +161,7 @@ public class PlannerTest {
                 + "  db1.tbl1 b\n"
                 + "  on (a.k1 = b.k1)\n"
                 + "where b.k1 = 'a'";
-        StmtExecutor stmtExecutor5 = new StmtExecutor(ctx, sql5);
+        StmtExecutor stmtExecutor5 = new StmtExecutor(connectContext, sql5);
         stmtExecutor5.execute();
         Planner planner5 = stmtExecutor5.planner();
         List<PlanFragment> fragments5 = planner5.getFragments();
@@ -185,7 +176,7 @@ public class PlannerTest {
                 + "except distinct\n"
                 + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
                 + "order by 3 limit 3";
-        StmtExecutor stmtExecutor6 = new StmtExecutor(ctx, sql6);
+        StmtExecutor stmtExecutor6 = new StmtExecutor(connectContext, sql6);
         stmtExecutor6.execute();
         Planner planner6 = stmtExecutor6.planner();
         List<PlanFragment> fragments6 = planner6.getFragments();
@@ -200,7 +191,7 @@ public class PlannerTest {
                 + "except\n"
                 + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
                 + "order by 3 limit 3";
-        StmtExecutor stmtExecutor7 = new StmtExecutor(ctx, sql7);
+        StmtExecutor stmtExecutor7 = new StmtExecutor(connectContext, sql7);
         stmtExecutor7.execute();
         Planner planner7 = stmtExecutor7.planner();
         List<PlanFragment> fragments7 = planner7.getFragments();
@@ -216,7 +207,7 @@ public class PlannerTest {
                 + "intersect\n"
                 + "(select * from db1.tbl1 where k1='a' and k4=2)\n"
                 + "order by 3 limit 3";
-        StmtExecutor stmtExecutor8 = new StmtExecutor(ctx, sql8);
+        StmtExecutor stmtExecutor8 = new StmtExecutor(connectContext, sql8);
         stmtExecutor8.execute();
         Planner planner8 = stmtExecutor8.planner();
         List<PlanFragment> fragments8 = planner8.getFragments();
@@ -245,7 +236,7 @@ public class PlannerTest {
                 + "   (select * from db1.tbl1 where k1='b' and k4=5)\n"
                 + "   order by 3 limit 3)";
 
-        StmtExecutor stmtExecutor9 = new StmtExecutor(ctx, sql9);
+        StmtExecutor stmtExecutor9 = new StmtExecutor(connectContext, sql9);
         stmtExecutor9.execute();
         Planner planner9 = stmtExecutor9.planner();
         List<PlanFragment> fragments9 = planner9.getFragments();
@@ -255,7 +246,7 @@ public class PlannerTest {
         Assert.assertEquals(2, StringUtils.countMatches(plan9, "EXCEPT"));
 
         String sql10 = "select 499 union select 670 except select 499";
-        StmtExecutor stmtExecutor10 = new StmtExecutor(ctx, sql10);
+        StmtExecutor stmtExecutor10 = new StmtExecutor(connectContext, sql10);
         stmtExecutor10.execute();
         Planner planner10 = stmtExecutor10.planner();
         List<PlanFragment> fragments10 = planner10.getFragments();
@@ -268,7 +259,7 @@ public class PlannerTest {
                 "(SELECT '01' x) a \n" +
                 "INNER JOIN\n" +
                 "(SELECT '01' x UNION all SELECT '02') b";
-        StmtExecutor stmtExecutor11 = new StmtExecutor(ctx, sql11);
+        StmtExecutor stmtExecutor11 = new StmtExecutor(connectContext, sql11);
         stmtExecutor11.execute();
         Planner planner11 = stmtExecutor11.planner();
         SetOperationNode setNode11 = (SetOperationNode)(planner11.getFragments().get(1).getPlanRoot());
@@ -280,7 +271,7 @@ public class PlannerTest {
                 "(SELECT k1 from db1.tbl1 \n" +
                 "UNION all \n" +
                 "SELECT k1 from db1.tbl1) b;";
-        StmtExecutor stmtExecutor12 = new StmtExecutor(ctx, sql12);
+        StmtExecutor stmtExecutor12 = new StmtExecutor(connectContext, sql12);
         stmtExecutor12.execute();
         Planner planner12 = stmtExecutor12.planner();
         SetOperationNode setNode12 = (SetOperationNode)(planner12.getFragments().get(1).getPlanRoot());
@@ -314,7 +305,7 @@ public class PlannerTest {
                 "    )\n" +
                 ") t\n" +
                 "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
-        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
@@ -341,7 +332,7 @@ public class PlannerTest {
                         "    GROUP BY k1, k2, k3\n" +
                         ") t\n" +
                         "WHERE IF(k2 IS NULL, 'ALL', k2) = 'ALL'";
-        StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+        StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
         stmtExecutor2.execute();
         Planner planner2 = stmtExecutor2.planner();
         List<PlanFragment> fragments2 = planner2.getFragments();
@@ -356,7 +347,7 @@ public class PlannerTest {
                 "b as ( select '543' as user_id) " +
                 "select user_id from a union all select user_id from b";
 
-        StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+        StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
         stmtExecutor1.execute();
         Planner planner1 = stmtExecutor1.planner();
         List<PlanFragment> fragments1 = planner1.getFragments();
@@ -367,7 +358,7 @@ public class PlannerTest {
     @Test
     public void testAccessingVisibleColumnWithoutPartition() throws Exception {
         String sql = "select count(k1) from db1.tbl2";
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Assert.assertNotNull(stmtExecutor.planner());
     }
@@ -379,7 +370,7 @@ public class PlannerTest {
                 "LEFT JOIN (SELECT 1 AS line, k1, k2, k3 FROM db1.tbl3) t\n" +
                 "ON t.k1 = a.k1 AND t.k3 = a.k3\n" +
                 "GROUP BY a.k1, a.k3";
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
         stmtExecutor.execute();
         Assert.assertNotNull(stmtExecutor.planner());
         Planner planner = stmtExecutor.planner();
@@ -403,7 +394,7 @@ public class PlannerTest {
     @Test
     public void testBigintSlotRefCompareDecimalLiteral() {
         java.util.function.BiConsumer<String, String> compare = (sql1, sql2) -> {
-            StmtExecutor stmtExecutor1 = new StmtExecutor(ctx, sql1);
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
             try {
                 stmtExecutor1.execute();
             } catch (Exception e) {
@@ -413,7 +404,7 @@ public class PlannerTest {
             List<PlanFragment> fragments1 = planner1.getFragments();
             String plan1 = planner1.getExplainString(fragments1, new ExplainOptions(false, false));
 
-            StmtExecutor stmtExecutor2 = new StmtExecutor(ctx, sql2);
+            StmtExecutor stmtExecutor2 = new StmtExecutor(connectContext, sql2);
             try {
                 stmtExecutor2.execute();
             } catch (Exception e) {
@@ -444,9 +435,8 @@ public class PlannerTest {
     public void testStringType() throws Exception {
         String createTbl1 = "create table db1.tbl1(k1 string, k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1')";
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("String Type should not be used in key column[k1].");
-        UtFrameUtils.parseAndAnalyzeStmt(createTbl1, ctx);
+        AnalysisException exception =
+            assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(createTbl1));
+        assertEquals("String Type should not be used in key column[k1].", exception.getMessage());
     }
-
 }

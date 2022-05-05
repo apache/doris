@@ -17,10 +17,10 @@
 
 package org.apache.doris.planner;
 
+import java.util.List;
+
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.ExplainTest;
 import org.apache.doris.analysis.Expr;
@@ -47,42 +47,24 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 
 import org.apache.commons.lang3.StringUtils;
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
 import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
-import java.util.List;
-import java.util.UUID;
+public class QueryPlanTest extends TestWithFeService {
 
-public class QueryPlanTest {
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
-
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-
+    @Override
+    protected void runBeforeAll() throws Exception {
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
 
         // create database
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createDatabase("test");
 
         createTable("create table test.test1\n" +
                 "(\n" +
@@ -434,160 +416,132 @@ public class QueryPlanTest {
                 ");");
     }
 
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
-    }
-
-    private static void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createView(createViewStmt);
-    }
-
     @Test
     public void testFunctionViewGroupingSet() throws Exception {
         String queryStr = "select query_id, client_ip, concat from test.function_view group by rollup(query_id, client_ip, concat);";
-        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainStr.contains("repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]"));
+        assertSQLPlanOrErrorMsgContains(queryStr, "repeat: repeat 3 lines [[], [0], [0, 1], [0, 1, 2, 3]]");
     }
 
     @Test
     public void testBitmapInsertInto() throws Exception {
-        String queryStr = "explain INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
+        assertSQLPlanOrErrorMsgContains(
+            "explain INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
+            "OLAP TABLE SINK");
 
-        queryStr = "explain insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("bitmap_union"));
-        Assert.assertTrue(explainString.contains("1:AGGREGATE"));
-        Assert.assertTrue(explainString.contains("0:OlapScanNode"));
+        assertSQLPlanOrErrorMsgContains(
+            "explain insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
+            "OLAP TABLE SINK",
+            "bitmap_union",
+            "1:AGGREGATE",
+            "0:OlapScanNode");
 
-        queryStr = "explain insert into test.bitmap_table select id, id2 from test.bitmap_table_2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(explainString.contains("OLAP TABLE SINK"));
-        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`id` | `id2`"));
-        Assert.assertTrue(explainString.contains("0:OlapScanNode"));
+        assertSQLPlanOrErrorMsgContains(
+            "explain insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
+            "OLAP TABLE SINK",
+            "OUTPUT EXPRS:`id` | `id2`",
+            "0:OlapScanNode");
 
-        queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
-        String errorMsg = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
-        Assert.assertTrue(errorMsg.contains("bitmap column require the function return type is BITMAP"));
-    }
-
-    private static void testBitmapQueryPlan(String sql, String result) throws Exception {
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains(result));
+        assertSQLPlanOrErrorMsgContains("explain insert into test.bitmap_table select id, id from test.bitmap_table_2;",
+            "bitmap column require the function return type is BITMAP");
     }
 
     @Test
     public void testBitmapQuery() throws Exception {
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select * from test.bitmap_table;",
                 "OUTPUT EXPRS:`default_cluster:test`.`bitmap_table`.`id` | `default_cluster:test`.`bitmap_table`.`id2`"
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.bitmap_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select group_concat(id2) from test.bitmap_table;",
                 "group_concat requires first parameter to be of type STRING: group_concat(`id2`)"
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select sum(id2) from test.bitmap_table;",
                 "sum requires a numeric parameter: sum(`id2`)"
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select avg(id2) from test.bitmap_table;",
                 "avg requires a numeric parameter: avg(`id2`)"
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select max(id2) from test.bitmap_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select min(id2) from test.bitmap_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table group by id2;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
                 "Bitmap type dose not support operand: `id2` = 1"
         );
 
     }
 
-    private static void testHLLQueryPlan(String sql, String result) throws Exception {
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains(result));
-    }
-
     @Test
     public void testHLLTypeQuery() throws Exception {
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select * from test.hll_table;",
                 "OUTPUT EXPRS:`default_cluster:test`.`hll_table`.`id` | `default_cluster:test`.`hll_table`.`id2`"
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(id2) from test.hll_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select group_concat(id2) from test.hll_table;",
                 "group_concat requires first parameter to be of type STRING: group_concat(`id2`)"
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select sum(id2) from test.hll_table;",
                 "sum requires a numeric parameter: sum(`id2`)"
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select avg(id2) from test.hll_table;",
                 "avg requires a numeric parameter: avg(`id2`)"
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select max(id2) from test.hll_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select min(id2) from test.hll_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select min(id2) from test.hll_table;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.hll_table group by id2;",
                 Type.OnlyMetricTypeErrorMsg
         );
 
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.hll_table where id2 = 1",
                 "Hll type dose not support operand: `id2` = 1"
         );
@@ -597,28 +551,28 @@ public class QueryPlanTest {
     public void testTypeCast() throws Exception {
         // cmy: this test may sometimes failed in our daily test env, so I add a case here.
         String sql = "select * from test.baseall a where k1 in (select k1 from test.bigtable b where k2 > 0 and k1 = 1);";
-        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
-        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        List<StatementBase> stmts = parseAndAnalyzeStmts(sql);
         Assert.assertEquals(2, stmts.size());
 
         // disable cast hll/bitmap to string
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
                 "Invalid type cast of `id2` from HLL to VARCHAR(*)"
         );
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
                 "Invalid type cast of `id2` from BITMAP to VARCHAR(*)"
         );
         // disable implicit cast hll/bitmap to string
-        testHLLQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
                 "No matching function with signature: length(hll)"
         );
-        testBitmapQueryPlan(
+        assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
                 "No matching function with signature: length(bitmap)"
         );
@@ -627,71 +581,71 @@ public class QueryPlanTest {
     @Test
     public void testMultiStmts() throws Exception {
         String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
-        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        List<StatementBase> stmts = parseAndAnalyzeStmts(sql);
         Assert.assertEquals(2, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
-        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        stmts = parseAndAnalyzeStmts(sql);
         Assert.assertEquals(1, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;SHOW VARIABLES LIKE 'lower_case_%';";
-        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        stmts = parseAndAnalyzeStmts(sql);
         Assert.assertEquals(4, stmts.size());
 
         sql = "SHOW VARIABLES LIKE 'lower_case_%'";
-        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        stmts = parseAndAnalyzeStmts(sql);
         Assert.assertEquals(1, stmts.size());
     }
 
     @Test
     public void testCountDistinctRewrite() throws Exception {
         String sql = "select count(distinct id) from test.bitmap_table";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("output: count"));
 
         sql = "select count(distinct id2) from test.bitmap_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select sum(id) / count(distinct id2) from test.bitmap_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct id2) from test.hll_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("hll_union_agg"));
 
         sql = "select sum(id) / count(distinct id2) from test.hll_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("hll_union_agg"));
 
         sql = "select count(distinct id2) from test.bitmap_table group by id order by count(distinct id2)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct id2) from test.bitmap_table having count(distinct id2) > 0";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct id2) from test.bitmap_table order by count(distinct id2)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct if(id = 1, id2, null)) from test.bitmap_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct ifnull(id2, id3)) from test.bitmap_table_2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         sql = "select count(distinct coalesce(id2, id3)) from test.bitmap_table_2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select count(distinct id2) from test.bitmap_table";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
     }
 
@@ -699,8 +653,8 @@ public class QueryPlanTest {
     public void testCreateDbQueryPlanWithSchemaSyntax() throws Exception {
         String createSchemaSql = "create schema if not exists test";
         String createDbSql = "create database if not exists test";
-        CreateDbStmt createSchemaStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createSchemaSql, connectContext);
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
+        CreateDbStmt createSchemaStmt = (CreateDbStmt) parseAndAnalyzeStmt(createSchemaSql);
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbSql);
         Assert.assertEquals(createDbStmt.toSql(), createSchemaStmt.toSql());
     }
 
@@ -708,8 +662,8 @@ public class QueryPlanTest {
     public void testDropDbQueryPlanWithSchemaSyntax() throws Exception {
         String dropSchemaSql = "drop schema if exists test";
         String dropDbSql = "drop database if exists test";
-        DropDbStmt dropSchemaStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropSchemaSql, connectContext);
-        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbSql, connectContext);
+        DropDbStmt dropSchemaStmt = (DropDbStmt) parseAndAnalyzeStmt(dropSchemaSql);
+        DropDbStmt dropDbStmt = (DropDbStmt) parseAndAnalyzeStmt(dropDbSql);
         Assert.assertEquals(dropDbStmt.toSql(), dropSchemaStmt.toSql());
     }
 
@@ -717,21 +671,20 @@ public class QueryPlanTest {
     public void testShowCreateDbQueryPlanWithSchemaSyntax() throws Exception {
         String showCreateSchemaSql = "show create schema test";
         String showCreateDbSql = "show create database test";
-        ShowCreateDbStmt showCreateSchemaStmt = (ShowCreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(showCreateSchemaSql, connectContext);
-        ShowCreateDbStmt showCreateDbStmt = (ShowCreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(showCreateDbSql, connectContext);
+        ShowCreateDbStmt showCreateSchemaStmt = (ShowCreateDbStmt) parseAndAnalyzeStmt(showCreateSchemaSql);
+        ShowCreateDbStmt showCreateDbStmt = (ShowCreateDbStmt) parseAndAnalyzeStmt(showCreateDbSql);
         Assert.assertEquals(showCreateDbStmt.toSql(), showCreateSchemaStmt.toSql());
     }
 
     @Test
     public void testDateTypeCastSyntax() throws Exception {
         String castSql = "select * from test.baseall where k11 < cast('2020-03-26' as date)";
-        SelectStmt selectStmt =
-                (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(castSql, connectContext);
+        SelectStmt selectStmt = (SelectStmt) parseAndAnalyzeStmt(castSql);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
         Assert.assertTrue(rightExpr.getType().equals(Type.DATETIME));
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + castSql2);
+        String explainString = getSQLPlanOrErrorMsg("explain " + castSql2);
         Assert.assertTrue(explainString.contains("2011-11-09"));
         Assert.assertFalse(explainString.contains("2011-11-09 00:00:00"));
     }
@@ -747,7 +700,7 @@ public class QueryPlanTest {
                 "(event_date = default_value('2020-03-06'))) \n" +
                 "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n" +
                 "";
-        LoadStmt loadStmt = (LoadStmt) UtFrameUtils.parseAndAnalyzeStmt(loadStr, connectContext);
+        LoadStmt loadStmt = (LoadStmt) parseAndAnalyzeStmt(loadStr);
         Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
     }
@@ -763,7 +716,7 @@ public class QueryPlanTest {
                 "from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -772,7 +725,7 @@ public class QueryPlanTest {
                 "from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id in (2);";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` IN (2)"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` IN (2)"));
 
@@ -781,7 +734,7 @@ public class QueryPlanTest {
                 "from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "where join1.id BETWEEN 1 AND 2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` >= 1, `join1`.`id` <= 2"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` >= 1, `join2`.`id` <= 2"));
 
@@ -790,7 +743,7 @@ public class QueryPlanTest {
         String sql = "select *\n from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -801,7 +754,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("other join predicates: `join2`.`id` > 1"));
         */
@@ -810,7 +763,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -819,7 +772,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         */
@@ -828,7 +781,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -837,7 +790,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
                 "where join2.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         */
@@ -846,14 +799,14 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
                 "and 1 < join2.id;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.value\n" +
                 "and join2.value in ('abc');";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertFalse(explainString.contains("'abc' is not a number"));
         Assert.assertFalse(explainString.contains("`join1`.`value` IN ('abc')"));
 
@@ -861,7 +814,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -869,7 +822,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join2.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -877,7 +830,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left anti join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("other join predicates: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
@@ -885,7 +838,7 @@ public class QueryPlanTest {
         sql = "select *\n from join1\n" +
                 "left semi join join2 on join1.id = join2.id\n" +
                 "and join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -894,7 +847,7 @@ public class QueryPlanTest {
                 "from join1\n" +
                 "left anti join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
 
@@ -903,7 +856,7 @@ public class QueryPlanTest {
                 "from join1\n" +
                 "left semi join join2 on join1.id = join2.id\n" +
                 "where join1.id > 1;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join2`.`id` > 1"));
         */
@@ -916,121 +869,121 @@ public class QueryPlanTest {
                 + "case when date_format(now(),'%H%i')  < 123 then 1 else 0 end as col "
                 + "from test.test1 "
                 + "where time = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub(now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + caseWhenSql), "CASE WHEN"));
+        Assert.assertTrue(!StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + caseWhenSql), "CASE WHEN"));
 
         // test 1: case when then
         // 1.1 multi when in on `case when` and can be converted to constants
         String sql11 = "select case when false then 2 when true then 3 else 0 end as col11;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql11), "constant exprs: \n         3"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql11), "constant exprs: \n         3"));
 
         // 1.2 multi `when expr` in on `case when` ,`when expr` can not be converted to constants
         String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql121),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql121),
                 "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
 
         // 1.2.2 when expr which can not be converted to constants in the first
         String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql122),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql122),
                 "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.2.3 test return `then expr` in the middle
         String sql124 = "select case when false then 1 when true then 2 when false then 3 else 'other' end as col124";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql124), "constant exprs: \n         '2'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql124), "constant exprs: \n         '2'"));
 
         // 1.3 test return null
         String sql3 = "select case when false then 2 end as col3";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql3), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql3), "constant exprs: \n         NULL"));
 
         // 1.3.1 test return else expr
         String sql131 = "select case when false then 2 when false then 3 else 4 end as col131";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql131), "constant exprs: \n         4"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql131), "constant exprs: \n         4"));
 
         // 1.4 nest `case when` and can be converted to constants
         String sql14 = "select case when (case when true then true else false end) then 2 when false then 3 else 0 end as col";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql14), "constant exprs: \n         2"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql14), "constant exprs: \n         2"));
 
         // 1.5 nest `case when` and can not be converted to constants
         String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3 else 0 end as col from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql15),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql15),
                 "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.6 test when expr is null
         String sql16 = "select case when null then 1 else 2 end as col16;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql16), "constant exprs: \n         2"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql16), "constant exprs: \n         2"));
 
         // test 2: case xxx when then
         // 2.1 test equal
         String sql2 = "select case 1 when 1 then 'a' when 2 then 'b' else 'other' end as col2;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql2), "constant exprs: \n         'a'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql2), "constant exprs: \n         'a'"));
 
         // 2.1.2 test not equal
         String sql212 = "select case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql212), "constant exprs: \n         'b'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql212), "constant exprs: \n         'b'"));
 
         // 2.2 test return null
         String sql22 = "select case 'a' when 1 then 'a' when 'b' then 'b' end as col22;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql22), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql22), "constant exprs: \n         NULL"));
 
         // 2.2.2 test return else
         String sql222 = "select case 1 when 2 then 'a' when 3 then 'b' else 'other' end as col222;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql222), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql222), "constant exprs: \n         'other'"));
 
         // 2.3 test can not convert to constant,middle when expr is not constant
         String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3 else 0 end as col23 from test.baseall";
-        String a = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23);
+        String a = getSQLPlanOrErrorMsg("explain " + sql23);
         Assert.assertTrue(StringUtils.containsIgnoreCase(a,
                 "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col231 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql231),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql231),
                 "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col232 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql232),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql232),
                 "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql31),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql31),
                 "constant exprs: \n         CASE 100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql41), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql41), "constant exprs: \n         'other'"));
 
         // 4.1.2 test null in case expr return null
         String sql412 = "select case null when 1 then 'a' when 2 then 'b' end as col41";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql412), "constant exprs: \n         NULL"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql412), "constant exprs: \n         NULL"));
 
         // 4.2.1 test null in when expr
         String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql421), "constant exprs: \n         'other'"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql421), "constant exprs: \n         'other'"));
 
         // 5.1 test same type in then expr and else expr
         String sql51 = "select case when 132 then k7 else 'all' end as col51 from test.baseall group by col51";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql51),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql51),
                 "OUTPUT EXPRS: CASE WHEN 132 THEN `k7` ELSE 'all' END"));
 
         // 5.2 test same type in then expr and else expr
         String sql52 = "select case when 2 < 1 then 'all' else k7 end as col52 from test.baseall group by col52";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql52),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql52),
                 "OUTPUT EXPRS: `k7`"));
 
         // 5.3 test different type in then expr and else expr, and return CastExpr<SlotRef>
         String sql53 = "select case when 2 < 1 then 'all' else k1 end as col53 from test.baseall group by col53";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql53),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql53),
                 "OUTPUT EXPRS: `k1`"));
 
         // 5.4 test return CastExpr<SlotRef> with other SlotRef in selectListItem
         String sql54 = "select k2, case when 2 < 1 then 'all' else k1 end as col54, k7 from test.baseall group by k2, col54, k7";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql54),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql54),
                 "OUTPUT EXPRS:<slot 3> `k2` | <slot 4> `k1` | <slot 5> `k7`"));
 
         // 5.5 test return CastExpr<CastExpr<SlotRef>> with other SlotRef in selectListItem
         String sql55 = "select case when 2 < 1 then 'all' else cast(k1 as int) end as col55, k7 from test.baseall group by col55, k7";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql55),
+        Assert.assertTrue(StringUtils.containsIgnoreCase(getSQLPlanOrErrorMsg("explain " + sql55),
                 "OUTPUT EXPRS:<slot 2> CAST(`k1` AS INT) | <slot 3> `k7`"));
     }
 
@@ -1042,7 +995,7 @@ public class QueryPlanTest {
                 "WHERE 0 < (\n" +
                 "    SELECT MAX(k9)\n" +
                 "    FROM test.pushdown_test);";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
         Assert.assertTrue(explainString.contains("CROSS JOIN"));
         Assert.assertTrue(!explainString.contains("PREDICATES"));
@@ -1052,7 +1005,7 @@ public class QueryPlanTest {
     public void testDistinctPushDown() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String sql = "select distinct k1 from (select distinct k1 from test.pushdown_test) t where k1 > 1";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        String explainString = getSQLPlanOrErrorMsg("explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
     }
 
@@ -1060,7 +1013,7 @@ public class QueryPlanTest {
     public void testConstInParitionPrune() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         FeConstants.runningUnitTest = false;
         Assert.assertTrue(explainString.contains("partitions=1/1"));
     }
@@ -1068,15 +1021,15 @@ public class QueryPlanTest {
     @Test
     public void testOrCompoundPredicateFold() throws Exception {
         String queryStr = "explain select * from baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
 
         queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
 
         queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
     }
 
@@ -1085,20 +1038,20 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = true;
 
         String queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k1 and t1.k2 = t2.k2 and t1.k3 = t2.k3";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
 
         queryStr = "explain select * from test.colocate1 t1 join [shuffle] test.colocate2 t2 on t1.k1 = t2.k1 and t1.k2 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
 
         // t1.k1 = t2.k2 not same order with distribute column
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k1 = t2.k2 and t1.k2 = t2.k1 and t1.k3 = t2.k3";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
 
         queryStr = "explain select * from test.colocate1 t1, test.colocate2 t2 where t1.k2 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
     }
 
@@ -1108,12 +1061,12 @@ public class QueryPlanTest {
 
         // single partition
         String queryStr = "explain select * from test.jointest t1, test.jointest t2 where t1.k1 = t2.k1";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: true"));
 
         // multi partition, should not be colocate
         queryStr = "explain select * from test.dynamic_partition t1, test.dynamic_partition t2 where t1.k1 = t2.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("colocate: false"));
     }
 
@@ -1154,48 +1107,48 @@ public class QueryPlanTest {
 
         // single partition
         String queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
 
         // not bucket shuffle join do not support different type
         queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where cast (t1.k1 as tinyint) = t2.k1 and t1.k1 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // left table distribution column not match
         queryStr = "explain select * from test.jointest t1, test.bucket_shuffle1 t2 where t1.k1 = t2.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // multi partition, should not be bucket shuffle join
         queryStr = "explain select * from test.jointest t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // left table is colocate table, should be bucket shuffle
         queryStr = "explain select * from test.colocate1 t1, test.bucket_shuffle2 t2 where t1.k1 = t2.k1 and t1.k1 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE"));
 
         // support recurse of bucket shuffle join
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
                 "on t2.k1 = t3.k1 and t2.k2 = t3.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t3`.`k1`, `t3`.`k2`"));
 
         // support recurse of bucket shuffle because t4 join t2 and join column name is same as t2 distribute column name
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
                 "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t2.k1 and t4.k1 = t2.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
         // some column name in join expr t3 join t4 and t1 distribute column name, so should not be bucket shuffle join
         queryStr = "explain select * from test.jointest t1 join test.bucket_shuffle1 t2 on t1.k1 = t2.k1 and t1.k1 = t2.k2 join test.colocate1 t3 " +
                 "on t2.k1 = t3.k1 join test.jointest t4 on t4.k1 = t3.k1 and t4.k2 = t3.k2";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t1`.`k1`, `t1`.`k1`"));
         Assert.assertTrue(!explainString.contains("BUCKET_SHFFULE_HASH_PARTITIONED: `t4`.`k1`, `t4`.`k1`"));
 
@@ -1223,17 +1176,17 @@ public class QueryPlanTest {
         }
 
         String queryStr = "explain select * from mysql_table t2, jointest t1 where t1.k1 = t2.k1";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2 where t1.k1 = t2.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN MYSQL"));
 
         queryStr = "explain select * from jointest t1, mysql_table t2, mysql_table t3 where t1.k1 = t3.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
@@ -1270,17 +1223,17 @@ public class QueryPlanTest {
         }
 
         String queryStr = "explain select * from odbc_mysql t2, jointest t1 where t1.k1 = t2.k1";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2 where t1.k1 = t2.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
         Assert.assertTrue(explainString.contains("1:SCAN ODBC"));
 
         queryStr = "explain select * from jointest t1, odbc_mysql t2, odbc_mysql t3 where t1.k1 = t3.k1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("INNER JOIN (PARTITIONED)"));
 
         // should clear the jointest table to make sure do not affect other test
@@ -1303,14 +1256,14 @@ public class QueryPlanTest {
 
         // MySQL ODBC table can push down all filter
         String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("`k1` > 10"));
         Assert.assertTrue(explainString.contains("abs(`k1`) > 10"));
 
         // now we do not support odbc scan node push down function call, except MySQL ODBC table
         // this table is Oracle ODBC table, so abs(k1) should not be pushed down
         queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("k1 > 10"));
         Assert.assertTrue(!explainString.contains("abs(k1) > 10"));
     }
@@ -1321,24 +1274,24 @@ public class QueryPlanTest {
 
         // ODBC table (MySQL)
         String queryStr = "explain select * from odbc_mysql where k1 > 10 and abs(k1) > 10 limit 10";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("LIMIT 10"));
 
         // ODBC table (Oracle) not push down limit
         queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10 limit 10";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         // abs is function, so Doris do not push down function except MySQL Database
         // so should not push down limit operation
         Assert.assertTrue(!explainString.contains("ROWNUM <= 10"));
 
         // ODBC table (Oracle) push down limit
         queryStr = "explain select * from odbc_oracle where k1 > 10 limit 10";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("ROWNUM <= 10"));
 
         // MySQL table
         queryStr = "explain select * from mysql_table where k1 > 10 and abs(k1) > 10 limit 10";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("LIMIT 10"));
     }
 
@@ -1348,7 +1301,7 @@ public class QueryPlanTest {
 
         // insert into odbc_oracle table
         String queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("TABLENAME IN DORIS: odbc_oracle"));
         Assert.assertTrue(explainString.contains("TABLE TYPE: ORACLE"));
         Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: tbl1"));
@@ -1356,7 +1309,7 @@ public class QueryPlanTest {
         // enable transaction of ODBC Sink
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableOdbcTransaction", true);
         queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("EnableTransaction: true"));
     }
 
@@ -1367,15 +1320,15 @@ public class QueryPlanTest {
         String queryStr = "explain select * from (select k2 from jointest group by k2)t2, jointest t1 where t1.k1 = t2.k2";
 
         // default set PreferBroadcastJoin true
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("shuffle");
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (PARTITIONED)"));
 
         connectContext.getSessionVariable().setPreferJoinMethod("broadcast");
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("INNER JOIN (BROADCAST)"));
     }
 
@@ -1385,28 +1338,28 @@ public class QueryPlanTest {
 
         String queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filter"));
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "REMOTE");
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "OFF");
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filter"));
 
         queryStr = "explain select * from jointest t2, jointest t1 where t1.k1 <=> t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "LOCAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
 
         queryStr = "explain select * from jointest as a where k1 = (select count(1) from jointest as b where a.k1 = b.k1);";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
     }
 
@@ -1417,82 +1370,82 @@ public class QueryPlanTest {
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 0);
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("runtime filter"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 1);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 2);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 3);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 4);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 5);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 6);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 7);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 8);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 9);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 10);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 11);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
 
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 12);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] <- `t1`.`k1`, RF001[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[min_max] -> `t2`.`k1`, RF001[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 13);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 14);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] <- `t1`.`k1`, RF001[min_max] <- `t1`.`k1`, RF002[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`, RF001[min_max] -> `t2`.`k1`, RF002[in_or_bloom] -> `t2`.`k1`"));
 
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", 15);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`, RF001[bloom] <- `t1`.`k1`, RF002[min_max] <- `t1`.`k1`, RF003[in_or_bloom] <- `t1`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`, RF001[bloom] -> `t2`.`k1`, RF002[min_max] -> `t2`.`k1`, RF003[in_or_bloom] -> `t2`.`k1`"));
 
@@ -1500,7 +1453,7 @@ public class QueryPlanTest {
         queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN.getValue());
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] -> `t2`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in] <- `t1`.`k1`"));
         Assert.assertFalse(explainString.contains("runtime filters: RF000[bloom] -> `t2`.`k1`"));
@@ -1509,7 +1462,7 @@ public class QueryPlanTest {
         queryStr = "explain select * from jointest t2 join [shuffle] jointest t1 where t1.k1 = t2.k1";
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterMode", "GLOBAL");
         Deencapsulation.setField(connectContext.getSessionVariable(), "runtimeFilterType", TRuntimeFilterType.IN_OR_BLOOM.getValue());
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] -> `t2`.`k1`"));
         Assert.assertTrue(explainString.contains("runtime filters: RF000[in_or_bloom] <- `t1`.`k1`"));
     }
@@ -1536,7 +1489,7 @@ public class QueryPlanTest {
         sqls.add("explain select * from baseall join bigtable as b on null = 2");
 
         for (String sql : sqls) {
-            String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+            String explainString = getSQLPlanOrErrorMsg(sql);
             Assert.assertTrue(explainString.contains(emptyNode));
             Assert.assertFalse(explainString.contains(denseRank));
         }
@@ -1564,10 +1517,10 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         String sql = "SELECT dt, dis_key, COUNT(1) FROM table_unpartitioned  group by dt, dis_key";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
         sql = "SELECT dt, dis_key, COUNT(1) FROM table_partitioned  group by dt, dis_key";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("AGGREGATE (update serialize)"));
     }
 
@@ -1577,19 +1530,19 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
 
         String queryStr = "explain select time, lead(query_time, 1, NULL) over () as time2 from test.test1";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
 
         queryStr = "explain select time, lead(query_time, 1, 2) over () as time2 from test.test1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
 
         queryStr = "explain select time, lead(time, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lead(`time`, 1, '2020-01-01 00:00:00')"));
 
         queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
     }
 
@@ -1598,29 +1551,29 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         //valid date
         String sql = "select day from tbl_int_date where day in ('2020-10-30')";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //valid date
         sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
 
         //valid datetime
         sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:30')"));
         //valid datetime
         sql = "select day from tbl_int_date where date in ('2020-10-30')";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
 
         //int date
         sql = "select day from tbl_int_date where day in (20201030)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //int datetime
         sql = "select day from tbl_int_date where date in (20201030)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
     }
 
@@ -1629,31 +1582,31 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         //valid date
         String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
 
         sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
 
         sql = "SELECT a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("if(TupleIsNull(0), NULL, 1)"));
         Assert.assertTrue(explainString.contains("if(TupleIsNull(2), NULL, 999)"));
     }
@@ -1663,58 +1616,58 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         //default format
         String sql = "select * from test1 where from_unixtime(query_time) > '2021-03-02 10:01:28'";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
 
         //format yyyy-MM-dd HH:mm:ss or %Y-%m-%d %H:%i:%s
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm:ss') > '2021-03-02 10:01:28'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
         sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d %H:%i:%s') > '2021-03-02 10:01:28'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614650488"));
 
         //format yyyy-MM-dd or %Y-%m-%d
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') > '2021-03-02'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
         sql = "select * from test1 where from_unixtime(query_time, '%Y-%m-%d') > '2021-03-02'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
 
         // format yyyyMMdd or %Y%m%d
         sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '20210302'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
         sql = "select * from test1 where from_unixtime(query_time, '%Y%m%d') > '20210302'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` <= 253402271999, `query_time` > 1614614400"));
 
         //format less than
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd') < '2021-03-02'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` < 1614614400, `query_time` >= 0"));
 
         // Do not support other format
         //format yyyy-MM-dd HH:mm
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH:mm') > '2021-03-02 10:01'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
         //format yyyy-MM-dd HH
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM-dd HH') > '2021-03-02 10'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
         //format yyyy-MM
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy-MM') > '2021-03'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
         //format yyyy
         sql = "select * from test1 where from_unixtime(query_time, 'yyyy') > '2021'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
         // parse error
         sql = "select * from test1 where from_unixtime(query_time, 'yyyyMMdd') > '2021-03-02 10:01:28'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertFalse(explainString.contains("PREDICATES: `query_time` <= 253402271999"));
     }
 
@@ -1724,115 +1677,115 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         //valid date
         String sql = "select day from tbl_int_date where day = '2020-10-30'";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
         sql = "select day from tbl_int_date where day = from_unixtime(1196440219)";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2007-12-01 00:30:19'"));
         sql = "select day from tbl_int_date where day = str_to_date('2014-12-21 12:34:56', '%Y-%m-%d %H:%i:%s');";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2014-12-21 12:34:56'"));
         //valid date
         sql = "select day from tbl_int_date where day = 20201030";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date
         sql = "select day from tbl_int_date where day = '20201030'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 00:00:00'"));
         //valid date contains micro second
         sql = "select day from tbl_int_date where day = '2020-10-30 10:00:01.111111'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `day` = '2020-10-30 10:00:01'"));
         //invalid date
 
         sql = "select day from tbl_int_date where day = '2020-10-32'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `day` = '2020-10-32'"));
 
         //invalid date
         sql = "select day from tbl_int_date where day = '20201032'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '20201032' in expression: `day` = '20201032'"));
         //invalid date
         sql = "select day from tbl_int_date where day = 20201032";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 20201032 in expression: `day` = 20201032"));
         //invalid date
         sql = "select day from tbl_int_date where day = 'hello'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `day` = 'hello'"));
         //invalid date
         sql = "select day from tbl_int_date where day = 2020-10-30";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `day` = 1980"));
         //invalid date
         sql = "select day from tbl_int_date where day = 10-30";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `day` = -20"));
         //valid datetime
         sql = "select day from tbl_int_date where date = '2020-10-30 12:12:30'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:30'"));
         //valid datetime, support parsing to minute
         sql = "select day from tbl_int_date where date = '2020-10-30 12:12'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:12:00'"));
         //valid datetime, support parsing to hour
         sql = "select day from tbl_int_date where date = '2020-10-30 12'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 12:00:00'"));
         //valid datetime
         sql = "select day from tbl_int_date where date = 20201030";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime
         sql = "select day from tbl_int_date where date = '20201030'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime
         sql = "select day from tbl_int_date where date = '2020-10-30'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 00:00:00'"));
         //valid datetime contains micro second
         sql = "select day from tbl_int_date where date = '2020-10-30 10:00:01.111111'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2020-10-30 10:00:01'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-32'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-32' in expression: `date` = '2020-10-32'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 'hello'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 'hello' in expression: `date` = 'hello'"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 2020-10-30";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: 1980 in expression: `date` = 1980"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = 10-30";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: -20 in expression: `date` = -20"));
         //invalid datetime
         sql = "select day from tbl_int_date where date = '2020-10-12 12:23:76'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("Incorrect datetime value: '2020-10-12 12:23:76' in expression: `date` = '2020-10-12 12:23:76'"));
 
         sql = "select day from tbl_int_date where date = '1604031150'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
 
         sql = "select day from tbl_int_date where date = '1604031150000'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `date` = '2016-04-03 11:50:00'"));
 
         String queryStr = "explain select count(*) from test.baseall where k11 > to_date(now())";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > to_date"));
 
         queryStr = "explain select count(*) from test.baseall where k11 > '2021-6-1'";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertTrue(explainString.contains("PREDICATES: `k11` > '2021-06-01 00:00:00'"));
     }
 
@@ -1841,11 +1794,11 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = true;
         connectContext.setDatabase("default_cluster:test");
         String sql = "select * from tbl_null_column_view where add_column is not null;";
-        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainString1.contains("EMPTYSET"));
 
         String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
-        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        String explainString2 = getSQLPlanOrErrorMsg("EXPLAIN " + sql2);
         Assert.assertTrue(explainString2.contains("EMPTYSET"));
     }
 
@@ -1855,53 +1808,53 @@ public class QueryPlanTest {
 
         // false or e ==> e
         String sql1 = "select * from test.test1 where 2=-2 OR query_time=0;";
-        String explainString1 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql1);
+        String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql1);
         Assert.assertTrue(explainString1.contains("PREDICATES: `query_time` = 0"));
 
         //true or e ==> true
         String sql2 = "select * from test.test1 where -5=-5 OR query_time=0;";
-        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql2);
+        String explainString2 = getSQLPlanOrErrorMsg("EXPLAIN " + sql2);
         Assert.assertTrue(!explainString2.contains("OR"));
 
         //e or true ==> true
         String sql3 = "select * from test.test1 where query_time=0 OR -5=-5;";
-        String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql3);
+        String explainString3 = getSQLPlanOrErrorMsg("EXPLAIN " + sql3);
         Assert.assertTrue(!explainString3.contains("OR"));
 
         //e or false ==> e
         String sql4 = "select * from test.test1 where -5!=-5 OR query_time=0;";
-        String explainString4 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql4);
+        String explainString4 = getSQLPlanOrErrorMsg("EXPLAIN " + sql4);
         Assert.assertTrue(explainString4.contains("PREDICATES: `query_time` = 0"));
 
 
         // true and e ==> e
         String sql5 = "select * from test.test1 where -5=-5 AND query_time=0;";
-        String explainString5 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql5);
+        String explainString5 = getSQLPlanOrErrorMsg("EXPLAIN " + sql5);
         Assert.assertTrue(explainString5.contains("PREDICATES: `query_time` = 0"));
 
         // e and true ==> e
         String sql6 = "select * from test.test1 where query_time=0 AND -5=-5;";
-        String explainString6 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql6);
+        String explainString6 = getSQLPlanOrErrorMsg("EXPLAIN " + sql6);
         Assert.assertTrue(explainString6.contains("PREDICATES: `query_time` = 0"));
 
         // false and e ==> false
         String sql7 = "select * from test.test1 where -5!=-5 AND query_time=0;";
-        String explainString7 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql7);
+        String explainString7 = getSQLPlanOrErrorMsg("EXPLAIN " + sql7);
         Assert.assertTrue(!explainString7.contains("FALSE"));
 
         // e and false ==> false
         String sql8 = "select * from test.test1 where query_time=0 AND -5!=-5;";
-        String explainString8 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql8);
+        String explainString8 = getSQLPlanOrErrorMsg("EXPLAIN " + sql8);
         Assert.assertTrue(!explainString8.contains("FALSE"));
 
         // (false or expr1) and (false or expr2) ==> expr1 and expr2
         String sql9 = "select * from test.test1 where (-2=2 or query_time=2) and (-2=2 or stmt_id=2);";
-        String explainString9 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql9);
+        String explainString9 = getSQLPlanOrErrorMsg("EXPLAIN " + sql9);
         Assert.assertTrue(explainString9.contains("PREDICATES: `query_time` = 2, `stmt_id` = 2"));
 
         // false or (expr and true) ==> expr
         String sql10 = "select * from test.test1 where (2=-2) OR (query_time=0 AND 1=1);";
-        String explainString10 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql10);
+        String explainString10 = getSQLPlanOrErrorMsg( "EXPLAIN " + sql10);
         Assert.assertTrue(explainString10.contains("PREDICATES: `query_time` = 0"));
     }
 
@@ -1925,7 +1878,7 @@ public class QueryPlanTest {
         // test after query rewrite, outfile still work
         String sql = "select * from test.outfile1 where `date` between '2021-10-07' and '2021-10-11'" +
                 "INTO OUTFILE \"file:///tmp/1_\" FORMAT AS CSV PROPERTIES (     \"column_separator\" = \",\",     \"line_delimiter\" = \"\\n\",     \"max_file_size\" = \"500MB\" );";
-        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00', `date` <= '2021-10-11 00:00:00'"));
     }
 
@@ -1934,7 +1887,7 @@ public class QueryPlanTest {
     public void testEmptyNodeWithOuterJoinAndAnalyticFunction() throws Exception {
         // create database
         String createDbStmtStr = "create database issue7929;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         createTable(" CREATE TABLE issue7929.`t1` (\n" +
                 "  `k1` int(11) NULL COMMENT \"\",\n" +
@@ -1961,7 +1914,7 @@ public class QueryPlanTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ")");
         String sql = "select * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2)a on t1.k1=a.x where 1=0;";
-        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        String explainStr = getSQLPlanOrErrorMsg(sql, true);
         Assert.assertTrue(explainStr.contains("4:EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 0 1 5"));
     }
@@ -1970,7 +1923,7 @@ public class QueryPlanTest {
     // Open it after fixing issue #7971
     public void testGroupingSetOutOfBoundError() throws Exception {
         String createDbStmtStr = "create database issue1111;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         createTable("CREATE TABLE issue1111.`test1` (\n" +
                 "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
@@ -1982,7 +1935,7 @@ public class QueryPlanTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
                 ");");
         String sql = "SELECT k1 ,GROUPING(k2) FROM issue1111.test1 GROUP BY CUBE (k1) ORDER BY k1";
-        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql, true);
+        String explainStr = getSQLPlanOrErrorMsg(sql, true);
         System.out.println(explainStr);
     }
 
@@ -2017,7 +1970,7 @@ public class QueryPlanTest {
     @Test
     public void testGroupingSets() throws Exception {
         String createDbStmtStr = "create database issue7971;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         createTable("CREATE TABLE issue7971.`t` (\n" +
                 "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
@@ -2046,13 +1999,13 @@ public class QueryPlanTest {
                 "\"storage_format\" = \"V2\"\n" +
                 ")");
         String sql = "SELECT k1, k2, GROUPING(k1), GROUPING(k2), SUM(k3) FROM issue7971.t GROUP BY GROUPING SETS ( (k1, k2), (k2), (k1), ( ) );";
-        String explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        String explainStr = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
         sql = "SELECT k1 ,GROUPING(k2) FROM issue7971.t GROUP BY CUBE (k1) ORDER BY k1;";
-        explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        explainStr = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainStr.contains("errCode = 2"));
         sql = "select grouping_id(t1.k1), t1.k1, max(k2) from issue7971.t left join issue7971.t1 on t.k3 = t1.k1 group by grouping sets ((k1), ());";
-        explainStr = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        explainStr = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainStr.contains("REPEAT_NODE"));
     }
 
@@ -2061,12 +2014,12 @@ public class QueryPlanTest {
         connectContext.setDatabase("default_cluster:test");
         String iSql1 = "explain insert into test.tbl_using_a values(1,3,7),(2,2,8),(3,1,9)";
         String iSql2 = "explain insert into test.tbl_using_b values(1,3,1),(3,1,1),(4,1,1),(5,2,1)";
-        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, iSql1);
-        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, iSql2);
+        getSQLPlanOrErrorMsg(iSql1);
+        getSQLPlanOrErrorMsg(iSql2);
         String qSQL = "explain  select t1.* from test.tbl_using_a t1 join test.tbl_using_b t2 using(k1,k2) where t1.k1 " +
                 "between 1 and 3 and t2.k3 between 1+0 and 3+0";
         try {
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, qSQL);
+            getSQLPlanOrErrorMsg(qSQL);
         } catch (AnalysisException e) {
             Assert.fail();
         }
@@ -2096,7 +2049,7 @@ public class QueryPlanTest {
                 "  (SELECT 3 AS aid)a\n" +
                 "RIGHT JOIN\n" +
                 "  (SELECT 4 AS bid)b ON (a.aid=b.bid)\n";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:3 | 4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("OUTPUT EXPRS:CAST(`a`.`aid` AS INT) | 4"));
@@ -2118,7 +2071,7 @@ public class QueryPlanTest {
                 "\"replication_allocation\" = \"tag.location.default: 1\"\n" +
                 ")");
         String sql = "explain insert into test.decimal_tb select 1, 10, 1, 1, 1;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        String explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertTrue(explainString.contains("1 | 10 | 1 | 1 | 1"));
     }
 
@@ -2142,17 +2095,16 @@ public class QueryPlanTest {
                 "PROPERTIES(\"replication_num\" = \"1\");");
 
         String sql = "explain select * from out_join_1 left join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        String explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("non-equal LEFT OUTER JOIN is not supported"));
 
         sql = "explain select * from out_join_1 right join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("non-equal RIGHT OUTER JOIN is not supported"));
 
         sql = "explain select * from out_join_1 full join out_join_2 on out_join_1.k1 = out_join_2.k1 and 1=2;";
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("non-equal FULL OUTER JOIN is not supported"));
 
     }
-
 }

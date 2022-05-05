@@ -17,29 +17,16 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
+import org.junit.jupiter.api.Test;
+
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.utframe.UtFrameUtils;
-
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.Test;
-
-import java.util.UUID;
 
 public class ListPartitionPrunerTest extends PartitionPruneTestBase {
 
-    @BeforeClass
-    public static void beforeClass() throws Exception {
+    @Override
+    protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
-        runningDir = "fe/mocked/ListPartitionPrunerTest/" + UUID.randomUUID().toString() + "/";
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createDatabase("test");
 
         String createSinglePartColWithSinglePartKey =
             "create table test.t1\n"
@@ -84,15 +71,10 @@ public class ListPartitionPrunerTest extends PartitionPruneTestBase {
                 + "distributed by hash(k2) buckets 1\n"
                 + "properties('replication_num' = '1');";
 
-        createTable(createSinglePartColWithSinglePartKey);
-        createTable(createSinglePartColWithMultiPartKey);
-        createTable(createMultiPartColWithSinglePartKey);
-        createTable(createMultiPartColWithMultiPartKey);
-    }
-
-    @AfterClass
-    public static void tearDown() throws Exception {
-        UtFrameUtils.cleanDorisFeDir(runningDir);
+        createTables(createSinglePartColWithSinglePartKey,
+            createSinglePartColWithMultiPartKey,
+            createMultiPartColWithSinglePartKey,
+            createMultiPartColWithMultiPartKey);
     }
 
     private void initTestCases() {
