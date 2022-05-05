@@ -72,7 +72,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 
 2. 日志写入 bdbje 后，bdbje 会根据策略（写多数/全写），将日志复制到其他 non-leader 的 FE 节点。non-leader FE 节点通过对日志回放，修改自身的元数据内存镜像，完成与 leader 节点的元数据同步。
 
-3. leader 节点的日志条数达到阈值后（默认 10w 条），会启动 checkpoint 线程。checkpoint 会读取已有的 image 文件，和其之后的日志，重新在内存中回放出一份新的元数据镜像副本。然后将该副本写入到磁盘，形成一个新的 image。之所以是重新生成一份镜像副本，而不是将已有镜像写成 image，主要是考虑写 image 加读锁期间，会阻塞写操作。所以每次 checkpoint 会占用双倍内存空间。
+3. leader 节点的日志条数达到阈值（默认 10w 条）并且满足checkpoint线程执行周期（默认六十秒）。checkpoint 会读取已有的 image 文件，和其之后的日志，重新在内存中回放出一份新的元数据镜像副本。然后将该副本写入到磁盘，形成一个新的 image。之所以是重新生成一份镜像副本，而不是将已有镜像写成 image，主要是考虑写 image 加读锁期间，会阻塞写操作。所以每次 checkpoint 会占用双倍内存空间。
 
 4. image 文件生成后，leader 节点会通知其他 non-leader 节点新的 image 已生成。non-leader 主动通过 http 拉取最新的 image 文件，来更换本地的旧文件。
 
