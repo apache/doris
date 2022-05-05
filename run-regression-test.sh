@@ -16,26 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-#####################################################################
-# This script is used to run regression test of Doris Backend
-# Usage: $0 <shell_options> <framework_options>
-#  Optional shell_options:
-#     --clean      clean output of regression test
-#     --teamcity   print teamcity service messages
-#     --run        run regression test. build framework if necessary
-#
-#  Optional framework_options
-#     -h              print all other_options
-#     -s xxx          suite name
-#     -g xxx          group name
-#     -c xxx          jdbc url
-#     -u xxx          jdbc user
-#     -genOut        generate .out file
-#     -forceGenOut   delete and generate .out file
-#
-# log to ${DORIS_HOME}/output/regression/log
-#####################################################################
-
 set -eo pipefail
 #set -x
 
@@ -56,7 +36,11 @@ Usage: $0 <shell_options> <framework_options>
   Optional framework_options:
      -s                                run a specified suite
      -g                                run a specified group
+     -d                                run a specified directory
      -h                                **print all framework options usage**
+     -xs                               exclude the specified suite
+     -xg                               exclude the specified group
+     -xd                               exclude the specified directory
      -genOut                           generate .out file if not exist
      -forceGenOut                      delete and generate .out file if not exist
      -parallel                         run tests using specified threads
