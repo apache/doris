@@ -174,10 +174,10 @@ private:
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;
-    Table* _skip_list;
+    std::unique_ptr<Table> _skip_list;
     Table::Hint _hint;
 
-    VecTable* _vec_skip_list;
+    std::unique_ptr<VecTable> _vec_skip_list;
     VecTable::Hint _vec_hint;
 
     RowsetWriter* _rowset_writer;

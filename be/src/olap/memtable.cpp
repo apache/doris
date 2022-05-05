@@ -51,18 +51,28 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         _skip_list = nullptr;
         _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
         // TODO: Support ZOrderComparator in the future
-        _vec_skip_list = new VecTable(_vec_row_comparator.get(), _table_mem_pool.get(),
-                                      _keys_type == KeysType::DUP_KEYS);
+        _vec_skip_list = std::make_unique<VecTable>(
+                _vec_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
     } else {
         _vec_skip_list = nullptr;
+        if (_keys_type == KeysType::DUP_KEYS) {
+            _insert_fn = &MemTable::_insert_dup;
+        } else {
+            _insert_fn = &MemTable::_insert_agg;
+        }
+        if (_tablet_schema->has_sequence_col()) {
+            _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
+        } else {
+            _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
+        }
         if (tablet_schema->sort_type() == SortType::ZORDER) {
             _row_comparator = std::make_shared<TupleRowZOrderComparator>(
                     _schema, tablet_schema->sort_col_num());
         } else {
             _row_comparator = std::make_shared<RowCursorComparator>(_schema);
         }
-        _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
-                               _keys_type == KeysType::DUP_KEYS);
+        _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
+                                             _keys_type == KeysType::DUP_KEYS);
     }
 }
 
@@ -83,24 +93,9 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
         DCHECK(function != nullptr);
         _agg_functions[cid] = function;
     }
-    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
-                           _keys_type == KeysType::DUP_KEYS);
-    if (_keys_type == KeysType::DUP_KEYS) {
-        _insert_fn = &MemTable::_insert_dup;
-    } else {
-        _insert_fn = &MemTable::_insert_agg;
-    }
-    if (_tablet_schema->has_sequence_col()) {
-        _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
-    } else {
-        _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
-    }
 }
 
 MemTable::~MemTable() {
-    delete _skip_list;
-    delete _vec_skip_list;
-
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
 }
@@ -248,7 +243,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
 }
 vectorized::Block MemTable::_collect_vskiplist_results() {
-    VecTable::Iterator it(_vec_skip_list);
+    VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     // TODO: should try to insert data by column, not by row. to opt the the code
     if (_keys_type == KeysType::DUP_KEYS) {
@@ -294,7 +289,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         if (st == Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED)) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
-            Table::Iterator it(_skip_list);
+            Table::Iterator it(_skip_list.get());
             for (it.SeekToFirst(); it.Valid(); it.Next()) {
                 char* row = (char*)it.key();
                 ContiguousRow dst_row(_schema, row);
@@ -319,7 +314,7 @@ Status MemTable::close() {
 }
 
 MemTable::Iterator::Iterator(MemTable* memtable)
-        : _mem_table(memtable), _it(memtable->_skip_list) {}
+        : _mem_table(memtable), _it(memtable->_skip_list.get()) {}
 
 void MemTable::Iterator::seek_to_first() {
     _it.SeekToFirst();
