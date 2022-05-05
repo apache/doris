@@ -2895,9 +2895,9 @@ show_param ::=
     {:
         RESULT = new ShowLastInsertStmt();
     :}
-    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName
+    | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_ON table_name:tableName
     {:
-        RESULT = new ShowCreateMaterializedViewStmt(mvName);
+        RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     ;
 

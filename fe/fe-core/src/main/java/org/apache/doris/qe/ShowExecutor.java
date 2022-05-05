@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
@@ -102,6 +103,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -340,6 +342,8 @@ public class ShowExecutor {
             handleAdminShowTabletStorageFormat();
         } else if (stmt instanceof AdminDiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
+        } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
+            handleShowCreateMaterializedView();
         } else {
             handleEmtpy();
         }
@@ -392,7 +396,7 @@ public class ShowExecutor {
         rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
-        
+
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
@@ -1746,7 +1750,7 @@ public class ShowExecutor {
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
-    
+
     private void handleShowTrash() {
         ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
@@ -2176,6 +2180,25 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowCreateMaterializedView() throws AnalysisException {
+        ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) stmt;
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getTableName().getDb());
+        Table table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+        OlapTable baseTable = ((OlapTable) table);
+        Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
+        System.out.println(indexIdByName);
+        MaterializedIndexMeta meta = baseTable.getIndexMetaByIndexId(indexIdByName);
+        System.out.println(meta.getDefineStmt());
+        String originStmt = meta.getDefineStmt().originStmt;
+        List<String> data = new ArrayList<>();
+        data.add(showStmt.getTableName().getTbl());
+        data.add(showStmt.getMvName());
+        data.add(originStmt);
+        List<List<String>> resultRowSet = new ArrayList<>();
+        resultRowSet.add(data);
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
     }
 
 }
