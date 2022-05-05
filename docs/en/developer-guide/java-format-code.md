@@ -33,13 +33,9 @@ The formatting of the Java part of the code in Doris is usually done automatical
 ```
 org.apache.doris
 <blank line>
-com
+third party package
 <blank line>
-org
-<blank line>
-java
-<blank line>
-javax
+standard java package
 <blank line>
 ```
 
