@@ -106,6 +106,10 @@ PROPERTIES (
 **odbc_type** | 外表数据库的类型，当前支持oracle, mysql, postgresql
 **user** | 外表数据库的用户名
 **password** | 对应用户的密码信息
+**charset** | 数据库连接使用的字符集
+
+备注：
+`PROPERTIES` 中除了可以添加上述参数之外，还支持每个数据库的ODBC driver 实现的专用参数，比如mysql 的`sslverify` 等
 
 
 
