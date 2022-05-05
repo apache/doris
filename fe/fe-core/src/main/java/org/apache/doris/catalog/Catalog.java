@@ -2113,6 +2113,9 @@ public class Catalog {
             alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
+        } else if (type == JobType.DECOMMISSION_BACKEND) {
+            // Load alter job need decommission backend type to load image
+            alterJobsV2 = Maps.newHashMap();
         } else {
             throw new IOException("Invalid alter job type: " + type.name());
         }
