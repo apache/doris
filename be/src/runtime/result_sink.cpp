@@ -43,11 +43,6 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         _sink_type = sink.type;
     }
 
-    if (_sink_type == TResultSinkType::FILE) {
-        CHECK(sink.__isset.file_options);
-        _file_opts.reset(new ResultFileOptions(sink.file_options));
-    }
-
     _name = "ResultSink";
 }
 
@@ -80,13 +75,6 @@ Status ResultSink::prepare(RuntimeState* state) {
     case TResultSinkType::MYSQL_PROTOCAL:
         _writer.reset(new (std::nothrow) MysqlResultWriter(
                 _sender.get(), _output_expr_ctxs, _profile, state->return_object_data_as_binary()));
-        break;
-    // deprecated
-    case TResultSinkType::FILE:
-        CHECK(_file_opts.get() != nullptr);
-        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
-                                                          _profile, _sender.get(),
-                                                          state->return_object_data_as_binary()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");
