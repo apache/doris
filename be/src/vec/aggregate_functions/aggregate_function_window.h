@@ -367,14 +367,15 @@ struct WindowFunctionFirstNonNullData : Data {
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
-        for (int i = frame_start; i < frame_end; i++) {
-            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+            for (int i = frame_start; i < frame_end; i++) {
                 if (!nullable_column->is_null_at(i)) {
-                    this->set_value(columns, frame_start);
+                    this->set_value(columns, i);
                     return;
                 }
             }
         }
+        this->set_value(columns, frame_start);
     }
 
     void add(int64_t row, const IColumn** columns) {
@@ -420,13 +421,15 @@ struct WindowFunctionLastNonNullData : Data {
         }
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
-        for (int i = frame_end - 1; i >= frame_start; i--) {
-            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+            for (int i = frame_end - 1; i >= frame_start; i--) {
                 if (!nullable_column->is_null_at(i)) {
-                    this->set_value(columns, frame_start);
+                    this->set_value(columns, i);
                     return;
                 }
             }
+        } else {
+            this->set_value(columns, frame_end - 1);
         }
     }
 
