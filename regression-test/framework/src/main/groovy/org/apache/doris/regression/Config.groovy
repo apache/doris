@@ -45,6 +45,7 @@ class Config {
 
     public String suitePath
     public String dataPath
+    public String pluginPath
 
     public String testGroups
     public String excludeGroups
@@ -78,7 +79,8 @@ class Config {
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword,
            String suitePath, String dataPath, String testGroups, String excludeGroups,
-           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories) {
+           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
+           String pluginPath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
         this.jdbcUser = jdbcUser
@@ -94,6 +96,7 @@ class Config {
         this.excludeSuites = excludeSuites
         this.testDirectories = testDirectories
         this.excludeDirectories = excludeDirectories
+        this.pluginPath = pluginPath
     }
 
     static Config fromCommandLine(CommandLine cmd) {
@@ -113,6 +116,7 @@ class Config {
 
         config.suitePath = FileUtils.getCanonicalPath(cmd.getOptionValue(pathOpt, config.suitePath))
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
+        config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -193,7 +197,8 @@ class Config {
             configToString(obj.testSuites),
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
-            configToString(obj.excludeDirectories)
+            configToString(obj.excludeDirectories),
+            configToString(obj.pluginPath)
         )
 
         def declareFileNames = config.getClass()
@@ -253,6 +258,11 @@ class Config {
         if (config.dataPath == null) {
             config.dataPath = "regression-test/suites"
             log.info("Set dataPath to '${config.dataPath}' because not specify.".toString())
+        }
+
+        if (config.pluginPath == null) {
+            config.pluginPath = "regression-test/plugins"
+            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.testGroups == null) {
