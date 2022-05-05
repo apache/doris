@@ -62,7 +62,8 @@ public:
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                            bool* fill_tuple) override;
 
     Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) override {
         return Status::NotSupported("Not Implemented get columns");
