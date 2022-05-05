@@ -33,9 +33,12 @@ public:
     VInfoFunc(const TExprNode& node);
     virtual ~VInfoFunc() {}
 
-    virtual VExpr* clone(doris::ObjectPool* pool) const override { return pool->add(new VInfoFunc(*this)); }
+    virtual VExpr* clone(doris::ObjectPool* pool) const override {
+        return pool->add(new VInfoFunc(*this));
+    }
     virtual const std::string& expr_name() const override { return _expr_name; }
-    virtual Status execute(VExprContext* context, vectorized::Block* block, int* result_column_id) override;
+    virtual Status execute(VExprContext* context, vectorized::Block* block,
+                           int* result_column_id) override;
 
 private:
     const std::string _expr_name = "vinfofunc expr";
@@ -44,4 +47,3 @@ private:
 } // namespace vectorized
 
 } // namespace doris
-

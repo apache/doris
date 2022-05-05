@@ -115,8 +115,7 @@ void write_binary(const Array& x, BufferWritable& buf) {
             break;
         }
         }
-    }
-    ;
+    };
 }
 
 template <>

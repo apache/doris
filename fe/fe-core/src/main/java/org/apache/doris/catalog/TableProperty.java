@@ -110,6 +110,7 @@ public class TableProperty implements Writable {
      * @return this for chained
      */
     public TableProperty resetPropertiesForRestore() {
+        // disable dynamic partition
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             properties.put(DynamicPartitionProperty.ENABLE, "false");
             executeBuildDynamicProperty();
@@ -221,6 +222,10 @@ public class TableProperty implements Writable {
     }
 
     public TStorageFormat getStorageFormat() {
+    	// Force convert all V1 table to V2 table
+    	if (TStorageFormat.V1 == storageFormat) {
+    		return TStorageFormat.V2;
+    	}
         return storageFormat;
     }
 

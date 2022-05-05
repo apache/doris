@@ -149,7 +149,7 @@ SwitchBthread::~SwitchBthread() {
     DCHECK(tls != nullptr);
     tls->_thread_mem_tracker_mgr->clear_untracked_mems();
 #ifndef NDEBUG
-        DorisMetrics::instance()->switch_bthread_count->increment(1);
+    DorisMetrics::instance()->switch_bthread_count->increment(1);
 #endif
 }
 

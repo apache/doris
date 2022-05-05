@@ -47,7 +47,7 @@ Create `settings.json` in `.vscode/` , and set settings:
 
 * `"java.configuration.runtimes"`
 * `"java.jdt.ls.java.home"` -- must set it to the directory of JDK11+, used for vscode-java plugin
-* `"maven.executable.path"` -- maven path,for maven-language-server plugin
+* `"maven.executable.path"` -- maven path，for maven-language-server plugin
 
 example:
 

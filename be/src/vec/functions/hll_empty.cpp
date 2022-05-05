@@ -28,9 +28,7 @@ struct HLLEmptyImpl {
     static constexpr auto name = "hll_empty";
     using ReturnColVec = ColumnHLL;
     static auto get_return_type() { return std::make_shared<DataTypeHLL>(); }
-    static HyperLogLog init_value() {
-        return HyperLogLog{};
-    }
+    static HyperLogLog init_value() { return HyperLogLog {}; }
 };
 
 using FunctionHLLEmpty = FunctionConst<HLLEmptyImpl, false>;

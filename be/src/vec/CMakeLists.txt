@@ -99,6 +99,8 @@ set(VEC_FILES
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
+  exec/vbroker_scan_node.cpp
+  exec/vbroker_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -177,6 +179,7 @@ set(VEC_FILES
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
+  olap/olap_data_convertor.cpp
   sink/mysql_result_writer.cpp
   sink/result_sink.cpp
   sink/vdata_stream_sender.cpp

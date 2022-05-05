@@ -268,7 +268,6 @@ private:
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
 
-
     ByteBufferPtr _write_buf;
 };
 

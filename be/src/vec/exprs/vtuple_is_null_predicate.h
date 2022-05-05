@@ -25,9 +25,9 @@ public:
     explicit VTupleIsNullPredicate(const TExprNode& node);
     ~VTupleIsNullPredicate() override = default;
     doris::Status execute(VExprContext* context, doris::vectorized::Block* block,
-                                  int* result_column_id) override;
+                          int* result_column_id) override;
     doris::Status prepare(doris::RuntimeState* state, const doris::RowDescriptor& desc,
-                                  VExprContext* context) override;
+                          VExprContext* context) override;
 
     VExpr* clone(doris::ObjectPool* pool) const override {
         return pool->add(new VTupleIsNullPredicate(*this));

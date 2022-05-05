@@ -62,6 +62,7 @@ class TabletReader {
         bool start_key_include = false;
         bool end_key_include = false;
     };
+
 public:
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
@@ -114,7 +115,7 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     virtual Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
-                                                 ObjectPool* agg_pool, bool* eof) = 0;
+                                             ObjectPool* agg_pool, bool* eof) = 0;
 
     // Read next block with aggregation.
     // Return OLAP_SUCCESS and set `*eof` to false when next block is read
@@ -122,7 +123,7 @@ public:
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
     virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
+                                               ObjectPool* agg_pool, bool* eof) {
         return Status::OLAPInternalError(OLAP_ERR_READER_INITIALIZE_ERROR);
     }
 
@@ -133,9 +134,7 @@ public:
                _stats.rows_vec_del_cond_filtered;
     }
 
-    void set_batch_size(int batch_size) {
-        _batch_size = batch_size;
-    }
+    void set_batch_size(int batch_size) { _batch_size = batch_size; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
@@ -148,7 +147,7 @@ protected:
     Status _init_params(const ReaderParams& read_params);
 
     Status _capture_rs_readers(const ReaderParams& read_params,
-                                   std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+                               std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
@@ -229,4 +228,3 @@ protected:
 };
 
 } // namespace doris
-

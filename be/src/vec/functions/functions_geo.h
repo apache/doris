@@ -25,7 +25,7 @@
 
 namespace doris::vectorized {
 
-template<typename Impl, typename ReturnType = DataTypeString>
+template <typename Impl, typename ReturnType = DataTypeString>
 class GeoFunction : public IFunction {
 public:
     static constexpr auto name = Impl::NAME;

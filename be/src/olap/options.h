@@ -46,6 +46,6 @@ struct EngineOptions {
     // list paths that tablet will be put into.
     std::vector<StorePath> store_paths;
     // BE's UUID. It will be reset every time BE restarts.
-    UniqueId backend_uid{0, 0};
+    UniqueId backend_uid {0, 0};
 };
 } // namespace doris

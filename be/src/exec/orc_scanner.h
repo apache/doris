@@ -30,8 +30,7 @@ public:
     ORCScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                const std::vector<TBrokerRangeDesc>& ranges,
                const std::vector<TNetworkAddress>& broker_addresses,
-               const std::vector<TExpr>& pre_filter_texprs,
-               ScannerCounter* counter);
+               const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     ~ORCScanner() override;
 
@@ -39,7 +38,7 @@ public:
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
 
     // Close this scanner
     void close() override;

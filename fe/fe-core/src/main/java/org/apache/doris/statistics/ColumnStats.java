@@ -32,12 +32,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-import com.clearspring.analytics.util.Lists;
 
 /**
  * There are the statistics of column.
@@ -57,12 +57,12 @@ import com.clearspring.analytics.util.Lists;
  */
 public class ColumnStats {
 
-    public static final String NDV = "ndv";
-    public static final String AVG_SIZE = "avg_size";
-    public static final String MAX_SIZE = "max_size";
-    public static final String NUM_NULLS = "num_nulls";
-    public static final String MIN_VALUE = "min_value";
-    public static final String MAX_VALUE = "max_value";
+    public static final StatsType NDV = StatsType.NDV;
+    public static final StatsType AVG_SIZE = StatsType.AVG_SIZE;
+    public static final StatsType MAX_SIZE = StatsType.MAX_SIZE;
+    public static final StatsType NUM_NULLS = StatsType.NUM_NULLS;
+    public static final StatsType MIN_VALUE = StatsType.MIN_VALUE;
+    public static final StatsType MAX_VALUE = StatsType.MAX_VALUE;
 
     private static final Predicate<Long> DESIRED_NDV_PRED = (v) -> v >= -1L;
     private static final Predicate<Float> DESIRED_AVG_SIZE_PRED = (v) -> (v == -1) || (v >= 0);
@@ -76,25 +76,34 @@ public class ColumnStats {
     private LiteralExpr minValue;
     private LiteralExpr maxValue;
 
-    public void updateStats(Type columnType, Map<String, String> statsNameToValue) throws AnalysisException {
-        for (Map.Entry<String, String> entry : statsNameToValue.entrySet()) {
-            String statsName = entry.getKey();
-            if (statsName.equalsIgnoreCase(NDV)) {
-                ndv = Util.getLongPropertyOrDefault(entry.getValue(), ndv,
+    public void updateStats(Type columnType, Map<StatsType, String> statsNameToValue) throws AnalysisException {
+        for (Map.Entry<StatsType, String> entry : statsNameToValue.entrySet()) {
+            StatsType statsType = entry.getKey();
+            switch (statsType) {
+                case NDV:
+                    ndv = Util.getLongPropertyOrDefault(entry.getValue(), ndv,
                         DESIRED_NDV_PRED, NDV + " should >= -1");
-            } else if (statsName.equalsIgnoreCase(AVG_SIZE)) {
-                avgSize = Util.getFloatPropertyOrDefault(entry.getValue(), avgSize,
+                    break;
+                case AVG_SIZE:
+                    avgSize = Util.getFloatPropertyOrDefault(entry.getValue(), avgSize,
                         DESIRED_AVG_SIZE_PRED, AVG_SIZE + " should (>=0) or (=-1)");
-            } else if (statsName.equalsIgnoreCase(MAX_SIZE)) {
-                maxSize = Util.getLongPropertyOrDefault(entry.getValue(), maxSize,
+                    break;
+                case MAX_SIZE:
+                    maxSize = Util.getLongPropertyOrDefault(entry.getValue(), maxSize,
                         DESIRED_MAX_SIZE_PRED, MAX_SIZE + " should >=-1");
-            } else if (statsName.equalsIgnoreCase(NUM_NULLS)) {
-                numNulls = Util.getLongPropertyOrDefault(entry.getValue(), numNulls,
+                    break;
+                case NUM_NULLS:
+                    numNulls = Util.getLongPropertyOrDefault(entry.getValue(), numNulls,
                         DESIRED_NUM_NULLS_PRED, NUM_NULLS + " should >=-1");
-            } else if (statsName.equalsIgnoreCase(MIN_VALUE)) {
-                minValue = validateColumnValue(columnType, entry.getValue());
-            } else if (statsName.equalsIgnoreCase(MAX_VALUE)) {
-                maxValue = validateColumnValue(columnType, entry.getValue());
+                    break;
+                case MIN_VALUE:
+                    minValue = validateColumnValue(columnType, entry.getValue());
+                    break;
+                case MAX_VALUE:
+                    maxValue = validateColumnValue(columnType, entry.getValue());
+                    break;
+                default:
+                    throw new AnalysisException("Unknown stats type: " + statsType);
             }
         }
     }

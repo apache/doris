@@ -101,9 +101,7 @@ template <bool clear_memory_, bool mmap_populate>
 class Allocator {
 public:
     /// Allocate memory range.
-    void* alloc(size_t size, size_t alignment = 0) {
-        return alloc_no_track(size, alignment);
-    }
+    void* alloc(size_t size, size_t alignment = 0) { return alloc_no_track(size, alignment); }
 
     /// Free memory range.
     void free(void* buf, size_t size) {
@@ -143,7 +141,7 @@ public:
             // On apple and freebsd self-implemented mremap used (common/mremap.h)
             buf = clickhouse_mremap(buf, old_size, new_size, MREMAP_MAYMOVE, PROT_READ | PROT_WRITE,
                                     mmap_flags, -1, 0);
-            if (MAP_FAILED == buf){
+            if (MAP_FAILED == buf) {
                 RELEASE_THREAD_LOCAL_MEM_TRACKER(new_size - old_size);
                 doris::vectorized::throwFromErrno("Allocator: Cannot mremap memory chunk from " +
                                                           std::to_string(old_size) + " to " +
@@ -152,6 +150,13 @@ public:
             }
 
             /// No need for zero-fill, because mmap guarantees it.
+
+            if constexpr (mmap_populate) {
+                // MAP_POPULATE seems have no effect for mremap as for mmap,
+                // Clear enlarged memory range explicitly to pre-fault the pages
+                if (new_size > old_size)
+                    memset(reinterpret_cast<char*>(buf) + old_size, 0, new_size - old_size);
+            }
         } else if (new_size < MMAP_THRESHOLD) {
             /// Small allocs that requires a copy. Assume there's enough memory in system. Call CurrentMemoryTracker once.
             // CurrentMemoryTracker::realloc(old_size, new_size);

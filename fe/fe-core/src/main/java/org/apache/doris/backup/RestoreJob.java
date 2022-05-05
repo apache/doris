@@ -1743,7 +1743,7 @@ public class RestoreJob extends AbstractJob {
                 out.writeLong(entry.getKey());
                 out.writeLong(entry.getValue());
                 // It is version hash in the past, but it useless but should compatible with old version so that write 0 here
-                out.writeLong(0l);
+                out.writeLong(0L);
             }
         }
 

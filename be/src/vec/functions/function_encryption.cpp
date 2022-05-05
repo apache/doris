@@ -231,15 +231,24 @@ struct AESDecryptName {
 };
 
 void register_function_encryption(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptTwoImpl<EncryptImpl, SM4_128_ECB, true>, SM4EncryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptTwoImpl<DecryptImpl, SM4_128_ECB, false>, SM4DecryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptTwoImpl<EncryptImpl, AES_128_ECB, true>, AESEncryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptTwoImpl<DecryptImpl, AES_128_ECB, false>, AESDecryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptTwoImpl<EncryptImpl, SM4_128_ECB, true>, SM4EncryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptTwoImpl<DecryptImpl, SM4_128_ECB, false>, SM4DecryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptTwoImpl<EncryptImpl, AES_128_ECB, true>, AESEncryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptTwoImpl<DecryptImpl, AES_128_ECB, false>, AESDecryptName>>();
 
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptFourImpl<EncryptImpl, SM4_128_ECB, true, true>, SM4EncryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptFourImpl<DecryptImpl, SM4_128_ECB, false, true>, SM4DecryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptFourImpl<EncryptImpl, AES_128_ECB, true, false>, AESEncryptName>>();
-    factory.register_function<FunctionEncryptionAndDecrypt<EncryptionAndDecryptFourImpl<DecryptImpl, AES_128_ECB, false, false>, AESDecryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptFourImpl<EncryptImpl, SM4_128_ECB, true, true>, SM4EncryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptFourImpl<DecryptImpl, SM4_128_ECB, false, true>, SM4DecryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptFourImpl<EncryptImpl, AES_128_ECB, true, false>, AESEncryptName>>();
+    factory.register_function<FunctionEncryptionAndDecrypt<
+            EncryptionAndDecryptFourImpl<DecryptImpl, AES_128_ECB, false, false>,
+            AESDecryptName>>();
 }
 
 } // namespace doris::vectorized

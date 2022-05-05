@@ -31,12 +31,12 @@ struct FixedHashTableCell {
     bool full;
 
     FixedHashTableCell() {}
-    FixedHashTableCell(const Key &, const State &) : full(true) {}
+    FixedHashTableCell(const Key&, const State&) : full(true) {}
 
     const VoidKey get_key() const { return {}; }
     VoidMapped get_mapped() const { return {}; }
 
-    bool is_zero(const State &) const { return !full; }
+    bool is_zero(const State&) const { return !full; }
     void set_zero() { full = false; }
     static constexpr bool need_zero_value_storage = false;
 
@@ -51,11 +51,10 @@ struct FixedHashTableCell {
 
         const VoidKey get_key() const { return {}; }
         VoidMapped get_mapped() const { return {}; }
-        const value_type & get_value() const { return key; }
-        void update(Key && key_, FixedHashTableCell *) { key = key_; }
+        const value_type& get_value() const { return key; }
+        void update(Key&& key_, FixedHashTableCell*) { key = key_; }
     };
 };
-
 
 /// How to obtain the size of the table.
 
@@ -63,8 +62,8 @@ template <typename Cell>
 struct FixedHashTableStoredSize {
     size_t m_size = 0;
 
-    size_t get_size(const Cell *, const typename Cell::State &, size_t) const { return m_size; }
-    bool is_empty(const Cell *, const typename Cell::State &, size_t) const { return m_size == 0; }
+    size_t get_size(const Cell*, const typename Cell::State&, size_t) const { return m_size; }
+    bool is_empty(const Cell*, const typename Cell::State&, size_t) const { return m_size == 0; }
 
     void increase_size() { ++m_size; }
     void clear_size() { m_size = 0; }
@@ -73,18 +72,16 @@ struct FixedHashTableStoredSize {
 
 template <typename Cell>
 struct FixedHashTableCalculatedSize {
-    size_t get_size(const Cell * buf, const typename Cell::State & state, size_t num_cells) const {
+    size_t get_size(const Cell* buf, const typename Cell::State& state, size_t num_cells) const {
         size_t res = 0;
-        for (const Cell * end = buf + num_cells; buf != end; ++buf)
-            if (!buf->is_zero(state))
-                ++res;
+        for (const Cell* end = buf + num_cells; buf != end; ++buf)
+            if (!buf->is_zero(state)) ++res;
         return res;
     }
 
-    bool isEmpty(const Cell * buf, const typename Cell::State & state, size_t num_cells) const {
-        for (const Cell * end = buf + num_cells; buf != end; ++buf)
-            if (!buf->is_zero(state))
-                return false;
+    bool isEmpty(const Cell* buf, const typename Cell::State& state, size_t num_cells) const {
+        for (const Cell* end = buf + num_cells; buf != end; ++buf)
+            if (!buf->is_zero(state)) return false;
         return true;
     }
 
@@ -92,7 +89,6 @@ struct FixedHashTableCalculatedSize {
     void clear_size() {}
     void set_size(size_t) {}
 };
-
 
 /** Used as a lookup table for small keys such as UInt8, UInt16. It's different
   *  than a HashTable in that keys are not stored in the Cell buf, but inferred
@@ -111,7 +107,10 @@ struct FixedHashTableCalculatedSize {
   *  TwoLevelHashSet(Map) to contain different type of sets(maps).
   */
 template <typename Key, typename Cell, typename Size, typename Allocator>
-class FixedHashTable : private boost::noncopyable, protected Allocator, protected Cell::State, protected Size {
+class FixedHashTable : private boost::noncopyable,
+                       protected Allocator,
+                       protected Cell::State,
+                       protected Size {
     static constexpr size_t NUM_CELLS = 1ULL << (sizeof(Key) * 8);
 
 protected:
@@ -120,9 +119,9 @@ protected:
 
     using Self = FixedHashTable;
 
-    Cell * buf; /// A piece of memory for all elements.
+    Cell* buf; /// A piece of memory for all elements.
 
-    void alloc() { buf = reinterpret_cast<Cell *>(Allocator::alloc(NUM_CELLS * sizeof(Cell))); }
+    void alloc() { buf = reinterpret_cast<Cell*>(Allocator::alloc(NUM_CELLS * sizeof(Cell))); }
 
     void free() {
         if (buf) {
@@ -133,49 +132,44 @@ protected:
 
     void destroy_elements() {
         if (!std::is_trivially_destructible_v<Cell>)
-            for (iterator it = begin(), it_end = end(); it != it_end; ++it)
-                it.ptr->~Cell();
+            for (iterator it = begin(), it_end = end(); it != it_end; ++it) it.ptr->~Cell();
     }
-
 
     template <typename Derived, bool is_const>
     class iterator_base {
         using Container = std::conditional_t<is_const, const Self, Self>;
         using cell_type = std::conditional_t<is_const, const Cell, Cell>;
 
-        Container * container;
-        cell_type * ptr;
+        Container* container;
+        cell_type* ptr;
 
         friend class FixedHashTable;
 
     public:
         iterator_base() {}
-        iterator_base(Container * container_, cell_type * ptr_) : container(container_), ptr(ptr_) {
+        iterator_base(Container* container_, cell_type* ptr_) : container(container_), ptr(ptr_) {
             cell.update(ptr - container->buf, ptr);
         }
 
-        bool operator==(const iterator_base & rhs) const { return ptr == rhs.ptr; }
-        bool operator!=(const iterator_base & rhs) const { return ptr != rhs.ptr; }
+        bool operator==(const iterator_base& rhs) const { return ptr == rhs.ptr; }
+        bool operator!=(const iterator_base& rhs) const { return ptr != rhs.ptr; }
 
-        Derived & operator++() {
+        Derived& operator++() {
             ++ptr;
 
             /// Skip empty cells in the main buffer.
             auto buf_end = container->buf + container->NUM_CELLS;
-            while (ptr < buf_end && ptr->is_zero(*container))
-                ++ptr;
+            while (ptr < buf_end && ptr->is_zero(*container)) ++ptr;
 
-            return static_cast<Derived &>(*this);
+            return static_cast<Derived&>(*this);
         }
 
-        auto & operator*() {
-            if (cell.key != ptr - container->buf)
-                cell.update(ptr - container->buf, ptr);
+        auto& operator*() {
+            if (cell.key != ptr - container->buf) cell.update(ptr - container->buf, ptr);
             return cell;
         }
-        auto * operator-> () {
-            if (cell.key != ptr - container->buf)
-                cell.update(ptr - container->buf, ptr);
+        auto* operator->() {
+            if (cell.key != ptr - container->buf) cell.update(ptr - container->buf, ptr);
             return &cell;
         }
 
@@ -185,29 +179,27 @@ protected:
         typename cell_type::CellExt cell;
     };
 
-
 public:
     using key_type = Key;
     using mapped_type = typename Cell::mapped_type;
     using value_type = typename Cell::value_type;
     using cell_type = Cell;
 
-    using LookupResult = Cell *;
-    using ConstLookupResult = const Cell *;
+    using LookupResult = Cell*;
+    using ConstLookupResult = const Cell*;
 
-
-    size_t hash(const Key & x) const { return x; }
+    size_t hash(const Key& x) const { return x; }
 
     FixedHashTable() { alloc(); }
 
-    FixedHashTable(FixedHashTable && rhs) : buf(nullptr) { *this = std::move(rhs); }
+    FixedHashTable(FixedHashTable&& rhs) : buf(nullptr) { *this = std::move(rhs); }
 
     ~FixedHashTable() {
         destroy_elements();
         free();
     }
 
-    FixedHashTable & operator=(FixedHashTable && rhs) {
+    FixedHashTable& operator=(FixedHashTable&& rhs) {
         destroy_elements();
         free();
 
@@ -230,15 +222,12 @@ public:
         using iterator_base<const_iterator, true>::iterator_base;
     };
 
-
     const_iterator begin() const {
-        if (!buf)
-            return end();
+        if (!buf) return end();
 
-        const Cell * ptr = buf;
+        const Cell* ptr = buf;
         auto buf_end = buf + NUM_CELLS;
-        while (ptr < buf_end && ptr->is_zero(*this))
-            ++ptr;
+        while (ptr < buf_end && ptr->is_zero(*this)) ++ptr;
 
         return const_iterator(this, ptr);
     }
@@ -246,13 +235,11 @@ public:
     const_iterator cbegin() const { return begin(); }
 
     iterator begin() {
-        if (!buf)
-            return end();
+        if (!buf) return end();
 
-        Cell * ptr = buf;
+        Cell* ptr = buf;
         auto buf_end = buf + NUM_CELLS;
-        while (ptr < buf_end && ptr->is_zero(*this))
-            ++ptr;
+        while (ptr < buf_end && ptr->is_zero(*this)) ++ptr;
 
         return iterator(this, ptr);
     }
@@ -262,22 +249,17 @@ public:
         return const_iterator(this, buf ? buf + NUM_CELLS : buf);
     }
 
-    const_iterator cend() const {
-        return end();
-    }
+    const_iterator cend() const { return end(); }
 
-    iterator end() {
-        return iterator(this, buf ? buf + NUM_CELLS : buf);
-    }
-
+    iterator end() { return iterator(this, buf ? buf + NUM_CELLS : buf); }
 
 public:
     /// The last parameter is unused but exists for compatibility with HashTable interface.
-    void ALWAYS_INLINE emplace(const Key & x, LookupResult & it, bool & inserted, size_t /* hash */ = 0) {
+    void ALWAYS_INLINE emplace(const Key& x, LookupResult& it, bool& inserted,
+                               size_t /* hash */ = 0) {
         it = &buf[x];
 
-        if (!buf[x].is_zero(*this))
-        {
+        if (!buf[x].is_zero(*this)) {
             inserted = false;
             return;
         }
@@ -287,34 +269,40 @@ public:
         this->increase_size();
     }
 
-    std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type & x) {
+    std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
         std::pair<LookupResult, bool> res;
         emplace(Cell::get_key(x), res.first, res.second);
-        if (res.second)
-            insert_set_mapped(res.first->get_mapped(), x);
+        if (res.second) insert_set_mapped(res.first->get_mapped(), x);
 
         return res;
     }
 
-    LookupResult ALWAYS_INLINE find(const Key & x) { return !buf[x].is_zero(*this) ? &buf[x] : nullptr; }
-
-    ConstLookupResult ALWAYS_INLINE find(const Key & x) const { return const_cast<std::decay_t<decltype(*this)> *>(this)->find(x); }
-
-    LookupResult ALWAYS_INLINE find(const Key &, size_t hash_value) { return !buf[hash_value].is_zero(*this) ? &buf[hash_value] : nullptr; }
-
-    ConstLookupResult ALWAYS_INLINE find(const Key & key, size_t hash_value) const {
-        return const_cast<std::decay_t<decltype(*this)> *>(this)->find(key, hash_value);
+    LookupResult ALWAYS_INLINE find(const Key& x) {
+        return !buf[x].is_zero(*this) ? &buf[x] : nullptr;
     }
 
-    bool ALWAYS_INLINE has(const Key & x) const { return !buf[x].is_zero(*this); }
-    bool ALWAYS_INLINE has(const Key &, size_t hash_value) const { return !buf[hash_value].is_zero(*this); }
+    ConstLookupResult ALWAYS_INLINE find(const Key& x) const {
+        return const_cast<std::decay_t<decltype(*this)>*>(this)->find(x);
+    }
+
+    LookupResult ALWAYS_INLINE find(const Key&, size_t hash_value) {
+        return !buf[hash_value].is_zero(*this) ? &buf[hash_value] : nullptr;
+    }
+
+    ConstLookupResult ALWAYS_INLINE find(const Key& key, size_t hash_value) const {
+        return const_cast<std::decay_t<decltype(*this)>*>(this)->find(key, hash_value);
+    }
+
+    bool ALWAYS_INLINE has(const Key& x) const { return !buf[x].is_zero(*this); }
+    bool ALWAYS_INLINE has(const Key&, size_t hash_value) const {
+        return !buf[hash_value].is_zero(*this);
+    }
 
     void write(doris::vectorized::BufferWritable& wb) const {
         Cell::State::write(wb);
         doris::vectorized::write_var_uint(size(), wb);
 
-        if (!buf)
-            return;
+        if (!buf) return;
 
         for (auto ptr = buf, buf_end = buf + NUM_CELLS; ptr < buf_end; ++ptr) {
             if (!ptr->is_zero(*this)) {
@@ -349,7 +337,7 @@ public:
         destroy_elements();
         this->clear_size();
 
-        memset(static_cast<void *>(buf), 0, NUM_CELLS * sizeof(*buf));
+        memset(static_cast<void*>(buf), 0, NUM_CELLS * sizeof(*buf));
     }
 
     /// After executing this function, the table can only be destroyed,
@@ -369,13 +357,12 @@ public:
     /// because offset for zero value considered to be 0
     /// and for other values it will be `offset in buffer + 1`
     size_t offset_internal(ConstLookupResult ptr) const {
-        if (ptr->is_zero(*this))
-            return 0;
+        if (ptr->is_zero(*this)) return 0;
         return ptr - buf + 1;
     }
 
-    const Cell * data() const { return buf; }
-    Cell * data() { return buf; }
+    const Cell* data() const { return buf; }
+    Cell* data() { return buf; }
 
 #ifdef DBMS_HASH_MAP_COUNT_COLLISIONS
     size_t get_collisions() const { return 0; }

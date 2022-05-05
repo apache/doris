@@ -91,7 +91,6 @@ public class OdbcCatalogResource extends Resource {
         if (value == null) {
             throw new DdlException("Missing " + propertiesKey + " in properties");
         }
-
     }
 
     @Override
@@ -121,7 +120,13 @@ public class OdbcCatalogResource extends Resource {
         }
     }
 
-    public String getProperties(String propertiesKey)  {
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(configs);
+        return copiedProperties;
+    }
+
+    public String getProperty(String propertiesKey)  {
         // check the properties key
         String value = configs.get(propertiesKey);
         return value;

@@ -46,14 +46,14 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * style: Code style adjustment
         * typo: Code or Document correction
         * refactor: Code refactoring (no function changes involved)
-        * performance: Performance optimization
+        * performance/optimize: Performance optimization
         * test: Addition or repair of unit test
         * chore: Modification of build tool
         * revert: Revert a previous commit
         * deps: Modification of third-party dependency Library
         * community: Such as modification of Github issue template.
 
-        Some tips:
+        Some tips：
         
         1. If there are multiple types in one commit, multiple types need to be added
         2. If code refactoring brings performance improvement,  [refactor][optimize] can be added at the same time
@@ -78,9 +78,11 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
         * log
         * cache
         * config
+        * vectorization
         * docs
+        * profile
 
-        Some tips:
+        Some tips：
 
         1. Try to use options that already exist in the list. If you need to add, please update this document in time
 
@@ -93,7 +95,7 @@ Commit is divided into ‘ title ’ and ‘ content ’ , the title should be l
     commit message should follow the following format: 
     
     ```
-    issue: #7777
+    issue：#7777
     
     your message
     ```

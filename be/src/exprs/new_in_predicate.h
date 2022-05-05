@@ -323,8 +323,8 @@ private:
     /// The templated function that provides the implementation for all the In() and NotIn()
     /// functions.
     template <typename T, typename SetType, bool not_in, Strategy strategy>
-    static doris_udf::BooleanVal templated_in(doris_udf::FunctionContext* context,
-                                                     const T& val, int num_args, const T* args);
+    static doris_udf::BooleanVal templated_in(doris_udf::FunctionContext* context, const T& val,
+                                              int num_args, const T* args);
 
     /// Initializes an SetLookupState in ctx.
     template <typename T, typename SetType>

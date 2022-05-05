@@ -61,8 +61,9 @@ public:
 
     size_t size() { return _bloom_filter->directory().size; }
 
-    bool test_bytes(const char* data, size_t len) const {
-        return _bloom_filter->find(Slice(data, len));
+    template <typename T>
+    bool test(T data) const {
+        return _bloom_filter->find(data);
     }
 
     void add_bytes(const char* data, size_t len) { _bloom_filter->insert(Slice(data, len)); }
@@ -83,6 +84,7 @@ public:
     virtual void insert(const void* data) = 0;
     virtual bool find(const void* data) const = 0;
     virtual bool find_olap_engine(const void* data) const = 0;
+    virtual bool find_uint32_t(uint32_t data) const = 0;
 
     virtual Status merge(IBloomFilterFuncBase* bloomfilter_func) = 0;
     virtual Status assign(const char* data, int len) = 0;
@@ -171,11 +173,14 @@ struct CommonFindOp {
         bloom_filter.add_bytes((char*)data, sizeof(T));
     }
     ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        return bloom_filter.test_bytes((char*)data, sizeof(T));
+        return bloom_filter.test(Slice((char*)data, sizeof(T)));
     }
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
                                         const void* data) const {
         return this->find(bloom_filter, data);
+    }
+    ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
+        return bloom_filter.test(data);
     }
 };
 
@@ -192,11 +197,14 @@ struct StringFindOp {
         if (value == nullptr) {
             return false;
         }
-        return bloom_filter.test_bytes(value->ptr, value->len);
+        return bloom_filter.test(Slice(value->ptr, value->len));
     }
     ALWAYS_INLINE bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
                                         const void* data) const {
         return StringFindOp::find(bloom_filter, data);
+    }
+    ALWAYS_INLINE bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
+        return bloom_filter.test(data);
     }
 };
 
@@ -210,7 +218,7 @@ struct FixedStringFindOp : public StringFindOp<BloomFilterAdaptor> {
         int64_t size = value->len;
         char* data = value->ptr;
         while (size > 0 && data[size - 1] == '\0') size--;
-        return bloom_filter.test_bytes(value->ptr, size);
+        return bloom_filter.test(Slice(value->ptr, size));
     }
 };
 
@@ -219,7 +227,7 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         DateTimeValue value;
         value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
-        return bloom_filter.test_bytes((char*)&value, sizeof(DateTimeValue));
+        return bloom_filter.test(Slice((char*)&value, sizeof(DateTimeValue)));
     }
 };
 
@@ -238,7 +246,7 @@ struct DateFindOp : public CommonFindOp<DateTimeValue, BloomFilterAdaptor> {
 
         char data_bytes[sizeof(date_value)];
         memcpy(&data_bytes, &date_value, sizeof(date_value));
-        return bloom_filter.test_bytes(data_bytes, sizeof(DateTimeValue));
+        return bloom_filter.test(Slice(data_bytes, sizeof(DateTimeValue)));
     }
 };
 
@@ -254,7 +262,7 @@ struct DecimalV2FindOp : public CommonFindOp<DecimalV2Value, BloomFilterAdaptor>
         constexpr int decimal_value_sz = sizeof(DecimalV2Value);
         char data_bytes[decimal_value_sz];
         memcpy(&data_bytes, &value, decimal_value_sz);
-        return bloom_filter.test_bytes(data_bytes, decimal_value_sz);
+        return bloom_filter.test(Slice(data_bytes, decimal_value_sz));
     }
 };
 
@@ -313,6 +321,10 @@ public:
 
     bool find_olap_engine(const void* data) const override {
         return dummy.find_olap_engine(*this->_bloom_filter, data);
+    }
+
+    bool find_uint32_t(uint32_t data) const override {
+        return dummy.find(*this->_bloom_filter, data);
     }
 
 private:

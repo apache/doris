@@ -21,10 +21,10 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -49,12 +49,12 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
-import org.apache.doris.thrift.TSortType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -424,10 +424,11 @@ public class OlapTable extends Table {
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore() {
-        // disable dynamic partition
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore();
         }
+        // remove colocate property.
+        setColocateGroup(null);
     }
 
     public Status resetIdsForRestore(Catalog catalog, Database db, ReplicaAllocation restoreReplicaAlloc) {
@@ -635,17 +636,19 @@ public class OlapTable extends Table {
         return partitionInfo;
     }
 
-    public Set<String> getPartitionColumnNames() {
+    public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
             return partitionColumnNames;
+        } else if (partitionInfo instanceof RangePartitionInfo) {
+            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+            return rangePartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+        } else if (partitionInfo instanceof ListPartitionInfo) {
+            ListPartitionInfo listPartitionInfo = (ListPartitionInfo) partitionInfo;
+            return listPartitionInfo.getPartitionColumns().stream().map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
+        } else {
+            throw new DdlException("Unknown partition info type: " + partitionInfo.getType().name());
         }
-        RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-        List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
-        for (Column column : partitionColumns) {
-            partitionColumnNames.add(column.getName().toLowerCase());
-        }
-        return partitionColumnNames;
     }
 
     public DistributionInfo getDefaultDistributionInfo() {
@@ -1284,11 +1287,13 @@ public class OlapTable extends Table {
             return copied;
         }
 
-        Set<String> partNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> partNames = Sets.newHashSet();
         partNames.addAll(copied.getPartitionNames());
 
+        // partition name is case insensitive:
+        Set<String> lowerReservedPartitionNames = reservedPartitions.stream().map(String::toLowerCase).collect(Collectors.toSet());
         for (String partName : partNames) {
-            if (!reservedPartitions.contains(partName)) {
+            if (!lowerReservedPartitionNames.contains(partName.toLowerCase())) {
                 copied.dropPartitionAndReserveTablet(partName);
             }
         }

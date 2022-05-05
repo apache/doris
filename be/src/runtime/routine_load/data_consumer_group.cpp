@@ -126,8 +126,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000
-                      << ", " << ctx->brief();
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000 << ", "
+                      << ctx->brief();
 
             // shutdown queue
             _queue.shutdown();
@@ -157,7 +157,7 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                         << ", len: " << msg->len();
 
             Status st = (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
-                                             static_cast<size_t>(msg->len()));
+                                                         static_cast<size_t>(msg->len()));
             if (st.ok()) {
                 left_rows--;
                 left_bytes -= msg->len();

@@ -1381,6 +1381,10 @@ public class Analyzer {
         return globalState.fullOuterJoinedTupleIds.containsKey(tid);
     }
 
+    public boolean isOuterMaterializedJoined(TupleId tid) {
+        return globalState.outerJoinedMaterializedTupleIds.contains(tid);
+    }
+
     public boolean isFullOuterJoined(SlotId sid) {
         return isFullOuterJoined(getTupleId(sid));
     }

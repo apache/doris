@@ -85,6 +85,8 @@ class RegressionTest {
         scriptExecutors = Executors.newFixedThreadPool(config.parallel)
         suiteExecutors = Executors.newFixedThreadPool(config.suiteParallel)
         actionExecutors = Executors.newFixedThreadPool(config.actionParallel)
+
+        loadPlugins(config)
     }
 
     static List<ScriptSource> findScriptSources(String root, Predicate<String> directoryFilter,
@@ -173,18 +175,39 @@ class RegressionTest {
         return recorder
     }
 
-    static boolean canRun(Config config, String suiteName, String group) {
-        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
-        if (config.suiteWildcard.size() == 0 ||
-                (suiteName != null && (config.suiteWildcard.any {
-                suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
-                }))) {
-            if (config.groups == null || config.groups.isEmpty()
-                    || !config.groups.intersect(suiteGroups).isEmpty()) {
-                return true
-            }
+    static boolean filterSuites(Config config, String suiteName) {
+        if (config.suiteWildcard.isEmpty() && config.excludeSuiteWildcard.isEmpty()) {
+            return true
         }
-        return false
+        if (!config.suiteWildcard.isEmpty() && !config.suiteWildcard.any {
+                    suiteWildcard -> Wildcard.match(suiteName, suiteWildcard)
+                }) {
+            return false
+        }
+        if (!config.excludeSuiteWildcard.isEmpty() && config.excludeSuiteWildcard.any {
+                    excludeSuiteWildcard -> Wildcard.match(suiteName, excludeSuiteWildcard)
+                }) {
+            return false
+        }
+        return true
+    }
+
+    static boolean filterGroups(Config config, String group) {
+        if (config.groups.isEmpty() && config.excludeGroupSet.isEmpty()) {
+            return true
+        }
+        Set<String> suiteGroups = group.split(',').collect { g -> g.trim() }.toSet()
+        if (!config.groups.isEmpty() && config.groups.intersect(suiteGroups).isEmpty()) {
+            return false
+        }
+        if (!config.excludeGroupSet.isEmpty() && !config.excludeGroupSet.intersect(suiteGroups).isEmpty()) {
+            return false
+        }
+        return true
+    }
+
+    static boolean canRun(Config config, String suiteName, String group) {
+        return filterGroups(config, group) && filterSuites(config, suiteName)
     }
 
     static List<EventListener> getEventListeners(Config config, Recorder recorder) {
@@ -226,7 +249,7 @@ class RegressionTest {
             String successList = recorder.successList.collect { info ->
                 "${info.file.absolutePath}: group=${info.group}, name=${info.suiteName}"
             }.join('\n')
-            log.info("SuccessList suites:\n${successList}".toString())
+            log.info("Success suites:\n${successList}".toString())
         }
 
         // print failure list
@@ -248,6 +271,33 @@ class RegressionTest {
         } else {
             printPassed()
             return true
+        }
+    }
+
+    static void loadPlugins(Config config) {
+        if (config.pluginPath.is(null) || config.pluginPath.isEmpty()) {
+            return
+        }
+        def pluginPath = new File(config.pluginPath)
+        if (!pluginPath.exists() || !pluginPath.isDirectory()) {
+            return
+        }
+        pluginPath.eachFileRecurse { it ->
+            if (it.name.endsWith(".groovy")) {
+                ScriptContext context = new ScriptContext(it, suiteExecutors, actionExecutors,
+                        config, [], { name -> true })
+                File pluginFile = it
+                context.start {
+                    try {
+                        SuiteScript pluginScript = new GroovyFileSource(pluginFile).toScript(context, shell)
+                        log.info("Begin to load plugin: ${pluginFile.getCanonicalPath()}")
+                        pluginScript.run()
+                        log.info("Loaded plugin: ${pluginFile.getCanonicalPath()}")
+                    } catch (Throwable t) {
+                        log.error("Load plugin failed: ${pluginFile.getCanonicalPath()}", t)
+                    }
+                }
+            }
         }
     }
 

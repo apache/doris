@@ -27,27 +27,28 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/tablets_channel.h"
+#include "runtime/thread_context.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 class Cache;
-class TabletsChannel;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
 class LoadChannel {
 public:
     LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t timeout_s,
-                bool is_high_priority, const std::string& sender_ip);
+                bool is_high_priority, const std::string& sender_ip, bool is_vec);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    Status add_batch(const PTabletWriterAddBatchRequest& request,
-                     PTabletWriterAddBatchResult* response);
+    template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
+    Status add_batch(const TabletWriterAddRequest& request, TabletWriterAddResult* response);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -69,6 +70,25 @@ public:
     int64_t timeout() const { return _timeout_s; }
 
     bool is_high_priority() const { return _is_high_priority; }
+
+protected:
+    Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
+                                const int64_t index_id);
+
+    template <typename Request, typename Response>
+    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel, const Request& request,
+                       Response* response) {
+        bool finished = false;
+        auto index_id = request.index_id();
+        RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), &finished,
+                                       request.partition_ids(), response->mutable_tablet_vec()));
+        if (finished) {
+            std::lock_guard<std::mutex> l(_lock);
+            _tablets_channels.erase(index_id);
+            _finished_channel_ids.emplace(index_id);
+        }
+        return Status::OK();
+    }
 
 private:
     // when mem consumption exceeds limit, should call this method to find the channel
@@ -99,12 +119,53 @@ private:
 
     // the ip where tablet sink locate
     std::string _sender_ip = "";
+
+    // true if this load is vectorized
+    bool _is_vec = false;
 };
+
+template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
+Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
+                              TabletWriterAddResult* response) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    int64_t index_id = request.index_id();
+    // 1. get tablets channel
+    std::shared_ptr<TabletsChannel> channel;
+    bool is_finished;
+    Status st = _get_tablets_channel(channel, is_finished, index_id);
+    if (!st.ok() || is_finished) {
+        return st;
+    }
+
+    // 2. check if mem consumption exceed limit
+    handle_mem_exceed_limit(false);
+
+    // 3. add batch to tablets channel
+    if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
+        if (request.has_row_batch()) {
+            RETURN_IF_ERROR(channel->add_batch(request, response));
+        }
+    } else {
+        if (request.has_block()) {
+            RETURN_IF_ERROR(channel->add_batch(request, response));
+        }
+    }
+
+    // 4. handle eos
+    if (request.has_eos() && request.eos()) {
+        st = _handle_eos(channel, request, response);
+        if (!st.ok()) {
+            return st;
+        }
+    }
+    _last_updated_time.store(time(nullptr));
+    return st;
+}
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
     os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
-        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
-        << ", is high priority: " << load_channel.is_high_priority() << ")";
+       << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time())
+       << ", is high priority: " << load_channel.is_high_priority() << ")";
     return os;
 }
 

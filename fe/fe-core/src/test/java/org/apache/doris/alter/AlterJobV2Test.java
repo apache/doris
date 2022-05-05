@@ -19,6 +19,7 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.catalog.Catalog;
@@ -56,7 +57,6 @@ public class AlterJobV2Test {
         FeConstants.runningUnitTest = true;
 
         UtFrameUtils.createDorisCluster(runningDir);
-        Config.enable_alpha_rowset = true;
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -66,8 +66,6 @@ public class AlterJobV2Test {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
-
-        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
     }
 
     @AfterClass
@@ -83,6 +81,11 @@ public class AlterJobV2Test {
     private static void alterTable(String sql) throws Exception {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+    }
+
+    private static void createMaterializedView(String sql) throws Exception {
+        CreateMaterializedViewStmt stmt = (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getAlterInstance().processCreateMaterializedView(stmt);
     }
 
     @Test
@@ -128,7 +131,7 @@ public class AlterJobV2Test {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
         // 2. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
         String showAlterStmtStr = "show alter table rollup from test;";
@@ -137,59 +140,6 @@ public class AlterJobV2Test {
         ShowResultSet showResultSet = showExecutor.execute();
         System.out.println(showResultSet.getMetaData());
         System.out.println(showResultSet.getResultRows());
-    }
-    
-    @Test
-    @Deprecated
-    public void testAlterSegmentV2() throws Exception {
-        // TODO this test should remove after we disable segment v1 completely
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable tbl = db.getTableOrMetaException("segmentv2", Table.TableType.OLAP);
-        Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
-
-        // 1. create a rollup r1
-        String alterStmtStr = "alter table test.segmentv2 add rollup r1(k2, v1)";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-
-        String sql = "select k2, sum(v1) from test.segmentv2 group by k2";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: r1"));
-
-        // 2. create a rollup with segment v2
-        alterStmtStr = "alter table test.segmentv2 add rollup segmentv2(k2, v1) properties('storage_format' = 'v2')";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: r1"));
-
-        // set use_v2_rollup = true;
-        connectContext.getSessionVariable().setUseV2Rollup(true);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: __v2_segmentv2"));
-
-        // 3. process alter segment v2
-        alterStmtStr = "alter table test.segmentv2 set ('storage_format' = 'v2');";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        // 4. check alter job
-        alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-        // 5. check storage format of table
-        Assert.assertEquals(TStorageFormat.V2, tbl.getTableProperty().getStorageFormat());
-
-        // 6. alter again, that no job will be created
-        try {
-            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-            Assert.fail();
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("Nothing is changed"));
-        }
     }
 
     @Test
@@ -213,8 +163,41 @@ public class AlterJobV2Test {
 
 
         alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
+    }
+
+    @Test
+    public void testCreateMVForListPartitionTable() throws Exception {
+        createTable("CREATE TABLE test.list_tbl (\n" +
+                "city VARCHAR(20) NOT NULL,\n" +
+                "user_id BIGINT NOT NULL,\n" +
+                "date DATE NOT NULL,\n" +
+                "age SMALLINT NOT NULL,\n" +
+                "sex TINYINT NOT NULL,\n" +
+                "cost BIGINT NOT NULL DEFAULT \"0\"\n" +
+                ") DUPLICATE KEY(city) PARTITION BY LIST(city) (\n" +
+                "PARTITION p_bj\n" +
+                "VALUES IN (\"beijing\"),\n" +
+                "PARTITION p_gz\n" +
+                "VALUES IN (\"guangzhou\"),\n" +
+                "PARTITION p_sz\n" +
+                "VALUES IN (\"shenzhen\")\n" +
+                ") DISTRIBUTED BY HASH(date) BUCKETS 1 PROPERTIES(\"replication_num\" = \"1\");");
+
+        createMaterializedView("create materialized view list_view as\n" +
+                "select city,\n" +
+                "user_id,\n" +
+                "date,\n" +
+                "sum(cost)\n" +
+                "from\n" +
+                "test.list_tbl\n" +
+                "group by\n" +
+                "city,\n" +
+                "user_id,\n" +
+                "date;");
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
+        waitAlterJobDone(alterJobs);
     }
 }

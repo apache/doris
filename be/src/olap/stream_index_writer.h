@@ -76,4 +76,3 @@ protected:
 };
 
 } // namespace doris
-

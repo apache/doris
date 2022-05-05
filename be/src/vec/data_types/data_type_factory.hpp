@@ -63,7 +63,7 @@ public:
             instance.register_data_type("DateTime", std::make_shared<DataTypeDateTime>());
             instance.register_data_type("String", std::make_shared<DataTypeString>());
             instance.register_data_type("Decimal",
-                                      std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
+                                        std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
         });
         return instance;
     }

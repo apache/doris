@@ -329,8 +329,12 @@ public:
               _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id, uint32_t filter_id)
-            : _pool(pool), _filter_type(type), _fragment_instance_id(fragment_instance_id), _filter_id(filter_id) {}
+    RuntimePredicateWrapper(ObjectPool* pool, RuntimeFilterType type, UniqueId fragment_instance_id,
+                            uint32_t filter_id)
+            : _pool(pool),
+              _filter_type(type),
+              _fragment_instance_id(fragment_instance_id),
+              _filter_id(filter_id) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -453,7 +457,8 @@ public:
         DCHECK(container != nullptr);
         DCHECK(_pool != nullptr);
         DCHECK(prob_expr->root()->type().type == _column_return_type ||
-        (is_string_type(prob_expr->root()->type().type) && is_string_type(_column_return_type)));
+               (is_string_type(prob_expr->root()->type().type) &&
+                is_string_type(_column_return_type)));
 
         auto real_filter_type = get_real_type();
         switch (real_filter_type) {
@@ -909,9 +914,9 @@ private:
     uint32_t _filter_id;
 };
 
-Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool,
-                              const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
-                              const RuntimeFilterRole role, int node_id, IRuntimeFilter** res) {
+Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
+                              const TQueryOptions* query_options, const RuntimeFilterRole role,
+                              int node_id, IRuntimeFilter** res) {
     *res = pool->add(new IRuntimeFilter(state, pool));
     (*res)->set_role(role);
     UniqueId fragment_instance_id(state->fragment_instance_id());
@@ -1087,7 +1092,8 @@ Status IRuntimeFilter::_create_wrapper(const T* param, ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
     wrapper->reset(new RuntimePredicateWrapper(pool, get_type(filter_type),
-                            UniqueId(param->request->fragment_id()), param->request->filter_id()));
+                                               UniqueId(param->request->fragment_id()),
+                                               param->request->filter_id()));
 
     switch (filter_type) {
     case PFilterType::IN_FILTER: {

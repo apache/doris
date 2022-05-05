@@ -52,7 +52,7 @@ MemIndex::~MemIndex() {
 }
 
 Status MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row_block,
-                                  bool use_cache) {
+                              bool use_cache) {
     Status res = Status::OK();
 
     SegmentMetaInfo meta;
@@ -315,7 +315,7 @@ Status MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row
 }
 
 Status MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
-                          std::vector<TabletColumn>* short_key_columns) {
+                      std::vector<TabletColumn>* short_key_columns) {
     if (short_key_columns == nullptr) {
         LOG(WARNING) << "fail to init MemIndex, nullptr short key columns.";
         return Status::OLAPInternalError(OLAP_ERR_INDEX_LOAD_ERROR);
@@ -469,8 +469,7 @@ Status MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const 
     return Status::OK();
 }
 
-Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos,
-                                            RowBlockPosition* rbp) const {
+Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
     if (zero_num_rows()) {
         return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }

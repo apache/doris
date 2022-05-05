@@ -52,8 +52,8 @@ void UserResourceListener::handle_update(const TAgentServiceVersion::type& proto
     if (updates.size() > 0) {
         int64_t new_version = updates[0].int_value;
         // Async call to update users resource method
-        auto res = std::async(std::launch::async, &UserResourceListener::update_users_resource, this,
-                   new_version);
+        auto res = std::async(std::launch::async, &UserResourceListener::update_users_resource,
+                              this, new_version);
         res.get();
     }
 }

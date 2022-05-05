@@ -24,7 +24,6 @@
 #include "util/string_parser.hpp"
 #include "util/time.h"
 
-
 namespace doris {
 
 void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
@@ -161,9 +160,7 @@ std::string OlapTablePartition::debug_string(TupleDescriptor* tuple_desc) const 
 
 OlapTablePartitionParam::OlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam> schema,
                                                  const TOlapTablePartitionParam& t_param)
-        : _schema(schema),
-          _t_param(t_param),
-          _mem_pool(new MemPool("OlapTablePartitionParam")) {}
+        : _schema(schema), _t_param(t_param), _mem_pool(new MemPool("OlapTablePartitionParam")) {}
 
 OlapTablePartitionParam::~OlapTablePartitionParam() {}
 
@@ -293,9 +290,11 @@ Status OlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool OlapTablePartitionParam::find_partition(Tuple* tuple, const OlapTablePartition** partition) const {
+bool OlapTablePartitionParam::find_partition(Tuple* tuple,
+                                             const OlapTablePartition** partition) const {
     const TOlapTablePartition& t_part = _t_param.partitions[0];
-    auto it = t_part.__isset.in_keys ? _partitions_map->find(tuple) : _partitions_map->upper_bound(tuple);
+    auto it = t_part.__isset.in_keys ? _partitions_map->find(tuple)
+                                     : _partitions_map->upper_bound(tuple);
     if (it == _partitions_map->end()) {
         return false;
     }
@@ -306,7 +305,8 @@ bool OlapTablePartitionParam::find_partition(Tuple* tuple, const OlapTablePartit
     return false;
 }
 
-uint32_t OlapTablePartitionParam::find_tablet(Tuple* tuple, const OlapTablePartition& partition) const {
+uint32_t OlapTablePartitionParam::find_tablet(Tuple* tuple,
+                                              const OlapTablePartition& partition) const {
     return _compute_tablet_index(tuple, partition.num_buckets);
 }
 
@@ -412,13 +412,14 @@ std::string OlapTablePartitionParam::debug_string() const {
 }
 
 VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSchemaParam>& schema,
-                                                 const TOlapTablePartitionParam& t_param)
+                                                   const TOlapTablePartitionParam& t_param)
         : _schema(schema),
           _t_param(t_param),
           _slots(_schema->tuple_desc()->slots()),
           _mem_tracker(MemTracker::create_virtual_tracker(-1, "OlapTablePartitionParam")) {
     for (auto slot : _slots) {
-        _partition_block.insert({slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
+        _partition_block.insert(
+                {slot->get_empty_mutable_column(), slot->get_data_type_ptr(), slot->col_name()});
     }
 }
 
@@ -432,7 +433,9 @@ Status VOlapTablePartitionParam::init() {
         slot_column_names.emplace_back(slot_desc->col_name());
     }
 
-    auto find_slot_locs = [&slot_column_names](const std::string& slot_name, std::vector<uint16_t>& locs, const std::string& column_type) {
+    auto find_slot_locs = [&slot_column_names](const std::string& slot_name,
+                                               std::vector<uint16_t>& locs,
+                                               const std::string& column_type) {
         auto it = std::find(slot_column_names.begin(), slot_column_names.end(), slot_name);
         if (it == slot_column_names.end()) {
             return Status::InternalError(column_type + " column not found, column =" + slot_name);
@@ -447,8 +450,9 @@ Status VOlapTablePartitionParam::init() {
         }
     }
 
-    _partitions_map.reset(new std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>(
-            VOlapTablePartKeyComparator(_partition_slot_locs)));
+    _partitions_map.reset(
+            new std::map<BlockRow*, VOlapTablePartition*, VOlapTablePartKeyComparator>(
+                    VOlapTablePartKeyComparator(_partition_slot_locs)));
     if (_t_param.__isset.distributed_columns) {
         for (auto& col : _t_param.distributed_columns) {
             RETURN_IF_ERROR(find_slot_locs(col, _distributed_slot_locs, "distributed"));
@@ -467,7 +471,8 @@ Status VOlapTablePartitionParam::init() {
                 auto column = key->first->get_by_position(_distributed_slot_locs[i]).column;
                 auto val = column->get_data_at(key->second);
                 if (val.data != nullptr) {
-                    hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type, hash_val);
+                    hash_val = RawValue::zlib_crc32(val.data, val.size, slot_desc->type().type,
+                                                    hash_val);
                 } else {
                     // NULL is treat as 0 when hash
                     static const int INT_VALUE = 0;
@@ -498,7 +503,8 @@ Status VOlapTablePartitionParam::init() {
             }
         } else {
             for (const auto& keys : t_part.in_keys) {
-                RETURN_IF_ERROR(_create_partition_keys(keys, &part->in_keys.emplace_back(&_partition_block, -1)));
+                RETURN_IF_ERROR(_create_partition_keys(
+                        keys, &part->in_keys.emplace_back(&_partition_block, -1)));
             }
         }
 
@@ -541,8 +547,10 @@ Status VOlapTablePartitionParam::init() {
     return Status::OK();
 }
 
-bool VOlapTablePartitionParam::find_partition(BlockRow* block_row, const VOlapTablePartition** partition) const {
-    auto it = _is_in_partition ? _partitions_map->find(block_row) : _partitions_map->upper_bound(block_row);
+bool VOlapTablePartitionParam::find_partition(BlockRow* block_row,
+                                              const VOlapTablePartition** partition) const {
+    auto it = _is_in_partition ? _partitions_map->find(block_row)
+                               : _partitions_map->upper_bound(block_row);
     if (it == _partitions_map->end()) {
         return false;
     }
@@ -553,75 +561,79 @@ bool VOlapTablePartitionParam::find_partition(BlockRow* block_row, const VOlapTa
     return false;
 }
 
-uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row, const VOlapTablePartition& partition) const {
+uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row,
+                                               const VOlapTablePartition& partition) const {
     return _compute_tablet_index(block_row, partition.num_buckets);
 }
 
 Status VOlapTablePartitionParam::_create_partition_keys(const std::vector<TExprNode>& t_exprs,
-                                                       BlockRow* part_key) {
+                                                        BlockRow* part_key) {
     for (int i = 0; i < t_exprs.size(); i++) {
-        RETURN_IF_ERROR(_create_partition_key(t_exprs[i], part_key,
-                _partition_slot_locs[i]));
+        RETURN_IF_ERROR(_create_partition_key(t_exprs[i], part_key, _partition_slot_locs[i]));
     }
     return Status::OK();
 }
 
 Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
-                                                      uint16_t pos) {
+                                                       uint16_t pos) {
     auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
         vectorized::VecDateTimeValue dt;
-        if (!dt.from_date_str(
-                    t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size())) {
+        if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
+                              t_expr.date_literal.value.size())) {
             std::stringstream ss;
             ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
             return Status::InternalError(ss.str());
         }
-        column->insert_data(reinterpret_cast<const char *>(&dt), 0);
+        column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         break;
     }
     case TExprNodeType::INT_LITERAL: {
         switch (t_expr.type.types[0].scalar_type.type) {
-            case TPrimitiveType::TINYINT: {
-                int8_t value = t_expr.int_literal.value;
-                column->insert_data(reinterpret_cast<const char *>(&value), 0);
-                break;
-            }
-            case TPrimitiveType::SMALLINT: {
-                int16_t value = t_expr.int_literal.value;
-                column->insert_data(reinterpret_cast<const char *>(&value), 0);
-                break;
-            }
-            case TPrimitiveType::INT: {
-                int32_t value = t_expr.int_literal.value;
-                column->insert_data(reinterpret_cast<const char *>(&value), 0);
-                break;
-            }
-            default:
-                int64_t value = t_expr.int_literal.value;
-                column->insert_data(reinterpret_cast<const char *>(&value), 0);
+        case TPrimitiveType::TINYINT: {
+            int8_t value = t_expr.int_literal.value;
+            column->insert_data(reinterpret_cast<const char*>(&value), 0);
+            break;
+        }
+        case TPrimitiveType::SMALLINT: {
+            int16_t value = t_expr.int_literal.value;
+            column->insert_data(reinterpret_cast<const char*>(&value), 0);
+            break;
+        }
+        case TPrimitiveType::INT: {
+            int32_t value = t_expr.int_literal.value;
+            column->insert_data(reinterpret_cast<const char*>(&value), 0);
+            break;
+        }
+        default:
+            int64_t value = t_expr.int_literal.value;
+            column->insert_data(reinterpret_cast<const char*>(&value), 0);
         }
         break;
-    } case TExprNodeType::LARGE_INT_LITERAL: {
+    }
+    case TExprNodeType::LARGE_INT_LITERAL: {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        __int128 value = StringParser::string_to_int<__int128>(t_expr.large_int_literal.value.c_str(),
-                                                             t_expr.large_int_literal.value.size(),
-                                                             &parse_result);
+        __int128 value = StringParser::string_to_int<__int128>(
+                t_expr.large_int_literal.value.c_str(), t_expr.large_int_literal.value.size(),
+                &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
             value = MAX_INT128;
         }
-        column->insert_data(reinterpret_cast<const char *>(&value), 0);
+        column->insert_data(reinterpret_cast<const char*>(&value), 0);
         break;
-    } case TExprNodeType::STRING_LITERAL: {
+    }
+    case TExprNodeType::STRING_LITERAL: {
         int len = t_expr.string_literal.value.size();
         const char* str_val = t_expr.string_literal.value.c_str();
         column->insert_data(str_val, len);
         break;
-    } case TExprNodeType::BOOL_LITERAL: {
-        column->insert_data(reinterpret_cast<const char *>(&t_expr.bool_literal.value), 0);
+    }
+    case TExprNodeType::BOOL_LITERAL: {
+        column->insert_data(reinterpret_cast<const char*>(&t_expr.bool_literal.value), 0);
         break;
-    } default: {
+    }
+    default: {
         std::stringstream ss;
         ss << "unsupported partition column node type, type=" << t_expr.node_type;
         return Status::InternalError(ss.str());

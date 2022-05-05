@@ -28,18 +28,23 @@ import org.apache.logging.log4j.Logger;
 // Now the flag is represented by 64-bit long type, each bit can be used to control
 // one behavior. The first bit is used for set default rowset type to beta flag.
 public class HeartbeatFlags {
-    private static final Logger LOG = LogManager.getLogger(HeartbeatFlags.class);
+	private static final Logger LOG = LogManager.getLogger(HeartbeatFlags.class);
 
-    public static boolean isValidRowsetType(String rowsetType) {
-        return "alpha".equalsIgnoreCase(rowsetType) || "beta".equalsIgnoreCase(rowsetType);
-    }
+	public static boolean isValidRowsetType(String rowsetType) {
+		return "alpha".equalsIgnoreCase(rowsetType) || "beta".equalsIgnoreCase(rowsetType);
+	}
 
-    public long getHeartbeatFlags() {
-        long heartbeatFlags = 0;
-        if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
-            heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
-        }
+	public long getHeartbeatFlags() {
+		long heartbeatFlags = 0;
+		// If user set default rowset type to ALPHA, then convert it to beta, because 
+		// alpha rowset will be removed
+		if ("beta".equalsIgnoreCase(GlobalVariable.defaultRowsetType) 
+				|| "alpha".equalsIgnoreCase(GlobalVariable.defaultRowsetType)) {
+			heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
+		} else {
+			throw new IllegalArgumentException("unknown DEFAULT_ROWSET_TYPE in global variable");
+		}
 
-        return heartbeatFlags;
-    }
+		return heartbeatFlags;
+	}
 }

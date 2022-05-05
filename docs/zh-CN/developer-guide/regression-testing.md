@@ -50,6 +50,7 @@ under the License.
 ./${DORIS_HOME}
     |-- **run-regression-test.sh**           回归测试启动脚本
     |-- regression-test
+    |   |-- plugins                          插件目录
     |   |-- conf
     |   |   |-- logback.xml                  日志配置文件
     |   |   |-- **regression-conf.groovy**   默认配置文件
@@ -100,6 +101,8 @@ feHttpPassword = ""
 suitePath = "${DORIS_HOME}/regression-test/suites"
 // 设置输入输出数据的目录
 dataPath = "${DORIS_HOME}/regression-test/data"
+// 设置插件的目录
+pluginPath = "${DORIS_HOME}/regression-test/plugins"
 
 // 默认会读所有的组,读多个组可以用半角逗号隔开，如: "demo,performance"
 // 一般不需要在配置文件中修改，而是通过run-regression-test.sh --run -g来动态指定和覆盖
@@ -108,6 +111,13 @@ testGroups = ""
 testSuites = ""
 // 默认会加载的用例目录, 可以通过run-regression-test.sh --run -d来动态指定和覆盖
 testDirectories = ""
+
+// 排除这些组的用例，可通过run-regression-test.sh --run -xg来动态指定和覆盖
+excludeGroups = ""
+// 排除这些suite，可通过run-regression-test.sh --run -xs来动态指定和覆盖
+excludeSuites = ""
+// 排除这些目录，可通过run-regression-test.sh --run -xd来动态指定和覆盖
+excludeDirectories = ""
 
 // 其他自定义配置
 customConf1 = "test_custom_conf_value"
@@ -517,6 +527,15 @@ thread, lazyCheck, events, connect, selectUnionAll
 # 测试demo目录下的sql_action
 ./run-regression-test.sh --run -d demo -s sql_action
 
+# 测试demo目录下用例，排除sql_action用例
+./run-regression-test.sh --run -d demo -xs sql_action
+
+# 排除demo目录的用例
+./run-regression-test.sh --run -xd demo
+
+# 排除demo group的用例
+./run-regression-test.sh --run -xg demo
+
 # 自定义配置
 ./run-regression-test.sh --run -conf a=b
 
@@ -531,6 +550,37 @@ thread, lazyCheck, events, connect, selectUnionAll
 
 # 使用查询结果自动生成sql_action用例的.out文件，如果.out文件存在则覆盖
 ./run-regression-test.sh --run sql_action -forceGenOut
+```
+
+## Suite插件
+有的时候我们需要拓展Suite类，但不便于修改Suite类的源码，则可以通过插件来进行拓展。默认插件目录为`${DORIS_HOME}/regression-test/plugins`，在其中可以通过groovy脚本定义拓展方法，以`plugin_example.groovy`为例，为Suite类增加了testPlugin函数用于打印日志：
+```groovy
+import org.apache.doris.regression.suite.Suite
+
+// register `testPlugin` function to Suite,
+// and invoke in ${DORIS_HOME}/regression-test/suites/demo/test_plugin.groovy
+Suite.metaClass.testPlugin = { String info /* param */ ->
+
+    // which suite invoke current function?
+    Suite suite = delegate as Suite
+
+    // function body
+    suite.getLogger().info("Test plugin: suiteName: ${suite.name}, info: ${info}".toString())
+
+    // optional return value
+    return "OK"
+}
+
+logger.info("Added 'testPlugin' function to Suite")
+```
+
+增加了testPlugin函数后，则可以在普通用例中使用它，以`${DORIS_HOME}/regression-test/suites/demo/test_plugin.groovy`为例:
+```groovy
+suite("test_plugin", "demo") {
+    // register testPlugin function in ${DORIS_HOME}/regression-test/plugins/plugin_example.groovy
+    def result = testPlugin("message from suite")
+    assertEquals("OK", result)
+}
 ```
 
 ## CI/CD的支持

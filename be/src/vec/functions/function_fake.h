@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_helpers.h"
@@ -31,7 +32,7 @@ namespace doris::vectorized {
 template <typename Impl>
 class FunctionFake : public IFunction {
 public:
-    static constexpr auto name = Impl::name;
+    static constexpr auto name = "fake";
 
     static FunctionPtr create() { return std::make_shared<FunctionFake>(); }
 

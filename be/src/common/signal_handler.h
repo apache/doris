@@ -38,10 +38,10 @@
 #include <csignal>
 #include <ctime>
 #ifdef HAVE_UCONTEXT_H
-# include <ucontext.h>
+#include <ucontext.h>
 #endif
 #ifdef HAVE_SYS_UCONTEXT_H
-# include <sys/ucontext.h>
+#include <sys/ucontext.h>
 #endif
 #include <algorithm>
 
@@ -55,15 +55,11 @@ namespace {
 //
 // The list should be synced with the comment in signalhandler.h.
 const struct {
-  int number;
-  const char *name;
+    int number;
+    const char* name;
 } kFailureSignals[] = {
-  { SIGSEGV, "SIGSEGV" },
-  { SIGILL, "SIGILL" },
-  { SIGFPE, "SIGFPE" },
-  { SIGABRT, "SIGABRT" },
-  { SIGBUS, "SIGBUS" },
-  { SIGTERM, "SIGTERM" },
+        {SIGSEGV, "SIGSEGV"}, {SIGILL, "SIGILL"}, {SIGFPE, "SIGFPE"},
+        {SIGABRT, "SIGABRT"}, {SIGBUS, "SIGBUS"}, {SIGTERM, "SIGTERM"},
 };
 
 static bool kFailureSignalHandlerInstalled = false;
@@ -85,163 +81,160 @@ static bool kFailureSignalHandlerInstalled = false;
  * These signal explainer is copied from Meta's Folly
  */
 const char* sigill_reason(int si_code) {
-  switch (si_code) {
+    switch (si_code) {
     case ILL_ILLOPC:
-      return "illegal opcode";
+        return "illegal opcode";
     case ILL_ILLOPN:
-      return "illegal operand";
+        return "illegal operand";
     case ILL_ILLADR:
-      return "illegal addressing mode";
+        return "illegal addressing mode";
     case ILL_ILLTRP:
-      return "illegal trap";
+        return "illegal trap";
     case ILL_PRVOPC:
-      return "privileged opcode";
+        return "privileged opcode";
     case ILL_PRVREG:
-      return "privileged register";
+        return "privileged register";
     case ILL_COPROC:
-      return "coprocessor error";
+        return "coprocessor error";
     case ILL_BADSTK:
-      return "internal stack error";
+        return "internal stack error";
 
     default:
-      return nullptr;
-  }
+        return nullptr;
+    }
 }
 
 const char* sigfpe_reason(int si_code) {
-  switch (si_code) {
+    switch (si_code) {
     case FPE_INTDIV:
-      return "integer divide by zero";
+        return "integer divide by zero";
     case FPE_INTOVF:
-      return "integer overflow";
+        return "integer overflow";
     case FPE_FLTDIV:
-      return "floating-point divide by zero";
+        return "floating-point divide by zero";
     case FPE_FLTOVF:
-      return "floating-point overflow";
+        return "floating-point overflow";
     case FPE_FLTUND:
-      return "floating-point underflow";
+        return "floating-point underflow";
     case FPE_FLTRES:
-      return "floating-point inexact result";
+        return "floating-point inexact result";
     case FPE_FLTINV:
-      return "floating-point invalid operation";
+        return "floating-point invalid operation";
     case FPE_FLTSUB:
-      return "subscript out of range";
+        return "subscript out of range";
 
     default:
-      return nullptr;
-  }
+        return nullptr;
+    }
 }
 
 const char* sigsegv_reason(int si_code) {
-  switch (si_code) {
+    switch (si_code) {
     case SEGV_MAPERR:
-      return "address not mapped to object";
+        return "address not mapped to object";
     case SEGV_ACCERR:
-      return "invalid permissions for mapped object";
+        return "invalid permissions for mapped object";
 
     default:
-      return nullptr;
-  }
+        return nullptr;
+    }
 }
 
 const char* sigbus_reason(int si_code) {
-  switch (si_code) {
+    switch (si_code) {
     case BUS_ADRALN:
-      return "invalid address alignment";
+        return "invalid address alignment";
     case BUS_ADRERR:
-      return "nonexistent physical address";
+        return "nonexistent physical address";
     case BUS_OBJERR:
-      return "object-specific hardware error";
+        return "object-specific hardware error";
 
-      // MCEERR_AR and MCEERR_AO: in sigaction(2) but not in headers.
+        // MCEERR_AR and MCEERR_AO: in sigaction(2) but not in headers.
 
     default:
-      return nullptr;
-  }
+        return nullptr;
+    }
 }
 
 const char* signal_reason(int signum, int si_code) {
-  switch (signum) {
+    switch (signum) {
     case SIGILL:
-      return sigill_reason(si_code);
+        return sigill_reason(si_code);
     case SIGFPE:
-      return sigfpe_reason(si_code);
+        return sigfpe_reason(si_code);
     case SIGSEGV:
-      return sigsegv_reason(si_code);
+        return sigsegv_reason(si_code);
     case SIGBUS:
-      return sigbus_reason(si_code);
+        return sigbus_reason(si_code);
     default:
-      return nullptr;
-  }
+        return nullptr;
+    }
 }
 
 // The class is used for formatting error messages.  We don't use printf()
 // as it's not async signal safe.
 class MinimalFormatter {
- public:
-  MinimalFormatter(char *buffer, size_t size)
-      : buffer_(buffer),
-        cursor_(buffer),
-        end_(buffer + size) {
-  }
+public:
+    MinimalFormatter(char* buffer, size_t size)
+            : buffer_(buffer), cursor_(buffer), end_(buffer + size) {}
 
-  // Returns the number of bytes written in the buffer.
-  std::size_t num_bytes_written() const { return static_cast<std::size_t>(cursor_ - buffer_); }
+    // Returns the number of bytes written in the buffer.
+    std::size_t num_bytes_written() const { return static_cast<std::size_t>(cursor_ - buffer_); }
 
-  // Appends string from "str" and updates the internal cursor.
-  void AppendString(const char* str) {
-    ptrdiff_t i = 0;
-    while (str[i] != '\0' && cursor_ + i < end_) {
-      cursor_[i] = str[i];
-      ++i;
+    // Appends string from "str" and updates the internal cursor.
+    void AppendString(const char* str) {
+        ptrdiff_t i = 0;
+        while (str[i] != '\0' && cursor_ + i < end_) {
+            cursor_[i] = str[i];
+            ++i;
+        }
+        cursor_ += i;
     }
-    cursor_ += i;
-  }
 
-  // Formats "number" in "radix" and updates the internal cursor.
-  // Lowercase letters are used for 'a' - 'z'.
-  void AppendUint64(uint64 number, unsigned radix) {
-    unsigned i = 0;
-    while (cursor_ + i < end_) {
-      const uint64 tmp = number % radix;
-      number /= radix;
-      cursor_[i] = static_cast<char>(tmp < 10 ? '0' + tmp : 'a' + tmp - 10);
-      ++i;
-      if (number == 0) {
-        break;
-      }
+    // Formats "number" in "radix" and updates the internal cursor.
+    // Lowercase letters are used for 'a' - 'z'.
+    void AppendUint64(uint64 number, unsigned radix) {
+        unsigned i = 0;
+        while (cursor_ + i < end_) {
+            const uint64 tmp = number % radix;
+            number /= radix;
+            cursor_[i] = static_cast<char>(tmp < 10 ? '0' + tmp : 'a' + tmp - 10);
+            ++i;
+            if (number == 0) {
+                break;
+            }
+        }
+        // Reverse the bytes written.
+        std::reverse(cursor_, cursor_ + i);
+        cursor_ += i;
     }
-    // Reverse the bytes written.
-    std::reverse(cursor_, cursor_ + i);
-    cursor_ += i;
-  }
 
-  // Formats "number" as hexadecimal number, and updates the internal
-  // cursor.  Padding will be added in front if needed.
-  void AppendHexWithPadding(uint64 number, int width) {
-    char* start = cursor_;
-    AppendString("0x");
-    AppendUint64(number, 16);
-    // Move to right and add padding in front if needed.
-    if (cursor_ < start + width) {
-      const int64 delta = start + width - cursor_;
-      std::copy(start, cursor_, start + delta);
-      std::fill(start, start + delta, ' ');
-      cursor_ = start + width;
+    // Formats "number" as hexadecimal number, and updates the internal
+    // cursor.  Padding will be added in front if needed.
+    void AppendHexWithPadding(uint64 number, int width) {
+        char* start = cursor_;
+        AppendString("0x");
+        AppendUint64(number, 16);
+        // Move to right and add padding in front if needed.
+        if (cursor_ < start + width) {
+            const int64 delta = start + width - cursor_;
+            std::copy(start, cursor_, start + delta);
+            std::fill(start, start + delta, ' ');
+            cursor_ = start + width;
+        }
     }
-  }
 
- private:
-  char *buffer_;
-  char *cursor_;
-  const char * const end_;
+private:
+    char* buffer_;
+    char* cursor_;
+    const char* const end_;
 };
 
 // Writes the given data with the size to the standard error.
 void WriteToStderr(const char* data, size_t size) {
-  if (write(STDERR_FILENO, data, size) < 0) {
-    // Ignore errors.
-  }
+    if (write(STDERR_FILENO, data, size) < 0) {
+        // Ignore errors.
+    }
 }
 
 // The writer function can be changed by InstallFailureWriter().
@@ -250,80 +243,79 @@ void (*g_failure_writer)(const char* data, size_t size) = WriteToStderr;
 // Dumps time information.  We don't dump human-readable time information
 // as localtime() is not guaranteed to be async signal safe.
 void DumpTimeInfo() {
-  time_t time_in_sec = time(NULL);
-  char buf[256];  // Big enough for time info.
-  MinimalFormatter formatter(buf, sizeof(buf));
-  formatter.AppendString("*** Aborted at ");
-  formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
-  formatter.AppendString(" (unix time)");
-  formatter.AppendString(" try \"date -d @");
-  formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
-  formatter.AppendString("\" if you are using GNU date ***\n");
-  g_failure_writer(buf, formatter.num_bytes_written());
+    time_t time_in_sec = time(NULL);
+    char buf[256]; // Big enough for time info.
+    MinimalFormatter formatter(buf, sizeof(buf));
+    formatter.AppendString("*** Aborted at ");
+    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendString(" (unix time)");
+    formatter.AppendString(" try \"date -d @");
+    formatter.AppendUint64(static_cast<uint64>(time_in_sec), 10);
+    formatter.AppendString("\" if you are using GNU date ***\n");
+    g_failure_writer(buf, formatter.num_bytes_written());
 }
 
 // Dumps information about the signal to STDERR.
-void DumpSignalInfo(int signal_number, siginfo_t *siginfo) {
-  // Get the signal name.
-  const char* signal_name = NULL;
-  for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
-    if (signal_number == kFailureSignals[i].number) {
-      signal_name = kFailureSignals[i].name;
+void DumpSignalInfo(int signal_number, siginfo_t* siginfo) {
+    // Get the signal name.
+    const char* signal_name = NULL;
+    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+        if (signal_number == kFailureSignals[i].number) {
+            signal_name = kFailureSignals[i].name;
+        }
     }
-  }
 
-  char buf[256];  // Big enough for signal info.
-  MinimalFormatter formatter(buf, sizeof(buf));
+    char buf[256]; // Big enough for signal info.
+    MinimalFormatter formatter(buf, sizeof(buf));
 
-  formatter.AppendString("*** ");
-  if (signal_name) {
-    formatter.AppendString(signal_name);
-  } else {
-    // Use the signal number if the name is unknown.  The signal name
-    // should be known, but just in case.
-    formatter.AppendString("Signal ");
-    formatter.AppendUint64(static_cast<uint64>(signal_number), 10);
-  }
-  formatter.AppendString(" ");
-  // Detail reason explain
-  auto reason = signal_reason(signal_number, siginfo->si_code);
+    formatter.AppendString("*** ");
+    if (signal_name) {
+        formatter.AppendString(signal_name);
+    } else {
+        // Use the signal number if the name is unknown.  The signal name
+        // should be known, but just in case.
+        formatter.AppendString("Signal ");
+        formatter.AppendUint64(static_cast<uint64>(signal_number), 10);
+    }
+    formatter.AppendString(" ");
+    // Detail reason explain
+    auto reason = signal_reason(signal_number, siginfo->si_code);
 
-  // If we can't find a reason code make a best effort to print the (int) code.
-  if (reason != nullptr) {
-    formatter.AppendString(reason);
-  } else {
-    formatter.AppendString("unkown detail explain");
-  }
-  formatter.AppendString(" (@0x");
-  formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
-  formatter.AppendString(")");
-  formatter.AppendString(" received by PID ");
-  formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
-  formatter.AppendString(" (TID 0x");
-  // We assume pthread_t is an integral number or a pointer, rather
-  // than a complex struct.  In some environments, pthread_self()
-  // returns an uint64 but in some other environments pthread_self()
-  // returns a pointer.
-  pthread_t id = pthread_self();
-  formatter.AppendUint64(
-      reinterpret_cast<uint64>(reinterpret_cast<const char*>(id)), 16);
-  formatter.AppendString(") ");
-  // Only linux has the PID of the signal sender in si_pid.
-  formatter.AppendString("from PID ");
-  formatter.AppendUint64(static_cast<uint64>(siginfo->si_pid), 10);
-  formatter.AppendString("; ");
-  formatter.AppendString("stack trace: ***\n");
-  g_failure_writer(buf, formatter.num_bytes_written());
+    // If we can't find a reason code make a best effort to print the (int) code.
+    if (reason != nullptr) {
+        formatter.AppendString(reason);
+    } else {
+        formatter.AppendString("unkown detail explain");
+    }
+    formatter.AppendString(" (@0x");
+    formatter.AppendUint64(reinterpret_cast<uintptr_t>(siginfo->si_addr), 16);
+    formatter.AppendString(")");
+    formatter.AppendString(" received by PID ");
+    formatter.AppendUint64(static_cast<uint64>(getpid()), 10);
+    formatter.AppendString(" (TID 0x");
+    // We assume pthread_t is an integral number or a pointer, rather
+    // than a complex struct.  In some environments, pthread_self()
+    // returns an uint64 but in some other environments pthread_self()
+    // returns a pointer.
+    pthread_t id = pthread_self();
+    formatter.AppendUint64(reinterpret_cast<uint64>(reinterpret_cast<const char*>(id)), 16);
+    formatter.AppendString(") ");
+    // Only linux has the PID of the signal sender in si_pid.
+    formatter.AppendString("from PID ");
+    formatter.AppendUint64(static_cast<uint64>(siginfo->si_pid), 10);
+    formatter.AppendString("; ");
+    formatter.AppendString("stack trace: ***\n");
+    g_failure_writer(buf, formatter.num_bytes_written());
 }
 
 // Invoke the default signal handler.
 void InvokeDefaultSignalHandler(int signal_number) {
-  struct sigaction sig_action;
-  memset(&sig_action, 0, sizeof(sig_action));
-  sigemptyset(&sig_action.sa_mask);
-  sig_action.sa_handler = SIG_DFL;
-  sigaction(signal_number, &sig_action, NULL);
-  kill(getpid(), signal_number);
+    struct sigaction sig_action;
+    memset(&sig_action, 0, sizeof(sig_action));
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_handler = SIG_DFL;
+    sigaction(signal_number, &sig_action, NULL);
+    kill(getpid(), signal_number);
 }
 
 // This variable is used for protecting FailureSignalHandler() from
@@ -336,110 +328,104 @@ static pthread_t* g_entered_thread_id_pointer = NULL;
 // defined, we try the CPU specific logics (we only support x86 and
 // x86_64 for now) first, then use a naive implementation, which has a
 // race condition.
-template<typename T>
+template <typename T>
 inline T sync_val_compare_and_swap(T* ptr, T oldval, T newval) {
 #if defined(HAVE___SYNC_VAL_COMPARE_AND_SWAP)
-  return __sync_val_compare_and_swap(ptr, oldval, newval);
+    return __sync_val_compare_and_swap(ptr, oldval, newval);
 #elif defined(__GNUC__) && (defined(__i386__) || defined(__x86_64__))
-  T ret;
-  __asm__ __volatile__("lock; cmpxchg %1, (%2);"
-                       :"=a"(ret)
-                        // GCC may produces %sil or %dil for
-                        // constraint "r", but some of apple's gas
-                        // dosn't know the 8 bit registers.
-                        // We use "q" to avoid these registers.
-                       :"q"(newval), "q"(ptr), "a"(oldval)
-                       :"memory", "cc");
-  return ret;
+    T ret;
+    __asm__ __volatile__("lock; cmpxchg %1, (%2);"
+                         : "=a"(ret)
+                         // GCC may produces %sil or %dil for
+                         // constraint "r", but some of apple's gas
+                         // dosn't know the 8 bit registers.
+                         // We use "q" to avoid these registers.
+                         : "q"(newval), "q"(ptr), "a"(oldval)
+                         : "memory", "cc");
+    return ret;
 #else
-  T ret = *ptr;
-  if (ret == oldval) {
-    *ptr = newval;
-  }
-  return ret;
+    T ret = *ptr;
+    if (ret == oldval) {
+        *ptr = newval;
+    }
+    return ret;
 #endif
 }
 
 // Dumps signal and stack frame information, and invokes the default
 // signal handler once our job is done.
-void FailureSignalHandler(int signal_number,
-                          siginfo_t *signal_info,
-                          void *ucontext)
-{
-  // First check if we've already entered the function.  We use an atomic
-  // compare and swap operation for platforms that support it.  For other
-  // platforms, we use a naive method that could lead to a subtle race.
+void FailureSignalHandler(int signal_number, siginfo_t* signal_info, void* ucontext) {
+    // First check if we've already entered the function.  We use an atomic
+    // compare and swap operation for platforms that support it.  For other
+    // platforms, we use a naive method that could lead to a subtle race.
 
-  // We assume pthread_self() is async signal safe, though it's not
-  // officially guaranteed.
-  pthread_t my_thread_id = pthread_self();
-  // NOTE: We could simply use pthread_t rather than pthread_t* for this,
-  // if pthread_self() is guaranteed to return non-zero value for thread
-  // ids, but there is no such guarantee.  We need to distinguish if the
-  // old value (value returned from __sync_val_compare_and_swap) is
-  // different from the original value (in this case NULL).
-  pthread_t* old_thread_id_pointer =
-      sync_val_compare_and_swap(
-          &g_entered_thread_id_pointer,
-          static_cast<pthread_t*>(NULL),
-          &my_thread_id);
-  if (old_thread_id_pointer != NULL) {
-    // We've already entered the signal handler.  What should we do?
-    if (pthread_equal(my_thread_id, *g_entered_thread_id_pointer)) {
-      // It looks the current thread is reentering the signal handler.
-      // Something must be going wrong (maybe we are reentering by another
-      // type of signal?).  Kill ourself by the default signal handler.
-      InvokeDefaultSignalHandler(signal_number);
+    // We assume pthread_self() is async signal safe, though it's not
+    // officially guaranteed.
+    pthread_t my_thread_id = pthread_self();
+    // NOTE: We could simply use pthread_t rather than pthread_t* for this,
+    // if pthread_self() is guaranteed to return non-zero value for thread
+    // ids, but there is no such guarantee.  We need to distinguish if the
+    // old value (value returned from __sync_val_compare_and_swap) is
+    // different from the original value (in this case NULL).
+    pthread_t* old_thread_id_pointer = sync_val_compare_and_swap(
+            &g_entered_thread_id_pointer, static_cast<pthread_t*>(NULL), &my_thread_id);
+    if (old_thread_id_pointer != NULL) {
+        // We've already entered the signal handler.  What should we do?
+        if (pthread_equal(my_thread_id, *g_entered_thread_id_pointer)) {
+            // It looks the current thread is reentering the signal handler.
+            // Something must be going wrong (maybe we are reentering by another
+            // type of signal?).  Kill ourself by the default signal handler.
+            InvokeDefaultSignalHandler(signal_number);
+        }
+        // Another thread is dumping stuff.  Let's wait until that thread
+        // finishes the job and kills the process.
+        while (true) {
+            sleep(1);
+        }
     }
-    // Another thread is dumping stuff.  Let's wait until that thread
-    // finishes the job and kills the process.
-    while (true) {
-      sleep(1);
-    }
-  }
-  // This is the first time we enter the signal handler.  We are going to
-  // do some interesting stuff from here.
-  // TODO(satorux): We might want to set timeout here using alarm(), but
-  // mixing alarm() and sleep() can be a bad idea.
+    // This is the first time we enter the signal handler.  We are going to
+    // do some interesting stuff from here.
+    // TODO(satorux): We might want to set timeout here using alarm(), but
+    // mixing alarm() and sleep() can be a bad idea.
 
-  // First dump time info.
-  DumpTimeInfo();
-  DumpSignalInfo(signal_number, signal_info);
+    // First dump time info.
+    DumpTimeInfo();
+    DumpSignalInfo(signal_number, signal_info);
 
-  // *** TRANSITION ***
-  //
-  // BEFORE this point, all code must be async-termination-safe!
-  // (See WARNING above.)
-  //
-  // AFTER this point, we do unsafe things, like using LOG()!
-  // The process could be terminated or hung at any time.  We try to
-  // do more useful things first and riskier things later.
+    // *** TRANSITION ***
+    //
+    // BEFORE this point, all code must be async-termination-safe!
+    // (See WARNING above.)
+    //
+    // AFTER this point, we do unsafe things, like using LOG()!
+    // The process could be terminated or hung at any time.  We try to
+    // do more useful things first and riskier things later.
 
-  // Use boost stacktrace to print more detail info
-  std::cout << boost::stacktrace::stacktrace() << std::endl;
+    // Use boost stacktrace to print more detail info
+    std::cout << boost::stacktrace::stacktrace() << std::endl;
 
-  // Flush the logs before we do anything in case 'anything'
-  // causes problems.
-  google::FlushLogFilesUnsafe(0);
+    // Flush the logs before we do anything in case 'anything'
+    // causes problems.
+    google::FlushLogFilesUnsafe(0);
 
-  // Kill ourself by the default signal handler.
-  InvokeDefaultSignalHandler(signal_number);
+    // Kill ourself by the default signal handler.
+    InvokeDefaultSignalHandler(signal_number);
 }
 
-}  // namespace
+} // namespace
 
 void InstallFailureSignalHandler() {
-  // Build the sigaction struct.
-  struct sigaction sig_action;
-  memset(&sig_action, 0, sizeof(sig_action));
-  sigemptyset(&sig_action.sa_mask);
-  sig_action.sa_flags |= SA_SIGINFO;
-  sig_action.sa_sigaction = &FailureSignalHandler;
+    // Build the sigaction struct.
+    struct sigaction sig_action;
+    memset(&sig_action, 0, sizeof(sig_action));
+    sigemptyset(&sig_action.sa_mask);
+    sig_action.sa_flags |= SA_SIGINFO;
+    sig_action.sa_sigaction = &FailureSignalHandler;
 
-  for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
-    CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
-  }
-  kFailureSignalHandlerInstalled = true;
+    for (size_t i = 0; i < ARRAYSIZE(kFailureSignals); ++i) {
+        CHECK_ERR(sigaction(kFailureSignals[i].number, &sig_action, NULL));
+    }
+    kFailureSignalHandlerInstalled = true;
 }
 
-} // namespace doris
+} // namespace doris::signal

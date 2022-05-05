@@ -36,8 +36,8 @@ struct PercentileApproxState {
     void init(double compression = 10000) {
         if (!init_flag) {
             //https://doris.apache.org/zh-CN/sql-reference/sql-functions/aggregate-functions/percentile_approx.html#description
-            //The compression parameter setting range is [2048, 10000]. 
-            //If the value of compression parameter is not specified set, or is outside the range of [2048, 10000], 
+            //The compression parameter setting range is [2048, 10000].
+            //If the value of compression parameter is not specified set, or is outside the range of [2048, 10000],
             //will use the default value of 10000
             if (compression < 2048 || compression > 10000) {
                 compression = 10000;

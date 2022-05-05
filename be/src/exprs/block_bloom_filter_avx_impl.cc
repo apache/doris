@@ -48,8 +48,8 @@ void BlockBloomFilter::bucket_insert_avx2(const uint32_t bucket_idx, const uint3
     _mm256_zeroupper();
 }
 
-bool BlockBloomFilter::bucket_find_avx2(const uint32_t bucket_idx, const uint32_t hash) const
-        noexcept {
+bool BlockBloomFilter::bucket_find_avx2(const uint32_t bucket_idx,
+                                        const uint32_t hash) const noexcept {
     const __m256i mask = make_mark(hash);
     const __m256i bucket = reinterpret_cast<__m256i*>(_directory)[bucket_idx];
     // We should return true if 'bucket' has a one wherever 'mask' does. _mm256_testc_si256
