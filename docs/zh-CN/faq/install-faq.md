@@ -278,3 +278,16 @@ cd fe && mvn clean install -DskipTests
 ```
 cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.dat fe-core/target/classes/org/apache/doris/analysis
 ```
+
+### Q14. Doris 升级到1.0 以后版本通过ODBC访问MySQL外表报错 `Failed to set ciphers to use (2026)`
+这个问题出现在doris 升级到1.0 版本以后，且使用 Connector/ODBC 8.0.x 以上版本，Connector/ODBC 8.0.x 有多种获取方式，比如通过yum安装的的方式获取的 `/usr/lib64/libmyodbc8w.so` 依赖的是 `libssl.so.10` 和 `libcrypto.so.10`
+而doris 1.0 以后版本中openssl 已经升级到1.1 且内置在doris 二进制包中，因此会导致 openssl 的冲突进而出现 类似 如下的错误
+```
+ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
+```
+解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且选择 在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。具体使用方式见 [ODBC外表使用文档](../extending-doris/odbc-of-doris.md)
+可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
+```
+ldd /path/to/libmyodbc8w.so |grep libssl.so
+```
+如果输出包含 `libssl.so.10` 则使用过程中可能出现问题， 如果包含`libssl.so.1.1` 则与doris 1.0 兼容

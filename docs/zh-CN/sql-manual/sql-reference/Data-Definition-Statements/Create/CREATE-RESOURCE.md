@@ -108,6 +108,8 @@ PROPERTIES ("key"="value", ...);
    - odbc_type：外表数据库的类型，当前支持oracle, mysql, postgresql
    - user：外表数据库的用户名
    - password：对应用户的密码信息
+   - charset: 数据库链接的编码信息
+   - 另外还支持每个ODBC Driver 实现自定义的参数，参见对应ODBC Driver 的说明
 
 3. 创建 S3 resource
 
