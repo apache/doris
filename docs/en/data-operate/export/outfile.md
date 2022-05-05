@@ -26,7 +26,7 @@ under the License.
 
 # Export Query Result
 
-This document describes how to use the  [SELECT INTO OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html)  command to export query results.
+This document describes how to use the  [SELECT INTO OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.html)  command to export query results.
 
 ## Example
 
@@ -55,7 +55,7 @@ select * from tbl1 limit 10
 INTO OUTFILE "file:///home/work/path/result_";
 ```
 
-For more usage, see [OUTFILE documentation](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html).
+For more usage, see [OUTFILE documentation](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.html).
 
 ## Concurrent export
 
@@ -163,4 +163,4 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 
 ## More Help
 
-For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/OUTFILE.html) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.
+For more detailed syntax and best practices for using OUTFILE, please refer to the [OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.html) command manual, you can also More help information can be obtained by typing `HELP OUTFILE` at the command line of the MySql client.

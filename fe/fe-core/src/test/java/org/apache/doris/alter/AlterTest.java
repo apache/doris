@@ -578,7 +578,7 @@ public class AlterTest {
     private void waitSchemaChangeJobDone(boolean rollupJob) throws Exception {
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
         if (rollupJob) {
-            alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+            alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         }
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {

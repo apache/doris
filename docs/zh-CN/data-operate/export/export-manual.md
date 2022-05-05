@@ -94,7 +94,7 @@ Export 需要借助 Broker 进程访问远端存储，不同的 Broker 需要提
 
 ## 开始导出
 
-Export 的详细用法可参考 [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 。
+Export 的详细用法可参考 [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html) 。
 
 ### 导出到HDFS
 
@@ -128,7 +128,7 @@ WITH BROKER "hdfs"
 
 ### 查看导出状态
 
-提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 命令查询导入作业状态。结果举例如下：
+提交作业后，可以通过  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html) 命令查询导入作业状态。结果举例如下：
 
 ```sql
 mysql> show EXPORT\G;
@@ -185,7 +185,7 @@ FinishTime: 2019-06-25 17:08:34
 * 在 Export 作业运行过程中，如果 FE 发生重启或切主，则 Export 作业会失败，需要用户重新提交。
 * 如果 Export 作业运行失败，在远端存储中产生的 `__doris_export_tmp_xxx` 临时目录，以及已经生成的文件不会被删除，需要用户手动删除。
 * 如果 Export 作业运行成功，在远端存储中产生的 `__doris_export_tmp_xxx` 目录，根据远端存储的文件系统语义，可能会保留，也可能会被清除。比如在百度对象存储（BOS）中，通过 rename 操作将一个目录中的最后一个文件移走后，该目录也会被删除。如果该目录没有被清除，用户可以手动清除。
-* 当 Export 运行完成后（成功或失败），FE 发生重启或切主，则  [SHOW EXPORT](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 展示的作业的部分信息会丢失，无法查看。
+* 当 Export 运行完成后（成功或失败），FE 发生重启或切主，则  [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html) 展示的作业的部分信息会丢失，无法查看。
 * Export 作业只会导出 Base 表的数据，不会导出 Rollup Index 的数据。
 * Export 作业会扫描数据，占用 IO 资源，可能会影响系统的查询延迟。
 
@@ -200,4 +200,4 @@ FinishTime: 2019-06-25 17:08:34
 
 ## 更多帮助
 
-关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-EXPORT.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
+关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。

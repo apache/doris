@@ -28,9 +28,9 @@ under the License.
 
 BloomFilter is a fast search algorithm for multi-hash function mapping proposed by Bloom in 1970. Usually used in some occasions where it is necessary to quickly determine whether an element belongs to a set, but is not strictly required to be 100% correct, BloomFilter has the following characteristics:
 
--A highly space-efficient probabilistic data structure used to check whether an element is in a set.
--For a call to detect whether an element exists, BloomFilter will tell the caller one of two results: it may exist or it must not exist.
--The disadvantage is that there is a misjudgment, telling you that it may exist, not necessarily true.
+- A highly space-efficient probabilistic data structure used to check whether an element is in a set.
+- For a call to detect whether an element exists, BloomFilter will tell the caller one of two results: it may exist or it must not exist.
+- The disadvantage is that there is a misjudgment, telling you that it may exist, not necessarily true.
 
 Bloom filter is actually composed of an extremely long binary bit array and a series of hash functions. The binary bit array is all 0 initially. When an element to be queried is given, this element will be calculated by a series of hash functions to map out a series of values, and all values are treated as 1 in the offset of the bit array.
 

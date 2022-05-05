@@ -56,13 +56,18 @@ public:
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    virtual ~BrokerScanner();
+    ~BrokerScanner() override;
 
     // Open this scanner, will initialize information need to
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                            bool* fill_tuple) override;
+
+    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) override {
+        return Status::NotSupported("Not Implemented get columns");
+    }
 
     // Close this scanner
     void close() override;

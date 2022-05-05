@@ -443,6 +443,23 @@ Then suppose a row of data is 500B, and the user wants every 100MB or 10 seconds
 
 ### common problem
 
-1.Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
+1. Could not execute SQL statement. Reason：java.lang.IllegalAraumenException: Row parity: 32，but serializer rarity：31
 
 Because Doris has a hidden column, you need to manually add a column `__DORIS_DELETE_SIGN__` in Flink Schema Type: TINYINT
+
+2. Bitmap type write
+```sql
+CREATE TABLE bitmap_sink (
+dt int,
+page string,
+user_id int
+)
+WITH (
+   'connector' = 'doris',
+   'fenodes' = '127.0.0.1:8030',
+   'table.identifier' = 'test.bitmap_test',
+   'username' = 'root',
+   'password' = '',
+   'sink.properties.columns' = 'dt,page,user_id,user_id=to_bitmap(user_id)'
+)
+````

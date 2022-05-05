@@ -59,7 +59,7 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 > SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
 > ```
 
-For specific parameter description, you can refer to [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) command or execute `HELP INSERT ` to see its help documentation for better use of this import method.
+For specific parameter description, you can refer to [INSERT INTO](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) command or execute `HELP INSERT ` to see its help documentation for better use of this import method.
 
 
 Insert Into itself is a SQL command, and the return result is divided into the following types according to the different execution results:
@@ -255,4 +255,4 @@ Cluster situation: The average import speed of current user cluster is about 5M/
 
 ## more help
 
-For more detailed syntax and best practices used by insert into, see [insert](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) command manual, you can also enter `HELP INSERT` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by insert into, see [insert](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) command manual, you can also enter `HELP INSERT` in the MySql client command line for more help information.

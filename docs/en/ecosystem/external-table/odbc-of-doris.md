@@ -47,7 +47,7 @@ This document mainly introduces the implementation principle and usage of this O
 
 ### Create ODBC External Table 
 
-Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 
 #### 1. Creating ODBC external table without resource
 

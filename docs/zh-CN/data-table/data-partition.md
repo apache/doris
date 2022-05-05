@@ -54,7 +54,7 @@ under the License.
 
 我们以一个建表操作来说明 Doris 的数据划分。
 
-Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令返回成功即表示建表成功。具体建表语法可以参考[CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)，也可以通过 `HELP CREATE TABLE;` 查看更多帮助。
+Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令返回成功即表示建表成功。具体建表语法可以参考[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)，也可以通过 `HELP CREATE TABLE;` 查看更多帮助。
 
 本小节通过一个例子，来介绍 Doris 的建表方式。
 
@@ -335,9 +335,9 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 当 Tablet 的数据量原则和数量原则冲突时，建议优先考虑数据量原则。
    - 在建表时，每个分区的 Bucket 数量统一指定。但是在动态增加分区时（`ADD PARTITION`），可以单独指定新分区的 Bucket 数量。可以利用这个功能方便的应对数据缩小或膨胀。
    - 一个 Partition 的 Bucket 数量一旦指定，不可更改。所以在确定 Bucket 数量时，需要预先考虑集群扩容的情况。比如当前只有 3 台 host，每台 host 有 1 块盘。如果 Bucket 的数量只设置为 3 或更小，那么后期即使再增加机器，也不能提高并发度。
-   - 举一些例子：假设在有10台BE，每台BE一块磁盘的情况下。如果一个表总大小为 500MB，则可以考虑4-8个分片。5GB：8-16个分区。50GB：32个分区。500GB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。5TB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。
+   - 举一些例子：假设在有10台BE，每台BE一块磁盘的情况下。如果一个表总大小为 500MB，则可以考虑4-8个分片。5GB：8-16个分片。50GB：32个分片。500GB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。5TB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。
 
-   > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference-v2/Show-Statements/SHOW-DATA.html) 命令查看，结果除以副本数，即表的数据量。
+   > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.html) 命令查看，结果除以副本数，即表的数据量。
 
 #### 复合分区与单分区
 
@@ -356,7 +356,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 ### PROPERTIES
 
-在建表语句的最后 PROPERTIES 中，关于PROPERTIES中可以设置的相关参数，我们可以查看[CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)中查看详细的介绍。
+在建表语句的最后 PROPERTIES 中，关于PROPERTIES中可以设置的相关参数，我们可以查看[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)中查看详细的介绍。
 
 ### ENGIN
 
@@ -401,4 +401,4 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 ## 更多帮助
 
-关于数据划分更多的详细说明，我们可以在[CREATE TABLE](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)命令手册中查阅，也可以在Mysql客户端下输入 `HELP CREATE TABLE;` 获取更多的帮助信息。
+关于数据划分更多的详细说明，我们可以在[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)命令手册中查阅，也可以在Mysql客户端下输入 `HELP CREATE TABLE;` 获取更多的帮助信息。

@@ -29,7 +29,12 @@ public:
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~VBrokerScanner() override = default;
 
-    Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
+    virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                            bool* fill_tuple) override {
+        return Status::NotSupported("Not Implemented get next");
+    }
+
+    virtual Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
 
 private:
     Status _convert_one_row(const Slice& line, std::vector<MutableColumnPtr>& columns);

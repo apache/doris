@@ -32,8 +32,8 @@ Doris supports importing data in JSON format. This document mainly describes the
 
 Currently, only the following import methods support data import in Json format:
 
-- Import the local JSON format file through [STREAM LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html).
-- Subscribe and consume JSON format in Kafka via [ROUTINE LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) information.
+- Import the local JSON format file through [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html).
+- Subscribe and consume JSON format in Kafka via [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html) information.
 
 Other ways of importing data in JSON format are not currently supported.
 
@@ -81,7 +81,7 @@ Currently only the following two Json formats are supported:
 
 ### fuzzy_parse parameters
 
-In [STREAM LOAD](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) `fuzzy_parse` parameter can be added to speed up JSON Data import efficiency.
+In [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) `fuzzy_parse` parameter can be added to speed up JSON Data import efficiency.
 
 This parameter is usually used to import the format of **multi-line data represented by Array**, so it is generally used with `strip_outer_array=true`.
 

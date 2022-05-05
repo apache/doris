@@ -41,6 +41,13 @@ testSuites = ""
 // empty directories will test all directories
 testDirectories = ""
 
+// this groups will not be executed
+excludeGroups = ""
+// this suites will not be executed
+excludeSuites = ""
+// this directories will not be executed
+excludeDirectories = ""
+
 customConf1 = "test_custom_conf_value"
 
 // for test csv with header

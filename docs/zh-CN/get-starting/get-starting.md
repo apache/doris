@@ -32,7 +32,7 @@ under the License.
 1. CPU：2C（最低）8C（推荐）
 2. 内存：4G（最低）48G（推荐）
 3. 硬盘：100G（最低）400G（推荐）
-4. 平台：MacOS（Inter）、LinuxOS、Windows虚拟机
+4. 平台：MacOS（Intel）、LinuxOS、Windows虚拟机
 5. 系统：CentOS（7.1及以上）、Ubuntu（16.04 及以上）
 6. 软件：JDK（1.8及以上）、GCC（4.8.2 及以上）
 
@@ -230,7 +230,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
   CREATE DATABASE 数据库名;
   ```
 
-  > 关于 Create-DataBase 使用的更多详细语法及最佳实践，请参阅 [Create-DataBase](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-DATABASE.html) 命令手册。
+  > 关于 Create-DataBase 使用的更多详细语法及最佳实践，请参阅 [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE.html) 命令手册。
   >
   > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 
@@ -251,7 +251,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 - 创建数据表
 
-  > 关于 Create-Table 使用的更多详细语法及最佳实践，请参阅 [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。
+  > 关于 Create-Table 使用的更多详细语法及最佳实践，请参阅 [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。
 
   使用 `CREATE TABLE` 命令建立一个表(Table)。更多详细参数可以查看:
 
@@ -265,7 +265,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
   USE example_db;
   ```
 
-  Doris 支持支持单分区和复合分区两种建表方式（详细区别请参阅 [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册） 。
+  Doris 支持支持单分区和复合分区两种建表方式（详细区别请参阅 [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册） 。
 
   下面以聚合模型为例，演示两种分区的建表语句。
 
@@ -390,7 +390,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 1. Insert Into 插入
 
-   > 关于 Insert 使用的更多详细语法及最佳实践，请参阅 [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
+   > 关于 Insert 使用的更多详细语法及最佳实践，请参阅 [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
 
    Insert Into 语句的使用方式和 MySQL 等数据库中 Insert Into 语句的使用方式类似。但在 Doris 中，所有的数据写入都是一个独立的导入作业。所以这里将 Insert Into 也作为一种导入方式介绍。
 
@@ -440,7 +440,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
          - 如果 `status` 为 `visible`，表示数据导入成功。
       - 如果 `warnings` 大于 0，表示有数据被过滤，可以通过 `show load` 语句获取 url 查看被过滤的行。
 
-   更多详细说明，请参阅 [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
+   更多详细说明，请参阅 [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册。
 
 2. 批量导入
 
@@ -448,7 +448,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
    - Stream-Load
 
-     > 关于 Stream-Load 使用的更多详细语法及最佳实践，请参阅 [Stream-Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令手册。
+     > 关于 Stream-Load 使用的更多详细语法及最佳实践，请参阅 [Stream-Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) 命令手册。
 
      流式导入通过 HTTP 协议向 Doris 传输数据，可以不依赖其他系统或组件直接导入本地数据。详细语法帮助可以参阅 `HELP STREAM LOAD;`。
 
@@ -497,7 +497,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
      Broker 导入通过部署的 Broker 进程，读取外部存储上的数据进行导入。
 
-     > 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
+     > 关于 Broker Load 使用的更多详细语法及最佳实践，请参阅 [Broker Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BROKER LOAD` 获取更多帮助信息。
 
      示例：以 "table1_20170708" 为 Label，将 HDFS 上的文件导入 table1 表
 
@@ -589,7 +589,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 #### 更新数据
 
-> 关于 Update 使用的更多详细语法及最佳实践，请参阅 [Update](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册。
+> 关于 Update 使用的更多详细语法及最佳实践，请参阅 [Update](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册。
 
 当前 UPDATE 语句**仅支持**在 Unique 模型上的行更新，存在并发更新导致的数据冲突可能。 目前 Doris 并不处理这类问题，需要用户从业务侧规避这类问题。
 
@@ -634,7 +634,7 @@ FE 将查询计划拆分成为 Fragment 下发到 BE 进行任务执行。BE 在
 
 #### 删除数据
 
-> 关于 Delete 使用的更多详细语法及最佳实践，请参阅 [Delete](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册。
+> 关于 Delete 使用的更多详细语法及最佳实践，请参阅 [Delete](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册。
 
 1. 语法规则
 

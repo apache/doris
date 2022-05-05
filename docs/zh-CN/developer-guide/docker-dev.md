@@ -29,9 +29,9 @@ under the License.
 
 ## 相关详细文档导航
 
-- [使用 Docker 开发镜像编译](https://doris.incubator.apache.org/zh-CN/installing/compilation.html#%E4%BD%BF%E7%94%A8-docker-%E5%BC%80%E5%8F%91%E9%95%9C%E5%83%8F%E7%BC%96%E8%AF%91-%E6%8E%A8%E8%8D%90)
-- [部署](https://doris.incubator.apache.org/zh-CN/installing/install-deploy.html#%E9%9B%86%E7%BE%A4%E9%83%A8%E7%BD%B2)
-- [VSCode Be 开发调试](https://doris.incubator.apache.org/zh-CN/developer-guide/be-vscode-dev.html)
+- [使用 Docker 开发镜像编译](../install/source-install/compilation.html)
+- [部署](../install/install-deploy.html)
+- [VSCode Be 开发调试](./be-vscode-dev.html)
 
 ## 环境准备
 
@@ -90,7 +90,7 @@ docker build -t doris .
 
 运行镜像
 
-此处按需注意 [挂载的问题](../installing/compilation.md)
+此处按需注意 [挂载的问题](../install/source-install/compilation.html)
 
 > 见链接中：建议以挂载本地 Doris 源码目录的方式运行镜像 .....
 
