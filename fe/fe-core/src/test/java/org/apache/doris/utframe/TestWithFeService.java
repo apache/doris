@@ -368,13 +368,13 @@ public abstract class TestWithFeService {
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
-        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg(sql).contains(expect));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String... expects) throws Exception {
-        String str = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
+        String str = getSQLPlanOrErrorMsg(sql);
         for (String expect : expects) {
-            Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
+            Assertions.assertTrue(str.contains(expect));
         }
     }
 }
