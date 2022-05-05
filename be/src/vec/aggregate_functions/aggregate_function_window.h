@@ -24,6 +24,7 @@
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
@@ -182,7 +183,7 @@ private:
     std::string _copied_value;
 };
 
-template <typename T, bool is_nullable, bool is_string, typename StoreType = Value>
+template <typename T, bool is_nullable, bool is_string, typename StoreType = Value, bool init_with_null = false>
 struct LeadAndLagData {
 public:
     bool has_init() const { return _is_init; }
@@ -192,6 +193,9 @@ public:
         _default_value.reset();
         _is_init = false;
         _has_value = false;
+        if constexpr (init_with_null) {
+            this->set_is_null();
+        }
     }
 
     void insert_result_into(IColumn& to) const {
@@ -349,6 +353,44 @@ struct WindowFunctionFirstData : Data {
 };
 
 template <typename Data>
+struct WindowFunctionFirstNonNullData : Data {
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, const IColumn** columns) {
+        if (this->has_set_value()) {
+            return;
+        }
+        if (frame_start < frame_end &&
+            frame_end <= partition_start) { //rewrite last_value when under partition
+            this->set_is_null();            //so no need more judge
+            return;
+        }
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        for (int i = frame_start; i < frame_end; i ++) {
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+                if (!nullable_column->is_null_at(i)) {
+                    this->set_value(columns, frame_start);
+                    return;
+                }
+            }
+        }
+    }
+
+    void add(int64_t row, const IColumn** columns) {
+        if (this->has_set_value()) {
+            return;
+        }
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+            if (nullable_column->is_null_at(row)) {
+                return;
+            }
+        }
+        this->set_value(columns, row);
+    }
+    static const char* name() { return "first_non_null_value"; }
+};
+
+template <typename Data>
 struct WindowFunctionLastData : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
@@ -363,6 +405,40 @@ struct WindowFunctionLastData : Data {
     }
     void add(int64_t row, const IColumn** columns) { this->set_value(columns, row); }
     static const char* name() { return "last_value"; }
+};
+
+template <typename Data>
+struct WindowFunctionLastNonNullData : Data {
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, const IColumn** columns) {
+        if ((frame_start < frame_end) &&
+            ((frame_end <= partition_start) ||
+             (frame_start >= partition_end))) { //beyond or under partition, set null
+            this->set_is_null();
+            return;
+        }
+        frame_start = std::max<int64_t>(frame_start, partition_start);
+        frame_end = std::min<int64_t>(frame_end, partition_end);
+        for (int i = frame_end - 1; i >= frame_start; i --) {
+            if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+                if (!nullable_column->is_null_at(i)) {
+                    this->set_value(columns, frame_start);
+                    return;
+                }
+            }
+        }
+    }
+
+    void add(int64_t row, const IColumn** columns) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+            if (nullable_column->is_null_at(row)) {
+                return;
+            }
+        }
+        this->set_value(columns, row);
+    }
+
+    static const char* name() { return "last_non_null_value"; }
 };
 
 template <typename Data>
@@ -408,7 +484,7 @@ private:
 };
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          bool is_nullable, bool is_copy = false>
+          bool is_nullable, bool is_copy = false, bool init_with_null = false>
 static IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types,
                                                         const Array& parameters) {
@@ -416,53 +492,63 @@ static IAggregateFunction* create_function_single_value(const String& name,
 
     assert_arity_at_most<3>(name, argument_types);
 
-    auto type = argument_types[0].get();
-    if (type->is_nullable()) {
-        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
-    }
+    auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
 
 #define DISPATCH(TYPE)                        \
     if (which.idx == TypeIndex::TYPE)         \
         return new AggregateFunctionTemplate< \
-                Data<LeadAndLagData<TYPE, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<TYPE, is_nullable, false, StoreType, init_with_null>>>(argument_types);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
     if (which.is_decimal()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int128, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<Int128, is_nullable, false, StoreType, init_with_null>>>(argument_types);
     }
     if (which.is_date_or_datetime()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int64, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<Int64, is_nullable, false, StoreType, init_with_null>>>(argument_types);
     }
     if (which.is_string_or_fixed_string()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<StringRef, is_nullable, true, StoreType>>>(argument_types);
+                Data<LeadAndLagData<StringRef, is_nullable, true, StoreType, init_with_null>>>(argument_types);
     }
     DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
     return nullptr;
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy, bool replace_if_not_null = false>
 AggregateFunctionPtr create_aggregate_function_first(const std::string& name,
                                                      const DataTypes& argument_types,
                                                      const Array& parameters,
                                                      bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable,
-                                         is_copy>(name, argument_types, parameters));
+    if constexpr (replace_if_not_null) {
+        return AggregateFunctionPtr(
+                create_function_single_value<WindowFunctionData, WindowFunctionFirstNonNullData, is_nullable,
+                                             is_copy, true>(name, argument_types, parameters));
+    } else {
+        return AggregateFunctionPtr(
+                create_function_single_value<WindowFunctionData, WindowFunctionFirstData, is_nullable,
+                                             is_copy>(name, argument_types, parameters));
+    }
 }
 
-template <bool is_nullable, bool is_copy>
+template <bool is_nullable, bool is_copy, bool replace_if_not_null = false>
 AggregateFunctionPtr create_aggregate_function_last(const std::string& name,
                                                     const DataTypes& argument_types,
                                                     const Array& parameters,
                                                     bool result_is_nullable) {
-    return AggregateFunctionPtr(
-            create_function_single_value<WindowFunctionData, WindowFunctionLastData, is_nullable,
-                                         is_copy>(name, argument_types, parameters));
+    if constexpr (replace_if_not_null) {
+        return AggregateFunctionPtr(
+                create_function_single_value<WindowFunctionData, WindowFunctionLastNonNullData, is_nullable,
+                                             is_copy, true>(name, argument_types, parameters));
+    } else {
+        return AggregateFunctionPtr(
+                create_function_single_value<WindowFunctionData, WindowFunctionLastData,
+                                             is_nullable, is_copy>(name, argument_types,
+                                                                   parameters));
+    }
 }
 
 } // namespace doris::vectorized
