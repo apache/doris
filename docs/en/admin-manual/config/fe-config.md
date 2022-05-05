@@ -172,12 +172,6 @@ Default：false
 
 If set to true, FE will be started in BDBJE debug mode
 
-### enable_alpha_rowset
-
-Default：false
-
-Whether to support the creation of alpha rowset tables.  The default is false and should only be used in emergency situations,  this config should be remove in some future version
-
 ### enable_http_server_v2
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
@@ -208,6 +202,12 @@ Worker thread pool is not set by default, set according to your needs
 Default：100 * 1024 * 1024  （100MB）
 
 This is the maximum number of bytes of the file uploaded by the put or post method, the default value: 100MB
+
+### jetty_server_max_http_header_size
+
+Default：10240  （10K）
+
+http header size configuration parameter, the default value is 10K
 
 ### frontend_address
 

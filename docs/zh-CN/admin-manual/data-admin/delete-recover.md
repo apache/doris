@@ -50,4 +50,4 @@ RECOVER PARTITION p1 FROM example_tbl;
 
 ## 更多帮助
 
-关于 RECOVER 使用的更多详细语法及最佳实践，请参阅 [RECOVER](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Backup-and-Restore/RECOVER.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RECOVER` 获取更多帮助信息。
+关于 RECOVER 使用的更多详细语法及最佳实践，请参阅 [RECOVER](../../sql-manual/sql-reference/Data-Definition-Statements/Backup-and-Restore/RECOVER.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP RECOVER` 获取更多帮助信息。

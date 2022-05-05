@@ -63,7 +63,6 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -150,7 +149,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         alterClauses.add(clause2);
@@ -171,7 +170,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
         Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
@@ -188,7 +187,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
 
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -240,7 +239,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
 
         // add a rollup job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -378,7 +377,7 @@ public class RollupJobV2Test {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
         OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId2);
 

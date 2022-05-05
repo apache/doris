@@ -63,7 +63,7 @@ public class PartitionLoadInfo implements Writable {
     public void write(DataOutput out) throws IOException {
         out.writeLong(version);
         // Versionhash useless just for compatible
-        out.writeLong(0l);
+        out.writeLong(0L);
         
         int count = 0;
         if (sources == null) {

@@ -337,7 +337,7 @@ canal client调用get命令时，canal server会产生数据batch发送给client
 
 Binlog Load只能支持Unique类型的目标表，且必须激活目标表的Batch Delete功能。
 
-开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)中的批量删除功能。
+开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)中的批量删除功能。
 
 示例：
 
@@ -364,6 +364,7 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 **！！Doris表结构和Mysql表结构字段顺序必须保持一致！！**
 
 ### 创建同步作业
+
 ```text
 CREATE SYNC `demo`.`job`
 (
@@ -380,7 +381,8 @@ FROM BINLOG
 "canal.password" = "canal"
 );
 ```
-创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+
+创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
 语法：
 ```
@@ -418,7 +420,7 @@ binlog_desc
 
 ### 查看作业状态
 
-查看作业状态的具体命令和示例可以通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-SYNC-JOB.html) 命令查看。
+查看作业状态的具体命令和示例可以通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.html) 命令查看。
 
 返回结果集的参数意义如下：
 
@@ -460,7 +462,7 @@ binlog_desc
 
 ### 控制作业
 
-用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); 
+用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); 
 
 ## 案例实战
 
@@ -538,5 +540,5 @@ binlog_desc
 
 ## 更多帮助
 
-关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
+关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
 

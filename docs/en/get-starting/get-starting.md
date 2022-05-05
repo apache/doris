@@ -32,13 +32,13 @@ under the License.
 1. CPU: 2C (minimum) 8C (recommended)
 2. Memory: 4G (minimum) 48G (recommended)
 3. Hard disk: 100G (minimum) 400G (recommended)
-4. Platform: MacOS (Inter), LinuxOS, Windows virtual machine
+4. Platform: MacOS (Intel), LinuxOS, Windows virtual machine
 5. System: CentOS (7.1 and above), Ubuntu (16.04 and above)
 6. Software: JDK (1.8 and above), GCC (4.8.2 and above)
 
 ## Stand-alone deployment
 
-**Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
+** Before creating, please prepare the compiled FE/BE file, this tutorial will not repeat the compilation process. **
 
 1. Set the maximum number of open file handles in the system
 
@@ -121,7 +121,7 @@ under the License.
    > 3. You can also check whether the startup is successful through the following connection: http://fe_host:fe_http_port/api/bootstrap If it returns: {"status":"OK","msg":"Success"}, it means the startup is successful, and the rest , there may be a problem.
    > 4. Visit http://fe_host:fe_http_port in the external environment to check whether you can access the WebUI interface. The default login account is root and the password is empty.
    >
-   > **Note: If you can't see the startup failure information in fe.log, maybe you can see it in fe.out. **
+   > ** Note: If you can't see the startup failure information in fe.log, maybe you can see it in fe.out. **
 
    Verify that BE is successfully started
 
@@ -132,7 +132,7 @@ under the License.
    > 5. At the same time, if there is a data query, you should be able to see the log that keeps scrolling, and there is a log of execute time is xxx, indicating that the BE has been started successfully and the query is normal.
    > 6. You can also check whether the startup is successful through the following connection: http://be_host:be_http_port/api/health If it returns: {"status": "OK","msg": "To Be Added"}, it means the startup is successful, In other cases, there may be problems.
    >
-   > **Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out.**
+   > ** Note: If you can't see the startup failure information in be.INFO, maybe you can see it in be.out. **
 
    Register BE to FE (using MySQL-Client, you need to install it yourself)
 
@@ -231,7 +231,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
    CREATE DATABASE database name;
    ````
 
-   > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-DATABASE.html) command manual.
+   > For more detailed syntax and best practices used by Create-DataBase, see [Create-DataBase](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-DATABASE.html) command manual.
    >
    > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type 'HELP CREATE', you can match `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` and other commands.
    
@@ -252,7 +252,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
    
 - Create data table
 
-  > For more detailed syntax and best practices used by Create-Table, see [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual.
+  > For more detailed syntax and best practices used by Create-Table, see [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual.
 
   Use the `CREATE TABLE` command to create a table (Table). More detailed parameters can be viewed:
 
@@ -266,7 +266,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
   USE example_db;
   ````
 
-  Doris supports two table creation methods, single partition and composite partition (for details, please refer to [Create-Table](../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual).
+  Doris supports two table creation methods, single partition and composite partition (for details, please refer to [Create-Table](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) command manual).
 
   The following takes the aggregation model as an example to demonstrate the table building statements for two partitions.
 
@@ -391,7 +391,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
 1. Insert Into
 
-   > For more detailed syntax and best practices for Insert usage, see [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) Command Manual.
+   > For more detailed syntax and best practices for Insert usage, see [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) Command Manual.
 
    The Insert Into statement is used in a similar way to the Insert Into statement in databases such as MySQL. But in Doris, all data writing is a separate import job. Therefore, Insert Into is also introduced as an import method here.
 
@@ -441,7 +441,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
         - If `status` is `visible`, the data import is successful.
       - If `warnings` is greater than 0, it means that data is filtered. You can get the url through the `show load` statement to view the filtered lines.
 
-   For more detailed instructions, see the [Insert](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) command manual.
+   For more detailed instructions, see the [Insert](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) command manual.
 
 2. Batch Import
 
@@ -449,7 +449,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
    - Stream-Load
 
-     > For more detailed syntax and best practices used by Stream-Load, see [Stream-Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STREAM-LOAD.html) command manual.
+     > For more detailed syntax and best practices used by Stream-Load, see [Stream-Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html) command manual.
 
      Streaming import transfers data to Doris through the HTTP protocol, and can directly import local data without relying on other systems or components. See `HELP STREAM LOAD;` for detailed syntax help.
 
@@ -498,7 +498,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
      Broker import uses the deployed Broker process to read data on external storage for import.
 
-     > For more detailed syntax and best practices used by Broker Load, see [Broker Load](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
+     > For more detailed syntax and best practices used by Broker Load, see [Broker Load](../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) command manual, you can also enter `HELP BROKER LOAD` in the MySql client command line for more help information.
 
      Example: With "table1_20170708" as the Label, import the files on HDFS into table1
 
@@ -590,7 +590,7 @@ For a complete parameter comparison table, please go to [Profile parameter analy
 
 #### Update Data
 
-> For more detailed syntax and best practices used by Update, see [Update](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/UPDATE.html) Command Manual.
+> For more detailed syntax and best practices used by Update, see [Update](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.html) Command Manual.
 
 The current UPDATE statement **only supports** row updates on the Unique model, and there may be data conflicts caused by concurrent updates. At present, Doris does not deal with such problems, and users need to avoid such problems from the business side.
 
@@ -635,7 +635,7 @@ The current UPDATE statement **only supports** row updates on the Unique model, 
 
 #### Delete Data
 
-> For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/DELETE.html) Command Manual.
+> For more detailed syntax and best practices for Delete use, see [Delete](../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) Command Manual.
 
 1. Grammar rules
 

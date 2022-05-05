@@ -88,28 +88,30 @@ cat ~/id_rsa.pub >> .ssh/authorized_keys
 #5. After doing this, we can log in to agent01 without password on the doris manger machine
 ssh agent01@xx.xxx.xx.xx
 ````
+For details, please refer to: https://blog.csdn.net/universe_hao/article/details/52296811
 
 In addition, it should be noted that the permissions of the .ssh directory are 700, and the permissions of the authorized_keys and private keys under it are 600. Otherwise, you will not be able to log in without a password due to permission issues. We can see that the known_hosts file will be generated after logging in. At the same time, when starting doris, you need to use a password-free login account.
 
-When installing a cluster in Doris Manager, just use the private key of the doris manager machine, ie ~/.ssh/id_rsa
 
-For details, please refer to: https://blog.csdn.net/universe_hao/article/details/52296811
+When adding nodes in the second step of the Doris Manager installation cluster, use the private key of the doris manager machine, that is, ~/.ssh/id_rsa (note: including the head and tail of the key file)
 
 #### Host list
-
 Enter the host IP to add a new host, or add it in batches.
 
 ### 3 Installation options
 
 #### Get the installation package
 
-When deploying a cluster through Doris Manager, you need to provide the compiled Doris installation package. You can compile it yourself from the Doris source code, or use the official binary version.
+1. Code package path
 
-Doris Manager will pull the installation package through http. If you need to build your own http service, please refer to the bottom of the document - Self-built http service.
+   When deploying a cluster through Doris Manager, you need to provide the compiled Doris installation package. You can compile it yourself from the Doris source code, or use the officially provided [binary version](https://doris.apache.org/zh-CN/ downloads/downloads.html).
+
+`Doris Manager will pull the Doris installation package through http. If you need to build your own http service, please refer to the bottom of the document - Self-built http service`.
 
 #### Specify the installation path
 
-Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
+1. Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
+2. Specify the Agent startup port, the default is 8001, if there is a conflict, you can customize it.
 
 ### 4 Verify the host
 
@@ -125,7 +127,7 @@ Click the Assign Node button to plan FE/BE/Broker nodes for the host.
 
 ### 6 Configuration Parameters
 
-Configure parameters for the nodes planned in the previous step. You can use the default values or turn on the custom configuration switch to customize the configuration.
+Configure parameters for the nodes planned in the previous step. You can use the default values ​​or turn on the custom configuration switch to customize the configuration.
 
 ### 7 Deploy the cluster
 
@@ -186,7 +188,8 @@ For details, please refer to: https://blog.csdn.net/universe_hao/article/details
 
 #### Specify the installation path
 
-Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
+1. Doris and Doris Manger Agent will be installed in this directory. Make sure this directory is dedicated to Doirs and related components.
+2. Specify the Agent startup port, the default is 8001, if there is a conflict, you can customize it.
 
 ### 4 Verify the host
 

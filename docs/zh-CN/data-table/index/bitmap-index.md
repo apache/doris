@@ -84,4 +84,4 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 
 ## 更多帮助
 
-关于 bitmap索引 使用的更多详细语法及最佳实践，请参阅 [CREARE INDEX](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-INDEX.md) / [SHOW INDEX](../../sql-manual/sql-reference-v2/Show-Statements/SHOW-INDEX.html) / [DROP INDEX](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Drop/DROP-INDEX.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE INDEX` /  `HELP SHOW INDEX` / `HELP DROP INDEX`。
+关于 bitmap索引 使用的更多详细语法及最佳实践，请参阅 [CREARE INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX.md) / [SHOW INDEX](../../sql-manual/sql-reference/Show-Statements/SHOW-INDEX.html) / [DROP INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP CREATE INDEX` /  `HELP SHOW INDEX` / `HELP DROP INDEX`。

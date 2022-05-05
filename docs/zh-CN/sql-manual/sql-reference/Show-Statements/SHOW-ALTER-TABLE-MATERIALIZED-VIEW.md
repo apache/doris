@@ -32,7 +32,7 @@ SHOW ALTER TABLE MATERIALIZED VIEW
 
 ### Description
 
-该命令用于查看通过 [CREATE-MATERIALIZED-VIEW](../../sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.html) 语句提交的创建物化视图作业的执行情况。
+该命令用于查看通过 [CREATE-MATERIALIZED-VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.html) 语句提交的创建物化视图作业的执行情况。
 
 > 该语句等同于 `SHOW ALTER TABLE ROLLUP`;
 

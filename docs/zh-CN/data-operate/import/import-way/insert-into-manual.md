@@ -59,7 +59,7 @@ INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
 > SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
 > ```
 
-具体的参数说明，你可以参照 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令或者执行`HELP INSERT` 来查看其帮助文档以便更好的使用这种导入方式。
+具体的参数说明，你可以参照 [INSERT INTO](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令或者执行`HELP INSERT` 来查看其帮助文档以便更好的使用这种导入方式。
 
 Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行结果的不同，分为以下几种：
 
@@ -116,7 +116,7 @@ Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行�
 
       `err` 字段会显示一些其他非预期错误。
 
-      当需要查看被过滤的行时，用户可以通过[SHOW LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD.html)语句
+      当需要查看被过滤的行时，用户可以通过[SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.html)语句
 
       ```sql
       show load where label="xxx";
@@ -126,7 +126,7 @@ Insert Into 本身就是一个 SQL 命令，其**返回结果**会根据执行�
               
       **数据不可见是一个临时状态，这批数据最终是一定可见的**
 
-      可以通过[SHOW TRANSACTION](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-TRANSACTION.html)语句查看这批数据的可见状态：
+      可以通过[SHOW TRANSACTION](../../../sql-manual/sql-reference/Show-Statements/SHOW-TRANSACTION.html)语句查看这批数据的可见状态：
 
       ```sql
       show transaction where id=4005;
@@ -209,9 +209,9 @@ TransactionStatus: VISIBLE
 
 ### 应用场景
 
-1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 [INSERT INTO VALUES](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 的语法，这里语法和MySql语法一样。
+1. 用户希望仅导入几条假数据，验证一下 Doris 系统的功能。此时适合使用 [INSERT INTO VALUES](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) 的语法，这里语法和MySql语法一样。
 2. 用户希望将已经在 Doris 表中的数据进行 ETL 转换并导入到一个新的 Doris 表中，此时适合使用 INSERT INTO SELECT 语法。
-3. 用户可以创建一种外部表，如 MySQL 外部表映射一张 MySQL 系统中的表。或者创建 [Broker](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 外部表来映射 HDFS 上的数据文件。然后通过 INSERT INTO SELECT 语法将外部表中的数据导入到 Doris 表中存储。
+3. 用户可以创建一种外部表，如 MySQL 外部表映射一张 MySQL 系统中的表。或者创建 [Broker](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html) 外部表来映射 HDFS 上的数据文件。然后通过 INSERT INTO SELECT 语法将外部表中的数据导入到 Doris 表中存储。
 
 ### 数据量
 
@@ -272,4 +272,4 @@ bj_store_sales schema:
 
 ## 更多帮助
 
-关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在 Mysql 客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。
+关于 **Insert Into** 使用的更多详细语法，请参阅 [INSERT INTO](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html) 命令手册，也可以在 Mysql 客户端命令行下输入 `HELP INSERT` 获取更多帮助信息。

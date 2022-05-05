@@ -81,7 +81,7 @@ public class Hll {
         }
 
         hashValue >>>= HLL_COLUMN_PRECISION;
-        hashValue |= (1l << HLL_ZERO_COUNT_BITS);
+        hashValue |= (1L << HLL_ZERO_COUNT_BITS);
         byte firstOneBit = (byte) (getLongTailZeroNum(hashValue) + 1);
         registers[idx] = registers[idx] > firstOneBit ? registers[idx] : firstOneBit ;
     }
@@ -96,7 +96,7 @@ public class Hll {
         if (hashValue == 0) {
             return 0;
         }
-        long value = 1l;
+        long value = 1L;
         byte idx = 0;
         for (;; idx++) {
             if ((value & hashValue) != 0) {

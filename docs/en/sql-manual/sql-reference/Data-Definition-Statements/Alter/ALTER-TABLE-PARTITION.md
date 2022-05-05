@@ -62,7 +62,7 @@ Notice:
 - The partition is left closed and right open. If the user only specifies the right boundary, the system will automatically determine the left boundary
 - If the bucketing method is not specified, the bucketing method used for creating the table is automatically used
 - If the bucketing method is specified, only the number of buckets can be modified, not the bucketing method or the bucketing column
-- The ["key"="value"] section can set some attributes of the partition, see [CREATE TABLE](./sql-manual/sql-reference-v2/Data-Definition-Statements/Create/CREATE-TABLE.html)
+- The ["key"="value"] section can set some attributes of the partition, see [CREATE TABLE](./sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
 - If the user does not explicitly create a partition when creating a table, adding a partition by ALTER is not supported
 
 2. Delete the partition

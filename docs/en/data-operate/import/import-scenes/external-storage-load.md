@@ -82,7 +82,7 @@ Hdfs load creates an import statement. The import method is basically the same a
 
 3. Check import status
 
-   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-LOAD.html#show-load) command to view
+   Broker load is an asynchronous import method. The specific import results can be accessed through [SHOW LOAD](../../../sql-manual/sql-reference/Show-Statements/SHOW-LOAD.html#show-load) command to view
    
    ```
    mysql> show load order by createtime desc limit 1\G;

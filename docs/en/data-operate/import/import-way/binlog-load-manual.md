@@ -342,7 +342,7 @@ User needs to first create the target table which is corresponding to the MySQL 
 
 Binlog Load can only support unique target tables from now, and the batch delete feature of the target table must be activated.
 
-For the method of enabling Batch Delete, please refer to the batch delete function in [ALTER TABLE PROPERTY](../../../sql-manual/sql-reference-v2/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html).
+For the method of enabling Batch Delete, please refer to the batch delete function in [ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html).
 
 Example:
 
@@ -387,7 +387,7 @@ FROM BINLOG
 );
 ```
 
-The detailed syntax for creating a data synchronization job can be connected to Doris and [CREATE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) to view the syntax help. Here is a detailed introduction to the precautions when creating a job.
+The detailed syntax for creating a data synchronization job can be connected to Doris and [CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) to view the syntax help. Here is a detailed introduction to the precautions when creating a job.
 
 grammar：
 ```
@@ -430,7 +430,7 @@ binlog_desc
 ### Show Job Status
 
 
-Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference-v2/Show-Statements/SHOW-SYNC-JOB.html) command.
+Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.html) command.
 
 The parameters in the result set have the following meanings:
 
@@ -480,7 +480,7 @@ The parameters in the result set have the following meanings:
 
 Users can control the status of jobs through `stop/pause/resume` commands.
 
-You can use [STOP SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); And [RESUME SYNC JOB](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); commands to view help and examples.
+You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); And [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); commands to view help and examples.
 
 ## Case Combat
 
@@ -556,4 +556,4 @@ The following configuration belongs to the system level configuration of SyncJob
 
 ## More Help
 
-For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference-v2/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.

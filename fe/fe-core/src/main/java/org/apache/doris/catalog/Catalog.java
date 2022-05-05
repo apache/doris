@@ -1815,8 +1815,6 @@ public class Catalog {
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
-
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -1825,13 +1823,11 @@ public class Catalog {
             throw new IOException("There are [" + size + "] old alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
-            // finished or cancelled jobs
-            size = dis.readInt();
-            newChecksum ^= size;
-            if (size > 0) {
-                throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
-            }
+        // finished or cancelled jobs
+        size = dis.readInt();
+        newChecksum ^= size;
+        if (size > 0) {
+            throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
         // alter job v2
@@ -1841,9 +1837,9 @@ public class Catalog {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
-                    this.getRollupHandler().addAlterJobV2(alterJobV2);
+                    this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
                 } else {
-                    alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                    this.getSchemaChangeHandler().addAlterJobV2(alterJobV2);
                 }
                 // ATTN : we just want to add tablet into TabletInvertedIndex when only PendingJob is checkpointed
                 // to prevent TabletInvertedIndex data loss,
@@ -1853,7 +1849,7 @@ public class Catalog {
                     LOG.info("replay pending alter job when load alter job {} ", alterJobV2.getJobId());
                 }
             } else {
-                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                throw new IOException("Invalid alter job type: " + type.name());
             }
         }
 
@@ -2112,7 +2108,17 @@ public class Catalog {
     }
 
     public long saveAlterJob(CountingDataOutputStream dos, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
+        Map<Long, AlterJobV2> alterJobsV2;
+        if (type == JobType.ROLLUP) {
+            alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
+        } else if (type == JobType.SCHEMA_CHANGE) {
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
+        } else if (type == JobType.DECOMMISSION_BACKEND) {
+            // Load alter job need decommission backend type to load image
+            alterJobsV2 = Maps.newHashMap();
+        } else {
+            throw new IOException("Invalid alter job type: " + type.name());
+        }
 
         // alter jobs == 0
         // If the FE version upgrade from old version, if it have alter jobs, the FE will failed during start process
@@ -3814,7 +3820,7 @@ public class Catalog {
             }
             Preconditions.checkNotNull(rollupIndexStorageType);
             // set rollup index meta to olap table
-            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause,
+            List<Column> rollupColumns = getMaterializedViewHandler().checkAndPrepareMaterializedView(addRollupClause,
                     olapTable, baseRollupIndex, false);
             short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
             int rollupSchemaHash = Util.generateSchemaHash();
@@ -5032,7 +5038,7 @@ public class Catalog {
         return (SchemaChangeHandler) this.alter.getSchemaChangeHandler();
     }
 
-    public MaterializedViewHandler getRollupHandler() {
+    public MaterializedViewHandler getMaterializedViewHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
@@ -5310,7 +5316,7 @@ public class Catalog {
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getRollupHandler().cancel(stmt);
+            this.getMaterializedViewHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
@@ -6814,7 +6820,7 @@ public class Catalog {
             // check partitions
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
                 Partition partition = copiedTbl.getPartition(entry.getValue());
-                if (partition == null || !partition.getName().equals(entry.getKey())) {
+                if (partition == null || !partition.getName().equalsIgnoreCase(entry.getKey())) {
                     throw new DdlException("Partition [" + entry.getKey() + "] is changed");
                 }
             }
@@ -6975,10 +6981,7 @@ public class Catalog {
                     replica.setBad(true);
                     break;
                 case MISSING_VERSION:
-                    // The absolute value is meaningless, as long as it is greater than 0.
-                    // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
-                    // it will be considered a version missing replica and will be handled accordingly.
-                    replica.setLastFailedVersion(1L);
+                    replica.updateLastFailedVersion(info.lastFailedVersion);
                     break;
                 default:
                     break;
