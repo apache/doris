@@ -79,8 +79,7 @@ class Config {
     Config(String defaultDb, String jdbcUrl, String jdbcUser, String jdbcPassword,
            String feHttpAddress, String feHttpUser, String feHttpPassword,
            String suitePath, String dataPath, String testGroups, String excludeGroups,
-           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories) {
-           String suitePath, String dataPath, String testGroups, String testSuites, String testDirectories,
+           String testSuites, String excludeSuites, String testDirectories, String excludeDirectories,
            String pluginPath) {
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
@@ -198,7 +197,7 @@ class Config {
             configToString(obj.testSuites),
             configToString(obj.excludeSuites),
             configToString(obj.testDirectories),
-            configToString(obj.excludeDirectories)
+            configToString(obj.excludeDirectories),
             configToString(obj.pluginPath)
         )
 
