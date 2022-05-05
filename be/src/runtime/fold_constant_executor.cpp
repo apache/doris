@@ -44,16 +44,14 @@ TUniqueId FoldConstantExecutor::_dummy_id;
 
 Status FoldConstantExecutor::fold_constant_expr(const TFoldConstantParams& params,
                                                 PConstantExprResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     const auto& expr_map = params.expr_map;
     auto expr_result_map = response->mutable_expr_result_map();
 
     TQueryGlobals query_globals = params.query_globals;
     // init
-    Status status = _init(query_globals);
-    if (UNLIKELY(!status.ok())) {
-        return status;
-    }
+    RETURN_IF_ERROR(_init(query_globals));
+    // only after init operation, _mem_tracker is ready
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     for (const auto& m : expr_map) {
         PExprResultMap pexpr_result_map;
@@ -63,10 +61,7 @@ Status FoldConstantExecutor::fold_constant_expr(const TFoldConstantParams& param
             // create expr tree from TExpr
             RETURN_IF_ERROR(Expr::create_expr_tree(&_pool, texpr, &ctx));
             // prepare and open context
-            status = _prepare_and_open(ctx);
-            if (UNLIKELY(!status.ok())) {
-                return status;
-            }
+            RETURN_IF_ERROR(_prepare_and_open(ctx));
 
             TupleRow* row = nullptr;
             // calc expr
@@ -106,10 +101,8 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
 
     TQueryGlobals query_globals = params.query_globals;
     // init
-    Status status = _init(query_globals);
-    if (UNLIKELY(!status.ok())) {
-        return status;
-    }
+    RETURN_IF_ERROR(_init(query_globals));
+    // only after init operation, _mem_tracker is ready
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
 
     for (const auto& m : expr_map) {
@@ -120,11 +113,7 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             // create expr tree from TExpr
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
             // prepare and open context
-            status = _prepare_and_open(ctx);
-            if (UNLIKELY(!status.ok())) {
-                LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
-                return status;
-            }
+            RETURN_IF_ERROR(_prepare_and_open(ctx));
 
             vectorized::Block tmp_block;
             tmp_block.insert({vectorized::ColumnUInt8::create(1),
