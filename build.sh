@@ -310,6 +310,10 @@ function build_ui() {
         echo "Error: npm is not found"
         exit 1
     fi
+    NODE_VERSION=`bash -c "node --version" | sed 's/^v//'`
+    if [ $NODE_VERSION>16 ] ; then
+        export NODE_OPTIONS=--openssl-legacy-provider
+    fi    
     if [[ ! -z ${CUSTOM_NPM_REGISTRY} ]]; then
         ${NPM} config set registry ${CUSTOM_NPM_REGISTRY}
         npm_reg=`${NPM} get registry`
