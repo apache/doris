@@ -65,6 +65,9 @@ public:
                     {"DateTime", std::make_shared<DataTypeDateTime>()},
                     {"String", std::make_shared<DataTypeString>()},
                     {"Decimal", std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
+                    {"Decimal32", std::make_shared<DataTypeDecimal<Decimal32>>(9, 0)},
+                    {"Decimal64", std::make_shared<DataTypeDecimal<Decimal64>>(18, 0)},
+                    {"Decimal128", std::make_shared<DataTypeDecimal<Decimal128>>(38, 0)},
 
             };
             for (auto const& [key, val] : base_type_map) {
@@ -86,6 +89,9 @@ public:
                                 : data_type;
         for (const auto& entity : _invert_data_type_map) {
             if (entity.first->equals(*type_ptr)) {
+                return entity.second;
+            }
+            if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
             }
         }

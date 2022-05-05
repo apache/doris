@@ -317,9 +317,12 @@ convert_from_decimal(const typename FromDataType::FieldType& value, UInt32 scale
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    if constexpr (std::is_floating_point_v<ToFieldType>)
+    if constexpr (std::is_floating_point_v<ToFieldType>) {
+        if (config::enable_decimalv3) {
+            return static_cast<ToFieldType>(value) / FromDataType::get_scale_multiplier(scale);
+        }
         return binary_cast<int128_t, DecimalV2Value>(value);
-    else {
+    } else {
         FromFieldType converted_value =
                 convert_decimals<FromDataType, FromDataType>(value, scale, 0);
 
