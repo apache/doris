@@ -35,20 +35,20 @@
 //  4. Modifying additional thread local variables in ThreadContext construction and
 //  destructor to control the behavior of consume can lead to unexpected behavior,
 //  like this: if (LIKELY(doris::start_thread_mem_tracker)) {
-static void new_hook(const void* ptr, size_t size) {
+void new_hook(const void* ptr, size_t size) {
     doris::tls_ctx()->consume_mem(tc_nallocx(size, 0));
 }
 
-static void delete_hook(const void* ptr) {
+void delete_hook(const void* ptr) {
     doris::tls_ctx()->release_mem(tc_malloc_size(const_cast<void*>(ptr)));
 }
 
-static void init_hook() {
+void init_hook() {
     MallocHook::AddNewHook(&new_hook);
     MallocHook::AddDeleteHook(&delete_hook);
 }
 
-// For debug.
+// For later debug.
 // static void destroy_hook() {
 //     MallocHook::RemoveNewHook(&new_hook);
 //     MallocHook::RemoveDeleteHook(&delete_hook);

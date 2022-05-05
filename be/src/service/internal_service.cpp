@@ -91,7 +91,6 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_exec_env->load_channel_mgr()->mem_tracker());
     VLOG_RPC << "tablet writer open, id=" << request->id() << ", index_id=" << request->index_id()
              << ", txn_id=" << request->txn_id();
     brpc::ClosureGuard closure_guard(done);
