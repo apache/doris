@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.PrimitiveType;
@@ -96,10 +95,6 @@ public enum ExpressionFunctions {
 
             List<ScalarType> argTypes = new ArrayList<>();
             for (Type type : fn.getArgs()) {
-                // functions with ArrayType args do not rewritten as consts
-                if (type instanceof ArrayType) {
-                    return constExpr;
-                }
                 argTypes.add((ScalarType) type);
             }
             FEFunctionSignature signature = new FEFunctionSignature(fn.functionName(),
