@@ -425,23 +425,23 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testBitmapInsertInto() throws Exception {
         assertSQLPlanOrErrorMsgContains(
-            "explain INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
+            "INSERT INTO test.bitmap_table (id, id2) VALUES (1001, to_bitmap(1000)), (1001, to_bitmap(2000));",
             "OLAP TABLE SINK");
 
         assertSQLPlanOrErrorMsgContains(
-            "explain insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
+            "insert into test.bitmap_table select id, bitmap_union(id2) from test.bitmap_table_2 group by id;",
             "OLAP TABLE SINK",
             "bitmap_union",
             "1:AGGREGATE",
             "0:OlapScanNode");
 
         assertSQLPlanOrErrorMsgContains(
-            "explain insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
+            "insert into test.bitmap_table select id, id2 from test.bitmap_table_2;",
             "OLAP TABLE SINK",
             "OUTPUT EXPRS:`id` | `id2`",
             "0:OlapScanNode");
 
-        assertSQLPlanOrErrorMsgContains("explain insert into test.bitmap_table select id, id from test.bitmap_table_2;",
+        assertSQLPlanOrErrorMsgContains("insert into test.bitmap_table select id, id from test.bitmap_table_2;",
             "bitmap column require the function return type is BITMAP");
     }
 
