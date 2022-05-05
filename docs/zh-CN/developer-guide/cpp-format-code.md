@@ -50,6 +50,10 @@ Doris的代码风格在Google Style的基础上稍有改动，定制为 `.clang-
 
 ### 下载安装clang-format
 
+推荐使用 NPM 安装 clang-format 11（不同版本的 clang-format 可能产生不同的代码格式，建议使用 11 版本）：
+
+`npm install clang-format@1.4.0`
+
 Ubuntu: `apt-get install clang-format` 
 
 当前版本为10.0，也可指定旧版本，例如: `apt-get install clang-format-9`
