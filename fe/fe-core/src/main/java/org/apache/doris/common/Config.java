@@ -359,6 +359,11 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
     /**
+     * http header size configuration parameter, the default value is 10K
+     */
+    @ConfField public static int jetty_server_max_http_header_size = 10240;
+
+    /**
      * Mini load disabled by default
      */
     @ConfField public static boolean disable_mini_load = true;
