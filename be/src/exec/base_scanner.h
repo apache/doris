@@ -63,7 +63,7 @@ public:
 
     // Get next block
     virtual Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) {
-        return Status::NotSupported("Not Implemented get block");
+        return Status::NotSupported("Not Implemented get next");
     }
 
     // Close this scanner

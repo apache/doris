@@ -24,6 +24,7 @@
 #include "runtime/tuple_row.h"
 #include "runtime/mem_tracker.h"
 #include "util/runtime_profile.h"
+#include "util/thread.h"
 #include "util/types.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -192,6 +193,7 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
 }
 
 void VBrokerScanNode::scanner_worker(int start_idx, int length) {
+    Thread::set_self_name("vbroker_scanner");
     Status status = Status::OK();
     ScannerCounter counter;
     for (int i = 0; i < length && status.ok(); ++i) {
