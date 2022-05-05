@@ -282,6 +282,7 @@ public abstract class TestWithFeService {
         try {
             FileUtils.deleteDirectory(new File(baseDir));
         } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
@@ -349,7 +350,6 @@ public abstract class TestWithFeService {
         CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
     }
-
 
     protected void createTable(String sql) throws Exception {
         createTables(sql);
