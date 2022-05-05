@@ -32,6 +32,7 @@ feHttpPassword = ""
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
+pluginPath = "${DORIS_HOME}/regression-test/plugins"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
