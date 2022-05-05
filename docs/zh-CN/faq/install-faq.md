@@ -161,9 +161,11 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
    FE 是 java 进程，健壮程度要由于 C/C++ 程序。通常FE 挂掉的原因可能是 OOM（Out-of-Memory）或者是元数据写入失败。这些错误通常在 fe.log 或者 fe.out 中有错误堆栈。需要根据错误堆栈信息进一步排查。
 
-### Q7. 关于数据目录SSD和HDD的配置
+### Q7. 关于数据目录SSD和HDD的配置, 建表有时候会遇到报错`Failed to find enough host with storage medium and tag`
 
 Doris支持一个BE节点配置多个存储路径。通常情况下，每块盘配置一个存储路径即可。同时，Doris支持指定路径的存储介质属性，如SSD或HDD。SSD代表高速存储设备，HDD代表低速存储设备。
+
+如果集群只有一种介质比如都是HDD或者都是SSD，最佳实践是不用在be.conf中显式指定介质属性。如果遇到上述报错```Failed to find enough host with storage medium and tag```，一般是因为be.conf中只配置了SSD的介质，而fe中参数default_storage_medium默认为HDD，因此建表时会发现没有HDD介质的存储而报错。解决方案可以修改此FE配置并重启FE生效；或者将be.conf中SSD的显式配置去掉；或者建表时增加properties参数 ```properties {"storage_medium" = "ssd"}```均可
 
 通过指定路径的存储介质属性，我们可以利用Doris的冷热数据分区存储功能，在分区级别将热数据存储在SSD中，而冷数据会自动转移到HDD中。
 

@@ -161,9 +161,11 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
    FE is a java process, and the robustness is due to the C/C++ program. Usually the reason for FE to hang up may be OOM (Out-of-Memory) or metadata write failure. These errors usually have an error stack in fe.log or fe.out. Further investigation is required based on the error stack information.
 
-### Q7. About the configuration of data directory SSD and HDD
+### Q7. About the configuration of data directory SSD and HDD, create table encounter error `Failed to find enough host with storage medium and tag`
 
 Doris supports one BE node to configure multiple storage paths. Usually, one storage path can be configured for each disk. At the same time, Doris supports storage media properties that specify paths, such as SSD or HDD. SSD stands for high-speed storage device and HDD stands for low-speed storage device.
+
+If doris cluster has only one storage medium type, the practice is not specify storage medium in be.conf configuration file. ```Failed to find enough host with storage medium and tag```, generally we got this error for only config SSD medium in be.conf, but default parameter ```default_storage_medium``` in fe is HDD, so there is no HDD storage medium in cluster. There are several ways to fix this, one is modify the parameter in fe.conf and restart fe; the other way is take the SSD config in be.conf away,and the third way is add properties when create table ```{"storage_medium" = "ssd"}```
 
 By specifying the storage medium properties of the path, we can take advantage of Doris's hot and cold data partition storage function to store hot data in SSD at the partition level, while cold data is automatically transferred to HDD.
 
