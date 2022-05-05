@@ -186,13 +186,14 @@ MySQLTableDescriptor::MySQLTableDescriptor(const TTableDescriptor& tdesc)
           _host(tdesc.mysqlTable.host),
           _port(tdesc.mysqlTable.port),
           _user(tdesc.mysqlTable.user),
-          _passwd(tdesc.mysqlTable.passwd) {}
+          _passwd(tdesc.mysqlTable.passwd),
+          _charset(tdesc.mysqlTable.charset) {}
 
 std::string MySQLTableDescriptor::debug_string() const {
     std::stringstream out;
     out << "MySQLTable(" << TableDescriptor::debug_string() << " _db" << _mysql_db
         << " table=" << _mysql_table << " host=" << _host << " port=" << _port << " user=" << _user
-        << " passwd=" << _passwd;
+        << " passwd=" << _passwd << " charset=" << _charset;
     return out.str();
 }
 

@@ -75,6 +75,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     _my_param.user = mysql_table->user();
     _my_param.passwd = mysql_table->passwd();
     _my_param.db = mysql_table->mysql_db();
+    _my_param.charset = mysql_table->charset();
     // new one scanner
     _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 

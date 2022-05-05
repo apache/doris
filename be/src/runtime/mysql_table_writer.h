@@ -32,6 +32,7 @@ struct MysqlConnInfo {
     std::string passwd;
     std::string db;
     int port;
+    std::string charset;
 
     std::string debug_string() const;
 };

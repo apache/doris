@@ -30,6 +30,7 @@ public class MysqlTableSink extends DataSink {
     private final String passwd;
     private final String db;
     private final String tbl;
+    private final String charset;
 
     public MysqlTableSink(MysqlTable mysqlTable) {
         host = mysqlTable.getHost();
@@ -38,6 +39,7 @@ public class MysqlTableSink extends DataSink {
         passwd = mysqlTable.getPasswd();
         db = mysqlTable.getMysqlDatabaseName();
         tbl = mysqlTable.getMysqlTableName();
+	charset = mysqlTable.getCharset();
     }
 
     @Override
@@ -52,7 +54,7 @@ public class MysqlTableSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink tDataSink = new TDataSink(TDataSinkType.MYSQL_TABLE_SINK);
 
-        tDataSink.setMysqlTableSink(new TMysqlTableSink(host, port, user, passwd, db, tbl));
+        tDataSink.setMysqlTableSink(new TMysqlTableSink(host, port, user, passwd, db, tbl, charset));
         return tDataSink;
     }
 

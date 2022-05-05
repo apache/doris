@@ -214,6 +214,7 @@ struct TMySQLTable {
   4: required string passwd
   5: required string db
   6: required string table
+  7: required string charset
 }
 
 struct TOdbcTable {

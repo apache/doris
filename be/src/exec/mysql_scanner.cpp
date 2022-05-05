@@ -73,7 +73,7 @@ Status MysqlScanner::open() {
         return _error_status("mysql real connect failed.");
     }
 
-    if (mysql_set_character_set(_my_conn, "utf8")) {
+    if (mysql_set_character_set(_my_conn, _my_param.charset.c_str())) {
         return Status::InternalError("mysql set character set failed.");
     }
 

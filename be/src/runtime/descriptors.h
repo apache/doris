@@ -234,6 +234,7 @@ public:
     const std::string port() const { return _port; }
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
+    const std::string charset() const { return _charset; }
 
 private:
     std::string _mysql_db;
@@ -242,6 +243,7 @@ private:
     std::string _port;
     std::string _user;
     std::string _passwd;
+    std::string _charset;
 };
 
 class ODBCTableDescriptor : public TableDescriptor {
