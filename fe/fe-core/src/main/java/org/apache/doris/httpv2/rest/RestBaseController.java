@@ -74,7 +74,7 @@ public class RestBaseController extends BaseController {
         String urlStr = request.getRequestURI();
         String userInfo = null;
         if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
-            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request)；
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
             //username@cluster:password
             //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
             //This is to go directly to BE, but in fact,
