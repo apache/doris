@@ -77,11 +77,6 @@ class BufferControlBlock;
 // write result to file
 class FileResultWriter final : public ResultWriter {
 public:
-    // [[deprecated]]
-    FileResultWriter(const ResultFileOptions* file_option,
-                     const std::vector<ExprContext*>& output_expr_ctxs,
-                     RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                     bool output_object_data);
     FileResultWriter(const ResultFileOptions* file_option,
                      const TStorageBackendType::type storage_type,
                      const TUniqueId fragment_instance_id,
