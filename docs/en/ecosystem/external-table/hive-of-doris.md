@@ -55,7 +55,7 @@ PROPERTIES (
   ...
 );
 
--- Example1: Create the hive_table table under hive_db in a Hive cluster
+-- Example 1: Create the hive_table table under hive_db in a Hive cluster
 CREATE TABLE `t_hive` (
   `k1` int NOT NULL COMMENT "",
   `k2` char(10) NOT NULL COMMENT "",
@@ -70,7 +70,7 @@ PROPERTIES (
 'table' = 'hive_table'
 );
 
--- Example2: Create the hive_table table under hive_db in a Hive cluster with HDFS HA configuration.
+-- Example 2: Create the hive_table table under hive_db in a Hive cluster with HDFS HA configuration.
 CREATE TABLE `t_hive` (
   `k1` int NOT NULL COMMENT "",
   `k2` char(10) NOT NULL COMMENT "",
