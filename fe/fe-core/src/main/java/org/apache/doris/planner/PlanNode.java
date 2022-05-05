@@ -957,10 +957,6 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
 
-    public void setOutputSlotIds(List<SlotId> outputSlotIds) {
-        this.outputSlotIds = outputSlotIds;
-    }
-
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
