@@ -46,10 +46,16 @@ class Engine(str, Enum):
     iceberg = "iceberg"
 
 
+class PartitionType(str, Enum):
+    list = "LIST"
+    range = "RANGE"
+
+
 class DorisConfig(AdapterConfig):
-    engine: Engine = Engine.olap
+    engine: Engine
     duplicate_key: Tuple[str]
     partition_by: Tuple[str]
+    partition_type: PartitionType
     partition_by_init: List[str]
     distributed_by: Tuple[str]
     buckets: int
