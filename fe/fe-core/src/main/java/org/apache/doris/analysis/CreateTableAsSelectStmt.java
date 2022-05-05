@@ -21,42 +21,42 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.List;
 
-import lombok.Getter;
-
 /**
  * Represents a CREATE TABLE AS SELECT (CTAS) statement
- *  Syntax:
- *      CREATE TABLE table_name [( column_name_list )]
- *          opt_engine opt_partition opt_properties KW_AS query_stmt
+ * Syntax:
+ * CREATE TABLE table_name [( column_name_list )]
+ * opt_engine opt_partition opt_properties KW_AS query_stmt
  */
 public class CreateTableAsSelectStmt extends DdlStmt {
-    
+
     @Getter
     private final CreateTableStmt createTableStmt;
-    
+
     @Getter
     private final List<String> columnNames;
-    
+
     @Getter
     private QueryStmt queryStmt;
-    
+
     @Getter
     private final InsertStmt insertStmt;
-    
-    public CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
-                                   List<String> columnNames, QueryStmt queryStmt) {
+
+    protected CreateTableAsSelectStmt(CreateTableStmt createTableStmt,
+                                      List<String> columnNames, QueryStmt queryStmt) {
         this.createTableStmt = createTableStmt;
         this.columnNames = columnNames;
         this.queryStmt = queryStmt;
         this.insertStmt = new InsertStmt(createTableStmt.getDbTbl(), queryStmt.clone());
     }
-    
+
     /**
      * Cannot analyze insertStmt because the table has not been created yet
-     **/
+     */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // first: we analyze queryStmt before create table.
