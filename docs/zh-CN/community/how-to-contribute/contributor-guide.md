@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Committer指南",
+    "title": "Contributor 指南",
     "language": "zh-CN"
 }
 ---
@@ -24,9 +24,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Committer指南
+# Contributor 指南
 
-## Committer新人指南
+## Contributor 新人指南
 
 ### 订阅公共邮件列表
 
@@ -68,11 +68,11 @@ commits邮件非常重要，因为所有的GitHub Issue，PR提交都会发往�
 
 1. 一个PR合入需要三种角色的参与。Contributor：PR的提交者；Reviewer：对PR进行代码级评论的人；Moderator：PR合入的协调者。
 Moderator主要负责给PR设定相关标签，推动相关reviewer进行评论，推动作者对PR进行修改，合入PR等工作。
-在一个具体的PR中，一个人可能充当不同的角色，比如一个Committer自己提交的PR，既是Contributor，又是这个PR的Moderator。
+在一个具体的PR中，一个人可能充当不同的角色，比如一个Contributor 自己提交的PR，既是Contributor，又是这个PR的Moderator。
 
-2. Committer可以把一个PR分配给自己作为整个PR的moderator，负责后续PR的推动工作。分配给自己之后，其他的Committer就知道这个PR有相关人负责了。
+2. Contributor 可以把一个PR分配给自己作为整个PR的moderator，负责后续PR的推动工作。分配给自己之后，其他的Contributor 就知道这个PR有相关人负责了。
 
-3. 鼓励Committer作为自己PR的Moderator。
+3. 鼓励Contributor 作为自己PR的Moderator。
 
 4. Reviewer需要进行代码级的review，可以参考Code Review Guideline。
 

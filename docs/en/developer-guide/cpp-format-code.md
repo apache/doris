@@ -50,6 +50,10 @@ You need to download and install clang-format, or you can use the clang-format p
 
 ### Download and install clang-format
 
+It is recommended to use NPM to install clang-format 11 (different versions of clang-format may produce different code formats, it is recommended to use version 11):
+
+`npm install clang-format@1.4.0`
+
 Ubuntu: `apt-get install clang-format`
 
 The current version is 10.0, you can also specify the old version, for example: `apt-get install clang-format-9`
