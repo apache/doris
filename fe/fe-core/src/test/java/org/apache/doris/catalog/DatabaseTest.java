@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;

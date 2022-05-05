@@ -17,14 +17,9 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 
-import org.apache.doris.qe.QueryDetail;
-import org.apache.doris.qe.QueryDetailQueue;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.List;

@@ -20,7 +20,6 @@ package org.apache.doris.http;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.junit.Assert;
