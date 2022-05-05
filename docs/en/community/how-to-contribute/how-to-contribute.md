@@ -55,9 +55,9 @@ As you can see from [GitHub](https://github.com/apache/incubator-doris), Apache 
 | [Backend daemon (BE)](https://github.com/apache/incubator-doris) | Responsible for storing data and executing query fragments | C++|
 | [Broker](https://github.com/apache/incubator-doris) | Read HDFS data to Doris | Java|
 | [Website](https://github.com/apache/incubator-doris-website) | Doris Website | Markdown |
-| [Manager](https://github.com/apache/incubator-doris-website) | Doris Manager | Markdown |
-| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Markdown |
-| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Markdown |
+| [Manager](https://github.com/apache/incubator-doris-manager) | Doris Manager | Java |
+| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Java |
+| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Java |
 | Doris Runtime Help Document | Online Help Manual at Doris Runtime | Markdown|
 
 ## Improving documentation
