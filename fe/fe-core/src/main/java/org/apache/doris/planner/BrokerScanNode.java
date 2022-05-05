@@ -36,6 +36,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -409,7 +410,9 @@ public class BrokerScanNode extends LoadScanNode {
                 return TFileFormatType.FORMAT_ORC;
             } else if (fileFormat.toLowerCase().equals("json")) {
                 return TFileFormatType.FORMAT_JSON;
-            } else if (fileFormat.toLowerCase().equals("csv")) {
+            } else if (fileFormat.toLowerCase().equals(FeConstants.csv)
+                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
+                    || fileFormat.toLowerCase().equals(FeConstants.text)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -483,7 +486,11 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc);
-                    rangeDesc.setHdfsParams(tHdfsParams);
+                    if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                        rangeDesc.hdfs_params.setFsName(fsName);
+                    } else if (rangeDesc.hdfs_params == null) {
+                        rangeDesc.setHdfsParams(tHdfsParams);
+                    }
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
@@ -506,7 +513,12 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                 }
-                rangeDesc.setHdfsParams(tHdfsParams);
+                if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                    rangeDesc.hdfs_params.setFsName(fsName);
+                } else if (rangeDesc.hdfs_params == null) {
+                    rangeDesc.setHdfsParams(tHdfsParams);
+                }
+
                 rangeDesc.setReadByColumnDef(true);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
