@@ -64,6 +64,12 @@ public:
             instance.register_data_type("String", std::make_shared<DataTypeString>());
             instance.register_data_type("Decimal",
                                         std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
+            instance.register_data_type("Decimal32",
+                                        std::make_shared<DataTypeDecimal<Decimal32>>(9, 0));
+            instance.register_data_type("Decimal64",
+                                        std::make_shared<DataTypeDecimal<Decimal64>>(18, 0));
+            instance.register_data_type("Decimal128",
+                                        std::make_shared<DataTypeDecimal<Decimal128>>(38, 0));
         });
         return instance;
     }
@@ -74,6 +80,9 @@ public:
                                 : data_type;
         for (const auto& entity : _invert_data_type_map) {
             if (entity.first->equals(*type_ptr)) {
+                return entity.second;
+            }
+            if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
             }
         }
