@@ -55,9 +55,9 @@ under the License.
 | [Backend daemon (BE)](https://github.com/apache/incubator-doris) | 负责存储数据和执行查询片段 | C++|
 | [Broker](https://github.com/apache/incubator-doris) | 读取 HDFS 数据到 Doris | Java |
 | [Website](https://github.com/apache/incubator-doris-website) | Doris 网站 | Markdown |
-| [Manager](https://github.com/apache/incubator-doris-website) | Doris Manager | Markdown |
-| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Markdown |
-| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Markdown |
+| [Manager](https://github.com/apache/incubator-doris-manager) | Doris Manager | Java |
+| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Java |
+| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Java |
 | Doris 运行时 help 文档 | 运行 Doris 的时候的在线帮助手册 | Markdown |
 
 ## 改进文档
