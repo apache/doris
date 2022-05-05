@@ -849,7 +849,17 @@ size_t MutableBlock::rows() const {
 void MutableBlock::add_row(const Block* block, int row) {
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
-        _columns[i]->insert_from(*block_data[i].column.get(), row);
+        if (_columns[i]->is_nullable() && !block_data[i].column->is_nullable()) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(_columns[i]);
+            column_nullable->get_null_map_column().assume_mutable()->insert(0);
+            column_nullable->get_nested_column().assume_mutable()->insert_from(
+                    *block_data[i].column.get(), row);
+        } else if (!_columns[i]->is_nullable() && block_data[i].column->is_nullable()) {
+            auto column_nullable = check_and_get_column<ColumnNullable>(block_data[i].column);
+            _columns[i]->insert_from(column_nullable->get_nested_column(), row);
+        } else {
+            _columns[i]->insert_from(*block_data[i].column.get(), row);
+        }
     }
 }
 
