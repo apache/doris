@@ -514,7 +514,7 @@ module.exports = [
             ],
           },
           {
-            title: "table functions",
+            title: "表函数",
             directoryPath: "table-functions/",
             initialOpenGroupIndex: -1,
             children: [
@@ -522,6 +522,26 @@ module.exports = [
               "explode-split",
               "explode-json-array",
               "outer-combinator"
+            ],
+          },
+          {
+            title: "分析（窗口）函数",
+            directoryPath: "window-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "WINDOW-FUNCTION-",
+              "WINDOW-FUNCTION-SUM",
+              "WINDOW-FUNCTION-AVG",
+              "WINDOW-FUNCTION-COUNT",
+              "WINDOW-FUNCTION-MIN",
+              "WINDOW-FUNCTION-MAX",
+              "WINDOW-FUNCTION-LEAD",
+              "WINDOW-FUNCTION-LAG",
+              "WINDOW-FUNCTION-RANK",
+              "WINDOW-FUNCTION-DENSE-RANK",
+              "WINDOW-FUNCTION-FIRST-VALUE",
+              "WINDOW-FUNCTION-LAST-VALUE",
+              "WINDOW-FUNCTION-ROW-NUMBER",
             ],
           },
           "cast",
