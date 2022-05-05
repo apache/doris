@@ -1005,6 +1005,7 @@ module.exports = [
       "minidump",
       "bitmap-hll-file-format",
       "regression-testing",
+      "github-checks"
     ],
   },
   {
