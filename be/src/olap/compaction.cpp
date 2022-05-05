@@ -87,14 +87,15 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
     Status res;
-    if (config::enable_vectorized_compaction) {
+    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    if (use_vectorized_compaction) {
         res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                      _output_rs_writer.get(), &stats);
     } else {
         res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                     _output_rs_writer.get(), &stats);
     }
-    string merge_type = config::enable_vectorized_compaction ? "v" : "";
+    string merge_type = use_vectorized_compaction ? "v" : "";
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
@@ -284,6 +285,16 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
         }
     }
     return num_rows;
+}
+
+bool Compaction::_should_use_vectorized_compaction() {
+    auto cols = _tablet->tablet_schema().columns();
+    for (auto it = cols.begin(); it != cols.end(); it++) {
+        if ((*it).type() == FieldType::OLAP_FIELD_TYPE_STRING) {
+            return false;
+        }
+    }
+    return config::enable_vectorized_compaction;
 }
 
 int64_t Compaction::get_compaction_permits() {

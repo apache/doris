@@ -113,7 +113,7 @@ Minimal interval (ms) to generate compaction tasks
 
 ### `enable_vectorized_compaction`
 
-Default: false
+Default: true
 
 Whether to enable vectorized compaction
 
