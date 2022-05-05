@@ -45,11 +45,11 @@ ADMIN SET REPLICA STATUS
 
  The following properties are currently supported:
 
- "tablet_id": Required. Specify a Tablet Id.
+1. "tablet_id": Required. Specify a Tablet Id.
 
- "backend_id": Required. Specify Backend Id.
+2. "backend_id": Required. Specify Backend Id.
 
- "status": Required. Specifies the state. Currently only "bad" or "ok" are supported
+3. "status": Required. Specifies the state. Currently only "bad" or "ok" are supported
 
 If the specified replica does not exist, or the status is already bad, it will be ignored.
 
