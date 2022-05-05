@@ -53,13 +53,13 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
     register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<true, true>, true);
 
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first<false, true, true>, false);
+                      create_aggregate_function_first_non_null_value<false, true>, false);
     register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first<true, true, true>, true);
+                      create_aggregate_function_first_non_null_value<true, true>, true);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last<false, true, true>, false);
+                      create_aggregate_function_last_non_null_value<false, true>, false);
     register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last<true, true, true>, true);
+                      create_aggregate_function_last_non_null_value<true, true>, true);
 }
 
 } // namespace doris::vectorized
