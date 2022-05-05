@@ -1022,7 +1022,8 @@ module.exports = [
         initialOpenGroupIndex: -1,
         children: [
           "how-to-contribute",
-          "committer-guide",
+          "contributor-guide",
+          "how-to-be-a-committer",
           "commit-format-specification",
           "pull-request",
         ],
