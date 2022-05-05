@@ -73,7 +73,7 @@ The data flow of metadata is as follows:
 
 2. After the log is written to bdbje, bdbje copies the log to other non-leader FE nodes according to the policy (write most/write all). The non-leader FE node modifies its metadata memory image by playback of the log, and completes the synchronization with the metadata of the leader node.
 
-3. When the number of log bars of the leader node reaches the threshold (default 10W bars), the checkpoint thread is started. Checkpoint reads existing image files and subsequent logs and replays a new mirror copy of metadata in memory. The copy is then written to disk to form a new image. The reason for this is to regenerate a mirror copy instead of writing an existing image to an image, mainly considering that the write operation will be blocked during writing the image plus read lock. So every checkpoint takes up twice as much memory space.
+3. The number of log entries of the leader node reaches the threshold (default 10w) and meets the checkpoint thread execution cycle (default 60 seconds). Checkpoint reads existing image files and subsequent logs and replays a new mirror copy of metadata in memory. The copy is then written to disk to form a new image. The reason for this is to regenerate a mirror copy instead of writing an existing image to an image, mainly considering that the write operation will be blocked during writing the image plus read lock. So every checkpoint takes up twice as much memory space.
 
 4. After the image file is generated, the leader node notifies other non-leader nodes that a new image has been generated. Non-leader actively pulls the latest image files through HTTP to replace the old local files.
 
