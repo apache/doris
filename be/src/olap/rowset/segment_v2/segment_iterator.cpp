@@ -658,9 +658,11 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             // Step1: check pred using short eval or vec eval
             if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
                 type == OLAP_FIELD_TYPE_STRING || predicate->type() == PredicateType::BF ||
-                predicate->type() == PredicateType::IN_LIST || predicate->type() == PredicateType::NOT_IN_LIST ||
-                predicate->type() == PredicateType::IS_NULL || predicate->type() == PredicateType::IS_NOT_NULL ||
-                  type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DECIMAL) {
+                predicate->type() == PredicateType::IN_LIST ||
+                predicate->type() == PredicateType::NOT_IN_LIST ||
+                predicate->type() == PredicateType::IS_NULL ||
+                predicate->type() == PredicateType::IS_NOT_NULL || type == OLAP_FIELD_TYPE_DATE ||
+                type == OLAP_FIELD_TYPE_DECIMAL) {
                 short_cir_pred_col_id_set.insert(cid);
                 _short_cir_eval_predicate.push_back(predicate);
             } else {
@@ -684,7 +686,8 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         }
 
         _vec_pred_column_ids.assign(vec_pred_col_id_set.cbegin(), vec_pred_col_id_set.cend());
-        _short_cir_pred_column_ids.assign(short_cir_pred_col_id_set.cbegin(), short_cir_pred_col_id_set.cend());
+        _short_cir_pred_column_ids.assign(short_cir_pred_col_id_set.cbegin(),
+                                          short_cir_pred_col_id_set.cend());
     }
 
     if (!_vec_pred_column_ids.empty()) {
@@ -706,16 +709,18 @@ void SegmentIterator::_vec_init_lazy_materialization() {
             if (!_is_pred_column[cid]) {
                 _non_predicate_columns.push_back(cid);
                 FieldType type = _schema.column(cid)->type();
-                
+
                 // todo(wb) maybe we can make read char type faster
                 // todo(wb) support map/array type
                 // todo(wb) consider multiple integer columns cost, such as 1000 columns, maybe lazy materialization faster
-                if (!_lazy_materialization_read && 
-                        (_is_need_vec_eval || _is_need_short_eval) && // only when pred exists, we need to consider lazy materialization
-                        (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT || 
-                        type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_STRING ||
-                        type == OLAP_FIELD_TYPE_BOOL || type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME ||
-                        type == OLAP_FIELD_TYPE_DECIMAL)) {
+                if (!_lazy_materialization_read &&
+                    (_is_need_vec_eval ||
+                     _is_need_short_eval) && // only when pred exists, we need to consider lazy materialization
+                    (type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+                     type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR ||
+                     type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_BOOL ||
+                     type == OLAP_FIELD_TYPE_DATE || type == OLAP_FIELD_TYPE_DATETIME ||
+                     type == OLAP_FIELD_TYPE_DECIMAL)) {
                     _lazy_materialization_read = true;
                 }
             }
@@ -728,7 +733,8 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         for (auto cid : pred_column_ids) {
             _first_read_column_ids.push_back(cid);
         }
-    } else if (!_is_need_vec_eval && !_is_need_short_eval) { // no pred exists, just read and output column
+    } else if (!_is_need_vec_eval &&
+               !_is_need_short_eval) { // no pred exists, just read and output column
         for (int i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             _first_read_column_ids.push_back(cid);
@@ -738,7 +744,8 @@ void SegmentIterator::_vec_init_lazy_materialization() {
         std::set<ColumnId> pred_id_set;
         pred_id_set.insert(_short_cir_pred_column_ids.begin(), _short_cir_pred_column_ids.end());
         pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
-        std::set<ColumnId> non_pred_set(_non_predicate_columns.begin(),_non_predicate_columns.end());
+        std::set<ColumnId> non_pred_set(_non_predicate_columns.begin(),
+                                        _non_predicate_columns.end());
 
         for (int i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
@@ -949,7 +956,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
                 if (_is_pred_column[cid]) {
                     auto column_desc = _schema.column(cid);
                     _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
-                        column_desc->type(), column_desc->is_nullable());
+                            column_desc->type(), column_desc->is_nullable());
                     _current_return_columns[cid]->reserve(_opts.block_row_max);
                 }
             }
@@ -994,7 +1001,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
         if (!_lazy_materialization_read) {
             Status ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                      selected_size);
+                                                   selected_size);
             if (!ret.ok()) {
                 return ret;
             }
@@ -1004,8 +1011,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         }
 
         // step3: read non_predicate column
-        _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx,
-                                        selected_size, &_current_return_columns);
+        _read_columns_by_rowids(_non_predicate_columns, _block_rowids, sel_rowid_idx, selected_size,
+                                &_current_return_columns);
 
         // step4: output columns
         // 4.1 output non-predicate column
@@ -1016,7 +1023,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         // see _vec_init_lazy_materialization
         // todo(wb) need to tell input columnids from output columnids
         RETURN_IF_ERROR(_output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
-                                                    selected_size));
+                                                  selected_size));
     }
 
     // shrink char_type suffix zero data
