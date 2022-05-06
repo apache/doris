@@ -44,8 +44,6 @@ Hive External Table of Doris 提供了 Doris 直接访问 Hive 外部表的能�
 
 ### Doris 中创建 Hive 的外表
 
-具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
-
 ```sql
 -- 语法
 CREATE [EXTERNAL] TABLE table_name (
@@ -57,7 +55,7 @@ PROPERTIES (
   ...
 );
 
--- 例子：创建 Hive 集群中 hive_db 下的 hive_table 表
+-- 例子1：创建 Hive 集群中 hive_db 下的 hive_table 表
 CREATE TABLE `t_hive` (
   `k1` int NOT NULL COMMENT "",
   `k2` char(10) NOT NULL COMMENT "",
@@ -70,6 +68,26 @@ PROPERTIES (
 'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
 'database' = 'hive_db',
 'table' = 'hive_table'
+);
+
+-- 例子2：创建 Hive 集群中 hive_db 下的 hive_table 表,HDFS使用HA配置
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'dfs.nameservices'='hacluster',
+'dfs.ha.namenodes.hacluster'='3,4',
+'dfs.namenode.rpc-address.hacluster.3'='192.168.0.93:8020',
+'dfs.namenode.rpc-address.hacluster.4'='172.21.16.11:8020',
+'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
 
@@ -85,6 +103,10 @@ PROPERTIES (
     - `hive.metastore.uris`：Hive Metastore 服务地址
     - `database`：挂载 Hive 对应的数据库名
     - `table`：挂载 Hive 对应的表名
+    - `dfs.nameservices`：name service名称，与hdfs-site.xml保持一致
+    - `dfs.ha.namenodes.[nameservice ID]：namenode的id列表,与hdfs-site.xml保持一致
+    - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：Name node的rpc地址，数量与namenode数量相同，与hdfs-site.xml保持一致
+    - `dfs.client.failover.proxy.provider.[nameservice ID] `：HDFS客户端连接活跃namenode的java类，通常是"org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
 
 ## 类型匹配
 
@@ -117,6 +139,3 @@ PROPERTIES (
 ```sql
 select * from t_hive where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
-
-
-
