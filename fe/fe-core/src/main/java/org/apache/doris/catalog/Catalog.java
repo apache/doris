@@ -3140,7 +3140,9 @@ public class Catalog {
                 } else {
                     Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
                     boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
-                    columnDef = new ColumnDef(name, typeDef, column.isKey(), column.getAggregationType(), column.isAllowNull(), new DefaultValue(setDefault, column.getDefaultValue()), column.getComment());
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(),
+                            column.getAggregationType(), column.isAllowNull(),
+                            new DefaultValue(setDefault, column.getDefaultValue()), column.getComment());
                 }
                 createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
