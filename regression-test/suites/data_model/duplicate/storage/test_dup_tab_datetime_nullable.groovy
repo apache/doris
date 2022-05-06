@@ -39,6 +39,8 @@ PROPERTIES (
 
     """
 
+    sql "set enable_vectorized_engine = false"
+
     sql """insert into ${table1} values
         (1,'2021-01-01 23:10:01','2021-01-02 23:10:04','2021-01-02 22:10:04'),
         (2,'2021-02-01 23:10:01','2021-02-02 23:10:04','2021-03-02 22:10:04'),
@@ -47,6 +49,8 @@ PROPERTIES (
         (5,'2021-05-01 23:10:01','2021-05-02 23:10:04','2021-06-02 22:10:04'),
         (null,'2021-06-01 23:10:01',null,'2021-06-02 22:10:04')
 """
+
+    sql "set enable_vectorized_engine = true"
 
     qt_read_single_column_1 "select datetime1 from ${table1}"
     qt_read_single_column_2 "select siteid from ${table1}"
