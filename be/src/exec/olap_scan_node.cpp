@@ -126,7 +126,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
-    _pred_col_read_timer = ADD_TIMER(_segment_profile, "PredColumnReadTime");
+    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
