@@ -27,12 +27,14 @@ class HdfsFileReaderTest : public testing::Test {};
 
 TEST_F(HdfsFileReaderTest, test_connect_fail) {
     THdfsParams hdfsParams;
-    hdfsParams.fs_name = "hdfs://127.0.0.1:8888"; // An invalid address
+    hdfsParams.__set_fs_name("hdfs://127.0.0.9:8888"); // An invalid address
+    hdfsParams.__set_hdfs_kerberos_principal("somebody@TEST.COM");
+    hdfsParams.__set_hdfs_kerberos_keytab("/etc/keytab/doris.keytab");
     HdfsFileReader hdfs_file_reader(hdfsParams, "/user/foo/test.data", 0);
     Status status = hdfs_file_reader.open();
-    hdfs_file_reader.close();
+    EXPECT_EQ(TStatusCode::INTERNAL_ERROR, status.code());
     std::string msg = status.get_error_msg();
-    EXPECT_TRUE(msg.find("Connection refused") >= 0);
+    EXPECT_TRUE(msg.find("kind") >= 0);
     hdfs_file_reader.close();
 }
 
