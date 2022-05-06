@@ -147,13 +147,14 @@ Status BaseScanner::init_expr_ctxes() {
             RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_vexpr_ctx.emplace_back(ctx);
+        } else {
+            ExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_expr_ctx.emplace_back(ctx);
         }
 
-        ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
-        RETURN_IF_ERROR(ctx->open(_state));
-        _dest_expr_ctx.emplace_back(ctx);
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -299,6 +300,10 @@ void BaseScanner::free_expr_local_allocations() {
 void BaseScanner::close() {
     if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
+    }
+
+    if (_state->enable_vectorized_exec() && !_vpre_filter_ctxs.empty()) {
+        vectorized::VExpr::close(_vpre_filter_ctxs, _state);
     }
 }
 

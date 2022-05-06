@@ -50,7 +50,6 @@ private:
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter);
 
-    Status push_block_queue();
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
     std::unique_ptr<MutableBlock> _mutable_block;
 };

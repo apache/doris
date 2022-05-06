@@ -55,7 +55,9 @@ public:
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     virtual ~BaseScanner() {
         Expr::close(_dest_expr_ctx, _state);
-        vectorized::VExpr::close(_dest_vexpr_ctx, _state);
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
+        }
     };
 
     virtual Status init_expr_ctxes();

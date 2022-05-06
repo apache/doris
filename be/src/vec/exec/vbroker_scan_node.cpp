@@ -61,43 +61,69 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
         return Status::OK();
     }
 
-    std::shared_ptr<vectorized::Block> scanner_block;
-    {
-        std::unique_lock<std::mutex> l(_batch_queue_lock);
-        while (_process_status.ok() && !_runtime_state->is_cancelled() &&
-               _num_running_scanners > 0 && _block_queue.empty()) {
-            SCOPED_TIMER(_wait_scanner_timer);
-            _queue_reader_cond.wait_for(l, std::chrono::seconds(1));
-        }
-        if (!_process_status.ok()) {
-            // Some scanner process failed.
-            return _process_status;
-        }
-        if (_runtime_state->is_cancelled()) {
-            if (update_status(Status::Cancelled("Cancelled"))) {
-                _queue_writer_cond.notify_all();
+    const int batch_size = _runtime_state->batch_size();
+    while (true) {
+        std::shared_ptr<vectorized::Block> scanner_block;
+        {
+            std::unique_lock<std::mutex> l(_batch_queue_lock);
+            while (_process_status.ok() && !_runtime_state->is_cancelled() &&
+                _num_running_scanners > 0 && _block_queue.empty()) {
+                SCOPED_TIMER(_wait_scanner_timer);
+                _queue_reader_cond.wait_for(l, std::chrono::seconds(1));
             }
-            return _process_status;
+            if (!_process_status.ok()) {
+                // Some scanner process failed.
+                return _process_status;
+            }
+            if (_runtime_state->is_cancelled()) {
+                if (update_status(Status::Cancelled("Cancelled"))) {
+                    _queue_writer_cond.notify_all();
+                }
+                return _process_status;
+            }
+            if (!_block_queue.empty()) {
+                scanner_block = _block_queue.front();
+                _block_queue.pop_front();
+            }
         }
-        if (!_block_queue.empty()) {
-            scanner_block = _block_queue.front();
-            _block_queue.pop_front();
+
+        // All scanner has been finished, and all cached batch has been read
+        if (scanner_block == nullptr || scanner_block.get() == nullptr) {
+            if (_mutable_block.get() != nullptr && !_mutable_block->empty()) {
+                *block = _mutable_block->to_block();
+                reached_limit(block, eos);
+                LOG_IF(INFO, *eos) << "VBrokerScanNode ReachedLimit.";
+            }
+            _scan_finished.store(true);
+            *eos = true;
+            return Status::OK();
+        }
+        // notify one scanner
+        _queue_writer_cond.notify_one();
+
+        if (_mutable_block.get() == nullptr) {
+            _mutable_block.reset(new MutableBlock(scanner_block->clone_empty()));
+        }
+
+        if (_mutable_block->rows() + scanner_block->rows() < batch_size) {
+            // merge scanner_block into _mutable_block
+            _mutable_block->add_rows(scanner_block.get(), 0, scanner_block->rows());
+            continue;
+        } else {
+            if (_mutable_block->empty()) {
+                // directly use scanner_block
+                *block = *scanner_block;
+            } else {
+                // copy _mutable_block firstly, then merge scanner_block into _mutable_block for next.
+                *block = _mutable_block->to_block();
+                _mutable_block->set_muatable_columns(scanner_block->clone_empty_columns());
+                _mutable_block->add_rows(scanner_block.get(), 0, scanner_block->rows());
+            }
+            break;
         }
     }
 
-    // All scanner has been finished, and all cached batch has been read
-    if (scanner_block == nullptr) {
-        _scan_finished.store(true);
-        *eos = true;
-        return Status::OK();
-    }
-
-    // notify one scanner
-    _queue_writer_cond.notify_one();
-
-    reached_limit(scanner_block.get(), eos);
-    *block = *scanner_block;
-
+    reached_limit(block, eos);
     if (*eos) {
         _scan_finished.store(true);
         _queue_writer_cond.notify_all();
@@ -120,9 +146,6 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
     std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;
-
-    const int batch_size = _runtime_state->batch_size();
-
     while (!scanner_eof) {
         RETURN_IF_CANCELLED(_runtime_state);
         // If we have finished all works
@@ -143,73 +166,34 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
             continue;
         }
 
-        // merge block
-        if (_mutable_block.get() == nullptr) {
-            _mutable_block.reset(new MutableBlock(block->clone_empty()));
+        std::unique_lock<std::mutex> l(_batch_queue_lock);
+        while (_process_status.ok() && !_scan_finished.load() &&
+                !_runtime_state->is_cancelled() &&
+                // stop pushing more batch if
+                // 1. too many batches in queue, or
+                // 2. at least one batch in queue and memory exceed limit.
+                (_block_queue.size() >= _max_buffered_batches ||
+                (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
+            _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }
-
-        int row_wait_add = block->rows();
-        int begin = 0;
-        while (row_wait_add > 0) {
-            int row_add = 0;
-            int max_add = batch_size - _mutable_block->rows();
-            if (row_wait_add >= max_add) {
-                row_add = max_add;
-            } else {
-                row_add = row_wait_add;
-            }
-
-            _mutable_block->add_rows(block.get(), begin, row_add);
-            row_wait_add -= row_add;
-            begin += row_add;
-            if (_mutable_block->rows() >= batch_size) {
-                RETURN_IF_ERROR(push_block_queue());
-            }
+        // Process already set failed, so we just return OK
+        if (!_process_status.ok()) {
+            return Status::OK();
         }
-    }
+        // Scan already finished, just return
+        if (_scan_finished.load()) {
+            return Status::OK();
+        }
+        // Runtime state is canceled, just return cancel
+        if (_runtime_state->is_cancelled()) {
+            return Status::Cancelled("Cancelled");
+        }
+        // Queue size Must be smaller than _max_buffered_batches
+        _block_queue.push_back(block);
 
-    RETURN_IF_ERROR(push_block_queue());
-    return Status::OK();
-}
-
-Status VBrokerScanNode::push_block_queue() {
-    if (_mutable_block.get() == nullptr || _mutable_block->rows() == 0) {
-        return Status::OK();
+        // Notify reader to
+        _queue_reader_cond.notify_one();
     }
-
-    auto output_block = _mutable_block->to_block();
-    std::shared_ptr<vectorized::Block> block_ptr(new vectorized::Block());
-    block_ptr->swap(std::move(output_block));
-    // reuse for next
-    _mutable_block->set_muatable_columns(block_ptr->clone_empty_columns());
-
-    std::unique_lock<std::mutex> l(_batch_queue_lock);
-    while (_process_status.ok() && !_scan_finished.load() &&
-        !_runtime_state->is_cancelled() &&
-        // stop pushing more batch if
-        // 1. too many batches in queue, or
-        // 2. at least one batch in queue and memory exceed limit.
-        (_block_queue.size() >= _max_buffered_batches ||
-            (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
-        _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
-    }
-    // Process already set failed, so we just return OK
-    if (!_process_status.ok()) {
-        return Status::OK();
-    }
-    // Scan already finished, just return
-    if (_scan_finished.load()) {
-        return Status::OK();
-    }
-    // Runtime state is canceled, just return cancel
-    if (_runtime_state->is_cancelled()) {
-        return Status::Cancelled("Cancelled");
-    }
-    // Queue size Must be smaller than _max_buffered_batches
-    _block_queue.push_back(block_ptr);
-
-    // Notify reader to
-    _queue_reader_cond.notify_one();
     return Status::OK();
 }
 

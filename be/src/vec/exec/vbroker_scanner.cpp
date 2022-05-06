@@ -43,11 +43,12 @@ VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 }
 
+VBrokerScanner::~VBrokerScanner() {}
+
 Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
 
     const int batch_size = _state->batch_size();
-    std::shared_ptr<vectorized::Block> tmp_block(std::make_shared<Block>());
     // Get batch lines
     int slot_num = _src_slot_descs.size();
     std::vector<vectorized::MutableColumnPtr> columns(slot_num);
@@ -88,14 +89,15 @@ Status VBrokerScanner::get_next(Block* output_block, bool* eof) {
     } else {
         *eof = false;
     }
-    return _fill_dest_block(output_block, tmp_block, columns);
+    return _fill_dest_block(output_block, columns);
 }
 
-Status VBrokerScanner::_fill_dest_block(Block* dest_block, std::shared_ptr<vectorized::Block> tmp_block, std::vector<MutableColumnPtr>& columns) {
+Status VBrokerScanner::_fill_dest_block(Block* dest_block, std::vector<MutableColumnPtr>& columns) {
     if (columns.empty() || columns[0]->size() == 0) {
         return Status::OK();
     }
 
+    std::unique_ptr<vectorized::Block> tmp_block(new vectorized::Block());
     auto n_columns = 0;
     for (const auto slot_desc : _src_slot_descs) {
         tmp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),

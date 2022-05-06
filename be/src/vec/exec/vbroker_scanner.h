@@ -27,7 +27,7 @@ public:
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    ~VBrokerScanner() override = default;
+    ~VBrokerScanner();
 
     virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
                             bool* fill_tuple) override {
@@ -37,14 +37,13 @@ public:
     Status get_next(Block* block, bool* eof) override;
 
 private:
-    // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
 
     Status _write_text_column(char* value, int length, SlotDescriptor* slot,
                             MutableColumnPtr* column_ptr,
                             RuntimeState* state);
 
-    Status _fill_dest_block(Block* block, std::shared_ptr<vectorized::Block> tmp_block, std::vector<MutableColumnPtr>& columns);
+    Status _fill_dest_block(Block* block, std::vector<MutableColumnPtr>& columns);
 
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
 };

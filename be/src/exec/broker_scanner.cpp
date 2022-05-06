@@ -575,7 +575,6 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
         fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
     }
 
-    _success = true;
     return Status::OK();
 }
 
