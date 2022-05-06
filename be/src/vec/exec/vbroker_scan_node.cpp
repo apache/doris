@@ -88,8 +88,8 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
         }
 
         // All scanner has been finished, and all cached batch has been read
-        if (scanner_block == nullptr || scanner_block.get() == nullptr) {
-            if (_mutable_block.get() != nullptr && !_mutable_block->empty()) {
+        if (!scanner_block) {
+            if (_mutable_block && !_mutable_block->empty()) {
                 *block = _mutable_block->to_block();
                 reached_limit(block, eos);
                 LOG_IF(INFO, *eos) << "VBrokerScanNode ReachedLimit.";
@@ -101,7 +101,7 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
         // notify one scanner
         _queue_writer_cond.notify_one();
 
-        if (_mutable_block.get() == nullptr) {
+        if (UNLIKELY(!_mutable_block)) {
             _mutable_block.reset(new MutableBlock(scanner_block->clone_empty()));
         }
 

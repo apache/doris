@@ -101,8 +101,8 @@ Status VBrokerScanner::_fill_dest_block(Block* dest_block, std::vector<MutableCo
     auto n_columns = 0;
     for (const auto slot_desc : _src_slot_descs) {
         tmp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                            slot_desc->get_data_type_ptr(),
-                                            slot_desc->col_name()));
+                                                slot_desc->get_data_type_ptr(),
+                                                slot_desc->col_name()));
     }
     auto old_rows = tmp_block->rows();
     // filter
@@ -131,7 +131,8 @@ Status VBrokerScanner::_fill_dest_block(Block* dest_block, std::vector<MutableCo
     return status;
 }
 
-Status VBrokerScanner::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns) {
+Status VBrokerScanner::_fill_dest_columns(const Slice& line,
+                                          std::vector<MutableColumnPtr>& columns) {
     RETURN_IF_ERROR(_line_split_to_values(line));
     if (!_success) {
         // If not success, which means we met an invalid row, return.
@@ -197,20 +198,41 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line, std::vector<Mutable
                 return Status::OK();
             }
             // nullable
-            auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(columns[dest_index].get());
+            auto* nullable_column =
+                    reinterpret_cast<vectorized::ColumnNullable*>(columns[dest_index].get());
             nullable_column->insert_data(nullptr, 0);
             continue;
         }
-        RETURN_IF_ERROR(_write_text_column(value.data, value.size, src_slot_desc, &columns[dest_index], _state));
+
+        RETURN_IF_ERROR(_write_text_column(value.data, value.size, src_slot_desc,
+                                           &columns[dest_index], _state));
     }
 
-    _success = true;
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
+    if (range.__isset.num_of_columns_from_file) {
+        RETURN_IF_ERROR(_fill_columns_from_path(range.num_of_columns_from_file, range.columns_from_path, columns));
+    }
+
+    return Status::OK();
+}
+
+Status VBrokerScanner::_fill_columns_from_path(int start,
+                                            const std::vector<std::string>& columns_from_path,
+                                            std::vector<MutableColumnPtr>& columns) {
+    // values of columns from path can not be null
+    for (int i = 0; i < columns_from_path.size(); ++i) {
+        int dest_index = i + start;
+        auto slot_desc = _src_slot_descs.at(dest_index);
+        const std::string& column_from_path = columns_from_path[i];
+        RETURN_IF_ERROR(_write_text_column(const_cast<char*>(column_from_path.c_str()), column_from_path.size(),
+                                           slot_desc, &columns[dest_index], _state));
+    }
     return Status::OK();
 }
 
 Status VBrokerScanner::_write_text_column(char* value, int value_length, SlotDescriptor* slot,
-                                         vectorized::MutableColumnPtr* column_ptr,
-                                         RuntimeState* state) {
+                                          vectorized::MutableColumnPtr* column_ptr,
+                                          RuntimeState* state) {
     if (!_text_converter->write_column(slot, column_ptr, value, value_length, true, false)) {
         std::stringstream ss;
         ss << "Fail to convert text value:'" << value << "' to " << slot->type() << " on column:`"
