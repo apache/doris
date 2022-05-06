@@ -2183,20 +2183,22 @@ public class ShowExecutor {
     }
 
     private void handleShowCreateMaterializedView() throws AnalysisException {
+        List<List<String>> resultRowSet = new ArrayList<>();
         ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getTableName().getDb());
         Table table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
         OlapTable baseTable = ((OlapTable) table);
         Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
-        System.out.println(indexIdByName);
         MaterializedIndexMeta meta = baseTable.getIndexMetaByIndexId(indexIdByName);
-        System.out.println(meta.getDefineStmt());
+        if (meta == null || meta.getDefineStmt() == null) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
+            return;
+        }
         String originStmt = meta.getDefineStmt().originStmt;
         List<String> data = new ArrayList<>();
         data.add(showStmt.getTableName().getTbl());
         data.add(showStmt.getMvName());
         data.add(originStmt);
-        List<List<String>> resultRowSet = new ArrayList<>();
         resultRowSet.add(data);
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
     }
