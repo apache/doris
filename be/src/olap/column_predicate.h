@@ -43,7 +43,7 @@ enum class PredicateType {
     IN_LIST = 7,
     NOT_IN_LIST = 8,
     IS_NULL = 9,
-    NOT_IS_NULL = 10,
+    IS_NOT_NULL = 10,
     BF = 11, // BloomFilter
 };
 
