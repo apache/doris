@@ -48,7 +48,6 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.io.FileUtils;
 
 import java.io.File;
