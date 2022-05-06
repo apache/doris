@@ -195,6 +195,7 @@ module.exports = [
       "broker",
       "resource",
       "orthogonal-bitmap-manual",
+      "using-hll",
       "variables",
       "time-zone",
       "small-file-mgr",
