@@ -17,11 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -34,7 +31,7 @@ import java.io.File;
 import java.util.UUID;
 
 /**
- * test for ShowCreateMaterializedViewStmt
+ * test for ShowCreateMaterializedViewStmt.
  **/
 public class ShowCreateMaterializedViewStmtTest {
 
@@ -55,7 +52,8 @@ public class ShowCreateMaterializedViewStmtTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         dorisAssert = new DorisAssert(connectContext);
         dorisAssert.withDatabase("test")
-                .withTable("create table test.table1 (k1 int, k2 int) distributed by hash(k1) buckets 1 properties(\"replication_num\" = \"1\");")
+                .withTable("create table test.table1 (k1 int, k2 int) distributed by hash(k1) "
+                        + "buckets 1 properties(\"replication_num\" = \"1\");")
                 .withMaterializedView("CREATE MATERIALIZED VIEW test_mv as select k1 from test.table1;");
     }
 
@@ -74,18 +72,4 @@ public class ShowCreateMaterializedViewStmtTest {
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
                 "CREATE MATERIALIZED VIEW test_mv as select k1 from test.table1;");
     }
-
-    @Test
-    public void testNoAuth() throws Exception {
-        StmtExecutor createUser = new StmtExecutor(connectContext, "create user 'test'");
-        createUser.execute();
-        UserIdentity userIdentity = new UserIdentity("test", "192.168.1.1");
-        userIdentity.setIsAnalyzed();
-        ConnectContext.get().setCurrentUserIdentity(userIdentity);
-        ConnectContext.get().setQualifiedUser("test");
-        String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.table1;";
-        ExceptionChecker.expectThrows(
-                AnalysisException.class, () -> UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext));
-    }
-
 }
