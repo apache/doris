@@ -1431,7 +1431,7 @@ The 2-Clause BSD License
 
 The 3-Clause BSD License
     * ANTLR 4 Runtime -- licenses/LICENSE-antlr4.txt
-        - org.antlr:antlr4-runtime:4.7 (http://www.antlr.org/antlr4-runtime)
+        - org.antlr:antlr4-runtime:4.9.3 (http://www.antlr.org/)
     * Automaton -- licenses/LICENSE-automaton.txt
         - dk.brics.automaton:automaton:1.11-8 (http://www.brics.dk/automaton/)
     * JLine -- licenses/LICENSE-jline.txt
