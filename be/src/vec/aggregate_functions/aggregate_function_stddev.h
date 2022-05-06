@@ -91,6 +91,8 @@ struct BaseData {
         count += 1;
     }
 
+    static const DataTypePtr get_return_type() { return std::make_shared<DataTypeFloat64>(); }
+
     double mean;
     double m2;
     int64_t count;
@@ -175,6 +177,10 @@ struct BaseDatadecimal {
         count += 1;
     }
 
+    static const DataTypePtr get_return_type() {
+        return std::make_shared<DataTypeDecimal<Decimal128>>(27, 9);
+    }
+
     DecimalV2Value mean;
     DecimalV2Value m2;
     int64_t count;
@@ -248,9 +254,9 @@ public:
 
     DataTypePtr get_return_type() const override {
         if constexpr (is_pop) {
-            return std::make_shared<DataTypeFloat64>();
+            return Data::get_return_type();
         } else {
-            return make_nullable(std::make_shared<DataTypeFloat64>());
+            return make_nullable(Data::get_return_type());
         }
     }
 
