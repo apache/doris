@@ -105,6 +105,9 @@ public:
 
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
 
+    // use only in vectorized load
+    Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows);
+
     virtual Status append_nulls(size_t num_rows) = 0;
 
     virtual Status finish_current_page() = 0;
