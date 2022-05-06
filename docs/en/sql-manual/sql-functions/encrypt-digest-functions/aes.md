@@ -60,7 +60,8 @@ MySQL > select to_base64(AES_ENCRYPT('text','F3229A0B371ED2D9441B830D21A390C3', 
 ## AES_DECRYPT
 
 ### description
-decryption of data using the official AES (### Syntax
+decryption of data using the official AES 
+#### Syntax
 
 `VARCHAR AES_DECRYPT(str,key_str[,init_vector])`
 

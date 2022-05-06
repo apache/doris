@@ -1,6 +1,6 @@
 ---
 {
-    "title": "St_Point'",
+    "title": "`St_Point`",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## St_Point'
+## `St_Point`
 ### Description
 #### Syntax
 

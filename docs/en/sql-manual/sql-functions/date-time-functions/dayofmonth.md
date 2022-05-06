@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Dayofmonth",
+    "title": "dayofmonth",
     "language": "en"
 }
 ---
@@ -25,7 +25,7 @@ under the License.
 -->
 
 
-## Dayofmonth
+## dayofmonth
 ### Description
 #### Syntax
 

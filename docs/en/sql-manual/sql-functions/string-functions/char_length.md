@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CHAR_LENGTH",
+    "title": "char_length",
     "language": "en"
 }
 ---
@@ -28,7 +28,7 @@ under the License.
 ### Description
 #### Syntax
 
-'INT char_length (VARCHAR str)'
+INT char_length(VARCHAR str)
 
 
 Returns the length of the string, and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 5, only utf8 encoding is support at the current version. `character_length` is the alias for this function.

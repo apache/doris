@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Double",
+    "title": "DOUBLE",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Double
+## DOUBLE
 ### Description
 DOUBLE
 8-byte floating point number
