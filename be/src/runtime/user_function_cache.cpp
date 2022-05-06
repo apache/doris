@@ -18,7 +18,7 @@
 #include "runtime/user_function_cache.h"
 
 #include <atomic>
-#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
+#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
 #include <regex>
 #include <vector>
 

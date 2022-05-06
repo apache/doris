@@ -122,15 +122,17 @@ Status ColumnReader::init() {
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
         default:
-            return Status::Corruption(strings::Substitute(
-                    "Bad file $0: invalid column index type $1", _path_desc.filepath, index_meta.type()));
+            return Status::Corruption(
+                    strings::Substitute("Bad file $0: invalid column index type $1",
+                                        _path_desc.filepath, index_meta.type()));
         }
     }
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
     if (_ordinal_index_meta == nullptr && !is_empty()) {
-        return Status::Corruption(strings::Substitute(
-                "Bad file $0: missing ordinal index for column $1", _path_desc.filepath, _meta.column_id()));
+        return Status::Corruption(
+                strings::Substitute("Bad file $0: missing ordinal index for column $1",
+                                    _path_desc.filepath, _meta.column_id()));
     }
     return Status::OK();
 }
@@ -243,7 +245,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column, CondColumn* de
         }
     }
     VLOG(1) << "total-pages: " << page_size << " not-filtered-pages: " << page_indexes->size()
-                << " filtered-percent:" << 1.0 - (page_indexes->size()*1.0)/(page_size*1.0);
+            << " filtered-percent:" << 1.0 - (page_indexes->size() * 1.0) / (page_size * 1.0);
     return Status::OK();
 }
 
@@ -581,7 +583,8 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has
     return Status::OK();
 }
 
-Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) {
+Status FileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                      bool* has_null) {
     size_t curr_size = dst->byte_size();
     size_t remaining = *n;
     *has_null = false;
@@ -773,9 +776,9 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
     return Status::OK();
 }
 
-void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPtr &dst, size_t n) {
+void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPtr& dst, size_t n) {
     vectorized::Int128 int128;
-    char* data_ptr = (char *) &int128;
+    char* data_ptr = (char*)&int128;
     size_t data_len = sizeof(int128);
 
     auto insert_column_data = [&]() {
@@ -785,52 +788,54 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
     };
 
     switch (_type_info->type()) {
-        case OLAP_FIELD_TYPE_OBJECT:
-        case OLAP_FIELD_TYPE_HLL:{
-            dst->insert_many_defaults(n);
-            break;
-        }
+    case OLAP_FIELD_TYPE_OBJECT:
+    case OLAP_FIELD_TYPE_HLL: {
+        dst->insert_many_defaults(n);
+        break;
+    }
 
-        case OLAP_FIELD_TYPE_DATE: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
-            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
+    case OLAP_FIELD_TYPE_DATE: {
+        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType)); //uint24_t
+        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATE>::to_string(_mem_value);
 
-            vectorized::VecDateTimeValue value;
-            value.from_date_str(str.c_str(), str.length());
-            value.cast_to_date();
-            //TODO: here is int128 = int64, here rely on the logic of little endian
-            int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-            insert_column_data();
-            break;
-        }
-        case OLAP_FIELD_TYPE_DATETIME: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
-            std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
+        vectorized::VecDateTimeValue value;
+        value.from_date_str(str.c_str(), str.length());
+        value.cast_to_date();
+        //TODO: here is int128 = int64, here rely on the logic of little endian
+        int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        insert_column_data();
+        break;
+    }
+    case OLAP_FIELD_TYPE_DATETIME: {
+        assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::CppType)); //int64_t
+        std::string str = FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>::to_string(_mem_value);
 
-            vectorized::VecDateTimeValue value;
-            value.from_date_str(str.c_str(), str.length());
-            value.to_datetime();
+        vectorized::VecDateTimeValue value;
+        value.from_date_str(str.c_str(), str.length());
+        value.to_datetime();
 
-            int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
-            insert_column_data();
-            break;
-        }
-        case OLAP_FIELD_TYPE_DECIMAL: {
-            assert(_type_size == sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
-            decimal12_t *d = (decimal12_t *) _mem_value;
-            int128 = DecimalV2Value(d->integer, d->fraction).value();
-            insert_column_data();
-            break;
-        }
-        default: {
-            data_ptr = (char *) _mem_value;
-            data_len = _type_size;
-            insert_column_data();
-        }
+        int128 = binary_cast<vectorized::VecDateTimeValue, vectorized::Int64>(value);
+        insert_column_data();
+        break;
+    }
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        assert(_type_size ==
+               sizeof(FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
+        decimal12_t* d = (decimal12_t*)_mem_value;
+        int128 = DecimalV2Value(d->integer, d->fraction).value();
+        insert_column_data();
+        break;
+    }
+    default: {
+        data_ptr = (char*)_mem_value;
+        data_len = _type_size;
+        insert_column_data();
+    }
     }
 }
 
-Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr &dst, bool* has_null) {
+Status DefaultValueColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                              bool* has_null) {
     if (_is_default_value_null) {
         *has_null = true;
         dst->insert_many_defaults(*n);

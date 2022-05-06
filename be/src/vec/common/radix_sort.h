@@ -191,8 +191,8 @@ private:
                 Element* j;
                 Element tmp = *i;
                 *i = *(i - 1);
-                for (j = i - 1;
-                     j > arr && Traits::less(Traits::extract_key(tmp), Traits::extract_key(*(j - 1)));
+                for (j = i - 1; j > arr && Traits::less(Traits::extract_key(tmp),
+                                                        Traits::extract_key(*(j - 1)));
                      --j)
                     *j = *(j - 1);
                 *j = tmp;
@@ -330,8 +330,8 @@ public:
 
                 /// On the last pass, we do the reverse transformation.
                 if (!Traits::Transform::transform_is_simple && pass == NUM_PASSES - 1)
-                    Traits::extract_key(dest) = bits_to_key(
-                            Traits::Transform::backward(key_to_bits(Traits::extract_key(reader[i]))));
+                    Traits::extract_key(dest) = bits_to_key(Traits::Transform::backward(
+                            key_to_bits(Traits::extract_key(reader[i]))));
             }
         }
 

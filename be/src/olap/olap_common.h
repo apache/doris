@@ -239,7 +239,7 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
-static const int GENERAL_DEBUG_COUNT = 4;
+static const int GENERAL_DEBUG_COUNT = 0;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -265,7 +265,7 @@ struct OlapReaderStatistics {
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
     int64_t short_cond_ns = 0;
-    int64_t pred_col_read_ns = 0;
+    int64_t first_read_ns = 0;
     int64_t lazy_read_ns = 0;
     int64_t output_col_ns = 0;
 
@@ -388,4 +388,3 @@ struct RowsetId {
 };
 
 } // namespace doris
-

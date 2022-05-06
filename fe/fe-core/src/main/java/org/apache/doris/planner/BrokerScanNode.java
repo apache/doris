@@ -138,7 +138,14 @@ public class BrokerScanNode extends LoadScanNode {
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                           List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName);
+        super(id, destTupleDesc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        this.fileStatusesList = fileStatusesList;
+        this.filesAdded = filesAdded;
+    }
+
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded, NodeType nodeType) {
+        super(id, destTupleDesc, planNodeName, nodeType);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
     }
@@ -413,7 +420,9 @@ public class BrokerScanNode extends LoadScanNode {
                 // csv/csv_with_name/csv_with_names_and_types treat as csv format
             } else if (fileFormat.toLowerCase().equals(FeConstants.csv)
                     || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
-                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
+                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)
+                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
+                    || fileFormat.toLowerCase().equals(FeConstants.text)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -499,7 +508,12 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
-                    rangeDesc.setHdfsParams(tHdfsParams);
+                    if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                        rangeDesc.hdfs_params.setFsName(fsName);
+                    } else if (rangeDesc.hdfs_params == null) {
+                        rangeDesc.setHdfsParams(tHdfsParams);
+                    }
+
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
@@ -522,7 +536,12 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                 }
-                rangeDesc.setHdfsParams(tHdfsParams);
+                if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                    rangeDesc.hdfs_params.setFsName(fsName);
+                } else if (rangeDesc.hdfs_params == null) {
+                    rangeDesc.setHdfsParams(tHdfsParams);
+                }
+
                 rangeDesc.setReadByColumnDef(true);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;

@@ -489,9 +489,7 @@ struct EqualsOp {
 
 template <>
 struct EqualsOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(const Int128& a, const Int128& b) {
-        return a == b;
-    }
+    static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
 };
 
 template <typename A, typename B>
@@ -502,9 +500,7 @@ struct NotEqualsOp {
 
 template <>
 struct NotEqualsOp<DecimalV2Value, DecimalV2Value> {
-    static UInt8 apply(const Int128& a, const Int128& b) {
-        return a != b;
-    }
+    static UInt8 apply(const Int128& a, const Int128& b) { return a != b; }
 };
 
 template <typename A, typename B>
@@ -525,9 +521,7 @@ struct LessOp<DecimalV2Value, DecimalV2Value> {
 
 template <>
 struct LessOp<StringRef, StringRef> {
-    static UInt8 apply(StringRef a, StringRef b) {
-        return a < b;
-    }
+    static UInt8 apply(StringRef a, StringRef b) { return a < b; }
 };
 
 template <typename A, typename B>
@@ -545,9 +539,7 @@ struct GreaterOp<DecimalV2Value, DecimalV2Value> {
 
 template <>
 struct GreaterOp<StringRef, StringRef> {
-    static UInt8 apply(StringRef a, StringRef b) {
-        return a > b;
-    }
+    static UInt8 apply(StringRef a, StringRef b) { return a > b; }
 };
 
 template <typename A, typename B>

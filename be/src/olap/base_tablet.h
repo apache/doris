@@ -33,7 +33,8 @@ class DataDir;
 // storage engine evolves.
 class BaseTablet : public std::enable_shared_from_this<BaseTablet> {
 public:
-    BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param, DataDir* data_dir);
+    BaseTablet(TabletMetaSharedPtr tablet_meta, const StorageParamPB& storage_param,
+               DataDir* data_dir);
     virtual ~BaseTablet();
 
     DataDir* data_dir() const;
@@ -149,4 +150,3 @@ inline const TabletSchema& BaseTablet::tablet_schema() const {
 }
 
 } /* namespace doris */
-

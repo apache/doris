@@ -22,16 +22,13 @@
 
 namespace doris {
 
-PlainBinaryLineReader::PlainBinaryLineReader(FileReader* file_reader)
-        : _file_reader(file_reader) {
-}
+PlainBinaryLineReader::PlainBinaryLineReader(FileReader* file_reader) : _file_reader(file_reader) {}
 
 PlainBinaryLineReader::~PlainBinaryLineReader() {
     close();
 }
 
-void PlainBinaryLineReader::close() {
-}
+void PlainBinaryLineReader::close() {}
 
 Status PlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
     std::unique_ptr<uint8_t[]> file_buf;

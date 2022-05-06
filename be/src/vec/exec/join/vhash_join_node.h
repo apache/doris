@@ -115,29 +115,30 @@ using HashTableVariants =
                      I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
                      I256FixedKeyHashTableContext<false>>;
 
-using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+using JoinOpVariants =
+        std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
 
-#define APPLY_FOR_JOINOP_VARIANTS(M)        \
-    M(INNER_JOIN)                           \
-    M(LEFT_SEMI_JOIN)                       \
-    M(LEFT_ANTI_JOIN)                       \
-    M(LEFT_OUTER_JOIN)                      \
-    M(FULL_OUTER_JOIN)                      \
-    M(RIGHT_OUTER_JOIN)                     \
-    M(CROSS_JOIN)                           \
-    M(MERGE_JOIN)                           \
-    M(RIGHT_SEMI_JOIN)                      \
-    M(RIGHT_ANTI_JOIN)                      \
+#define APPLY_FOR_JOINOP_VARIANTS(M) \
+    M(INNER_JOIN)                    \
+    M(LEFT_SEMI_JOIN)                \
+    M(LEFT_ANTI_JOIN)                \
+    M(LEFT_OUTER_JOIN)               \
+    M(FULL_OUTER_JOIN)               \
+    M(RIGHT_OUTER_JOIN)              \
+    M(CROSS_JOIN)                    \
+    M(MERGE_JOIN)                    \
+    M(RIGHT_SEMI_JOIN)               \
+    M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)
 
 class VExprContext;
@@ -236,6 +237,7 @@ private:
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
+
 private:
     Status _hash_table_build(RuntimeState* state);
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);

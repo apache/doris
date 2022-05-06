@@ -37,8 +37,7 @@ struct FileStat {
     std::string abs_path;
     time_t create_time;
 
-    FileStat(const std::string& path_, time_t ctime)
-        : abs_path(path_), create_time(ctime) {}
+    FileStat(const std::string& path_, time_t ctime) : abs_path(path_), create_time(ctime) {}
 };
 
 Status Minidump::init() {
@@ -46,7 +45,7 @@ Status Minidump::init() {
         LOG(INFO) << "minidump is disabled";
         return Status::OK();
     }
-    
+
     // 1. create minidump dir
     RETURN_IF_ERROR(FileUtils::create_dir(config::minidump_dir));
 
@@ -55,14 +54,15 @@ Status Minidump::init() {
     if (config::max_minidump_file_size_mb > 0) {
         minidump_descriptor.set_size_limit(config::max_minidump_file_size_mb * 1024 * 1024);
     }
-    _error_handler.reset(new google_breakpad::ExceptionHandler(minidump_descriptor, nullptr, _minidump_cb, nullptr, true, -1));
+    _error_handler.reset(new google_breakpad::ExceptionHandler(minidump_descriptor, nullptr,
+                                                               _minidump_cb, nullptr, true, -1));
 
     // 3. setup sig handler
-    _setup_sig_handler(); 
+    _setup_sig_handler();
 
     RETURN_IF_ERROR(Thread::create(
-            "Minidump", "minidump_clean_thread",
-            [this]() { this->_clean_old_minidump(); }, &_clean_thread));
+            "Minidump", "minidump_clean_thread", [this]() { this->_clean_old_minidump(); },
+            &_clean_thread));
 
     LOG(INFO) << "Minidump is enabled. dump file will be saved at " << config::minidump_dir;
     return Status::OK();
@@ -76,7 +76,8 @@ Status Minidump::_setup_sig_handler() {
     sig_action.sa_flags = SA_SIGINFO; // use sa_sigaction instead of sa_handler
     sig_action.sa_sigaction = &(this->_usr1_sigaction);
     if (sigaction(_signo, &sig_action, nullptr) == -1) {
-        return Status::InternalError("failed to install signal handler for " + std::to_string(_signo));
+        return Status::InternalError("failed to install signal handler for " +
+                                     std::to_string(_signo));
     }
     return Status::OK();
 }
@@ -87,8 +88,8 @@ void Minidump::_usr1_sigaction(int signum, siginfo_t* info, void* context) {
     _error_handler->WriteMinidump();
 }
 
-bool Minidump::_minidump_cb(const google_breakpad::MinidumpDescriptor& descriptor,
-                        void* context, bool succeeded) {
+bool Minidump::_minidump_cb(const google_breakpad::MinidumpDescriptor& descriptor, void* context,
+                            bool succeeded) {
     // use sys_write supported by `linux syscall`, recommended by breakpad doc.
     const char* msg = "Minidump created at: ";
     sys_write(STDOUT_FILENO, msg, strlen(msg));
@@ -112,7 +113,7 @@ void Minidump::stop() {
 }
 
 void Minidump::_clean_old_minidump() {
-    while(!_stop) {
+    while (!_stop) {
         sleep(10);
         if (config::max_minidump_file_number <= 0) {
             continue;
@@ -137,15 +138,16 @@ void Minidump::_clean_old_minidump() {
         std::vector<FileStat> stats;
         for (auto it = files.begin(); it != files.end(); ++it) {
             std::string path = config::minidump_dir + "/" + *it;
-            
+
             struct stat buf;
             if ((ret = stat(path.c_str(), &buf)) != 0) {
-                LOG(WARNING) << "Failed to stat minidump file: " << path << ", remote it. errno: " << ret;
-                FileUtils::remove(path);   
+                LOG(WARNING) << "Failed to stat minidump file: " << path
+                             << ", remote it. errno: " << ret;
+                FileUtils::remove(path);
                 continue;
             }
 
-            stats.emplace_back(path, buf.st_ctime); 
+            stats.emplace_back(path, buf.st_ctime);
         }
 
         // sort file by ctime ascending
@@ -156,7 +158,7 @@ void Minidump::_clean_old_minidump() {
                 return true;
             }
         });
- 
+
         int to_delete = stats.size() - config::max_minidump_file_number;
         int deleted = 0;
         for (auto it = stats.begin(); it != stats.end() && deleted < to_delete; it++, deleted++) {

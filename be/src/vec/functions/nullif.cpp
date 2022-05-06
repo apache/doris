@@ -64,9 +64,7 @@ public:
         return res;
     }
 
-    DataTypePtr get_return_type_for_equal(
-        const ColumnsWithTypeAndName& arguments) const {
-        
+    DataTypePtr get_return_type_for_equal(const ColumnsWithTypeAndName& arguments) const {
         size_t num_full_ordinary_columns = 0;
         ColumnsWithTypeAndName args_without_low_cardinality(arguments);
 
@@ -76,7 +74,7 @@ public:
                 arg.column = assert_cast<const ColumnConst&>(*arg.column).remove_low_cardinality();
             if (!is_const) ++num_full_ordinary_columns;
         }
-        
+
         if (!arguments.empty()) {
             NullPresence null_presence = get_null_resense(arguments);
 
@@ -91,58 +89,54 @@ public:
         return std::make_shared<doris::vectorized::DataTypeUInt8>();
     }
 
-
     // nullIf(col1, col2) == if(col1 = col2, NULL, col1)
-    Status execute_impl(FunctionContext* context, Block &block, const ColumnNumbers &arguments, size_t result,
-                        size_t input_rows_count) override {
-
-        const ColumnsWithTypeAndName eq_columns
-        {
-            block.get_by_position(arguments[0]),
-            block.get_by_position(arguments[1]),
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) override {
+        const ColumnsWithTypeAndName eq_columns {
+                block.get_by_position(arguments[0]),
+                block.get_by_position(arguments[1]),
         };
         auto result_type = get_return_type_for_equal(eq_columns);
-        Block eq_temporary_block(
-                {block.get_by_position(arguments[0]),
-                 block.get_by_position(arguments[1]),
-                 {nullptr, result_type, ""}
-        });
+        Block eq_temporary_block({block.get_by_position(arguments[0]),
+                                  block.get_by_position(arguments[1]),
+                                  {nullptr, result_type, ""}});
 
-        auto equals_func = SimpleFunctionFactory::instance().get_function("eq", eq_columns, result_type);
+        auto equals_func =
+                SimpleFunctionFactory::instance().get_function("eq", eq_columns, result_type);
         equals_func->execute(context, eq_temporary_block, {0, 1}, 2, input_rows_count);
 
         const ColumnWithTypeAndName new_result_column {
-            block.get_by_position(result),
+                block.get_by_position(result),
         };
 
         const ColumnWithTypeAndName if_column {
-            eq_temporary_block.get_by_position(2),
+                eq_temporary_block.get_by_position(2),
         };
-        const ColumnsWithTypeAndName if_columns
-        {
-            if_column,
-            {block.get_by_position(result).type->create_column_const_with_default_value(
-                                                 input_rows_count),
-                      block.get_by_position(result).type, "NULL"},
-            block.get_by_position(arguments[0]),
+        const ColumnsWithTypeAndName if_columns {
+                if_column,
+                {block.get_by_position(result).type->create_column_const_with_default_value(
+                         input_rows_count),
+                 block.get_by_position(result).type, "NULL"},
+                block.get_by_position(arguments[0]),
         };
-        
+
         Block temporary_block(
                 {if_column,
                  {block.get_by_position(result).type->create_column_const_with_default_value(
-                                                 input_rows_count),
-                      block.get_by_position(result).type, "NULL"},
+                          input_rows_count),
+                  block.get_by_position(result).type, "NULL"},
                  block.get_by_position(arguments[0]),
-                 new_result_column
-                });
-        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns, new_result_column.type);
+                 new_result_column});
+        auto func_if = SimpleFunctionFactory::instance().get_function("if", if_columns,
+                                                                      new_result_column.type);
         func_if->execute(context, temporary_block, {0, 1, 2}, 3, input_rows_count);
         /// need to handle nullable type and not nullable type differently,
         /// because `IF` function always return nullable type, but result type is not always
         if (block.get_by_position(result).type->is_nullable()) {
             block.get_by_position(result).column = temporary_block.get_by_position(3).column;
         } else {
-            auto cols = check_and_get_column<ColumnNullable>(temporary_block.get_by_position(3).column.get());
+            auto cols = check_and_get_column<ColumnNullable>(
+                    temporary_block.get_by_position(3).column.get());
             block.replace_by_position(result, std::move(cols->get_nested_column_ptr()));
         }
         return Status::OK();
@@ -152,4 +146,4 @@ public:
 void register_function_nullif(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNullIf>();
 }
-}
+} // namespace doris::vectorized

@@ -14,3 +14,5 @@ ReflowComments: false
 SortUsingDeclarations: false
 SpacesBeforeTrailingComments: 1
 SpaceBeforeCpp11BracedList: true
+#ignore include sort cause adjustment order may leads to  compilation failure
+SortIncludes: false

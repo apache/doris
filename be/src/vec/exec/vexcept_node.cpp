@@ -63,7 +63,6 @@ Status VExceptNode::open(RuntimeState* state) {
                     [&](auto&& arg) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-
                             HashTableProbe<HashTableCtxType, false> process_hashtable_ctx(
                                     this, state->batch_size(), _probe_rows);
                             st = process_hashtable_ctx.mark_data_in_hashtable(arg);
@@ -87,7 +86,6 @@ Status VExceptNode::get_next(RuntimeState* state, Block* output_block, bool* eos
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                    
                     HashTableProbe<HashTableCtxType, false> process_hashtable_ctx(
                             this, state->batch_size(), _probe_rows);
                     st = process_hashtable_ctx.get_data_in_hashtable(arg, _mutable_cols,
@@ -98,7 +96,8 @@ Status VExceptNode::get_next(RuntimeState* state, Block* output_block, bool* eos
             },
             _hash_table_variants);
 
-    RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
+    RETURN_IF_ERROR(
+            VExprContext::filter_block(_vconjunct_ctx_ptr, output_block, output_block->columns()));
     reached_limit(output_block, eos);
 
     return st;

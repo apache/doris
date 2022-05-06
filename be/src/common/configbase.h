@@ -60,7 +60,6 @@ public:
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
-
 };
 
 // RegisterConfValidator class is used to store validator function of registered config fields in
@@ -90,10 +89,10 @@ public:
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
-#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                            \
-    static auto validator_##FIELD_NAME = VALIDATOR;                                        \
-    static RegisterConfValidator reg_validator_##FIELD_NAME(#FIELD_NAME,                   \
-            []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
+    static auto validator_##FIELD_NAME = VALIDATOR;          \
+    static RegisterConfValidator reg_validator_##FIELD_NAME( \
+            #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
 #define DECLARE_VALIDATOR(FIELD_NAME) ;
 

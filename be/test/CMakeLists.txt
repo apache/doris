@@ -336,6 +336,9 @@ set(VEC_TEST_FILES
     vec/core/column_complex_test.cpp
     vec/core/column_nullable_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
+    vec/exec/vbroker_scan_node_test.cpp
+    vec/exec/vbroker_scanner_test.cpp
+    vec/exec/vtablet_sink_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp

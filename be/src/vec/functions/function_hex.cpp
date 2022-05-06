@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_hll.h"
@@ -23,7 +22,7 @@
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "util/simd/vstring_function.h"   //place this header file at last to compile
+#include "util/simd/vstring_function.h" //place this header file at last to compile
 
 namespace doris::vectorized {
 template <typename Impl>

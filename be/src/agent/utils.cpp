@@ -41,8 +41,7 @@ MasterServerClient::MasterServerClient(const TMasterInfo& master_info,
                                        FrontendServiceClientCache* client_cache)
         : _master_info(master_info), _client_cache(client_cache) {}
 
-Status MasterServerClient::finish_task(const TFinishTaskRequest& request,
-                                            TMasterResult* result) {
+Status MasterServerClient::finish_task(const TFinishTaskRequest& request, TMasterResult* result) {
     Status client_status;
     FrontendServiceConnection client(_client_cache, _master_info.network_address,
                                      config::thrift_rpc_timeout_ms, &client_status);

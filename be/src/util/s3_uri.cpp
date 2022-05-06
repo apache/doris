@@ -54,7 +54,7 @@ bool S3URI::parse() {
     StripWhiteSpace(&_key);
     if (_key.empty()) {
         LOG(WARNING) << "Invalid S3 key: " << _location;
-        return false;  
+        return false;
     }
     _bucket = authority_split[0];
     // Strip query and fragment if they exist

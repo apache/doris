@@ -225,7 +225,7 @@ public class TableQueryPlanAction extends RestBaseController {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*version hash*/, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 

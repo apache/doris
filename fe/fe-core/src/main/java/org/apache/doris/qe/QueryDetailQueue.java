@@ -23,7 +23,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import org.apache.doris.qe.QueryDetail;
 
 // Queue of QueryDetail.
 // It's used to collect queries for monitor.

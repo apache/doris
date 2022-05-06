@@ -21,7 +21,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.HttpServer;
-import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.qe.QeService;
@@ -46,7 +45,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -84,7 +82,7 @@ public class BDBDebugger {
     }
 
     // Only start MySQL and HttpServer
-    private void startService(String dorisHomeDir) throws IllegalArgException, IOException {
+    private void startService(String dorisHomeDir) throws Exception {
         // HTTP server
 
         HttpServer httpServer = new HttpServer();

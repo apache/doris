@@ -222,7 +222,8 @@ ColumnPtr ColumnDecimal<T>::replicate(const IColumn::Offsets& offsets) const {
 }
 
 template <typename T>
-void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size, IColumn& column) const {
+void ColumnDecimal<T>::replicate(const uint32_t* counts, size_t target_size,
+                                 IColumn& column) const {
     size_t size = data.size();
     if (0 == size) return;
 

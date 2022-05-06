@@ -20,29 +20,42 @@
 namespace doris::vectorized {
 
 // auto spread at nullable condition, null value do not participate aggregate
-void register_aggregate_function_reader(AggregateFunctionSimpleFactory& factory) {
+void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& factory) {
     // add a suffix to the function name here to distinguish special functions of agg reader
-    auto register_function_reader = [&](const std::string& name,
-                                        const AggregateFunctionCreator& creator) {
-        factory.register_function(name + agg_reader_suffix, creator, false);
+    auto register_function = [&](const std::string& name, const AggregateFunctionCreator& creator) {
+        factory.register_function(name + AGG_READER_SUFFIX, creator, false);
+        factory.register_function(name + AGG_LOAD_SUFFIX, creator, false);
     };
 
-    register_function_reader("sum", create_aggregate_function_sum_reader);
-    register_function_reader("max", create_aggregate_function_max);
-    register_function_reader("min", create_aggregate_function_min);
-    register_function_reader("replace_if_not_null", create_aggregate_function_replace_if_not_null);
-    register_function_reader("bitmap_union", create_aggregate_function_bitmap_union);
-    register_function_reader("hll_union", create_aggregate_function_HLL_union<false>);
+    register_function("sum", create_aggregate_function_sum_reader);
+    register_function("max", create_aggregate_function_max);
+    register_function("min", create_aggregate_function_min);
+    register_function("bitmap_union", create_aggregate_function_bitmap_union);
+    register_function("hll_union", create_aggregate_function_HLL_union<false>);
 }
 
-void register_aggregate_function_reader_no_spread(AggregateFunctionSimpleFactory& factory) {
-    auto register_function_reader = [&](const std::string& name,
-                                        const AggregateFunctionCreator& creator, bool nullable) {
-        factory.register_function(name + agg_reader_suffix, creator, nullable);
+// only replace funtion in load/reader do different agg operation.
+// because Doris can ensure that the data is globally ordered in reader, but cannot in load
+// 1. reader, get the first value of input data.
+// 2. load, get the last value of input data.
+void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory) {
+    auto register_function = [&](const std::string& name, const std::string& suffix,
+                                 const AggregateFunctionCreator& creator, bool nullable) {
+        factory.register_function(name + suffix, creator, nullable);
     };
 
-    register_function_reader("replace", create_aggregate_function_replace, false);
-    register_function_reader("replace", create_aggregate_function_replace_nullable, true);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<false, true>,
+                      false);
+    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true, true>,
+                      true);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false, true>,
+                      false);
+    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<true, true>, true);
+
+    register_function("replace_if_not_null", AGG_READER_SUFFIX,
+                      create_aggregate_function_first<false, true>, false);
+    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
+                      create_aggregate_function_last<false, true>, false);
 }
 
 } // namespace doris::vectorized

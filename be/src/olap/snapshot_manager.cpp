@@ -62,7 +62,7 @@ SnapshotManager* SnapshotManager::instance() {
 }
 
 Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* snapshot_path,
-                                          bool* allow_incremental_clone) {
+                                      bool* allow_incremental_clone) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     if (snapshot_path == nullptr) {
@@ -121,13 +121,14 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
 // For now, alpha and beta rowset meta have same fields, so we can just use
 // AlphaRowsetMeta here.
 Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, int64_t tablet_id,
-                                               const int32_t& schema_hash) {
+                                           const int32_t& schema_hash) {
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     Status res = Status::OK();
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir_desc.filepath)) {
         res = Status::OLAPInternalError(OLAP_ERR_DIR_NOT_EXIST);
-        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir=" << clone_dir_desc.debug_string();
+        LOG(WARNING) << "clone dir not existed when convert rowsetids. clone_dir="
+                     << clone_dir_desc.debug_string();
         return res;
     }
 
@@ -192,9 +193,9 @@ Status SnapshotManager::convert_rowset_ids(const FilePathDesc& clone_dir_desc, i
 }
 
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
-                                              const FilePathDesc& new_path_desc, TabletSchema& tablet_schema,
-                                              const RowsetId& rowset_id,
-                                              RowsetMetaPB* new_rs_meta_pb) {
+                                          const FilePathDesc& new_path_desc,
+                                          TabletSchema& tablet_schema, const RowsetId& rowset_id,
+                                          RowsetMetaPB* new_rs_meta_pb) {
     Status res = Status::OK();
     // TODO use factory to obtain RowsetMeta when SnapshotManager::convert_rowset_ids supports beta rowset
     // TODO(cmy): now we only has AlphaRowsetMeta, and no BetaRowsetMeta.
@@ -248,7 +249,7 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
 // get snapshot path: curtime.seq.timeout
 // eg: 20190819221234.3.86400
 Status SnapshotManager::_calc_snapshot_id_path(const TabletSharedPtr& tablet, int64_t timeout_s,
-                                                   string* out_path) {
+                                               string* out_path) {
     Status res = Status::OK();
     if (out_path == nullptr) {
         LOG(WARNING) << "output parameter cannot be null";
@@ -300,9 +301,9 @@ Status SnapshotManager::_link_index_and_data_files(
 }
 
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
-                                                   const TSnapshotRequest& request,
-                                                   string* snapshot_path,
-                                                   bool* allow_incremental_clone) {
+                                               const TSnapshotRequest& request,
+                                               string* snapshot_path,
+                                               bool* allow_incremental_clone) {
     int32_t snapshot_version = request.preferred_snapshot_version;
     LOG(INFO) << "receive a make snapshot request"
               << ", request detail is " << apache::thrift::ThriftDebugString(request)
@@ -338,7 +339,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         FileUtils::remove_all(schema_full_path_desc.filepath);
     }
 
-    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path_desc.filepath), Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(schema_full_path_desc.filepath),
+                              Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR),
                               "create path " + schema_full_path_desc.filepath + " failed");
 
     string snapshot_id;
@@ -444,7 +446,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         // Clear it for safety reason.
         // Whether it is incremental or full snapshot, rowset information is stored in rs_meta.
         new_tablet_meta->revise_rs_metas(std::move(rs_metas));
-        
+
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
         } else {

@@ -62,7 +62,8 @@ public:
         data.push_back(*reinterpret_cast<const T*>(pos));
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) override {
+    void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                 uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, BitmapValue>) {
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
@@ -74,7 +75,7 @@ public:
                     value.deserialize(data_array + start_offset);
                     *pvalue = std::move(value);
                 } else {
-                    *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));   
+                    *pvalue = std::move(*reinterpret_cast<BitmapValue*>(data_array + start_offset));
                 }
             }
         } else if constexpr (std::is_same_v<T, HyperLogLog>) {
@@ -175,7 +176,7 @@ public:
         for (int i = 0; i < new_size; ++i) {
             auto offset = *(indices_begin + i);
             if (offset == -1) {
-                data.emplace_back(T{});
+                data.emplace_back(T {});
             } else {
                 data.emplace_back(src_vec.get_element(offset));
             }
@@ -367,11 +368,11 @@ template <typename T>
 struct is_complex : std::false_type {};
 
 template <>
-struct is_complex<BitmapValue> : std::true_type {};  
+struct is_complex<BitmapValue> : std::true_type {};
 //DataTypeBitMap::FieldType = BitmapValue
 
 template <>
-struct is_complex<HyperLogLog> : std::true_type {};  
+struct is_complex<HyperLogLog> : std::true_type {};
 //DataTypeHLL::FieldType = HyperLogLog
 
 template <class T>

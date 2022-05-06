@@ -21,13 +21,13 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.Util;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
 import java.util.function.Predicate;
 
-import com.clearspring.analytics.util.Lists;
 
 /**
  * There are the statistics of table.
@@ -51,8 +51,8 @@ import com.clearspring.analytics.util.Lists;
  */
 public class TableStats {
 
-    public static final String ROW_COUNT = "row_count";
-    public static final String DATA_SIZE = "data_size";
+    public static final StatsType DATA_SIZE = StatsType.DATA_SIZE;
+    public static final StatsType ROW_COUNT = StatsType.ROW_COUNT;
 
     private static final Predicate<Long> DESIRED_ROW_COUNT_PRED = (v) -> v >= -1L;
     private static final Predicate<Long> DESIRED_DATA_SIZE_PRED = (v) -> v >= -1L;
@@ -61,27 +61,27 @@ public class TableStats {
     private long dataSize = -1;
     private Map<String, ColumnStats> nameToColumnStats = Maps.newConcurrentMap();
 
-    public void updateTableStats(Map<String, String> statsNameToValue) throws AnalysisException {
-        for (Map.Entry<String, String> entry : statsNameToValue.entrySet()) {
-            String statsName = entry.getKey();
-            if (statsName.equalsIgnoreCase(ROW_COUNT)) {
+    public void updateTableStats(Map<StatsType, String> statsTypeToValue) throws AnalysisException {
+        for (Map.Entry<StatsType, String> entry : statsTypeToValue.entrySet()) {
+            StatsType statsType = entry.getKey();
+            if (statsType == ROW_COUNT) {
                 rowCount = Util.getLongPropertyOrDefault(entry.getValue(), rowCount,
                         DESIRED_ROW_COUNT_PRED, ROW_COUNT + " should >= -1");
-            } else if (statsName.equalsIgnoreCase(DATA_SIZE)) {
+            } else if (statsType == DATA_SIZE) {
                 dataSize = Util.getLongPropertyOrDefault(entry.getValue(), dataSize,
                         DESIRED_DATA_SIZE_PRED, DATA_SIZE + " should >= -1");
             }
         }
     }
 
-    public void updateColumnStats(String columnName, Type columnType, Map<String, String> statsNameToValue)
+    public void updateColumnStats(String columnName, Type columnType, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
         ColumnStats columnStats = nameToColumnStats.get(columnName);
         if (columnStats == null) {
             columnStats = new ColumnStats();
             nameToColumnStats.put(columnName, columnStats);
         }
-        columnStats.updateStats(columnType, statsNameToValue);
+        columnStats.updateStats(columnType, statsTypeToValue);
     }
 
     public List<String> getShowInfo() {
@@ -93,5 +93,17 @@ public class TableStats {
 
     public Map<String, ColumnStats> getNameToColumnStats() {
         return nameToColumnStats;
+    }
+
+    public long getRowCount() {
+        return rowCount;
+    }
+
+    public long getDataSize() {
+        return dataSize;
+    }
+
+    public void setRowCount(long rowCount) {
+        this.rowCount = rowCount;
     }
 }

@@ -220,7 +220,7 @@ void DiskIoMgr::BufferDescriptor::reset(RequestContext* reader, ScanRange* range
     _eosr = false;
     _status = Status::OK();
     // Consume in the tls mem tracker when the buffer is allocated.
-    _buffer_mem_tracker = thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get();
+    _buffer_mem_tracker = tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get();
 }
 
 void DiskIoMgr::BufferDescriptor::return_buffer() {
@@ -284,8 +284,7 @@ DiskIoMgr::DiskIoMgr()
 //         std::min((uint64_t)config::max_cached_file_handles, FileSystemUtil::max_num_file_handles()),
 //         &HdfsCachedFileHandle::release) {
 {
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    _mem_tracker = MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
@@ -307,8 +306,7 @@ DiskIoMgr::DiskIoMgr(int num_local_disks, int threads_per_disk, int min_buffer_s
 // _file_handle_cache(::min(config::max_cached_file_handles,
 //             FileSystemUtil::max_num_file_handles()), &HdfsCachedFileHandle::release) {
 {
-    _mem_tracker =
-            MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
+    _mem_tracker = MemTracker::create_tracker(-1, "DiskIO", nullptr, MemTrackerLevel::OVERVIEW);
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t max_buffer_size_scaled = bit_ceil(_max_buffer_size, _min_buffer_size);
     _free_buffers.resize(bit_log2(max_buffer_size_scaled) + 1);
@@ -402,8 +400,8 @@ Status DiskIoMgr::init(const int64_t mem_limit) {
             ss << "work-loop(Disk: " << i << ", Thread: " << j << ")";
             // _disk_thread_group.AddThread(new Thread("disk-io-mgr", ss.str(),
             //             &DiskIoMgr::work_loop, this, _disk_queues[i]));
-            _disk_thread_group.add_thread(
-                    new std::thread(std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i], _mem_tracker)));
+            _disk_thread_group.add_thread(new std::thread(
+                    std::bind(&DiskIoMgr::work_loop, this, _disk_queues[i], _mem_tracker)));
         }
     }
     _request_context_cache.reset(new RequestContextCache(this));
@@ -739,7 +737,8 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
         buffer = new char[*buffer_size];
     } else {
         // This means the buffer's memory ownership is transferred from DiskIoMgr to tls tracker.
-        _mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), *buffer_size);
+        _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                                  *buffer_size);
         buffer = _free_buffers[idx].front();
         _free_buffers[idx].pop_front();
     }
@@ -767,7 +766,7 @@ void DiskIoMgr::gc_io_buffers(int64_t bytes_to_free) {
     // The deleted buffer is released in the tls mem tracker, the deleted buffer belongs to DiskIoMgr,
     // so the freed memory should be recorded in the DiskIoMgr mem tracker. So if the tls mem tracker
     // and the DiskIoMgr tracker are different, transfer memory ownership.
-    _mem_tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), bytes_freed);
+    _mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), bytes_freed);
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
@@ -793,7 +792,7 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size, MemTracker
         // The deleted buffer is released in the tls mem tracker. When the buffer was allocated,
         // it was consumed in BufferDescriptor->buffer_mem_tracker, so if the tls mem tracker and
         // the tracker in the parameters are different, transfer memory ownership.
-        tracker->transfer_to(thread_local_ctx.get()->_thread_mem_tracker_mgr->mem_tracker().get(), buffer_size);
+        tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(), buffer_size);
     }
 }
 

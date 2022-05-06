@@ -57,7 +57,7 @@ public class SchemaScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public SchemaScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "SCAN SCHEMA");
+        super(id, desc, "SCAN SCHEMA", NodeType.SCHEMA_SCAN_NODE);
         this.tableName = desc.getTable().getName();
     }
 

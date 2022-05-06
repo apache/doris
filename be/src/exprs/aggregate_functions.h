@@ -302,11 +302,11 @@ public:
     static DecimalV2Val decimalv2_knuth_var_get_value(FunctionContext* ctx,
                                                       const StringVal& state_sv);
     static DecimalV2Val decimalv2_knuth_var_pop_get_value(FunctionContext* context,
-                                                         const StringVal& val);
+                                                          const StringVal& val);
     static DecimalV2Val decimalv2_knuth_stddev_get_value(FunctionContext* context,
-                                                        const StringVal& val);
+                                                         const StringVal& val);
     static DecimalV2Val decimalv2_knuth_stddev_pop_get_value(FunctionContext* context,
-                                                            const StringVal& val);
+                                                             const StringVal& val);
 
     /// ----------------------------- Analytic Functions ---------------------------------
     /// Analytic functions implement the UDA interface (except Merge(), Serialize()) and are
@@ -370,10 +370,9 @@ public:
     // windowFunnel
     static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
     static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
-                             const StringVal& mode, const DateTimeVal& timestamp,
-                             int num_cond, const BooleanVal* conds, StringVal* dst);
-    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src,
-                            StringVal* dst);
+                                     const StringVal& mode, const DateTimeVal& timestamp,
+                                     int num_cond, const BooleanVal* conds, StringVal* dst);
+    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
     static IntVal window_funnel_finalize(FunctionContext* ctx, const StringVal& src);
 

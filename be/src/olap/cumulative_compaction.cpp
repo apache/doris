@@ -43,8 +43,8 @@ Status CumulativeCompaction::prepare_compact() {
     // 1. calculate cumulative point
     _tablet->calculate_cumulative_point();
     TRACE("calculated cumulative point");
-    VLOG_CRITICAL << "after calculate, current cumulative point is " << _tablet->cumulative_layer_point()
-            << ", tablet=" << _tablet->full_name();
+    VLOG_CRITICAL << "after calculate, current cumulative point is "
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
@@ -82,7 +82,7 @@ Status CumulativeCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(
             _tablet.get(), _input_rowsets, _output_rowset, _last_delete_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-              << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
 
     // 6. add metric to cumulative compaction
     DorisMetrics::instance()->cumulative_compaction_deltas_total->increment(_input_rowsets.size());

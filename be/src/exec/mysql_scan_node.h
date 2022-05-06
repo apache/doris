@@ -63,6 +63,7 @@ private:
     // The Mysql value is converted into the appropriate target type.
     Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
                            RuntimeState* state);
+
 protected:
     bool _is_init;
     MysqlScannerParam _my_param;

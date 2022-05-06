@@ -117,7 +117,7 @@ public:
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
     Status obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
-                                 DataDir** store);
+                             DataDir** store);
 
     // Load new tablet to make it effective.
     //
@@ -126,7 +126,7 @@ public:
     // @param [in] restore whether we're restoring a tablet from trash
     // @return OLAP_SUCCESS if load tablet success
     Status load_header(const std::string& shard_path, const TCloneReq& request,
-                           bool restore = false);
+                       bool restore = false);
 
     void register_report_listener(TaskWorkerPool* listener);
     void deregister_report_listener(TaskWorkerPool* listener);
@@ -182,7 +182,9 @@ public:
     std::shared_ptr<MemTracker> compaction_mem_tracker() { return _compaction_mem_tracker; }
     std::shared_ptr<MemTracker> tablet_mem_tracker() { return _tablet_mem_tracker; }
     std::shared_ptr<MemTracker> schema_change_mem_tracker() { return _schema_change_mem_tracker; }
-    std::shared_ptr<MemTracker> storage_migration_mem_tracker() { return _storage_migration_mem_tracker; }
+    std::shared_ptr<MemTracker> storage_migration_mem_tracker() {
+        return _storage_migration_mem_tracker;
+    }
     std::shared_ptr<MemTracker> clone_mem_tracker() { return _clone_mem_tracker; }
     std::shared_ptr<MemTracker> batch_load_mem_tracker() { return _batch_load_mem_tracker; }
     std::shared_ptr<MemTracker> consistency_mem_tracker() { return _consistency_mem_tracker; }
@@ -216,7 +218,7 @@ private:
     void _clean_unused_rowset_metas();
 
     Status _do_sweep(const FilePathDesc& scan_root_desc, const time_t& local_tm_now,
-                         const int32_t expire);
+                     const int32_t expire);
 
     // All these xxx_callback() functions are for Background threads
     // unused rowset monitor thread
@@ -397,4 +399,3 @@ private:
 };
 
 } // namespace doris
-

@@ -52,19 +52,19 @@ public:
 
     // Load local data file into specified tablet.
     Status process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                           PushType push_type,
-                                           std::vector<TTabletInfo>* tablet_info_vec);
+                                       PushType push_type,
+                                       std::vector<TTabletInfo>* tablet_info_vec);
 
     int64_t write_bytes() const { return _write_bytes; }
     int64_t write_rows() const { return _write_rows; }
 
 private:
     Status _convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                           RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
+                       RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
     Status _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
-                        RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
+                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
@@ -73,8 +73,8 @@ private:
                            std::vector<TTabletInfo>* tablet_info_vec);
 
     Status _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                       PushType push_type, vector<TabletVars>* tablet_vars,
-                                       std::vector<TTabletInfo>* tablet_info_vec);
+                                   PushType push_type, vector<TabletVars>* tablet_vars,
+                                   std::vector<TTabletInfo>* tablet_info_vec);
 
 private:
     // mainly tablet_id, version and delta file path
@@ -187,7 +187,7 @@ public:
     ~PushBrokerReader() {}
 
     Status init(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                    const TDescriptorTable& t_desc_tbl);
+                const TDescriptorTable& t_desc_tbl);
     Status next(ContiguousRow* row);
     void print_profile();
 
@@ -201,7 +201,7 @@ public:
 
 private:
     Status fill_field_row(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                              FieldType type);
+                          FieldType type);
     bool _ready;
     bool _eof;
     bool _fill_tuple;
@@ -218,4 +218,3 @@ private:
 };
 
 } // namespace doris
-

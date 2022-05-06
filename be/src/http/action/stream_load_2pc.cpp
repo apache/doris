@@ -73,7 +73,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status =_exec_env->stream_load_executor()->operate_txn_2pc(ctx);
+    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx);
 
     if (!status.ok()) {
         status_result = to_json(status);
@@ -83,7 +83,8 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, status_result);
 }
 
-std::string StreamLoad2PCAction::get_success_info(const std::string txn_id, const std::string txn_operation) {
+std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
+                                                  const std::string txn_operation) {
     rapidjson::StringBuffer s;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
 

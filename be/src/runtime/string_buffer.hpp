@@ -33,22 +33,17 @@ class StringBuffer {
 public:
     // C'tor for StringBuffer.  Memory backing the string will be allocated from
     // the pool as necessary.  Can optionally be initialized from a StringValue.
-    StringBuffer(MemPool* pool, StringValue* str) :
-        _pool(pool),
-        _buffer_size(0) {
+    StringBuffer(MemPool* pool, StringValue* str) : _pool(pool), _buffer_size(0) {
         if (str != NULL) {
             _string_value = *str;
             _buffer_size = str->len;
         }
     }
 
-    StringBuffer(MemPool* pool) :
-        _pool(pool),
-        _buffer_size(0) {
-    }
+    StringBuffer(MemPool* pool) : _pool(pool), _buffer_size(0) {}
 
     virtual ~StringBuffer() {}
-    
+
     // append 'str' to the current string, allocating a new buffer as necessary.
     void append(const char* str, int len) {
         int new_len = len + _string_value.len;
@@ -62,9 +57,7 @@ public:
     }
 
     // TODO: switch everything to uint8_t?
-    void append(const uint8_t* str, int len) {
-        append(reinterpret_cast<const char*>(str), len);
-    }
+    void append(const uint8_t* str, int len) { append(reinterpret_cast<const char*>(str), len); }
 
     // Assigns contents to StringBuffer
     void assign(const char* str, int len) {
@@ -73,9 +66,7 @@ public:
     }
 
     // clear the underlying StringValue.  The allocated buffer can be reused.
-    void clear() {
-        _string_value.len = 0;
-    }
+    void clear() { _string_value.len = 0; }
 
     // Clears the underlying buffer and StringValue
     void reset() {
@@ -84,24 +75,16 @@ public:
     }
 
     // Returns whether the current string is empty
-    bool empty() const {
-        return _string_value.len == 0;
-    }
+    bool empty() const { return _string_value.len == 0; }
 
     // Returns the length of the current string
-    int size() const {
-        return _string_value.len;
-    }
+    int size() const { return _string_value.len; }
 
     // Returns the underlying StringValue
-    const StringValue& str() const {
-        return _string_value;
-    }
+    const StringValue& str() const { return _string_value; }
 
     // Returns the buffer size
-    int buffer_size() const {
-        return _buffer_size;
-    }
+    int buffer_size() const { return _buffer_size; }
 
 private:
     // Grows the buffer backing the string to be at least new_size, copying
@@ -123,6 +106,6 @@ private:
     int _buffer_size;
 };
 
-}
+} // namespace doris
 
 #endif

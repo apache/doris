@@ -24,18 +24,25 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.List;
 import java.util.Map;
 
-import com.clearspring.analytics.util.Lists;
-
 public class StatisticsManager {
+    private final static Logger LOG = LogManager.getLogger(StatisticsManager.class);
+
     private Statistics statistics;
 
     public StatisticsManager() {
@@ -45,7 +52,7 @@ public class StatisticsManager {
     public void alterTableStatistics(AlterTableStatsStmt stmt)
             throws AnalysisException {
         Table table = validateTableName(stmt.getTableName());
-        statistics.updateTableStats(table.getId(), stmt.getProperties());
+        statistics.updateTableStats(table.getId(), stmt.getStatsTypeToValue());
     }
 
     public void alterColumnStatistics(AlterColumnStatsStmt stmt) throws AnalysisException {
@@ -56,7 +63,7 @@ public class StatisticsManager {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, table.getName());
         }
         // match type and column value
-        statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getProperties());
+        statistics.updateColumnStats(table.getId(), columnName, column.getType(), stmt.getStatsTypeToValue());
     }
 
     public List<List<String>> showTableStatsList(String dbName, String tableName)
@@ -128,12 +135,51 @@ public class StatisticsManager {
         return row;
     }
 
+    public void alterTableStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
+        StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
+        validateTableAndColumn(categoryDesc);
+        long tblId = categoryDesc.getTableId();
+        Map<StatsType, String> statsTypeToValue = taskResult.getStatsTypeToValue();
+        statistics.updateTableStats(tblId, statsTypeToValue);
+    }
+
+    public void alterColumnStatistics(StatisticsTaskResult taskResult) throws AnalysisException {
+        StatsCategoryDesc categoryDesc = taskResult.getCategoryDesc();
+        validateTableAndColumn(categoryDesc);
+        long dbId = categoryDesc.getDbId();
+        long tblId = categoryDesc.getTableId();
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Table table = db.getTableOrAnalysisException(tblId);
+        String columnName = categoryDesc.getColumnName();
+        Type columnType = table.getColumn(columnName).getType();
+        Map<StatsType, String> statsTypeToValue = taskResult.getStatsTypeToValue();
+        statistics.updateColumnStats(tblId, columnName, columnType, statsTypeToValue);
+    }
+
     private Table validateTableName(TableName dbTableName) throws AnalysisException {
         String dbName = dbTableName.getDb();
         String tableName = dbTableName.getTbl();
 
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
-        Table table = db.getTableOrAnalysisException(tableName);
-        return table;
+        return db.getTableOrAnalysisException(tableName);
+    }
+
+    private void validateTableAndColumn(StatsCategoryDesc categoryDesc) throws AnalysisException {
+        long dbId = categoryDesc.getDbId();
+        long tblId = categoryDesc.getTableId();
+        String columnName = categoryDesc.getColumnName();
+
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbId);
+        Table table = db.getTableOrAnalysisException(tblId);
+        if (!Strings.isNullOrEmpty(columnName)) {
+            Column column = table.getColumn(columnName);
+            if (column == null) {
+                throw new AnalysisException("Column " + columnName + " does not exist in table " + table.getName());
+            }
+        }
+    }
+
+    public Statistics getStatistics() {
+        return statistics;
     }
 }

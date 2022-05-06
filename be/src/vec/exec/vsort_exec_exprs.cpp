@@ -30,8 +30,8 @@ Status VSortExecExprs::init(const std::vector<TExpr>& ordering_exprs,
     RETURN_IF_ERROR(VExpr::create_expr_trees(pool, ordering_exprs, &_lhs_ordering_expr_ctxs));
     if (sort_tuple_slot_exprs != NULL) {
         _materialize_tuple = true;
-        RETURN_IF_ERROR(
-                VExpr::create_expr_trees(pool, *sort_tuple_slot_exprs, &_sort_tuple_slot_expr_ctxs));
+        RETURN_IF_ERROR(VExpr::create_expr_trees(pool, *sort_tuple_slot_exprs,
+                                                 &_sort_tuple_slot_expr_ctxs));
     } else {
         _materialize_tuple = false;
     }
@@ -49,8 +49,8 @@ Status VSortExecExprs::prepare(RuntimeState* state, const RowDescriptor& child_r
                                const RowDescriptor& output_row_desc,
                                const std::shared_ptr<MemTracker>& expr_mem_tracker) {
     if (_materialize_tuple) {
-        RETURN_IF_ERROR(
-                VExpr::prepare(_sort_tuple_slot_expr_ctxs, state, child_row_desc, expr_mem_tracker));
+        RETURN_IF_ERROR(VExpr::prepare(_sort_tuple_slot_expr_ctxs, state, child_row_desc,
+                                       expr_mem_tracker));
     }
     RETURN_IF_ERROR(
             VExpr::prepare(_lhs_ordering_expr_ctxs, state, output_row_desc, expr_mem_tracker));
@@ -75,5 +75,4 @@ void VSortExecExprs::close(RuntimeState* state) {
     VExpr::close(_rhs_ordering_expr_ctxs, state);
 }
 
-} //namespace doris
-
+} // namespace doris::vectorized

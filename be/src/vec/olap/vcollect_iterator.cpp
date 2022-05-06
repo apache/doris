@@ -168,10 +168,12 @@ Status VCollectIterator::next(Block* block) {
     }
 }
 
-VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader, TabletReader* reader)
+VCollectIterator::Level0Iterator::Level0Iterator(RowsetReaderSharedPtr rs_reader,
+                                                 TabletReader* reader)
         : LevelIterator(reader), _rs_reader(rs_reader), _reader(reader) {
     DCHECK_EQ(RowsetTypePB::BETA_ROWSET, rs_reader->type());
-    _block = std::make_shared<Block>(_schema.create_block(_reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+    _block = std::make_shared<Block>(_schema.create_block(
+            _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
     _ref.block = _block;
     _ref.row_pos = 0;
     _ref.is_same = false;
@@ -212,18 +214,25 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
 }
 
 Status VCollectIterator::Level0Iterator::next(Block* block) {
-    return _rs_reader->next_block(block);
+    if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
+        block->swap(*_ref.block);
+        _ref.row_pos = -1;
+        return Status::OK();
+    } else {
+        return _rs_reader->next_block(block);
+    }
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader, bool merge,
-        bool skip_same)
+        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
+        bool merge, bool skip_same)
         : LevelIterator(reader),
           _children(children),
           _reader(reader),
           _merge(merge),
           _skip_same(skip_same) {
     _ref.row_pos = -1; // represent eof
+    _batch_size = reader->_batch_size;
 }
 
 VCollectIterator::Level1Iterator::~Level1Iterator() {
@@ -261,7 +270,11 @@ Status VCollectIterator::Level1Iterator::next(Block* block) {
     if (UNLIKELY(_cur_child == nullptr)) {
         return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     }
-    return _normal_next(block);
+    if (_merge) {
+        return _merge_next(block);
+    } else {
+        return _normal_next(block);
+    }
 }
 
 int64_t VCollectIterator::Level1Iterator::version() const {
@@ -360,6 +373,37 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }
+}
+
+Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
+    int target_block_row = 0;
+    auto target_columns = block->mutate_columns();
+    size_t column_count = block->columns();
+    IteratorRowRef cur_row = _ref;
+    do {
+        const auto& src_block = cur_row.block;
+        assert(src_block->columns() == column_count);
+        for (size_t i = 0; i < column_count; ++i) {
+            target_columns[i]->insert_from(*(src_block->get_by_position(i).column),
+                                           cur_row.row_pos);
+        }
+        ++target_block_row;
+        auto res = _merge_next(&cur_row);
+        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+            if (target_block_row > 0) {
+                return Status::OK();
+            } else {
+                return res;
+            }
+        }
+
+        if (UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "next failed: " << res;
+            return res;
+        }
+    } while (target_block_row < _batch_size);
+
+    return Status::OK();
 }
 
 Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {

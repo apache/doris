@@ -39,11 +39,11 @@ ColumnPredicate* BloomFilterColumnPredicateFactory::create_column_predicate(
         FieldType type) {
     std::shared_ptr<IBloomFilterFuncBase> filter;
     switch (type) {
-#define M(NAME)                                                           \
-    case OLAP_FIELD_##NAME: {                                             \
-        filter.reset(create_bloom_filter(NAME)); \
-        filter->light_copy(bloom_filter.get());                           \
-        return new BloomFilterColumnPredicate<NAME>(column_id, filter);   \
+#define M(NAME)                                                         \
+    case OLAP_FIELD_##NAME: {                                           \
+        filter.reset(create_bloom_filter(NAME));                        \
+        filter->light_copy(bloom_filter.get());                         \
+        return new BloomFilterColumnPredicate<NAME>(column_id, filter); \
     }
         APPLY_FOR_PRIMTYPE(M)
 #undef M

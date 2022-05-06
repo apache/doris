@@ -21,7 +21,8 @@
 
 namespace doris {
 
-Rowset::Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta)
+Rowset::Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+               RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
           _rowset_path_desc(rowset_path_desc),
           _rowset_meta(std::move(rowset_meta)),
@@ -53,9 +54,10 @@ Status Rowset::load(bool use_cache) {
         }
     }
     // load is done
-    VLOG_CRITICAL << "rowset is loaded. " << rowset_id() << ", rowset version:" << rowset_meta()->version()
-              << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
-              << _rowset_meta->tablet_id();
+    VLOG_CRITICAL << "rowset is loaded. " << rowset_id()
+                  << ", rowset version:" << rowset_meta()->version()
+                  << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
+                  << _rowset_meta->tablet_id();
     return Status::OK();
 }
 

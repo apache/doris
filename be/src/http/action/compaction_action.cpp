@@ -52,8 +52,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
     try {
         *tablet_id = std::stoull(req_tablet_id);
     } catch (const std::exception& e) {
-        return Status::InternalError(
-            strings::Substitute("convert tablet_id failed, $0", e.what()));
+        return Status::InternalError(strings::Substitute("convert tablet_id failed, $0", e.what()));
     }
 
     return Status::OK();
@@ -62,14 +61,11 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
 // for viewing the compaction status
 Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     uint64_t tablet_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),
-                                   "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
 
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        return Status::NotFound(
-            strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
+        return Status::NotFound(strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
     }
 
     tablet->get_compaction_status(json_result);
@@ -80,23 +76,20 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     // 1. param check
     // check req_tablet_id is not empty
     uint64_t tablet_id = 0;
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),
-                                   "check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
 
     // check compaction_type equals 'base' or 'cumulative'
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE) {
         return Status::NotSupported(
-            strings::Substitute("The compaction type '$0' is not supported", compaction_type));
+                strings::Substitute("The compaction type '$0' is not supported", compaction_type));
     }
 
     // 2. fetch the tablet by tablet_id
-    TabletSharedPtr tablet =
-            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        return Status::NotFound(
-            strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
+        return Status::NotFound(strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
     }
 
     // 3. execute compaction task
@@ -141,7 +134,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
     uint64_t tablet_id = 0;
 
     // check req_tablet_id is not empty
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id),"check param failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
 
     if (tablet_id == 0) {
         // overall compaction status
@@ -152,10 +145,9 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
-            return Status::InternalError(
-                    strings::Substitute("fail to get $0", tablet_id));
+            return Status::InternalError(strings::Substitute("fail to get $0", tablet_id));
         }
-    
+
         std::string json_template = R"({
             "status" : "Success",
             "run_status" : $0,
@@ -163,14 +155,15 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
             "tablet_id" : $2,
             "compact_type" : "$3"
 })";
-    
+
         std::string msg = "compaction task for this tablet is not running";
         std::string compaction_type = "";
         bool run_status = 0;
-    
+
         {
             // use try lock to check this tablet is running cumulative compaction
-            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(), std::try_to_lock);
+            std::unique_lock<std::mutex> lock_cumulative(tablet->get_cumulative_compaction_lock(),
+                                                         std::try_to_lock);
             if (!lock_cumulative.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "cumulative";
@@ -180,30 +173,34 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
                 return Status::OK();
             }
         }
-    
+
         {
             // use try lock to check this tablet is running base compaction
-            std::unique_lock<std::mutex> lock_base(tablet->get_base_compaction_lock(), std::try_to_lock);
+            std::unique_lock<std::mutex> lock_base(tablet->get_base_compaction_lock(),
+                                                   std::try_to_lock);
             if (!lock_base.owns_lock()) {
                 msg = "compaction task for this tablet is running";
                 compaction_type = "base";
                 run_status = 1;
-                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+                *json_result = strings::Substitute(json_template, run_status, msg, tablet_id,
+                                                   compaction_type);
                 return Status::OK();
             }
         }
         // not running any compaction
-        *json_result = strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
+        *json_result =
+                strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
         return Status::OK();
     }
 }
 
 Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
-                                                          const std::string& compaction_type) {
+                                                      const std::string& compaction_type) {
     std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy =
             _create_cumulative_compaction_policy();
     if (tablet->get_cumulative_compaction_policy() == nullptr ||
-        tablet->get_cumulative_compaction_policy()->name() != cumulative_compaction_policy->name()) {
+        tablet->get_cumulative_compaction_policy()->name() !=
+                cumulative_compaction_policy->name()) {
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
 
@@ -275,7 +272,8 @@ void CompactionAction::handle(HttpRequest* req) {
     }
 }
 
-std::shared_ptr<CumulativeCompactionPolicy> CompactionAction::_create_cumulative_compaction_policy() {
+std::shared_ptr<CumulativeCompactionPolicy>
+CompactionAction::_create_cumulative_compaction_policy() {
     std::string current_policy = "";
     {
         std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());

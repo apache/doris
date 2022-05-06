@@ -57,8 +57,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 
                     int64_t num_selected_rows =
                             ctx->number_total_rows - ctx->number_unselected_rows;
-                    if (num_selected_rows > 0 && (double)ctx->number_filtered_rows / num_selected_rows >
-                        ctx->max_filter_ratio) {
+                    if (num_selected_rows > 0 &&
+                        (double)ctx->number_filtered_rows / num_selected_rows >
+                                ctx->max_filter_ratio) {
                         // NOTE: Do not modify the error message here, for historical reasons,
                         // some users may rely on this error message.
                         status = Status::InternalError("too many filtered rows");
@@ -175,7 +176,6 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 }
 
 Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
-
     TLoadTxnCommitRequest request;
     get_commit_request(ctx, request);
 
@@ -185,7 +185,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
-              client->loadTxnPreCommit(result, request);
+                client->loadTxnPreCommit(result, request);
             },
             config::txn_commit_rpc_timeout_ms));
 #else
@@ -221,7 +221,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
-              client->loadTxn2PC(result, request);
+                client->loadTxn2PC(result, request);
             },
             config::txn_commit_rpc_timeout_ms));
     Status status(result.status);
@@ -232,7 +232,8 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     return Status::OK();
 }
 
-void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx, TLoadTxnCommitRequest& request) {
+void StreamLoadExecutor::get_commit_request(StreamLoadContext* ctx,
+                                            TLoadTxnCommitRequest& request) {
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
     if (ctx->db_id > 0) {

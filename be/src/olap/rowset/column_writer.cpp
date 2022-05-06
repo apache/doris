@@ -488,8 +488,7 @@ void ByteColumnWriter::record_position() {
 
 IntegerColumnWriter::IntegerColumnWriter(uint32_t column_id, uint32_t unique_column_id,
                                          OutStreamFactory* stream_factory, bool is_singed)
-        : _column_id(column_id),
-          _unique_column_id(unique_column_id),
+        : _unique_column_id(unique_column_id),
           _stream_factory(stream_factory),
           _writer(nullptr),
           _is_signed(is_singed) {}
@@ -672,8 +671,8 @@ Status VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     }
 
     // id_writer is practical to data_stream, it doesn't matter if you repeat flush
-    if (!_length_writer->flush() || !_id_writer->flush() ||
-        !_dict_stream->flush() || !_data_stream->flush()) {
+    if (!_length_writer->flush() || !_id_writer->flush() || !_dict_stream->flush() ||
+        !_data_stream->flush()) {
         OLAP_LOG_WARNING("fail to flush stream.");
         return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
     }

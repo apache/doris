@@ -168,13 +168,14 @@ public:
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) insert_from(src, position);
     }
- 
+
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
     /// Warning:
     ///       if *indices == -1 means the row is null, only use in outer join, do not use in any other place
     ///       insert JOIN_NULL_HINT in null map to hint the null is produced by outer join
-    virtual void insert_indices_from(const IColumn& src, const int* indices_begin, const int* indices_end) = 0;
+    virtual void insert_indices_from(const IColumn& src, const int* indices_begin,
+                                     const int* indices_end) = 0;
 
     /// Appends data located in specified memory chunk if it is possible (throws an exception if it cannot be implemented).
     /// Is used to optimize some computations (in aggregation, for example).
@@ -183,17 +184,19 @@ public:
     virtual void insert_data(const char* pos, size_t length) = 0;
 
     virtual void insert_many_fix_len_data(const char* pos, size_t num) {
-      LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
+        LOG(FATAL) << "Method insert_many_fix_len_data is not supported for " << get_name();
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments
     virtual void insert_many_dict_data(const int32_t* data_array, size_t start_index,
-                                       const StringRef* dict, size_t data_num, uint32_t dict_num = 0) {
-      LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
+                                       const StringRef* dict, size_t data_num,
+                                       uint32_t dict_num = 0) {
+        LOG(FATAL) << "Method insert_many_dict_data is not supported for " << get_name();
     }
- 
-    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array, uint32_t* start_offset_array, size_t num) {
-      LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
+
+    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
+                                         uint32_t* start_offset_array, size_t num) {
+        LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
     /// Appends "default value".

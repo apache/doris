@@ -385,7 +385,8 @@ protected:
         return place_value;
     }
 
-    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value, size_t place_value) const {
+    std::pair<bool, size_t> ALWAYS_INLINE find_cell_opt(const Key& x, size_t hash_value,
+                                                        size_t place_value) const {
         bool is_zero = false;
         do {
             is_zero = buf[place_value].is_zero(*this);
@@ -870,9 +871,7 @@ public:
 
     float get_factor() const { return MAX_BUCKET_OCCUPANCY_FRACTION; }
 
-    bool should_be_shrink(int64_t valid_row) {
-        return valid_row < get_factor() * (size() / 2.0);
-    }
+    bool should_be_shrink(int64_t valid_row) { return valid_row < get_factor() * (size() / 2.0); }
 
     void init_buf_size(size_t reserve_for_num_elements) {
         free();
@@ -881,8 +880,7 @@ public:
     }
 
     void delete_zero_key(Key key) {
-        if (Cell::is_zero(key, *this))
-             this->clear_get_has_zero();
+        if (Cell::is_zero(key, *this)) this->clear_get_has_zero();
     }
     void clear() {
         destroy_elements();

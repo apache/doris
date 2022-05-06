@@ -119,7 +119,6 @@ Status VOdbcScanNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         VLOG_ROW << "VOdbcScanNode output rows: " << block->rows();
     } while (block->rows() == 0 && !(*eos));
 
-
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
 

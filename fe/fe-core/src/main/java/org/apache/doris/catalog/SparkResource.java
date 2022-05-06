@@ -158,6 +158,11 @@ public class SparkResource extends Resource {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
     }
 
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(sparkConfigs);
+        return copiedProperties;
+    }
     // Each SparkResource has and only has one SparkRepository.
     // This method get the remote archive which matches the dpp version from remote repository
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {

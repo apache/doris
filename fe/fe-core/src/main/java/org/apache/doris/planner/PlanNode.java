@@ -36,6 +36,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.statistics.StatsDeriveResult;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TPlan;
@@ -135,6 +136,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     protected List<SlotId> outputSlotIds;
 
+    protected NodeType nodeType = NodeType.DEFAULT;
+    protected StatsDeriveResult statsDeriveResult;
+
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName) {
         this.id = id;
         this.limit = -1;
@@ -173,10 +177,39 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         this.planNodeName = VectorizedUtil.isVectorized() ?
                 "V" + planNodeName : planNodeName;
         this.numInstances = 1;
+        this.nodeType = nodeType;
+    }
+
+    public enum NodeType {
+        DEFAULT,
+        AGG_NODE,
+        BROKER_SCAN_NODE,
+        HASH_JOIN_NODE,
+        HIVE_SCAN_NODE,
+        MERGE_NODE,
+        ES_SCAN_NODE,
+        ICEBREG_SCAN_NODE,
+        LOAD_SCAN_NODE,
+        MYSQL_SCAN_NODE,
+        ODBC_SCAN_NODE,
+        OLAP_SCAN_NODE,
+        SCHEMA_SCAN_NODE,
     }
 
     public String getPlanNodeName() {
         return planNodeName;
+    }
+
+    public StatsDeriveResult getStatsDeriveResult() {
+        return statsDeriveResult;
+    }
+
+    public NodeType getNodeType() {
+        return nodeType;
+    }
+
+    public void setStatsDeriveResult(StatsDeriveResult statsDeriveResult) {
+        this.statsDeriveResult = statsDeriveResult;
     }
 
     /**

@@ -196,8 +196,8 @@ Status BrokerStorageBackend::rename_dir(const std::string& orig_name, const std:
     return rename(orig_name, new_name);
 }
 
-Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_md5,
-                                  bool recursion, std::map<std::string, FileStat>* files) {
+Status BrokerStorageBackend::list(const std::string& remote_path, bool contain_md5, bool recursion,
+                                  std::map<std::string, FileStat>* files) {
     Status status = Status::OK();
     BrokerServiceConnection client(client_cache(_env), _broker_addr, config::thrift_rpc_timeout_ms,
                                    &status);

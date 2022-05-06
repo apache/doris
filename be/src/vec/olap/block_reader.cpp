@@ -37,7 +37,7 @@ BlockReader::~BlockReader() {
 }
 
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                           std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
+                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     _vcollect_iter.init(this);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
@@ -78,8 +78,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
 
-    _stored_data_columns =
-            _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+    _stored_data_columns = _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -91,7 +90,7 @@ void BlockReader::_init_agg_state(const ReaderParams& read_params) {
                         .column(read_params.origin_return_columns->at(_return_columns_loc[idx]))
                         .aggregation();
         std::string agg_name =
-                TabletColumn::get_string_by_aggregation_type(agg_method) + agg_reader_suffix;
+                TabletColumn::get_string_by_aggregation_type(agg_method) + AGG_READER_SUFFIX;
         std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
@@ -171,7 +170,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
 }
 
 Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+                                       bool* eof) {
     auto res = _vcollect_iter.next(block);
     if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
         return res;
@@ -181,18 +180,19 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
 }
 
 Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
+                                               ObjectPool* agg_pool, bool* eof) {
     return Status::OK();
 }
 
 Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                            bool* eof) {
+                                        bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
     }
 
     auto target_block_row = 0;
+    auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
     _insert_data_normal(target_columns);
@@ -219,6 +219,8 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
 
             _insert_data_normal(target_columns);
             target_block_row++;
+        } else {
+            merged_row++;
         }
 
         _append_agg_data(target_columns);
@@ -228,12 +230,12 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
 
-    _merged_rows += target_block_row;
+    _merged_rows += merged_row;
     return Status::OK();
 }
 
-Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+                                           bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -261,7 +263,6 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
         }
     } while (target_block_row < _batch_size);
 
-    _merged_rows += target_block_row;
     return Status::OK();
 }
 
@@ -330,7 +331,7 @@ size_t BlockReader::_copy_agg_data() {
             for (auto& it : _temp_ref_map) {
                 if (!it.second.empty()) {
                     auto& src_column = *it.first->get_by_position(idx).column;
-                    for (auto &pos : it.second) {
+                    for (auto& pos : it.second) {
                         dst_column->replace_column_data(src_column, pos.first, pos.second);
                     }
                 }

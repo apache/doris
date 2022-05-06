@@ -35,10 +35,10 @@ github:
       # if strict is true, means "Require branches to be up to date before merging".
         strict: false
         contexts:
-          # - Clang Formatter
+          - Clang Formatter
           - Build Extensions
           - License Check
-          - P0 regression (Doris P0 regression)
+          - P0 regression (Doris P0 Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
 
@@ -55,3 +55,4 @@ github:
     - zuochunwei
     - thomascai126
     - dataroaring
+    - morrySnow

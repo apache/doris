@@ -31,8 +31,7 @@ IntegerColumnReader::~IntegerColumnReader() {
     SAFE_DELETE(_data_reader);
 }
 
-Status IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams,
-                                     bool is_sign) {
+Status IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, bool is_sign) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("input streams is nullptr");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -81,8 +80,8 @@ StringColumnDirectReader::~StringColumnDirectReader() {
     SAFE_DELETE(_length_reader);
 }
 
-Status StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams,
-                                          int size, MemPool* mem_pool) {
+Status StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
+                                      MemPool* mem_pool) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("input streams is nullptr");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -167,7 +166,7 @@ Status StringColumnDirectReader::next(char* buffer, uint32_t* length) {
 }
 
 Status StringColumnDirectReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                                 MemPool* mem_pool, int64_t* read_bytes) {
+                                             MemPool* mem_pool, int64_t* read_bytes) {
     /*
      * MemPool here is not the same as MemPool in init function
      * 1. MemPool is created by VectorizedRowBatch,
@@ -284,7 +283,7 @@ StringColumnDictionaryReader::~StringColumnDictionaryReader() {
 }
 
 Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams,
-                                              int size, MemPool* mem_pool) {
+                                          int size, MemPool* mem_pool) {
     ReadOnlyFileStream* dictionary_data_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DICTIONARY_DATA, streams);
 
@@ -404,7 +403,7 @@ Status StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
 }
 
 Status StringColumnDictionaryReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                                     MemPool* mem_pool, int64_t* read_bytes) {
+                                                 MemPool* mem_pool, int64_t* read_bytes) {
     int64_t index[size];
     int64_t buffer_size = 0;
     Status res = Status::OK();
@@ -661,7 +660,7 @@ ColumnReader::~ColumnReader() {
 }
 
 Status ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                              MemPool* mem_pool, OlapReaderStatistics* stats) {
+                          MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("null parameters given.");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -710,8 +709,7 @@ Status ColumnReader::skip(uint64_t row_count) {
     return Status::OK();
 }
 
-Status ColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                     MemPool* mem_pool) {
+Status ColumnReader::next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
     Status res = Status::OK();
     column_vector->set_is_null(_is_null);
     if (nullptr != _present_reader) {
@@ -764,7 +762,7 @@ TinyColumnReader::~TinyColumnReader() {
 }
 
 Status TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                                  MemPool* mem_pool, OlapReaderStatistics* stats) {
+                              MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("input streams is nullptr");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -818,7 +816,7 @@ Status TinyColumnReader::skip(uint64_t row_count) {
 }
 
 Status TinyColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                         MemPool* mem_pool) {
+                                     MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
         if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
@@ -868,7 +866,7 @@ DecimalColumnReader::~DecimalColumnReader() {
 }
 
 Status DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                                     MemPool* mem_pool, OlapReaderStatistics* stats) {
+                                 MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("input streams is nullptr");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -967,7 +965,7 @@ Status DecimalColumnReader::skip(uint64_t row_count) {
 }
 
 Status DecimalColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                            MemPool* mem_pool) {
+                                        MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
         if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
@@ -1034,7 +1032,7 @@ LargeIntColumnReader::~LargeIntColumnReader() {
 }
 
 Status LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
-                                      MemPool* mem_pool, OlapReaderStatistics* stats) {
+                                  MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
         OLAP_LOG_WARNING("input streams is nullptr");
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
@@ -1129,7 +1127,7 @@ Status LargeIntColumnReader::skip(uint64_t row_count) {
 }
 
 Status LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
-                                             MemPool* mem_pool) {
+                                         MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
         if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {

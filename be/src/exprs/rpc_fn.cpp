@@ -437,14 +437,16 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
                     vectorized::VecDateTimeValue v =
-                            vectorized::VecDateTimeValue::create_from_olap_date(column->get_int(row_num));
+                            vectorized::VecDateTimeValue::create_from_olap_date(
+                                    column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
                 }
             } else {
                 vectorized::VecDateTimeValue v =
-                        vectorized::VecDateTimeValue::create_from_olap_date(column->get_int(row_num));
+                        vectorized::VecDateTimeValue::create_from_olap_date(
+                                column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());
@@ -460,7 +462,8 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
             if constexpr (nullable) {
                 if (!column->is_null_at(row_num)) {
                     vectorized::VecDateTimeValue v =
-                            vectorized::VecDateTimeValue::create_from_olap_datetime(column->get_int(row_num));
+                            vectorized::VecDateTimeValue::create_from_olap_datetime(
+                                    column->get_int(row_num));
                     date_time->set_day(v.day());
                     date_time->set_month(v.month());
                     date_time->set_year(v.year());
@@ -470,7 +473,8 @@ void convert_col_to_pvalue(const vectorized::ColumnPtr& column,
                 }
             } else {
                 vectorized::VecDateTimeValue v =
-                        vectorized::VecDateTimeValue::create_from_olap_datetime(column->get_int(row_num));
+                        vectorized::VecDateTimeValue::create_from_olap_datetime(
+                                column->get_int(row_num));
                 date_time->set_day(v.day());
                 date_time->set_month(v.month());
                 date_time->set_year(v.year());

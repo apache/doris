@@ -72,7 +72,7 @@ example:
 ## 编译
 
 其他文章已经介绍的比较清楚了：
-* [使用 LDB toolchain 编译](https://doris.apache.org/zh-CN/installing/compilation-with-ldb-toolchain.html)
+* [使用 LDB toolchain 编译](../install/source-install/compilation-with-ldb-toolchain.html)
 * ......
 
 为了进行调试，需要在 fe 启动时，加上调试的参数，比如 `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005` 。

@@ -64,9 +64,9 @@ inline Status read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
     return res;
 }
 
-// The bit_width in RunLengthIntegerWriter is all 5bit encoding, 
-// so it supports up to 2^5=32 bit lengths. However, it needs to represent at most 1~64 bits, 
-// a total of 64 bit lengths, so in 64 bit lengths Take 32 types. 
+// The bit_width in RunLengthIntegerWriter is all 5bit encoding,
+// so it supports up to 2^5=32 bit lengths. However, it needs to represent at most 1~64 bits,
+// a total of 64 bit lengths, so in 64 bit lengths Take 32 types.
 // The remaining 32 bit lengths that are not in these 32 types are aligned up to the nearest bit length.
 // FixedBitSize gives 32 bit lengths
 enum FixedBitSize {
@@ -182,4 +182,3 @@ inline bool is_safe_subtract(int64_t left, int64_t right) {
 
 } // namespace ser
 } // namespace doris
-

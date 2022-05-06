@@ -111,9 +111,7 @@ class TaggableLogger {
 public:
     TaggableLogger(std::ostream& _stream) : _stream(_stream), _tags(nullptr) {};
 
-    ~TaggableLogger() {
-        flush();
-    }
+    ~TaggableLogger() { flush(); }
 
     void flush();
 
@@ -141,8 +139,10 @@ private:
         const std::string value;
         Tags* next;
 
-        Tags(const std::string& key, const std::string& value, Tags* next) : key(key), value(value), next(next) {}
-        Tags(const std::string& key, std::string&& value, Tags* next) : key(key), value(std::move(value)), next(next) {}
+        Tags(const std::string& key, const std::string& value, Tags* next)
+                : key(key), value(value), next(next) {}
+        Tags(const std::string& key, std::string&& value, Tags* next)
+                : key(key), value(std::move(value)), next(next) {}
     };
 
     Tags* _tags;
@@ -151,9 +151,7 @@ public:
     // add tag method here
     const static std::string QUERY_ID;
 
-    TaggableLogger& query_id(const std::string& query_id) {
-        return tag(QUERY_ID, query_id);
-    }
+    TaggableLogger& query_id(const std::string& query_id) { return tag(QUERY_ID, query_id); }
 
     TaggableLogger& query_id(const TUniqueId& query_id) {
         return tag(QUERY_ID, print_id(query_id));

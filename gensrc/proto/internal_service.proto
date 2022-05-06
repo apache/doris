@@ -60,6 +60,9 @@ message PTabletWithPartition {
 message PTabletInfo {
     required int64 tablet_id = 1;
     required int32 schema_hash = 2;
+    // Delta Writer will write data to local disk and then check if there are new raw values not in global dict
+    // if appears, then it should add the column name to this vector
+    repeated string invalid_dict_cols = 3; 
 }
 
 // open a tablet writer
@@ -75,6 +78,7 @@ message PTabletWriterOpenRequest {
     optional int64 load_channel_timeout_s = 9;
     optional bool is_high_priority = 10 [default = false];
     optional string sender_ip = 11 [default = ""];
+    optional bool is_vectorized = 12 [default = false];
 };
 
 message PTabletWriterOpenResult {
@@ -104,12 +108,43 @@ message PTabletWriterAddBatchRequest {
     optional bool is_high_priority = 11 [default = false];
 };
 
+message PTabletWriterAddBlockRequest {
+    required PUniqueId id = 1;
+    required int64 index_id = 2;
+    required int32 sender_id = 3;
+
+    // If this is the last batch from this sender
+    optional bool eos = 4;
+
+    optional int64 packet_seq = 5;
+    repeated int64 tablet_ids = 6;
+    // unset if and only if when eos is true
+    optional PBlock block = 7;
+    // only valid when eos is true
+    // valid partition ids that would write in this writer
+    repeated int64 partition_ids = 8;
+    // the backend which send this request
+    optional int64 backend_id = 9 [default = -1];
+    // transfer the vectorized::Block to the Controller Attachment
+    optional bool transfer_by_attachment = 10 [default = false];
+    optional bool is_high_priority = 11 [default = false];
+};
+
 message PTabletError {
     optional int64 tablet_id = 1;
     optional string msg = 2;
 }
 
 message PTabletWriterAddBatchResult {
+    required PStatus status = 1;
+    repeated PTabletInfo tablet_vec = 2;
+    optional int64 execution_time_us = 3;
+    optional int64 wait_lock_time_us = 4;
+    optional int64 wait_execution_time_us = 5;
+    repeated PTabletError tablet_errors = 6;
+};
+
+message PTabletWriterAddBlockResult {
     required PStatus status = 1;
     repeated PTabletInfo tablet_vec = 2;
     optional int64 execution_time_us = 3;
@@ -428,6 +463,7 @@ service PBackendService {
     rpc fetch_data(PFetchDataRequest) returns (PFetchDataResult);
     rpc tablet_writer_open(PTabletWriterOpenRequest) returns (PTabletWriterOpenResult);
     rpc tablet_writer_add_batch(PTabletWriterAddBatchRequest) returns (PTabletWriterAddBatchResult);
+    rpc tablet_writer_add_block(PTabletWriterAddBlockRequest) returns (PTabletWriterAddBlockResult);
     rpc tablet_writer_cancel(PTabletWriterCancelRequest) returns (PTabletWriterCancelResult);
     rpc get_info(PProxyRequest) returns (PProxyResult); 
     rpc update_cache(PUpdateCacheRequest) returns (PCacheResponse);

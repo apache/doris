@@ -138,20 +138,20 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #endif
 
 #ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s)                         \
-    do {                                         \
-        Status _s = (s);                     \
+#define RETURN_NOT_OK(s)               \
+    do {                               \
+        Status _s = (s);               \
         if (OLAP_UNLIKELY(!_s.ok())) { \
-            return _s;                           \
-        }                                        \
+            return _s;                 \
+        }                              \
     } while (0);
 #endif
 
 #ifndef RETURN_NOT_OK_LOG
 #define RETURN_NOT_OK_LOG(s, msg)                          \
     do {                                                   \
-        Status _s = (s);                               \
-        if (OLAP_UNLIKELY(!_s)) {           \
+        Status _s = (s);                                   \
+        if (OLAP_UNLIKELY(!_s)) {                          \
             LOG(WARNING) << (msg) << "[res=" << _s << "]"; \
             return _s;                                     \
         }                                                  \

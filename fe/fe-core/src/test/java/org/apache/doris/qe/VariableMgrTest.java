@@ -179,6 +179,8 @@ public class VariableMgrTest {
             // the Catalog.isCheckpointThread() will return true.
             Deencapsulation.setField(Catalog.class, "checkpointThreadId", Thread.currentThread().getId());
             currentCatalog.getCheckpointer().doCheckpoint();
+        } catch (Throwable e) {
+            Assert.fail(e.getMessage());
         } finally {
             // Restore the ckptThreadId
             Deencapsulation.setField(Catalog.class, "checkpointThreadId", ckptThreadId);

@@ -215,7 +215,7 @@ private:
 
     template <typename T0>
     bool execute_num_left_type(Block& block, size_t result, const IColumn* col_left_untyped,
-                            const IColumn* col_right_untyped) {
+                               const IColumn* col_right_untyped) {
         if (const ColumnVector<T0>* col_left =
                     check_and_get_column<ColumnVector<T0>>(col_left_untyped)) {
             if (execute_num_right_type<T0, UInt8>(block, result, col_left, col_right_untyped) ||
@@ -355,38 +355,52 @@ public:
                           std::is_same_v<Op<int, int>, LessOrEqualsOp<int, int>> ||
                           std::is_same_v<Op<int, int>, GreaterOrEqualsOp<int, int>>) {
                 block.get_by_position(result).column =
-                        DataTypeUInt8().create_column_const(input_rows_count, 1u)->convert_to_full_column_if_const();
+                        DataTypeUInt8()
+                                .create_column_const(input_rows_count, 1u)
+                                ->convert_to_full_column_if_const();
                 return Status::OK();
             } else {
                 block.get_by_position(result).column =
-                        DataTypeUInt8().create_column_const(input_rows_count, 0u)->convert_to_full_column_if_const();
+                        DataTypeUInt8()
+                                .create_column_const(input_rows_count, 0u)
+                                ->convert_to_full_column_if_const();
                 return Status::OK();
             }
         }
 
-        WhichDataType which_left{left_type};
-        WhichDataType which_right{right_type};
+        WhichDataType which_left {left_type};
+        WhichDataType which_right {right_type};
 
         const bool left_is_num = col_left_untyped->is_numeric();
         const bool right_is_num = col_right_untyped->is_numeric();
 
         // Compare date and datetime direct use the Int64 compare. Keep the comment
         // may we should refactor the code.
-//        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
-//                                 which_right.is_date_or_datetime();
+        //        bool date_and_datetime = (left_type != right_type) && which_left.is_date_or_datetime() &&
+        //                                 which_right.is_date_or_datetime();
 
         if (left_is_num && right_is_num) {
-            if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<UInt16>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<UInt32>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<UInt64>(block, result, col_left_untyped, col_right_untyped) ||
+            if (!(execute_num_left_type<UInt8>(block, result, col_left_untyped,
+                                               col_right_untyped) ||
+                  execute_num_left_type<UInt16>(block, result, col_left_untyped,
+                                                col_right_untyped) ||
+                  execute_num_left_type<UInt32>(block, result, col_left_untyped,
+                                                col_right_untyped) ||
+                  execute_num_left_type<UInt64>(block, result, col_left_untyped,
+                                                col_right_untyped) ||
                   execute_num_left_type<Int8>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Int16>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Int32>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Int64>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Int128>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Float32>(block, result, col_left_untyped, col_right_untyped) ||
-                  execute_num_left_type<Float64>(block, result, col_left_untyped, col_right_untyped)))
+                  execute_num_left_type<Int16>(block, result, col_left_untyped,
+                                               col_right_untyped) ||
+                  execute_num_left_type<Int32>(block, result, col_left_untyped,
+                                               col_right_untyped) ||
+                  execute_num_left_type<Int64>(block, result, col_left_untyped,
+                                               col_right_untyped) ||
+                  execute_num_left_type<Int128>(block, result, col_left_untyped,
+                                                col_right_untyped) ||
+                  execute_num_left_type<Float32>(block, result, col_left_untyped,
+                                                 col_right_untyped) ||
+                  execute_num_left_type<Float64>(block, result, col_left_untyped,
+                                                 col_right_untyped)))
 
                 return Status::RuntimeError(
                         fmt::format("Illegal column {} of first argument of function {}",

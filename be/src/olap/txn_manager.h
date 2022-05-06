@@ -71,48 +71,48 @@ public:
     }
 
     Status prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                           TTransactionId transaction_id, const PUniqueId& load_id);
+                       TTransactionId transaction_id, const PUniqueId& load_id);
 
     Status commit_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                          TTransactionId transaction_id, const PUniqueId& load_id,
-                          const RowsetSharedPtr& rowset_ptr, bool is_recovery);
+                      TTransactionId transaction_id, const PUniqueId& load_id,
+                      const RowsetSharedPtr& rowset_ptr, bool is_recovery);
 
     Status publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                           TTransactionId transaction_id, const Version& version);
+                       TTransactionId transaction_id, const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                            TTransactionId transaction_id);
+                        TTransactionId transaction_id);
 
     Status delete_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
-                          TTransactionId transaction_id);
+                      TTransactionId transaction_id);
 
     // add a txn to manager
     // partition id is useful in publish version stage because version is associated with partition
     Status prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                           const PUniqueId& load_id);
+                       TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
+                       const PUniqueId& load_id);
 
     Status commit_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                          const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
-                          bool is_recovery);
+                      TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
+                      const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
+                      bool is_recovery);
 
     // remove a txn from txn manager
     // not persist rowset meta because
     Status publish_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                           TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
-                           const Version& version);
+                       TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
+                       const Version& version);
 
     // delete the txn from manager if it is not committed(not have a valid rowset)
     Status rollback_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                            TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
+                        TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     // remove the txn from txn manager
     // delete the related rowset if it is not null
     // delete rowset related data if it is not null
     Status delete_txn(OlapMeta* meta, TPartitionId partition_id, TTransactionId transaction_id,
-                          TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
+                      TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 
     void get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
                                  int64_t* partition_id, std::set<int64_t>* transaction_ids);
@@ -209,4 +209,3 @@ inline std::mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
 }
 
 } // namespace doris
-
