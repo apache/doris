@@ -16,11 +16,12 @@
 -- under the License.
 
 {% macro doris__create_table_as(temporary, relation, sql) -%}
-  {% set sql_header = config.get('sql_header', none) %}
-
-  {{ sql_header if sql_header is not none }}
-  create table {{ relation.include(database=False) }}
+    {% set sql_header = config.get('sql_header', none) %}
+    {% set table = relation.include(database=False) %}
+    {{ sql_header if sql_header is not none }}
+    create table {{ table }}
     {{ doris__partition_by() }}
     {{ doris__distributed_by() }}
-    {{ doris__properties() }} as {{ sql }}
+    {{ doris__properties() }} as {{ sql }};
+    insert into {{ table }} {{ sql }};
 {%- endmacro %}
