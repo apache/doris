@@ -160,6 +160,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.cpuTimeMs).append("\t");
         auditBuffer.append(event.sqlHash).append("\t");
         auditBuffer.append(event.peakMemoryBytes).append("\t");
+        auditBuffer.append(event.visitPartitions).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
         String stmt = truncateByBytes(event.stmt).replace("\t", " ");

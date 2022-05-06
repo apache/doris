@@ -28,6 +28,7 @@ import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.persist.VisitPartitionsInfo;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
@@ -130,6 +131,7 @@ public class ConnectContext {
     // If set to false, the system will not restrict query resources.
     private boolean isResourceTagsSet = false;
 
+    private Set<VisitPartitionsInfo> visitPartitionsInfos = Sets.newHashSet();
     private String sqlHash;
 
     // The FE ip current connected
@@ -260,6 +262,14 @@ public class ConnectContext {
 
     public AuditEventBuilder getAuditEventBuilder() {
         return auditEventBuilder;
+    }
+
+    public void setVisitPartitionInfos(Set<VisitPartitionsInfo> infos) {
+        this.visitPartitionsInfos = infos;
+    }
+
+    public Set<VisitPartitionsInfo> getVisitPartitionInfos() {
+        return visitPartitionsInfos;
     }
 
     public void setThreadLocalInfo() {

@@ -84,6 +84,8 @@ public class AuditEvent {
     public String sqlHash = "";
     @AuditField(value = "peakMemoryBytes")
     public long peakMemoryBytes = -1;
+    @AuditField(value = "VisitPartitions")
+    public String visitPartitions = "";
 
     public static class AuditEventBuilder {
 
@@ -143,6 +145,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setPeakMemoryBytes(long peakMemoryBytes) {
             auditEvent.peakMemoryBytes = peakMemoryBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setVisitPartitions(String partitions) {
+            auditEvent.visitPartitions = partitions;
             return this;
         }
 

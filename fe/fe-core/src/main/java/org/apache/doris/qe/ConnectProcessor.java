@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.SqlParser;
@@ -52,6 +53,7 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -120,9 +122,11 @@ public class ConnectProcessor {
                 .setScanRows(statistics == null ? 0 : statistics.getScanRows())
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
+                .setVisitPartitions(StringUtils.join(ctx.getVisitPartitionInfos()))
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+        ctx.setVisitPartitionInfos(Sets.newHashSet());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);

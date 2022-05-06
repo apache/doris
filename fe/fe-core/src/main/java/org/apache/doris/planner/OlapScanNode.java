@@ -50,6 +50,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.persist.VisitPartitionsInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -597,12 +598,17 @@ public class OlapScanNode extends ScanNode {
         }
         selectedPartitionNum = selectedPartitionIds.size();
 
+        String dbName = desc.getRef().getName().getDb();
+        List<String> partitions = Lists.newArrayList();
         for(long id : selectedPartitionIds){
             Partition partition = olapTable.getPartition(id);
             if(partition.getState() == PartitionState.RESTORE){
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), "RESTORING");
             }
+            partitions.add(partition.getName());
         }
+        VisitPartitionsInfo info = new VisitPartitionsInfo(dbName, olapTable.getName(), partitions);
+        ConnectContext.get().getVisitPartitionInfos().add(info);
         LOG.debug("partition prune cost: {} ms, partitions: {}",
                 (System.currentTimeMillis() - start), selectedPartitionIds);
     }
