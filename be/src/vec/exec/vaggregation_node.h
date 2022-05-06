@@ -25,6 +25,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/columns_hashing.h"
 #include "vec/common/hash_table/fixed_hash_map.h"
+#include "vec/common/hash_table/hash_table_proxy_for_multi_tables.h"
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris {
@@ -73,7 +74,8 @@ struct AggregationMethodSerialized {
 };
 
 using AggregatedDataWithoutKey = AggregateDataPtr;
-using AggregatedDataWithStringKey = HashMapWithSavedHash<StringRef, AggregateDataPtr>;
+using AggregatedDataWithStringKey =
+        HashTableProxyForMultiTables<HashMapWithSavedHash<StringRef, AggregateDataPtr>>;
 
 /// For the case where there is one numeric key.
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
@@ -248,10 +250,14 @@ struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
 using AggregatedDataWithUInt8Key =
         FixedImplicitZeroHashMapWithCalculatedSize<UInt8, AggregateDataPtr>;
 using AggregatedDataWithUInt16Key = FixedImplicitZeroHashMap<UInt16, AggregateDataPtr>;
-using AggregatedDataWithUInt32Key = HashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>;
-using AggregatedDataWithUInt64Key = HashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>;
-using AggregatedDataWithUInt128Key = HashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>;
-using AggregatedDataWithUInt256Key = HashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>;
+using AggregatedDataWithUInt32Key =
+        HashTableProxyForMultiTables<HashMap<UInt32, AggregateDataPtr, HashCRC32<UInt32>>>;
+using AggregatedDataWithUInt64Key =
+        HashTableProxyForMultiTables<HashMap<UInt64, AggregateDataPtr, HashCRC32<UInt64>>>;
+using AggregatedDataWithUInt128Key =
+        HashTableProxyForMultiTables<HashMap<UInt128, AggregateDataPtr, HashCRC32<UInt128>>>;
+using AggregatedDataWithUInt256Key =
+        HashTableProxyForMultiTables<HashMap<UInt256, AggregateDataPtr, HashCRC32<UInt256>>>;
 
 using AggregatedDataWithNullableUInt8Key = AggregationDataWithNullKey<AggregatedDataWithUInt8Key>;
 using AggregatedDataWithNullableUInt16Key = AggregationDataWithNullKey<AggregatedDataWithUInt16Key>;
