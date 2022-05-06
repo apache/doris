@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import org.apache.doris.common.FeConstants;
 

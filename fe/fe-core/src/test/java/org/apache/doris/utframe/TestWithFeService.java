@@ -72,14 +72,14 @@ import org.junit.jupiter.api.TestInstance;
 
 /**
  * This is the base class for unit class that wants to start a FE service.
- *
+ * <p>
  * Concrete test class must be derived class of {@link TestWithFeService}, {@link DemoTest} is
  * an example.
- *
+ * <p>
  * This class use {@link TestInstance} in JUnit5 to do initialization and cleanup stuff. Unlike
  * deprecated legacy combination-based implementation {@link UtFrameUtils}, we use an inherit-manner,
  * thus we could wrap common logic in this base class. It's more easy to use.
- *
+ * <p>
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
  * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
@@ -363,16 +363,16 @@ public abstract class TestWithFeService {
     }
 
     protected void createView(String sql) throws Exception {
-        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        CreateViewStmt createViewStmt = (CreateViewStmt) parseAndAnalyzeStmt(sql);
         Catalog.getCurrentCatalog().createView(createViewStmt);
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
-        Assertions.assertTrue(getSQLPlanOrErrorMsg(sql).contains(expect));
+        Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String... expects) throws Exception {
-        String str = getSQLPlanOrErrorMsg(sql);
+        String str = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
         for (String expect : expects) {
             Assertions.assertTrue(str.contains(expect));
         }
