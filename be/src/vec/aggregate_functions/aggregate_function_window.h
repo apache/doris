@@ -188,6 +188,8 @@ struct LeadAndLagData {
 public:
     bool has_init() const { return _is_init; }
 
+    constexpr bool nullable() { return is_nullable; }
+
     void set_null_if_need() {
         if (!_has_value) {
             this->set_is_null();
@@ -367,10 +369,11 @@ struct WindowFunctionFirstNonNullData : Data {
             this->set_is_null();            //so no need more judge
             return;
         }
-        this->set_null_if_need();
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if constexpr (this->nullable()) {
+            this->set_null_if_need();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
             for (int i = frame_start; i < frame_end; i++) {
                 if (!nullable_column->is_null_at(i)) {
                     this->set_value(columns, i);
@@ -386,8 +389,9 @@ struct WindowFunctionFirstNonNullData : Data {
         if (this->has_set_value()) {
             return;
         }
-        this->set_null_if_need();
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if constexpr (this->nullable()) {
+            this->set_null_if_need();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
@@ -424,10 +428,11 @@ struct WindowFunctionLastNonNullData : Data {
             this->set_is_null();
             return;
         }
-        this->set_null_if_need();
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if constexpr (this->nullable()) {
+            this->set_null_if_need();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
             for (int i = frame_end - 1; i >= frame_start; i--) {
                 if (!nullable_column->is_null_at(i)) {
                     this->set_value(columns, i);
@@ -440,8 +445,9 @@ struct WindowFunctionLastNonNullData : Data {
     }
 
     void add(int64_t row, const IColumn** columns) {
-        this->set_null_if_need();
-        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0])) {
+        if constexpr (this->nullable()) {
+            this->set_null_if_need();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
