@@ -65,7 +65,11 @@ protected:
         EXPECT_EQ(system("rm -rf ./test_run"), 0);
 
         delete _state;
-        doris::ExecEnv::destroy(_exec_env);
+        if (_exec_env) {
+            delete _exec_env->_result_queue_mgr;
+            delete _exec_env->_thread_mgr;
+            delete _exec_env->_buffer_reservation;
+        }
     }
 
     void init();

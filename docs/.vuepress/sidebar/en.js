@@ -529,7 +529,7 @@ module.exports = [
             directoryPath: "window-functions/",
             initialOpenGroupIndex: -1,
             children: [
-              "WINDOW-FUNCTION-",
+              "WINDOW-FUNCTION",
               "WINDOW-FUNCTION-SUM",
               "WINDOW-FUNCTION-AVG",
               "WINDOW-FUNCTION-COUNT",
