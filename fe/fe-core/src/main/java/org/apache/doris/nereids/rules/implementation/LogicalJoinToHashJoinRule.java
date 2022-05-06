@@ -17,15 +17,12 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBroadcastHashJoin;
-
-import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -45,10 +42,12 @@ public class LogicalJoinToHashJoinRule extends ImplementationRule {
 
     @Override
     public List<Plan<?>> transform(Plan<?> plan, PlannerContext context) {
-        LogicalJoin originPlan = (LogicalJoin) plan;
-        PhysicalBroadcastHashJoin physicalBroadcastHashJoin = new PhysicalBroadcastHashJoin(
-                originPlan.getJoinType(),
-                originPlan.getOnClause());
-        return Lists.newArrayList(physicalBroadcastHashJoin);
+//        LogicalJoin originPlan = (LogicalJoin) plan;
+//        PhysicalBroadcastHashJoin physicalBroadcastHashJoin = new PhysicalBroadcastHashJoin(
+//                originPlan.getJoinType(),
+//                originPlan.getOnClause(),
+//                );
+//        return Lists.newArrayList(physicalBroadcastHashJoin);
+        return ImmutableList.of();
     }
 }

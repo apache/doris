@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeaf {
+public class UnboundRelation extends LogicalLeaf<UnboundRelation> {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {

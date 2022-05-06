@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 
 import com.clearspring.analytics.util.Lists;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.springframework.util.CollectionUtils;
 
 import java.util.List;
@@ -49,7 +50,7 @@ public class Group {
      * @param planReference first {@link PlanReference} in this Group
      */
     public Group(PlanReference planReference) {
-        if (planReference.getPlan().isLogical()) {
+        if (planReference.getPlan() instanceof LogicalPlan) {
             this.logicalPlanList.add(planReference);
         } else {
             this.physicalPlanList.add(planReference);
@@ -74,7 +75,7 @@ public class Group {
      * @return added {@link PlanReference}
      */
     public PlanReference addPlanReference(PlanReference planReference) {
-        if (planReference.getPlan().isLogical()) {
+        if (planReference.getPlan() instanceof LogicalPlan) {
             logicalPlanList.add(planReference);
         } else {
             physicalPlanList.add(planReference);

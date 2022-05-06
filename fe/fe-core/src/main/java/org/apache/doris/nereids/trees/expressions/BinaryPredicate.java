@@ -26,7 +26,11 @@ import org.apache.doris.nereids.types.DataType;
 /**
  * Binary predicate expression.
  */
-public class BinaryPredicate extends Expression {
+public class BinaryPredicate<
+            LEFT_CHILD_TYPE extends Expression<LEFT_CHILD_TYPE>,
+            RIGHT_CHILD_TYPE extends Expression<RIGHT_CHILD_TYPE>>
+        extends BinaryExpression<BinaryPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
     private final Operator operator;
 
     /**
@@ -82,19 +86,9 @@ public class BinaryPredicate extends Expression {
      * @param right right child of binary predicate
      * @param operator operator of binary predicate
      */
-    public BinaryPredicate(Expression left, Expression right, Operator operator) {
-        super(NodeType.BINARY_PREDICATE);
+    public BinaryPredicate(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right, Operator operator) {
+        super(NodeType.BINARY_PREDICATE, left, right);
         this.operator = operator;
-        addChild(left);
-        addChild(right);
-    }
-
-    public Expression left() {
-        return getChild(0);
-    }
-
-    public Expression right() {
-        return getChild(1);
     }
 
     public Operator getOperator() {

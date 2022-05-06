@@ -18,35 +18,20 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.plans.BinaryPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Abstract class for all {@link LogicalPlan} that have two children.
+ * Abstract class for all logical plan that have two children.
  */
-public abstract class LogicalBinary extends LogicalPlan {
+public abstract class LogicalBinary<
+            PLAN_TYPE extends LogicalBinary<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            LEFT_CHILD_TYPE extends Plan<LEFT_CHILD_TYPE>,
+            RIGHT_CHILD_TYPE extends Plan<RIGHT_CHILD_TYPE>>
+        extends AbstractLogicalPlan<PLAN_TYPE>
+        implements BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    /**
-     * Constructor for LogicalBinary.
-     *
-     * @param type type for this plan.
-     * @param left left child for LogicalBinary
-     * @param right right child for LogicalBinary
-     */
-    public LogicalBinary(NodeType type, LogicalPlan left, LogicalPlan right) {
-        super(type);
-        addChild(left);
-        addChild(right);
-    }
-
-    public LogicalPlan left() {
-        return getChild(0);
-    }
-
-    public LogicalPlan right() {
-        return getChild(1);
-    }
-
-    @Override
-    public int arity() {
-        return 2;
+    public LogicalBinary(NodeType type, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(type, leftChild, rightChild);
     }
 }

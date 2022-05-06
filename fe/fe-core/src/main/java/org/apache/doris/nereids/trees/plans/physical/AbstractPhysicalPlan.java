@@ -15,33 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
- * Abstract class for all plan node.
+ * Abstract class for all concrete physical plan.
  */
-public interface Plan<PLAN_TYPE extends Plan<PLAN_TYPE>> extends TreeNode<PLAN_TYPE> {
-    NodeType getType();
+public abstract class AbstractPhysicalPlan<PLAN_TYPE extends AbstractPhysicalPlan<PLAN_TYPE>>
+        extends AbstractPlan<PLAN_TYPE>
+        implements PhysicalPlan<PLAN_TYPE> {
 
-    List<Slot> getOutput() throws UnboundException;
+    protected LogicalProperties logicalProperties;
+    protected PhysicalProperties physicalProperties;
 
-    PlanReference getPlanReference();
-
-    void setPlanReference(PlanReference planReference);
-
-    String treeString();
-
-    @Override
-    List<Plan> children();
+    public AbstractPhysicalPlan(NodeType type, Plan... children) {
+        super(type, children);
+    }
 
     @Override
-    Plan child(int index);
+    public void setLogicalProperties(LogicalProperties logicalProperties) {
+        this.logicalProperties = logicalProperties;
+    }
+
+    @Override
+    public List<Slot> getOutput() {
+        return logicalProperties.getOutput();
+    }
 }

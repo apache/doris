@@ -15,19 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.LeafNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.LeafPlan;
 
 /**
- * Abstract class for all logical plan that have no child.
+ * Abstract class for all expression that have no child.
  */
-public abstract class LogicalLeaf<PLAN_TYPE extends LogicalLeaf<PLAN_TYPE>>
-        extends AbstractLogicalPlan<PLAN_TYPE>
-        implements LeafPlan<PLAN_TYPE> {
+public abstract class LeafExpression<EXPR_TYPE extends LeafExpression<EXPR_TYPE>>
+        extends AbstractExpression<EXPR_TYPE>
+        implements LeafNode<EXPR_TYPE> {
 
-    public LogicalLeaf(NodeType type) {
+    public LeafExpression(NodeType type) {
         super(type);
     }
 }

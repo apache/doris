@@ -24,13 +24,16 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
  * Logical project plan node.
  */
-public class LogicalProject extends LogicalUnary {
+public class LogicalProject<CHILD_TYPE extends Plan<CHILD_TYPE>>
+        extends LogicalUnary<LogicalProject<CHILD_TYPE>, CHILD_TYPE> {
+
     private final List<? extends NamedExpression> projects;
 
     /**
@@ -39,7 +42,7 @@ public class LogicalProject extends LogicalUnary {
      * @param projects project list
      * @param child child plan node
      */
-    public LogicalProject(List<? extends NamedExpression> projects, LogicalPlan child) {
+    public LogicalProject(List<? extends NamedExpression> projects, CHILD_TYPE child) {
         super(NodeType.LOGICAL_PROJECT, child);
         this.projects = projects;
         updateOutput();

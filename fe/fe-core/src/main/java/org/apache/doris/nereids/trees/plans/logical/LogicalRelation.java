@@ -30,7 +30,8 @@ import java.util.stream.Collectors;
 /**
  * Logical relation plan node.
  */
-public class LogicalRelation extends LogicalLeaf {
+public class LogicalRelation extends LogicalLeaf<LogicalRelation> {
+
     private final Table table;
     private final List<String> qualifier;
 
