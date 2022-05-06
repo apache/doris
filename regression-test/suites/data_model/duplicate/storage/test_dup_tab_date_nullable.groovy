@@ -39,6 +39,8 @@ PROPERTIES (
 
     """
 
+    sql "set enable_vectorized_engine = false"
+
     sql """insert into ${table1} values
         (1, '2021-04-01', '2021-04-02', '2021-04-03'),
         (1, '2021-03-01', '2021-03-02', '2021-03-03'),
@@ -46,6 +48,8 @@ PROPERTIES (
         (1, '2021-01-01', '2021-01-02', '2021-01-03'),
         (null, '2021-05-01', 'null', '2021-04-03')
 """
+
+    sql "set enable_vectorized_engine = true"
 
     qt_sql1 "select date1 from ${table1} order by date1"
 
