@@ -31,7 +31,7 @@ structure:
     - Apache Doris can meet various data analysis demands, including history data reports, real-time data analysis, interactive data analysis, and exploratory data analysis. Make your data analysis easier!
   image: /images/home/structure-fresh.png
   actionText: Learn More
-  actionLink: /en/getting-started/basic-usage
+  actionLink: /en/get-starting/get-starting
 features:
   title: Apache Doris Core Features
   subTitle:
