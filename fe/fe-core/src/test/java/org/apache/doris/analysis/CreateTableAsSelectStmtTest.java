@@ -128,14 +128,14 @@ public class CreateTableAsSelectStmtTest {
     
     @Test
     public void testVarchar() throws Exception {
-        String selectFromDecimal = "create table `test`.`select_varchar` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
-        createTableAsSelect(selectFromDecimal);
+        String selectFromVarchar = "create table `test`.`select_varchar` PROPERTIES(\"replication_num\" = \"1\") as select * from `test`.`varchar_table`";
+        createTableAsSelect(selectFromVarchar);
         ShowResultSet showResultSet = showCreateTable("select_varchar");
         Assert.assertEquals("CREATE TABLE `select_varchar` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) REPLACE NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`userId`)\n" +
+                "AGGREGATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
@@ -202,10 +202,10 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectAlias2);
         ShowResultSet showResultSet2 = showCreateTable("select_alias_2");
         Assert.assertEquals("CREATE TABLE `select_alias_2` (\n" +
-                "  `alias_name` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\"\n" +
+                "  `alias_name` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) REPLACE NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`alias_name`)\n" +
+                "AGGREGATE KEY(`alias_name`)\n" +
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`alias_name`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
@@ -222,11 +222,11 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromJoin);
         ShowResultSet showResultSet = showCreateTable("select_join");
         Assert.assertEquals("CREATE TABLE `select_join` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\",\n" +
-                "  `username` varchar(255) NULL COMMENT \"\",\n" +
-                "  `status` int(11) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) REPLACE NOT NULL COMMENT \"\",\n" +
+                "  `status` int(11) REPLACE NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`userId`)\n" +
+                "AGGREGATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
@@ -234,6 +234,11 @@ public class CreateTableAsSelectStmtTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"V2\"\n" +
                 ")", showResultSet.getResultRows().get(0).get(1));
+        String selectFromJoin1 = "create table `test`.`select_join1` PROPERTIES(\"replication_num\" = \"1\") " +
+                "as select vt.userId as userId1, jt.userId as userId2, vt.username, jt.status from `test`.`varchar_table` vt join `test`.`join_table` jt on vt.userId=jt.userId";
+        createTableAsSelect(selectFromJoin1);
+        ShowResultSet showResultSet1 = showCreateTable("select_join1");
+        System.out.println(showResultSet1.getResultRows().get(0).get(1));
     }
     
     @Test
@@ -243,11 +248,11 @@ public class CreateTableAsSelectStmtTest {
         createTableAsSelect(selectFromName);
         ShowResultSet showResultSet = showCreateTable("select_name");
         Assert.assertEquals("CREATE TABLE `select_name` (\n" +
-                "  `user` varchar(255) NULL COMMENT \"\",\n" +
-                "  `testname` varchar(255) NULL COMMENT \"\",\n" +
-                "  `userstatus` int(11) NULL COMMENT \"\"\n" +
+                "  `user` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `testname` varchar(255) REPLACE NOT NULL COMMENT \"\",\n" +
+                "  `userstatus` int(11) REPLACE NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`user`)\n" +
+                "AGGREGATE KEY(`user`)\n" +
                 "COMMENT \"OLAP\"\n" +
                 "DISTRIBUTED BY HASH(`user`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
@@ -278,15 +283,53 @@ public class CreateTableAsSelectStmtTest {
     
     @Test
     public void testCte() throws Exception {
-        String selectFromName = "create table `test`.`select_cte` PROPERTIES(\"replication_num\" = \"1\") " +
+        String selectFromCte = "create table `test`.`select_cte` PROPERTIES(\"replication_num\" = \"1\") " +
                 "as with cte_name1 as (select userId from `test`.`varchar_table`) select * from cte_name1";
-        createTableAsSelect(selectFromName);
+        createTableAsSelect(selectFromCte);
         ShowResultSet showResultSet = showCreateTable("select_cte");
         Assert.assertEquals("CREATE TABLE `select_cte` (\n" +
-                "  `userId` varchar(255) NULL COMMENT \"\"\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\"\n" +
                 ") ENGINE=OLAP\n" +
                 "DUPLICATE KEY(`userId`)\n" +
                 "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")", showResultSet.getResultRows().get(0).get(1));
+        String selectFromCteAndUnion = "create table `test`.`select_cte_union` PROPERTIES(\"replication_num\" = \"1\")" +
+                "as with source_data as (select 1 as id union all select 2 as id) select * from source_data;";
+        createTableAsSelect(selectFromCteAndUnion);
+        ShowResultSet showResultSet1 = showCreateTable("select_cte_union");
+        Assert.assertEquals("CREATE TABLE `select_cte_union` (\n" +
+                "  `id` tinyint(4) NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`id`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
+                "PROPERTIES (\n" +
+                "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
+                ")", showResultSet1.getResultRows().get(0).get(1));
+    }
+
+    @Test
+    public void testPartition() throws Exception {
+        String selectFromPartition =
+                "create table `test`.`selectPartition` PARTITION BY LIST (userId)(PARTITION p1 values in (\"CA\",\"GB\",\"US\",\"ZH\")) PROPERTIES (\"replication_num\" = \"1\") as "
+                        + "select * from `test`.`varchar_table`;";
+        createTableAsSelect(selectFromPartition);
+        ShowResultSet showResultSet = showCreateTable("selectPartition");
+        Assert.assertEquals("CREATE TABLE `selectPartition` (\n" +
+                "  `userId` varchar(255) NOT NULL COMMENT \"\",\n" +
+                "  `username` varchar(255) REPLACE NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`userId`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY LIST(`userId`)\n" +
+                "(PARTITION p1 VALUES IN (\"CA\",\"GB\",\"US\",\"ZH\"))\n" +
                 "DISTRIBUTED BY HASH(`userId`) BUCKETS 10\n" +
                 "PROPERTIES (\n" +
                 "\"replication_allocation\" = \"tag.location.default: 1\",\n" +
