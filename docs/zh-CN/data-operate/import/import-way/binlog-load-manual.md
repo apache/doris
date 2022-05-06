@@ -342,23 +342,58 @@ Binlog Load只能支持Unique类型的目标表，且必须激活目标表的Bat
 示例：
 
 ```text
--- create target table
-CREATE TABLE `test1` (
-  `a` int(11) NOT NULL COMMENT "",
-  `b` int(11) NOT NULL COMMENT ""
+--create Mysql table
+CREATE TABLE `demo.source_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- create Doris table
+CREATE TABLE `target_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
 ) ENGINE=OLAP
-UNIQUE KEY(`a`)
+UNIQUE KEY(`id`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`a`) BUCKETS 8;
+DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
 ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 ```
+**！！Doris表结构和Mysql表结构字段顺序必须保持一致！！**
 
 ### 创建同步作业
 
+```text
+CREATE SYNC `demo`.`job`
+(
+FROM `demo`.`source_test1` INTO `target_test`
+(id,name)
+)
+FROM BINLOG
+(
+"type" = "canal",
+"canal.server.ip" = "127.0.0.1",
+"canal.server.port" = "11111",
+"canal.destination" = "xxx",
+"canal.username" = "canal",
+"canal.password" = "canal"
+);
+```
+
 创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
+语法：
+```
+CREATE SYNC [db.]job_name
+ (
+        channel_desc, 
+        channel_desc
+        ...
+ )
+binlog_desc
+```
 - job_name
 
   `job_name`是数据同步作业在当前数据库内的唯一标识，相同`job_name`的作业只能有一个在运行。
