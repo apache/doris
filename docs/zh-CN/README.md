@@ -31,7 +31,7 @@ structure:
     - Apache Doris可以满足多种数据分析需求，例如固定历史报表，实时数据分析，交互式数据分析和探索式数据分析等。令您的数据分析工作更加简单高效！
   image: /images/home/structure-fresh.png
   actionText: 了解更多
-  actionLink: /zh-CN/getting-started/basic-usage
+  actionLink: /zh-CN/get-starting/get-starting
 features:
   title: Apache Doris 核心特性
   subTitle: 
