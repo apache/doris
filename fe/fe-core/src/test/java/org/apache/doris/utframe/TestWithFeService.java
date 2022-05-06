@@ -368,6 +368,8 @@ public abstract class TestWithFeService {
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
+        // Note: adding `EXPLAIN` is necessary for non-query SQL, e.g., DDL, DML, etc.
+        // TODO: Use a graceful way to get explain plan string, rather than modifying the SQL string.
         Assertions.assertTrue(getSQLPlanOrErrorMsg("EXPLAIN " + sql).contains(expect));
     }
 
