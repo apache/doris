@@ -74,14 +74,13 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(MemTracker::create_tracker(-1, "TabletMeta", nullptr,
+        : _mem_tracker(MemTracker::create_tracker(-1, "TabletManager", nullptr,
                                                   MemTrackerLevel::OVERVIEW)),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    _mem_tracker_logic = MemTracker::create_virtual_tracker(-1, "TabletMeta[Logic]", _mem_tracker);
     REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
 }
@@ -198,9 +197,6 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
-#ifndef NDEBUG
-    _mem_tracker_logic->consume(tablet->tablet_meta()->mem_size());
-#endif
 
     VLOG_NOTICE << "add tablet to map successfully."
                 << " tablet_id=" << tablet_id;
@@ -1318,9 +1314,6 @@ Status TabletManager::_drop_tablet_directly_unlocked(TTabletId tablet_id, bool k
     }
 
     dropped_tablet->deregister_tablet_from_dir();
-#ifndef NDEBUG
-    _mem_tracker_logic->release(dropped_tablet->tablet_meta()->mem_size());
-#endif
     return Status::OK();
 }
 

@@ -309,8 +309,6 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _has_default_value = column.has_default_value();
     if (_has_default_value) {
         _default_value = column.default_value();
-    } else {
-        _default_value = "";
     }
 
     if (column.has_precision()) {
@@ -318,12 +316,9 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
         _precision = column.precision();
     } else {
         _is_decimal = false;
-        _precision = 0;
     }
     if (column.has_frac()) {
         _frac = column.frac();
-    } else {
-        _frac = 0;
     }
     _length = column.length();
     _index_length = column.index_length();
@@ -340,29 +335,18 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _has_referenced_column = column.has_referenced_column_id();
     if (_has_referenced_column) {
         _referenced_column_id = column.referenced_column_id();
-    } else {
-        _referenced_column_id = 0;
     }
-    _referenced_column = "";
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
-    } else {
-        _aggregation = FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE;
     }
     if (column.has_visible()) {
         _visible = column.visible();
-    } else {
-        _visible = true;
     }
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "ARRAY type has more than 1 children types.";
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(0));
         add_sub_column(child_column);
-    } else {
-        _parent = nullptr;
-        _sub_columns.clear(); // no swap space
-        _sub_column_count = 0;
     }
 }
 
@@ -428,8 +412,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _num_null_columns = 0;
     _cols.clear();
     _field_name_to_index.clear();
-    TabletColumn column;
     for (auto& column_pb : schema.column()) {
+        TabletColumn column;
         column.init_from_pb(column_pb);
         if (column.is_key()) {
             _num_key_columns++;

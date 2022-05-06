@@ -87,6 +87,9 @@ public:
     // Cosume/release will not sync to parent.Usually used to manually record the specified memory,
     // It is independent of the recording of TCMalloc Hook in the thread local tracker, so the same
     // block of memory is recorded independently in these two trackers.
+    // TODO(zxy) At present, the purpose of most virtual trackers is only to preserve the logic of
+    // manually recording memory before, which may be used later. After each virtual tracker is
+    // required case by case, discuss its necessity.
     static std::shared_ptr<MemTracker> create_virtual_tracker(
             int64_t byte_limit = -1, const std::string& label = std::string(),
             const std::shared_ptr<MemTracker>& parent = std::shared_ptr<MemTracker>(),
