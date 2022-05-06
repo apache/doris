@@ -846,6 +846,18 @@ size_t MutableBlock::rows() const {
     return 0;
 }
 
+void MutableBlock::swap(MutableBlock& another) noexcept {
+    _columns.swap(another._columns);
+    _data_types.swap(another._data_types);
+}
+
+void MutableBlock::swap(MutableBlock&& another) noexcept {
+    clear();
+    _columns = std::move(another._columns);
+    _data_types = std::move(another._data_types);
+}
+
+
 void MutableBlock::add_row(const Block* block, int row) {
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {
@@ -971,6 +983,14 @@ size_t MutableBlock::allocated_bytes() const {
     }
 
     return res;
+}
+
+void MutableBlock::clear_column_data() noexcept {
+    for (auto& col : _columns) {
+        if (col) {
+            col->clear();
+        }
+    }
 }
 
 } // namespace doris::vectorized

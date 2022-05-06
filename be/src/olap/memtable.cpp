@@ -131,6 +131,8 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     size_t newsize = _input_mutable_block.allocated_bytes();
     _mem_usage += newsize - oldsize;
     _mem_tracker->consume(newsize - oldsize);
+    // when new data inserted, the mem_usage of memtable should be re-shrunk again.
+    _is_shrunk_by_agg = false;
 
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
@@ -242,7 +244,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
                                  new_row->_row_pos, nullptr);
     }
 }
-vectorized::Block MemTable::_collect_vskiplist_results() {
+void MemTable::_collect_vskiplist_to_output(bool final) {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     // TODO: should try to insert data by column, not by row. to opt the the code
@@ -251,6 +253,7 @@ vectorized::Block MemTable::_collect_vskiplist_results() {
             _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
         }
     } else {
+        size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             auto& block_data = in_block.get_columns_with_type_and_name();
             // move key columns
@@ -263,11 +266,38 @@ vectorized::Block MemTable::_collect_vskiplist_results() {
                 auto function = _agg_functions[i];
                 function->insert_result_into(it.key()->_agg_places[i],
                                              *(_output_mutable_block.get_column_by_position(i)));
-                function->destroy(it.key()->_agg_places[i]);
+                if (final) {
+                    function->destroy(it.key()->_agg_places[i]);
+                }
             }
+            // re-index the row_pos in VSkipList
+            it.key()->_row_pos = idx;
+            idx++;
+        }
+        if (!final) {
+            _input_mutable_block.swap(_output_mutable_block);
+            //TODO(weixang):opt here.
+            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&in_block);
+            _output_mutable_block.clear_column_data();
         }
     }
-    return _output_mutable_block.to_block();
+}
+
+void MemTable::shrink_memtable_by_agg() {
+    if (_is_shrunk_by_agg) {
+        return;
+    }
+    size_t old_size = _input_mutable_block.allocated_bytes();
+    _collect_vskiplist_to_output(false);
+    size_t new_size = _input_mutable_block.allocated_bytes();
+    // shrink mem usage of memetable after agged.
+    _mem_usage += new_size - old_size;
+    _mem_tracker->consume(new_size - old_size);
+    _is_shrunk_by_agg = true;
+}
+
+bool MemTable::is_full() {
+    return memory_usage() >= config::write_buffer_size;
 }
 
 Status MemTable::flush() {
@@ -301,10 +331,9 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
             RETURN_NOT_OK(st);
         }
     } else {
-        vectorized::Block block = _collect_vskiplist_results();
-        // beta rowset flush parallel, segment write add block is not
-        // thread safe, so use tmp variable segment_write instead of
-        // member variable
+        shrink_memtable_by_agg();
+        _collect_vskiplist_to_output(true);
+        vectorized::Block block = _output_mutable_block.to_block();
         RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
         _flush_size = block.allocated_bytes();
     }

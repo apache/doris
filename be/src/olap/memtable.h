@@ -54,6 +54,10 @@ public:
     // insert tuple from (row_pos) to (row_pos+num_rows)
     void insert(const vectorized::Block* block, size_t row_pos, size_t num_rows);
 
+    void shrink_memtable_by_agg();
+
+    bool is_full();
+
     /// Flush
     Status flush();
     Status close();
@@ -195,8 +199,10 @@ private:
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
-    vectorized::Block _collect_vskiplist_results();
+    void _collect_vskiplist_to_output(bool final);
     bool _is_first_insertion;
+
+    bool _is_shrunk_by_agg = false;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
