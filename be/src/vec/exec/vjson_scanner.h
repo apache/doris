@@ -70,21 +70,7 @@ private:
     Status open_next_reader();
 
 private:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
-    // Reader
-    FileReader* _cur_file_reader;
-    LineReader* _cur_line_reader;
-    VJsonReader* _cur_vjson_reader;
-
-    int _next_range;
-    bool _cur_reader_eof;
-    bool _read_json_by_line;
-
-    // When we fetch range doesn't start from 0,
-    // we will read to one ahead, and skip the first line
-    bool _skip_next_line;
+    std::unique_ptr<VJsonReader> _cur_vjson_reader;
 };
 
 class VJsonReader : public JsonReader {
@@ -131,26 +117,10 @@ private:
     
     Status _insert_to_column(vectorized::IColumn* column_ptr, SlotDescriptor* slot_desc,
                             const char* value_ptr, int32_t& wbytes);
+    
+    Status _append_error_msg(const rapidjson::Value& objectValue, std::string& error_msg, bool* valid);
 
-private:
-    int _next_line;
-    int _total_lines;
-    RuntimeState* _state;
-    ScannerCounter* _counter;
-    RuntimeProfile* _profile;
-
-    bool _strip_outer_array;
-    bool _fuzzy_parse;
-    RuntimeProfile::Counter* _read_timer;
-
-    std::vector<std::vector<JsonPath>> _parsed_jsonpaths;
-    std::vector<JsonPath> _parsed_json_root;
-
-    rapidjson::Document* _origin_json_doc_ptr; // origin json document object from parsed json string
-    rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
-    std::unordered_map<std::string, int> _name_map;
-    // point to the _scanner_eof of JsonScanner
-    bool* _scanner_eof;
+    Status _parse_json(bool* is_empty_row, bool* eof);
 };
 
 } // vectorized

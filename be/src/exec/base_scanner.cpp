@@ -278,6 +278,29 @@ Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     return Status::OK();
 }
 
+Status BaseScanner::filter_block_and_execute_exprs(vectorized::Block* output_block,
+                                        vectorized::Block* temp_block, size_t slot_num) {
+    Status status;
+    // filter src tuple by preceding filter first
+    if (!_vpre_filter_ctxs.empty()) {
+        for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
+            auto old_rows = output_block->rows();
+            RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_vpre_filter_ctx,
+                            output_block, slot_num));
+            _counter->num_rows_unselected += old_rows - output_block->rows();
+        }
+    }
+
+    // Do vectorized expr here to speed up load
+    *output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(_dest_vexpr_ctx,
+                             *temp_block, status);
+    if (UNLIKELY(output_block->rows() == 0)) {
+        return status;
+    }
+    
+    return Status::OK();
+}
+
 void BaseScanner::fill_slots_of_columns_from_path(
         int start, const std::vector<std::string>& columns_from_path) {
     // values of columns from path can not be null

@@ -41,14 +41,7 @@ VJsonScanner::VJsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const std::vector<TNetworkAddress>& broker_addresses,
                          const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : JsonScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
-          _cur_file_reader(nullptr),
-          _cur_line_reader(nullptr),
-          _cur_vjson_reader(nullptr),
-          _next_range(0),
-          _cur_reader_eof(false),
-          _read_json_by_line(false) { 
+          _cur_vjson_reader(nullptr) {
 }
 
 VJsonScanner::~VJsonScanner() {
@@ -62,15 +55,10 @@ Status VJsonScanner::open() {
 
 void VJsonScanner::close() { 
     BaseScanner::close();
-    if (_cur_vjson_reader != nullptr) {
-        delete _cur_vjson_reader;
-        _cur_vjson_reader = nullptr;
-    }
 }
 
 Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    Status status = Status::OK();
     const int batch_size = _state->batch_size();
     size_t slot_num = _src_slot_descs.size();
     std::shared_ptr<vectorized::Block> temp_block(new vectorized::Block());
@@ -118,19 +106,7 @@ Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
                                                         slot_desc->col_name()));
             }
 
-            // filter src tuple by preceding filter first
-            if (!_vpre_filter_ctxs.empty()) {
-                for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
-                    RETURN_IF_ERROR(VExprContext::filter_block(_vpre_filter_ctx, &output_block, slot_num));
-                }
-            }
-
-            // Do vectorized expr here to speed up load
-            output_block = VExprContext::get_output_block_after_execute_exprs(_dest_vexpr_ctx,
-                             *(temp_block.get()), status);
-            if (UNLIKELY(output_block.rows() == 0)) {
-                return status;
-            }
+            RETURN_IF_ERROR(filter_block_and_execute_exprs(&output_block, temp_block.get(), slot_num));
         } else {
             auto n_columns = 0;
             for (const auto slot_desc : _src_slot_descs) {
@@ -140,10 +116,12 @@ Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
             }
             
             // filter src tuple by preceding filter first
-            if (!_vpre_filter_ctxs.empty()) { 
+            if (!_vpre_filter_ctxs.empty()) {
+                auto old_rows = output_block.rows();
                 for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
                     RETURN_IF_ERROR(VExprContext::filter_block(_vpre_filter_ctx, &output_block, slot_num));
                 }
+                _counter->num_rows_unselected += old_rows - output_block.rows();
             }
         }
     }
@@ -162,18 +140,12 @@ Status VJsonScanner::open_next_reader() {
         return Status::OK();
     }
     
-    // init the file reader
+    // init file reader
     RETURN_IF_ERROR(JsonScanner::open_file_reader());
-    _cur_file_reader = JsonScanner::get_cur_file_reader();
-    _cur_reader_eof = JsonScanner::get_cur_reader_eof();
-    _read_json_by_line = JsonScanner::get_read_json_by_line();
 
     // init line reader
     if (_read_json_by_line) {
         RETURN_IF_ERROR(JsonScanner::open_line_reader());
-        _cur_line_reader = JsonScanner::get_cur_line_reader();
-        _cur_reader_eof = JsonScanner::get_cur_reader_eof();
-        _skip_next_line = JsonScanner::get_skip_next_line();
     }
 
     RETURN_IF_ERROR(open_vjson_reader());
@@ -184,8 +156,7 @@ Status VJsonScanner::open_next_reader() {
 
 Status VJsonScanner::open_vjson_reader() {
     if (_cur_vjson_reader != nullptr) {
-        delete _cur_vjson_reader;
-        _cur_vjson_reader = nullptr;
+        _cur_vjson_reader.reset();
     }
     std::string json_root = "";
     std::string jsonpath = "";
@@ -212,11 +183,11 @@ Status VJsonScanner::open_vjson_reader() {
     }
     
     if (_read_json_by_line) {
-        _cur_vjson_reader = new VJsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
+        _cur_vjson_reader.reset(new VJsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
+                               fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader));
     } else {
-        _cur_vjson_reader =  new VJsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                                        fuzzy_parse, &_scanner_eof, _cur_file_reader);
+        _cur_vjson_reader.reset(new VJsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
+                                        fuzzy_parse, &_scanner_eof, _cur_file_reader));
     }
 
     RETURN_IF_ERROR(_cur_vjson_reader->init(jsonpath, json_root));
@@ -228,16 +199,7 @@ VJsonReader::VJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimePr
                         bool* scanner_eof, FileReader* file_reader, LineReader* line_reader)
                : JsonReader(state, counter, profile, strip_outer_array, num_as_string, fuzzy_parse,
                             scanner_eof, file_reader, line_reader),
-                _vhandle_json_callback(nullptr),
-                _next_line(0),
-                _total_lines(0),
-                _state(state),
-                _counter(counter),
-                _profile(profile),
-                _strip_outer_array(strip_outer_array),
-                _fuzzy_parse(fuzzy_parse),
-                _json_doc(nullptr),
-                _scanner_eof(scanner_eof) {
+                _vhandle_json_callback(nullptr) {
 }
 
 VJsonReader::~VJsonReader() {
@@ -280,26 +242,22 @@ Status VJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
     do {
         bool valid = false;
         if (_next_line >= _total_lines) { // parse json and generic document
-            size_t size = 0;
-            Status st = JsonReader::_parse_json_doc(&size, eof);
+            Status st = _parse_json(is_empty_row, eof);
             if (st.is_data_quality_error()) {
                 continue; // continue to read next
             }
-            RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (size == 0 || *eof) {          // read all data, then return
-                *is_empty_row = true;
+            RETURN_IF_ERROR(st);
+            if (*is_empty_row == true && st == Status::OK()) {
                 return Status::OK();
-            }
+            }   
             _name_map.clear();
             rapidjson::Value* objectValue = nullptr;
-            _json_doc = VJsonReader::get_json_doc();
             if (_json_doc->IsArray()) {
                 _total_lines = _json_doc->Size();
                 if (_total_lines == 0) {
                     // may be passing an empty json, such as "[]"
-                    RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return JsonReader::_print_json_value(*_json_doc); },
-                            [&]() -> std::string { return "Empty json line"; }, _scanner_eof));
-                    _counter->num_rows_filtered++;
+                    std::string err_msg("Empty json line");
+                    RETURN_IF_ERROR(_append_error_msg(*_json_doc, err_msg, nullptr));
                     if (*_scanner_eof) {
                         *is_empty_row = true;
                         return Status::OK();
@@ -356,10 +314,8 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue, std::vector
     if (!objectValue.IsObject()) {
         // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"},
         // not other type of Json format.
-        RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return JsonReader::_print_json_value(objectValue); },
-                [&]() -> std::string { return "Expect json object value"; }, _scanner_eof));
-        _counter->num_rows_filtered++;
-        *valid = false; // current row is invalid
+        std::string err_msg("Expect json object value");
+        RETURN_IF_ERROR(_append_error_msg(objectValue, err_msg, valid));
         return Status::OK();
     }
 
@@ -391,26 +347,19 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue, std::vector
                 auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
                 nullable_column->insert_data(nullptr, 0);
                 nullcount++;
-                // LOG(INFO) << "not found in objectValue";
             } else {
-               RETURN_IF_ERROR( _state->append_error_msg_to_file([&]() -> std::string { return JsonReader::_print_json_value(objectValue); },
-                        [&]() -> std::string {
-                        fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", slot_desc->col_name());
-                        return fmt::to_string(error_msg);
-                        }, _scanner_eof));
-                _counter->num_rows_filtered++;
-                *valid = false; // current row is invalid
+                fmt::memory_buffer error_msg;
+                fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", slot_desc->col_name());
+                std::string err_msg = fmt::to_string(error_msg);
+                RETURN_IF_ERROR(_append_error_msg(objectValue, err_msg, valid));
                 break;
             }
         }
     }
 
     if (nullcount == slot_descs.size()) {
-        RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return JsonReader::_print_json_value(objectValue); },
-                [&]() -> std::string { return "All fields is null, this is a invalid row."; }, _scanner_eof));
-        _counter->num_rows_filtered++;
-        *valid = false;
+        std::string err_msg("All fields is null, this is a invalid row.");
+        RETURN_IF_ERROR(_append_error_msg(objectValue, err_msg, valid));
         return Status::OK();
     }
     *valid = true;
@@ -466,14 +415,10 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
             nullable_column->insert_data(nullptr, 0);
         } else {
-            RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return JsonReader::_print_json_value(*value); },
-                    [&]() -> std::string {
-                    fmt::memory_buffer error_msg;
-                    fmt::format_to(error_msg, "Json value is null, but the column `{}` is not nullable.", slot_desc->col_name());
-                    return fmt::to_string(error_msg);
-                    }, _scanner_eof));
-            _counter->num_rows_filtered++;
-            *valid = false;
+            fmt::memory_buffer error_msg;
+            fmt::format_to(error_msg, "Json value is null, but the column `{}` is not nullable.", slot_desc->col_name());
+            std::string err_msg = fmt::to_string(error_msg);
+            RETURN_IF_ERROR(_append_error_msg(*value, err_msg, valid));
             return Status::OK();
         }
         break;
@@ -494,110 +439,14 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
 Status VJsonReader::_insert_to_column(vectorized::IColumn* column_ptr, SlotDescriptor* slot_desc,
                                     const char* value_ptr, int32_t& wbytes) {
     switch (slot_desc->type().type) {
-    case TYPE_BOOLEAN: {
-        assert_cast<ColumnVector<UInt8>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_TINYINT: {
-        assert_cast<ColumnVector<Int8>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_SMALLINT: {
-        assert_cast<ColumnVector<Int16>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_INT: {
-        assert_cast<ColumnVector<Int32>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_BIGINT: {
-        assert_cast<ColumnVector<Int64>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_LARGEINT: {
-        assert_cast<ColumnVector<Int128>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_FLOAT: {
-        assert_cast<ColumnVector<Float32>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_DOUBLE: {
-        assert_cast<ColumnVector<Float64>*>(column_ptr)->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_CHAR: {
-        assert_cast<ColumnString*>(column_ptr)->insert_data(value_ptr, wbytes);
-        break;
-    }
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        assert_cast<ColumnString*>(column_ptr)->insert_data(value_ptr, wbytes);
-        break;
-    }
-    case TYPE_OBJECT: {
-        Slice slice(value_ptr, wbytes);
-        // insert_default()
-        auto* target_column = assert_cast<ColumnBitmap*>(column_ptr);
-
-        target_column->insert_default();
-        BitmapValue* pvalue = nullptr;
-        int pos = target_column->size() - 1;
-        pvalue = &target_column->get_element(pos);
-
-        if (slice.size != 0) {
-            BitmapValue value;
-            value.deserialize(slice.data);
-            *pvalue = std::move(value);
-        } else {
-            *pvalue = std::move(*reinterpret_cast<BitmapValue*>(slice.data));
+        case TYPE_VARCHAR:{
+            assert_cast<ColumnString*>(column_ptr)->insert_data(value_ptr, wbytes);
+            break;
         }
-        break;
-    }
-    case TYPE_HLL: {
-        Slice slice(value_ptr, wbytes);
-        auto* target_column = assert_cast<ColumnHLL*>(column_ptr);
-
-        target_column->insert_default();
-        HyperLogLog* pvalue = nullptr;
-        int pos = target_column->size() - 1;
-        pvalue = &target_column->get_element(pos);
-        if (slice.size != 0) {
-            HyperLogLog value;
-            value.deserialize(slice);
-            *pvalue = std::move(value);
-        } else {
-            *pvalue = std::move(*reinterpret_cast<HyperLogLog*>(slice.data));
+        default: {
+            DCHECK(false) << "bad slot type: " << slot_desc->type();
+            break;
         }
-        break;
-    }
-    case TYPE_DECIMALV2: {
-        assert_cast<ColumnDecimal<Decimal128>*>(column_ptr)
-                ->insert_data(value_ptr, 0);
-        break;
-    }
-    case TYPE_DATETIME: {
-        Slice slice(value_ptr, wbytes);
-        DateTimeValue value = *reinterpret_cast<DateTimeValue*>(slice.data);
-        VecDateTimeValue date;
-        date.convert_dt_to_vec_dt(&value);
-        assert_cast<ColumnVector<Int64>*>(column_ptr)
-                ->insert_data(reinterpret_cast<char*>(&date), 0);
-        break;
-    }
-    case TYPE_DATE: {
-        Slice slice(value_ptr, wbytes);
-        DateTimeValue value = *reinterpret_cast<DateTimeValue*>(slice.data);
-        VecDateTimeValue date;
-        date.convert_dt_to_vec_dt(&value);
-        assert_cast<ColumnVector<Int64>*>(column_ptr)
-                ->insert_data(reinterpret_cast<char*>(&date), 0);
-        break;
-    }
-    default: {
-        DCHECK(false) << "bad slot type: " << slot_desc->type();
-        break;
-    }
     }
     return Status::OK();
 }
@@ -607,24 +456,18 @@ Status VJsonReader::_vhandle_flat_array_complex_json(std::vector<MutableColumnPt
                                                     bool* is_empty_row, bool* eof) {
     do {
         if (_next_line >= _total_lines) {
-            size_t size = 0;
-            Status st = JsonReader::_parse_json_doc(&size, eof);
+            Status st = _parse_json(is_empty_row, eof);
             if (st.is_data_quality_error()) {
                 continue; // continue to read next
             }
-            RETURN_IF_ERROR(st); // terminate if encounter other errors
-            if (size == 0 || *eof) {          // read all data, then return
-                *is_empty_row = true;
-                return Status::OK();
-            }
-            _json_doc = JsonReader::get_json_doc();
-            _total_lines = _json_doc->Size();
-            _next_line = 0;
-
-            if (_total_lines == 0) {
-                // meet an empty json array.
-                *is_empty_row = true;
-                continue;
+            RETURN_IF_ERROR(st);
+            if (*is_empty_row == true ) {
+                if (st == Status::OK()) {
+                    return Status::OK();
+                }
+                if (_total_lines == 0) {
+                    continue;
+                }
             }
         }
         rapidjson::Value& objectValue = (*_json_doc)[_next_line++];
@@ -643,21 +486,18 @@ Status VJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>& 
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 bool* is_empty_row, bool* eof) {
     while (true) {
-        size_t size = 0;
-        Status st = JsonReader::_parse_json_doc(&size, eof);
+        Status st = _parse_json(is_empty_row, eof);
         if (st.is_data_quality_error()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
-        if (size == 0 || *eof) {
-            *is_empty_row = true;
-            return Status::OK(); // read over,then return
+        if (*is_empty_row == true && st == Status::OK()) {
+            return Status::OK();
         }
         *is_empty_row = false;
         break; // read a valid row
     }
     bool valid = true;
-    _json_doc = JsonReader::get_json_doc();
     RETURN_IF_ERROR(_write_columns_by_jsonpath(*_json_doc, slot_descs, columns, &valid));
     if (!valid) {
         // there is only one line in this case, so if it return false, just set is_empty_row true
@@ -665,6 +505,30 @@ Status VJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>& 
         *is_empty_row = true;
     }
     return Status::OK();
+}
+
+Status VJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
+    size_t size = 0;
+    Status st = JsonReader::_parse_json_doc(&size, eof);
+    // terminate if encounter other errors
+    RETURN_IF_ERROR(st);
+    
+    // read all data, then return
+    if (size == 0 || *eof) { 
+        *is_empty_row = true;
+        return Status::OK();
+    }
+    
+    if (!_parsed_jsonpaths.empty() && _strip_outer_array) {
+        _total_lines = _json_doc->Size();
+        _next_line = 0;
+
+        if (_total_lines == 0) {
+            // meet an empty json array.
+            *is_empty_row = true;
+        }
+    }
+    return st;
 }
 
 Status VJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
@@ -677,12 +541,11 @@ Status VJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
     for (size_t i = 0; i < column_num; i++) {
         int dest_index = ctx_idx++;
         auto* column_ptr = columns[dest_index].get();
-        _origin_json_doc_ptr = JsonReader::get_origin_json_doc();
         rapidjson::Value* json_values = nullptr;
         bool wrap_explicitly = false;
         if (LIKELY(i < _parsed_jsonpaths.size())) {
             json_values = JsonFunctions::get_json_array_from_parsed_json(
-                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc_ptr->GetAllocator(), &wrap_explicitly);
+                    _parsed_jsonpaths[i], &objectValue, _origin_json_doc.GetAllocator(), &wrap_explicitly);
         }
 
         if (json_values == nullptr) {
@@ -692,14 +555,10 @@ Status VJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                 nullable_column->insert_data(nullptr, 0);
                 nullcount++;
             } else {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return _print_json_value(objectValue); },
-                        [&]() -> std::string {
-                        fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", slot_descs[i]->col_name());
-                        return fmt::to_string(error_msg);
-                        }, _scanner_eof));
-                _counter->num_rows_filtered++;
-                *valid = false; // current row is invalid
+                fmt::memory_buffer error_msg;
+                fmt::format_to(error_msg, "The column `{}` is not nullable, but it's not found in jsondata.", slot_descs[i]->col_name());
+                std::string err_msg = fmt::to_string(error_msg);
+                RETURN_IF_ERROR(_append_error_msg(objectValue, err_msg, valid));
                 break;
             }
         } else {
@@ -710,19 +569,32 @@ Status VJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
                 // if json_values' size > 1, it means we just match an array, not a wrapped one, so no need to unwrap.
                 json_values = &((*json_values)[0]);
             }
-            // RETURN_IF_ERROR(_write_data_to_tuple(json_values, slot_descs[i], tuple, tuple_pool, valid));
             RETURN_IF_ERROR(_write_data_to_column(json_values, slot_descs[i], column_ptr, valid));
             if (!(*valid)) {
                 break;
             }
         }
     }
+
     if (nullcount == column_num) {
-        RETURN_IF_ERROR(_state->append_error_msg_to_file([&]() -> std::string { return _print_json_value(objectValue); },
-                [&]() -> std::string { return "All fields is null or not matched, this is a invalid row."; }, _scanner_eof));
-        _counter->num_rows_filtered++;
+        std::string err_msg("All fields is null or not matched, this is a invalid row.");
+        RETURN_IF_ERROR(_append_error_msg(objectValue, err_msg, valid));
+    }
+    return Status::OK();
+}
+
+Status VJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std::string& error_msg, bool* valid) {   
+    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                [&]() -> std::string { return JsonReader::_print_json_value(objectValue); },
+                [&]() -> std::string { return error_msg; },
+                _scanner_eof));
+    
+    _counter->num_rows_filtered++;
+    if (valid != nullptr) {
+        // current row is invalid
         *valid = false;
     }
+
     return Status::OK();
 }
 

@@ -72,14 +72,8 @@ protected:
     Status open_line_reader();
     Status open_json_reader();
     Status open_next_reader();
-    
-    bool get_cur_reader_eof() { return _cur_reader_eof; }
-    bool get_read_json_by_line() { return _read_json_by_line; }
-    bool get_skip_next_line() { return _skip_next_line; }
-    FileReader* get_cur_file_reader() { return _cur_file_reader; }
-    LineReader* get_cur_line_reader() { return _cur_line_reader; }
 
-private:
+protected:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
@@ -164,11 +158,8 @@ protected:
     void _close();
     Status _generate_json_paths(const std::string& jsonpath,
                                 std::vector<std::vector<JsonPath>>* vect);
-   
-    rapidjson::Value* get_json_doc() { return _json_doc; }
-    rapidjson::Document* get_origin_json_doc() { return &_origin_json_doc; }
-    
-private:
+
+protected:
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
