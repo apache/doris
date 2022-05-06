@@ -26,6 +26,8 @@ using std::string;
 namespace doris {
 namespace env_util {
 
+static const uint64_t MAX_FILESIZE_FOR_READ_STRING = 65535;
+
 Status open_file_for_write(Env* env, const string& path, shared_ptr<WritableFile>* file) {
     return open_file_for_write(WritableFileOptions(), env, path, file);
 }
@@ -82,6 +84,10 @@ Status read_file_to_string(Env* env, const std::string& fname, std::string* data
     RETURN_IF_ERROR(env->new_random_access_file(fname, &file));
     uint64_t file_size = 0;
     RETURN_IF_ERROR(file->size(&file_size));
+    if (file_size > MAX_FILESIZE_FOR_READ_STRING) {
+        LOG(ERROR) << "File size is too big for read_file_to_string: " << file_size;
+        return Status::InternalError("File size is too big for read_file_to_string");
+    }
     std::unique_ptr<uint8_t[]> buf(new uint8_t[file_size]);
     Slice slice(buf.get(), file_size);
     RETURN_IF_ERROR(file->read_at(0, &slice));

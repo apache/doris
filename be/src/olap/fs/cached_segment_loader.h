@@ -27,11 +27,11 @@ public:
     // The cache key for cached segment lru cache
     // Holding cached segment done file path
     struct CacheKey {
-        CacheKey(std::string done_file_path_) : done_file_path(done_file_path_) {}
-        std::string done_file_path;
+        CacheKey(const std::string& done_file_path_) : done_file_path(done_file_path_) {}
+        const std::string done_file_path;
 
         // Encode to a flat binary which can be used as LRUCache's key
-        std::string encode() const {
+        const std::string& encode() const {
             return done_file_path;
         }
     };
@@ -39,7 +39,7 @@ public:
     // The cache value of segment lru cache.
     // Holding cached segment file path
     struct CacheValue {
-        CacheValue(std::string file_path_) : file_path(file_path_){}
+        CacheValue(const std::string& file_path_) : file_path(file_path_){}
         const std::string file_path;
     };
 
@@ -47,11 +47,11 @@ public:
 
     // Load cached segment by done_file_path, return the "cache_handle" which contains segment file_path.
     // If use_cache is true, it will be loaded from _cache.
-    bool load_cached_segment(const std::string done_file_path,
+    bool load_cached_segment(const std::string& done_file_path,
                              CachedSegmentCacheHandle* cache_handle, bool use_cache = true);
 
     // Insert k-v to cache
-    void insert(const std::string done_file_path, const std::string file_psth,
+    void insert(const std::string& done_file_path, const std::string& file_psth,
                 CachedSegmentCacheHandle* cache_handle);
 
     // Try to prune the segment cache if expired.

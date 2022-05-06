@@ -45,7 +45,7 @@ void CachedSegmentLoader::_insert(const CachedSegmentLoader::CacheKey& key, Cach
     *handle = CachedSegmentCacheHandle(_cache.get(), lru_handle);
 }
 
-bool CachedSegmentLoader::load_cached_segment(const std::string done_file_path,
+bool CachedSegmentLoader::load_cached_segment(const std::string& done_file_path,
                                               CachedSegmentCacheHandle* cache_handle, bool use_cache) {
     CachedSegmentLoader::CacheKey cache_key(done_file_path);
     if (_lookup(cache_key, cache_handle)) {
@@ -55,7 +55,7 @@ bool CachedSegmentLoader::load_cached_segment(const std::string done_file_path,
     return false;
 }
 
-void CachedSegmentLoader::insert(std::string done_file_path, std::string file_path,
+void CachedSegmentLoader::insert(const std::string& done_file_path, const std::string& file_path,
                                  CachedSegmentCacheHandle* cache_handle) {
     CachedSegmentLoader::CacheKey cache_key(done_file_path);
     // memory of CachedSegmentLoader::CacheValue will be handled by CachedSegmentLoader
@@ -66,7 +66,10 @@ void CachedSegmentLoader::insert(std::string done_file_path, std::string file_pa
 Status CachedSegmentLoader::prune() {
     MonotonicStopWatch watch;
     watch.start();
-    _cache->prune();
+    if (_cache->prune() != 0) {
+        LOG(ERROR) << "_cache->prune() failed";
+        return Status::InternalError("_cache->prune() failed in CachedSegmentLoader");
+    }
 
     LOG(INFO) << "prune cached segment cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
     return Status::OK();
