@@ -416,7 +416,7 @@ public class StmtExecutor implements ProfileWriter {
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
             } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
-                handleCTASStmt();
+                handleCtasStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -1552,7 +1552,7 @@ public class StmtExecutor implements ProfileWriter {
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
     
-    private void handleCTASStmt() {
+    private void handleCtasStmt() {
         CreateTableAsSelectStmt ctasStmt = (CreateTableAsSelectStmt) this.parsedStmt;
         try {
             // create table
@@ -1576,7 +1576,8 @@ public class StmtExecutor implements ProfileWriter {
                     DdlExecutor.execute(context.getCatalog(), dropTableStmt);
                 } catch (Exception ex) {
                     LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
+                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                            "Unexpected exception: " + ex.getMessage());
                 }
             }
         }
@@ -1605,4 +1606,3 @@ public class StmtExecutor implements ProfileWriter {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
 }
-
