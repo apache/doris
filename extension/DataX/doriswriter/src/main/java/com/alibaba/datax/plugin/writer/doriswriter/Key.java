@@ -34,6 +34,7 @@ public class Key implements Serializable {
     public static final String DATABASE = "database";
     public static final String TABLE = "table";
     public static final String COLUMN = "column";
+    public static final String TIME_ZONE = "timeZone";
 
     public static final String USERNAME = "username";
     public static final String PASSWORD = "password";
@@ -54,6 +55,7 @@ public class Key implements Serializable {
     private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final String DEFAULT_TIME_ZONE = "+08:00";
     private static final int DEFAULT_CONNECT_TIMEOUT = -1;
 
     public Key(final Configuration options) {
@@ -96,6 +98,10 @@ public class Key implements Serializable {
 
     public List<String> getColumns() {
         return this.options.getList(COLUMN, String.class);
+    }
+
+    public String getTimeZone() {
+        return this.options.getString(TIME_ZONE, DEFAULT_TIME_ZONE);
     }
 
     public List<String> getPreSqlList() {
