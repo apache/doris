@@ -1551,7 +1551,7 @@ public class StmtExecutor implements ProfileWriter {
         ExportStmt exportStmt = (ExportStmt) parsedStmt;
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
-    
+
     private void handleCtasStmt() {
         CreateTableAsSelectStmt ctasStmt = (CreateTableAsSelectStmt) this.parsedStmt;
         try {
