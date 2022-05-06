@@ -27,6 +27,7 @@
                         "database": "db1",
                         "table": "t3",
                         "column": ["k1", "k2", "k3"],
+                        "timeZone": "+08:00",
                         "username": "root",
                         "password": "12345",
                         "postSql": [],
