@@ -33,6 +33,9 @@ import org.junit.Test;
 import java.io.File;
 import java.util.UUID;
 
+/**
+ * test for ShowCreateMaterializedViewStmt
+ **/
 public class ShowCreateMaterializedViewStmtTest {
 
     private static String runningDir = "fe/mocked/ShowCreateMaterializedViewStmtTest/" + UUID.randomUUID() + "/";
@@ -41,6 +44,9 @@ public class ShowCreateMaterializedViewStmtTest {
 
     private static DorisAssert dorisAssert;
 
+    /**
+     * init.
+     **/
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
@@ -49,9 +55,7 @@ public class ShowCreateMaterializedViewStmtTest {
         connectContext = UtFrameUtils.createDefaultCtx();
         dorisAssert = new DorisAssert(connectContext);
         dorisAssert.withDatabase("test")
-                .withTable("create table test.table1\n" +
-                        "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
-                        "properties(\"replication_num\" = \"1\");")
+                .withTable("create table test.table1 (k1 int, k2 int) distributed by hash(k1) buckets 1 properties(\"replication_num\" = \"1\");")
                 .withMaterializedView("CREATE MATERIALIZED VIEW test_mv as select k1 from test.table1;");
     }
 

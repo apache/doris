@@ -30,14 +30,12 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-// SHOW CREATE MATERIALIZED VIEW mv_name ON table_name
+/**
+ * SHOW CREATE MATERIALIZED VIEW mv_name ON table_name.
+ **/
 @AllArgsConstructor
 @Getter
 public class ShowCreateMaterializedViewStmt extends ShowStmt {
-
-    private String mvName;
-
-    private TableName tableName;
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
@@ -46,11 +44,16 @@ public class ShowCreateMaterializedViewStmt extends ShowStmt {
                     .addColumn(new Column("CreateStmt", ScalarType.createVarchar(65535)))
                     .build();
 
+    private String mvName;
+
+    private TableName tableName;
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),  PrivPredicate.SHOW)) {
+        if (!Catalog.getCurrentCatalog().getAuth()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE MATERIALIZED",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
