@@ -232,7 +232,7 @@ public:
 
     void set_value(const IColumn** columns, int64_t pos) {
         if constexpr (is_nullable) {
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto* nullable_column = assert_cast<ColumnNullable*>(columns[0]);
             if (nullable_column && nullable_column->is_null_at(pos)) {
                 _data_value.set_null(true);
                 _has_value = true;
@@ -268,7 +268,7 @@ public:
     void check_default(const IColumn* column) {
         if (!has_init()) {
             if (is_column_nullable(*column)) {
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(column);
+                const auto* nullable_column = assert_cast<ColumnNullable*>(column);
                 if (nullable_column->is_null_at(0)) {
                     _default_value.set_null(true);
                 }
@@ -373,7 +373,7 @@ struct WindowFunctionFirstNonNullData : Data {
         frame_end = std::min<int64_t>(frame_end, partition_end);
         if constexpr (this->nullable()) {
             this->set_null_if_need();
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto* nullable_column = assert_cast<ColumnNullable*>(columns[0]);
             for (int i = frame_start; i < frame_end; i++) {
                 if (!nullable_column->is_null_at(i)) {
                     this->set_value(columns, i);
@@ -391,7 +391,7 @@ struct WindowFunctionFirstNonNullData : Data {
         }
         if constexpr (this->nullable()) {
             this->set_null_if_need();
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto* nullable_column = assert_cast<ColumnNullable*>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
@@ -432,7 +432,7 @@ struct WindowFunctionLastNonNullData : Data {
         frame_end = std::min<int64_t>(frame_end, partition_end);
         if constexpr (this->nullable()) {
             this->set_null_if_need();
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto* nullable_column = assert_cast<ColumnNullable*>(columns[0]);
             for (int i = frame_end - 1; i >= frame_start; i--) {
                 if (!nullable_column->is_null_at(i)) {
                     this->set_value(columns, i);
@@ -447,7 +447,7 @@ struct WindowFunctionLastNonNullData : Data {
     void add(int64_t row, const IColumn** columns) {
         if constexpr (this->nullable()) {
             this->set_null_if_need();
-            const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
+            const auto* nullable_column = assert_cast<ColumnNullable*>(columns[0]);
             if (nullable_column->is_null_at(row)) {
                 return;
             }
