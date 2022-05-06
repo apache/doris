@@ -90,6 +90,9 @@ public class IcebergTable extends Table {
                 icebergProperty.getHiveMetastoreUris());
         icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
                 icebergProperty.getCatalogType());
+        if (icebergProperty.getDfsProperties() != null) {
+            icebergProperties.putAll(icebergProperty.getDfsProperties());
+        }
         this.icebergTable = icebergTable;
     }
 
