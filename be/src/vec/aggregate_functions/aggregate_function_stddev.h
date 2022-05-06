@@ -92,9 +92,7 @@ struct BaseData {
         count += 1;
     }
 
-    static DataTypePtr get_return_type() {
-        return std::make_shared<DataTypeNumber<Float64>>();
-    }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 
     double mean;
     double m2;

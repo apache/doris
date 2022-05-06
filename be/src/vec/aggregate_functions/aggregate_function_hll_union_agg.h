@@ -53,9 +53,7 @@ struct AggregateFunctionHLLData {
 
     HyperLogLog get() const { return dst_hll; }
 
-    void reset() {
-        dst_hll.clear();
-    }
+    void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
         if constexpr (is_nullable) {
