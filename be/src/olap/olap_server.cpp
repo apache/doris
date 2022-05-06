@@ -390,8 +390,9 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 _wakeup_producer_flag = 0;
                 // It is necessary to wake up the thread on timeout to prevent deadlock
                 // in case of no running compaction task.
-                _compaction_producer_sleep_cv.wait_for(lock, std::chrono::milliseconds(2000),
-                                                       [=, this] { return _wakeup_producer_flag == 1; });
+                _compaction_producer_sleep_cv.wait_for(
+                        lock, std::chrono::milliseconds(2000),
+                        [=, this] { return _wakeup_producer_flag == 1; });
                 continue;
             }
 
