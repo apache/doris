@@ -18,9 +18,8 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AlterTableStmt;
-import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -32,7 +31,6 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.StmtExecutor;
 
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -60,25 +58,21 @@ public class DemoTest extends TestWithFeService {
         connectContext = createDefaultCtx();
 
         // 2. create database db1
-        String createDbStmtStr = "create database db1;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        createDatabase("db1");
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
         // 3. create table tbl1
-        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
-        CreateTableStmt createTableStmt = (CreateTableStmt) parseAndAnalyzeStmt(createTblStmtStr);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        createTable("create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
 
         // 4. get and test the created db and table
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
         OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
-            Assert.assertNotNull(tbl);
+            Assertions.assertNotNull(tbl);
             System.out.println(tbl.getName());
-            Assert.assertEquals("Doris", tbl.getEngine());
-            Assert.assertEquals(1, tbl.getBaseSchema().size());
+            Assertions.assertEquals("Doris", tbl.getEngine());
+            Assertions.assertEquals(1, tbl.getBaseSchema().size());
         } finally {
             tbl.readUnlock();
         }
@@ -90,14 +84,14 @@ public class DemoTest extends TestWithFeService {
 
         // 6. check alter job
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
-        Assert.assertEquals(1, alterJobs.size());
+        Assertions.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Assertions.assertEquals(JobState.FINISHED, alterJobV2.getJobState());
         }
 
         OlapTable tbl1 = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);

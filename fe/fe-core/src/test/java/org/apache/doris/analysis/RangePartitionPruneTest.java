@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import org.junit.jupiter.api.Test;
-
 import org.apache.doris.common.FeConstants;
+
+import org.junit.jupiter.api.Test;
 
 public class RangePartitionPruneTest extends PartitionPruneTestBase {
 
