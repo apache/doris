@@ -37,10 +37,7 @@ public class VectorizedUtil {
         if (stmtExecutor == null) {
             return connectContext.getSessionVariable().enableVectorizedEngine();
         }
-        Analyzer analyzer = null;
-        if (connectContext.getExecutor() != null && connectContext.getExecutor().getAnalyzer() != null) {
-            analyzer = connectContext.getExecutor().getAnalyzer();
-        }
+        Analyzer analyzer = stmtExecutor.getAnalyzer();
         if (analyzer == null) {
             return connectContext.getSessionVariable().enableVectorizedEngine();
         }
