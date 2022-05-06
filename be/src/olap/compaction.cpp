@@ -136,7 +136,12 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     int64_t current_max_version;
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        current_max_version = _tablet->rowset_with_max_version()->end_version();
+        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
+        if (max_rowset == nullptr) {
+            current_max_version = -1;
+        } else {
+            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        }
     }
 
     LOG(INFO) << "succeed to do " << merge_type << compaction_name()
