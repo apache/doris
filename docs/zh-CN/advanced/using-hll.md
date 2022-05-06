@@ -95,6 +95,7 @@ create table test_hll(
 	os char(10),
 	pv hll hll_union
 )
+DUPLICATE KEY (dt,id,name,province,os)
 distributed by hash(id) buckets 10
 PROPERTIES(
 	"replication_num" = "1",
