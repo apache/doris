@@ -34,5 +34,4 @@ under the License.
     默认值为 DECIMAL(9, 0)。
 
 ### keywords
-
     DECIMAL
