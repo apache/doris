@@ -55,7 +55,7 @@ public:
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     virtual ~BaseScanner() {
         Expr::close(_dest_expr_ctx, _state);
-        if (_state->enable_vectorized_exec()) {
+        if (_state != nullptr && _state->enable_vectorized_exec()) {
             vectorized::VExpr::close(_dest_vexpr_ctx, _state);
         }
     };
@@ -71,7 +71,7 @@ public:
     virtual Status get_next(vectorized::Block* block, bool* eof) {
         return Status::NotSupported("Not Implemented get block");
     }
-    
+
     virtual Status get_next(vectorized::Block& output_block, bool* eof) {
         return Status::NotSupported("Not Implemented get block");
     }
@@ -86,8 +86,8 @@ public:
     void free_expr_local_allocations();
 
     Status filter_block_and_execute_exprs(vectorized::Block* output_block,
-                                        vectorized::Block* temp_block, size_t slot_num);
-    
+                                          vectorized::Block* temp_block, size_t slot_num);
+
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;

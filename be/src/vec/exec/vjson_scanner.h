@@ -51,18 +51,16 @@ class VJsonReader;
 class VJsonScanner : public JsonScanner {
 public:
     VJsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                const std::vector<TBrokerRangeDesc>& ranges,
-                const std::vector<TNetworkAddress>& broker_addresses,
-                const std::vector<TExpr>& pre_filter_texprs,
-                ScannerCounter* counter);
-        
+                 const std::vector<TBrokerRangeDesc>& ranges,
+                 const std::vector<TNetworkAddress>& broker_addresses,
+                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+
     ~VJsonScanner();
-    
+
     Status open() override;
 
     void close() override;
 
-    // Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
     Status get_next(vectorized::Block& output_block, bool* eof) override;
 
 private:
@@ -76,53 +74,51 @@ private:
 class VJsonReader : public JsonReader {
 public:
     VJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
-               bool* scanner_eof, FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
+                bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
+                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~VJsonReader();
 
     Status init(const std::string& jsonpath, const std::string& json_root);
 
-    Status read_json_column(std::vector<MutableColumnPtr>& columns, 
-                            const std::vector<SlotDescriptor*>& slot_descs,
-                            bool* is_empty_row, bool* eof);
+    Status read_json_column(std::vector<MutableColumnPtr>& columns,
+                            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                            bool* eof);
 
 private:
-    Status (VJsonReader::*_vhandle_json_callback)(std::vector<vectorized::MutableColumnPtr>& columns,
-                                                const std::vector<SlotDescriptor*>& slot_descs,
-                                                bool* is_empty_row, bool* eof);
+    Status (VJsonReader::*_vhandle_json_callback)(
+            std::vector<vectorized::MutableColumnPtr>& columns,
+            const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
 
-    Status _vhandle_simple_json(std::vector<MutableColumnPtr>& columns, 
-                                const std::vector<SlotDescriptor*>& slot_descs,
-                                bool* is_empty_row, bool* eof);
+    Status _vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
+                                const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+                                bool* eof);
 
     Status _vhandle_flat_array_complex_json(std::vector<MutableColumnPtr>& columns,
-                                        const std::vector<SlotDescriptor*>& slot_descs,
-                                        bool* is_empty_row, bool* eof);
+                                            const std::vector<SlotDescriptor*>& slot_descs,
+                                            bool* is_empty_row, bool* eof);
 
     Status _vhandle_nested_complex_json(std::vector<MutableColumnPtr>& columns,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
-    
+
     Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
-                                    const std::vector<SlotDescriptor*>& slot_descs,
-                                    std::vector<MutableColumnPtr>& columns,
-                                    bool* valid);
-    
+                                      const std::vector<SlotDescriptor*>& slot_descs,
+                                      std::vector<MutableColumnPtr>& columns, bool* valid);
+
     Status _set_column_value(rapidjson::Value& objectValue, std::vector<MutableColumnPtr>& columns,
-                            const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
-    
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value, SlotDescriptor* slot_desc,
-                            vectorized::IColumn* column_ptr, bool* valid);
-    
-    Status _insert_to_column(vectorized::IColumn* column_ptr, SlotDescriptor* slot_desc,
-                            const char* value_ptr, int32_t& wbytes);
-    
-    Status _append_error_msg(const rapidjson::Value& objectValue, std::string& error_msg, bool* valid);
+                             const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
+
+    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
+                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                 bool* valid);
 
     Status _parse_json(bool* is_empty_row, bool* eof);
+
+    Status _append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,
+                             std::string col_name, bool* valid);
 };
 
-} // vectorized
+} // namespace vectorized
 } // namespace doris
 #endif

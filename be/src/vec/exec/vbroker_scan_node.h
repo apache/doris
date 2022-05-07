@@ -31,7 +31,8 @@ namespace vectorized {
 class VBrokerScanNode final : public BrokerScanNode {
 public:
     VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    ~VBrokerScanNode() override = default;
+
+    ~VBrokerScanNode() { close(_runtime_state); }
 
     // Fill the next row batch by calling next() on the scanner,
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
