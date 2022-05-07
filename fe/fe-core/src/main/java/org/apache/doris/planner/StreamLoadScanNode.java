@@ -69,8 +69,8 @@ public class StreamLoadScanNode extends LoadScanNode {
     // If use case sensitive map, for example,
     // the column name 「A」 in the table and the mapping '(a) set (A = a)' in load sql，
     // Slotdescbyname stores「a」, later will use 「a」to get table's 「A」 column info, will throw exception.
-    private Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-    private Map<String, Expr> exprsByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Expr> exprsByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
