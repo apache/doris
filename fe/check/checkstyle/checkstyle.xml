@@ -32,6 +32,16 @@ under the License.
         <property name="fileNamePattern" value="module\-info\.java$"/>
     </module>
 
+    <module name="Header">
+        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
+        <property name="fileExtensions" value="java"/>
+    </module>
+
+    <module name="SuppressionFilter">
+        <property name="file" value="check/checkstyle/suppressions.xml"/>
+        <property name="optional" value="false"/>
+    </module>
+
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>
     </module>
@@ -171,6 +181,7 @@ under the License.
         </module>
         <module name="InvalidJavadocPosition"/>
         <module name="JavadocMethod">
+            <property name="id" value="ProductionScope"/>
             <property name="accessModifiers" value="public"/>
             <property name="allowMissingParamTags" value="true"/>
             <property name="allowMissingReturnTag" value="true"/>
@@ -179,6 +190,7 @@ under the License.
         </module>
 
         <module name="JavadocParagraph"/>
+        <module name="JavadocStyle"/>
         <module name="JavadocTagContinuationIndentation"/>
         <module name="MissingJavadocMethod">
             <property name="scope" value="public"/>
