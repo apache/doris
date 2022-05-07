@@ -38,7 +38,7 @@ public interface NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
     List<Expression> children();
 
     default Slot toSlot() throws UnboundException {
-        throw new UnboundException("toAttribute");
+        throw new UnboundException("toSlot");
     }
 
     default String getName() throws UnboundException {
