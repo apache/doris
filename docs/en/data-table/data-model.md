@@ -254,14 +254,14 @@ This is a typical user base information table. There is no aggregation requireme
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-`city` VARCHAR (20) COMMENT `User City',
-`age` SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
-`sex` TINYINT COMMENT "用户性别",
-`phone` LARGEINT COMMENT "用户电话",
-`address` VARCHAR (500) COMMENT'25143;',
-`register_time` DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
+`user_id` LARGEINT NOT NULL COMMENT "user id",
+`username` VARCHAR (50) NOT NULL COMMENT "username",
+`city` VARCHAR (20) COMMENT "user city",
+`age` SMALLINT COMMENT "age",
+`sex` TINYINT COMMENT "sex",
+`phone` LARGEINT COMMENT "phone",
+`address` VARCHAR (500) COMMENT "address",
+`register_time` DATETIME COMMENT "register time"
 )
 Unique Key (`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -288,13 +288,13 @@ And table-building statements:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-`city` VARCHAR (20) REPLACE COMMENT `User City',
-`sex` TINYINT REPLACE COMMENT "用户性别",
-`phone` LARGEINT REPLACE COMMENT "25143;"
-`address` VARCHAR(500) REPLACE COMMENT "用户地址",
-`register_time` DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
+`user_id` LARGEINT NOT NULL COMMENT "user id",
+`username` VARCHAR (50) NOT NULL COMMENT "username",
+`city` VARCHAR (20) REPLACE COMMENT "user city",
+`sex` TINYINT REPLACE COMMENT "sex",
+`phone` LARGEINT REPLACE COMMENT "phone",
+`address` VARCHAR(500) REPLACE COMMENT "address",
+`register_time` DATETIME REPLACE COMMENT "register time"
 )
 AGGREGATE KEY(`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -322,12 +322,12 @@ The TABLE statement is as follows:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
-    `type` INT NOT NULL COMMENT "日志类型",
-    `error_code` INT COMMENT "错误码",
-    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
-    `op_id` BIGINT COMMENT "负责人id",
-    `op_time` DATETIME COMMENT "处理时间"
+    `timestamp` DATETIME NOT NULL COMMENT "log time",
+    `type` INT NOT NULL COMMENT "log type",
+    `error_code` INT COMMENT "error code",
+    `error_msg` VARCHAR(1024) COMMENT "error detail",
+    `op_id` BIGINT COMMENT "operater id",
+    `op_time` DATETIME COMMENT "operate time"
 )
 DUPLICATE KEY(`timestamp`, `type`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
