@@ -70,12 +70,12 @@ private:
     ColumnPtr _execute_string(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
-        const auto& str_offs = check_and_get_column<ColumnString>(nested_column)->get_offsets();
-        const auto& str_chars = check_and_get_column<ColumnString>(nested_column)->get_chars();
+        const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
+        const auto& str_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
 
         // check right column type and get data
-        const auto& right_offs = check_and_get_column<ColumnString>(right_column)->get_offsets();
-        const auto& right_chars = check_and_get_column<ColumnString>(right_column)->get_chars();
+        const auto& right_offs = reinterpret_cast<const ColumnString&>(right_column).get_offsets();
+        const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
         auto dst = ColumnVector<ResultType>::create(offsets.size());
@@ -113,10 +113,11 @@ private:
     ColumnPtr _execute_number(const ColumnArray::Offsets& offsets, const UInt8* nested_null_map,
                               const IColumn& nested_column, const IColumn& right_column) {
         // check array nested column type and get data
-        const auto& nested_data = check_and_get_column<NestedColumnType>(nested_column)->get_data();
+        const auto& nested_data =
+                reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
 
         // check right column type and get data
-        const auto& right_data = check_and_get_column<RightColumnType>(right_column)->get_data();
+        const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
         auto dst = ColumnVector<ResultType>::create(offsets.size());
@@ -188,18 +189,17 @@ private:
         // extract array offsets and nested data
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto array_column = check_and_get_column<ColumnArray>(*left_column);
-        DCHECK(array_column != nullptr);
-        const auto& offsets = array_column->get_offsets();
+        const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
+        const auto& offsets = array_column.get_offsets();
         const UInt8* nested_null_map = nullptr;
         ColumnPtr nested_column = nullptr;
-        if (array_column->get_data().is_nullable()) {
-            auto nested_null_column =
-                    check_and_get_column<ColumnNullable>(array_column->get_data());
-            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column = nested_null_column->get_nested_column_ptr();
+        if (array_column.get_data().is_nullable()) {
+            const auto& nested_null_column =
+                    reinterpret_cast<const ColumnNullable&>(array_column.get_data());
+            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
+            nested_column = nested_null_column.get_nested_column_ptr();
         } else {
-            nested_column = array_column->get_data_ptr();
+            nested_column = array_column.get_data_ptr();
         }
 
         // get right column
