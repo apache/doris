@@ -117,12 +117,12 @@ Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
 
             // filter src tuple by preceding filter first
             if (!_vpre_filter_ctxs.empty()) {
-                auto old_rows = output_block.rows();
                 for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
+                    auto old_rows = output_block.rows();
                     RETURN_IF_ERROR(
                             VExprContext::filter_block(_vpre_filter_ctx, &output_block, slot_num));
+                    _counter->num_rows_unselected += old_rows - output_block.rows();
                 }
-                _counter->num_rows_unselected += old_rows - output_block.rows();
             }
         }
     }
