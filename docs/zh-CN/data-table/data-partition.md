@@ -358,7 +358,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 在建表语句的最后 PROPERTIES 中，关于PROPERTIES中可以设置的相关参数，我们可以查看[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)中查看详细的介绍。
 
-### ENGIN
+### ENGINE
 
 本示例中，ENGINE 的类型是 olap，即默认的 ENGINE 类型。在 Doris 中，只有这个 ENGINE 类型是由 Doris 负责数据管理和存储的。其他 ENGINE 类型，如 mysql、broker、es 等等，本质上只是对外部其他数据库或系统中的表的映射，以保证 Doris 可以读取这些数据。而 Doris 本身并不创建、管理和存储任何非 olap ENGINE 类型的表和数据。
 
