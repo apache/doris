@@ -20,9 +20,9 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Optional;
 
@@ -32,7 +32,8 @@ import java.util.Optional;
 public class PhysicalBroadcastHashJoin<
             LEFT_CHILD_TYPE extends Plan<LEFT_CHILD_TYPE>,
             RIGHT_CHILD_TYPE extends Plan<RIGHT_CHILD_TYPE>>
-        extends PhysicalBinary<PhysicalBroadcastHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends PhysicalBinary<PhysicalBroadcastHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final JoinType joinType;
     private final Expression onClause;

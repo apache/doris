@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.trees;
 
 
-import java.util.List;
-
 import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.

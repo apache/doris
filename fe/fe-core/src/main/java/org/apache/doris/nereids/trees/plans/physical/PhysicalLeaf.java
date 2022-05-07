@@ -24,8 +24,8 @@ import org.apache.doris.nereids.trees.plans.LeafPlan;
  * Abstract class for all physical plan that have no child.
  */
 public abstract class PhysicalLeaf<PLAN_TYPE extends PhysicalLeaf<PLAN_TYPE>>
-      extends AbstractPhysicalPlan<PLAN_TYPE>
-      implements LeafPlan<PLAN_TYPE> {
+        extends AbstractPhysicalPlan<PLAN_TYPE>
+        implements LeafPlan<PLAN_TYPE> {
 
     public PhysicalLeaf(NodeType type) {
         super(type);

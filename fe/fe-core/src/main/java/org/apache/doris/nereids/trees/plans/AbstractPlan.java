@@ -62,6 +62,16 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
         this.planReference = planReference;
     }
 
+    @Override
+    public List<Plan> children() {
+        return (List) children;
+    }
+
+    @Override
+    public Plan child(int index) {
+        return (Plan) children.get(index);
+    }
+
     /**
      * Get tree like string describing query plan.
      *
@@ -72,16 +82,6 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
         List<String> lines = new ArrayList<>();
         treeString(lines, 0, new ArrayList<>(), this);
         return StringUtils.join(lines, "\n");
-    }
-
-    @Override
-    public List<Plan> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Plan child(int index) {
-        return (Plan) children.get(index);
     }
 
     private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan<PLAN_TYPE> plan) {

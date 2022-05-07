@@ -21,9 +21,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.clearspring.analytics.util.Lists;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.springframework.util.CollectionUtils;
 
 import java.util.List;
