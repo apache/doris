@@ -1638,7 +1638,7 @@ void TaskWorkerPool::_submit_table_compaction_worker_thread_callback() {
         }
 
         TabletSharedPtr tablet_ptr = StorageEngine::instance()->tablet_manager()->get_tablet(
-                compaction_req.tablet_id, compaction_req.schema_hash);
+                compaction_req.tablet_id);
         if (tablet_ptr != nullptr) {
             auto data_dir = tablet_ptr->data_dir();
             if (!tablet_ptr->can_do_compaction(data_dir->path_hash(), compaction_type)) {
