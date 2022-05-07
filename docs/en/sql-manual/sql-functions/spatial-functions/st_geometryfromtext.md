@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_GeometryFromText`,`ST GeomFromText`",
+    "title": "ST_GeometryFromText,ST_GeomFromText",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_GeometryFromText`,`ST GeomFromText`
+## ST_GeometryFromText,ST_GeomFromText
 ### Description
 #### Syntax
 

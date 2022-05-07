@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Monthname",
+    "title": "monthname",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Monthname
+## monthname
 ### Description
 #### Syntax
 
