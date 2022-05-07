@@ -1045,6 +1045,7 @@ public class Load {
             return;
         }
 
+        // load sql '(a, b)set(c=a, d=b)', tmpSet save {a,b}.
         Set<String> tmpSet = Sets.newHashSet();
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             if (importColumnDesc.getExpr() == null) {
@@ -1057,10 +1058,10 @@ public class Load {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             String realColName;
-            if (tbl.getColumn(columnName) == null || tmpSet.contains(columnName) ){
+            if (tbl.getColumn(columnName) == null || tmpSet.contains(columnName)) {
                 realColName = columnName;
             } else {
-                    realColName = tbl.getColumn(columnName).getName();
+                realColName = tbl.getColumn(columnName).getName();
             }
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());

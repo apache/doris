@@ -66,6 +66,9 @@ public class StreamLoadScanNode extends LoadScanNode {
     private TupleDescriptor srcTupleDesc;
     private TBrokerScanRange brokerScanRange;
 
+    // If use case sensitive map, for example,
+    // the column name 「A」 in the table and the mapping '(a) set (A = a)' in load sql，
+    // Slotdescbyname stores「a」, later will use 「a」to get table's 「A」 column info, will throw exception.
     private Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
     private Map<String, Expr> exprsByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
