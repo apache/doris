@@ -1346,7 +1346,8 @@ private:
         }
     };
 
-    std::unordered_set<T, NumericHashHelper> _set;
+    phmap::flat_hash_set<T, NumericHashHelper> _set;
+
     // Because Anyval does not provide the hash function, in order
     // to adopt the type different from the template, the pointer is used
     // HybridSetBase* _set;
@@ -1503,7 +1504,8 @@ public:
 private:
     const int DECIMAL_BYTE_SIZE = 16;
 
-    std::unordered_set<DecimalV2Value> _set;
+    phmap::flat_hash_set<DecimalV2Value> _set;
+
     FunctionContext::Type _type;
 };
 
@@ -1588,7 +1590,8 @@ private:
     const int DATETIME_PACKED_TIME_BYTE_SIZE = 8;
     const int DATETIME_TYPE_BYTE_SIZE = 4;
 
-    std::unordered_set<DateTimeVal, DateTimeHashHelper> _set;
+    phmap::flat_hash_set<DateTimeVal, DateTimeHashHelper> _set;
+
     FunctionContext::Type _type;
 };
 
