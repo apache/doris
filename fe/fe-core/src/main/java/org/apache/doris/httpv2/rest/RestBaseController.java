@@ -78,13 +78,15 @@ public class RestBaseController extends BaseController {
             //username@cluster:password
             //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
             //This is to go directly to BE, but in fact,
-            //BE still needs to take this authentication information and send RPC to FE to parse the authentication information,
+            //BE still needs to take this authentication information and send RPC
+            // to FE to parse the authentication information,
             //so in the end, the format of this authentication information is parsed on the FE side.
             //The normal format for fullUserName is actually default_cluster:username
             //I don't know why the format username@default_cluster is used in parseAuthInfo.
-            //It is estimated that it is compatible with the standard format of username:password. .
+            //It is estimated that it is compatible with the standard format of username:password.
             //So here we feel that we can assemble it completely by hand.
-            String clusterName = ConnectContext.get() == null ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
+            String clusterName = ConnectContext.get() == null ? SystemInfoService.DEFAULT_CLUSTER
+                : ConnectContext.get().getClusterName();
             userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
                 "@" + clusterName  +
                 ":" + authInfo.password;
