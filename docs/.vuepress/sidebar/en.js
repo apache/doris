@@ -1023,6 +1023,7 @@ module.exports = [
       "how-to-share-blogs",
       "minidump",
       "bitmap-hll-file-format",
+      "github-checks"
     ],
   },
   {
