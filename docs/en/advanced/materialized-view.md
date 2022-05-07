@@ -148,11 +148,13 @@ You can see that the current `mv_test` table has three materialized views: mv\_1
 
 If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
 
-The specific syntax can be viewed through the following command:
+You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html)
 
-```
-HELP DROP MATERIALIZED VIEW
-```
+### View the materialized view that has been created
+
+Users can view the created materialized views by using commands
+
+You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.html)
 
 ## Best Practice 1
 
