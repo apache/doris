@@ -23,9 +23,9 @@
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
 #include "vec/columns/column_dictionary.h"
-#include "vec/columns/column_vector.h"
-#include "vec/columns/column_string.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_string.h"
+#include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
 
 namespace doris {
@@ -66,6 +66,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
         uint32_t value_code = -1;
+        auto* actual_builder =
+                down_cast<BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>*>(_data_page_builder.get());
 
         if (_data_page_builder->count() == 0) {
             _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()),
@@ -90,13 +92,18 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
                     dict_item.relocate(item_mem);
                 }
                 value_code = _dictionary.size();
+                size_t add_count = 1;
+                RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
+                                                   &add_count));
+                if (add_count == 0) {
+                    // current dict page is full, stop processing remaining inputs
+                    break;
+                }
                 _dictionary.emplace(dict_item, value_code);
-                _dict_items.push_back(dict_item);
-                _dict_builder->update_prepared_size(dict_item.size);
             }
             size_t add_count = 1;
-            RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(&value_code),
-                                                    &add_count));
+            RETURN_IF_ERROR(actual_builder->single_add(
+                    reinterpret_cast<const uint8_t*>(&value_code), &add_count));
             if (add_count == 0) {
                 // current data page is full, stop processing remaining inputs
                 break;
@@ -144,17 +151,7 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    _dictionary.clear();
-    _dict_builder->reset();
-    size_t add_count = 1;
-    // here do not check is_page_full of dict_builder
-    // because it is checked in add
-    for (auto& dict_item : _dict_items) {
-        RETURN_IF_ERROR(
-                _dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item), &add_count));
-    }
     *dictionary_page = _dict_builder->finish();
-    _dict_items.clear();
     return Status::OK();
 }
 
@@ -180,10 +177,7 @@ Status BinaryDictPageBuilder::get_last_value(void* value) const {
     }
     uint32_t value_code;
     RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
-    // TODO _dict_items is cleared in get_dictionary_page, which could cause
-    // get_last_value to fail when it's called after get_dictionary_page.
-    // the solution is to read last value from _dict_builder instead of _dict_items
-    *reinterpret_cast<Slice*>(value) = _dict_items[value_code];
+    *reinterpret_cast<Slice*>(value) = _dict_builder->get(value_code);
     return Status::OK();
 }
 
