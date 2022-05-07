@@ -72,16 +72,14 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
 
     TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
-        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
+        LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
 
     if (!res.ok()) {
-        LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id
-                     << " schema_hash=" << request.schema_hash;
+        LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id;
         return res;
     }
 
