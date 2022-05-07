@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
@@ -414,6 +415,8 @@ public class StmtExecutor implements ProfileWriter {
                 handleUseStmt();
             } else if (parsedStmt instanceof TransactionStmt) {
                 handleTransactionStmt();
+            } else if (parsedStmt instanceof CreateTableAsSelectStmt) {
+                handleCtasStmt();
             } else if (parsedStmt instanceof InsertStmt) { // Must ahead of DdlStmt because InserStmt is its subclass
                 try {
                     handleInsertStmt();
@@ -1229,7 +1232,6 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().reset();
         // create plan
         InsertStmt insertStmt = (InsertStmt) parsedStmt;
-
         if (insertStmt.getQueryStmt().hasOutFileClause()) {
             throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
@@ -1550,6 +1552,37 @@ public class StmtExecutor implements ProfileWriter {
         context.getCatalog().getExportMgr().addExportJob(exportStmt);
     }
 
+    private void handleCtasStmt() {
+        CreateTableAsSelectStmt ctasStmt = (CreateTableAsSelectStmt) this.parsedStmt;
+        try {
+            // create table
+            DdlExecutor.execute(context.getCatalog(), ctasStmt);
+            context.getState().setOk();
+        }  catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
+        // after success create table insert data
+        if (MysqlStateType.OK.equals(context.getState().getStateType())) {
+            try {
+                parsedStmt = ctasStmt.getInsertStmt();
+                execute();
+            } catch (Exception e) {
+                LOG.warn("CTAS insert data error, stmt={}", parsedStmt.toSql(), e);
+                // insert error drop table
+                DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
+                try {
+                    DdlExecutor.execute(context.getCatalog(), dropTableStmt);
+                } catch (Exception ex) {
+                    LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                            "Unexpected exception: " + ex.getMessage());
+                }
+            }
+        }
+    }
+
     public Data.PQueryStatistics getQueryStatisticsForAuditLog() {
         if (statisticsForAuditLog == null) {
             statisticsForAuditLog = Data.PQueryStatistics.newBuilder();
@@ -1573,4 +1606,3 @@ public class StmtExecutor implements ProfileWriter {
         return exprs.stream().map(e -> e.getType().getPrimitiveType()).collect(Collectors.toList());
     }
 }
-
