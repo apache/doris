@@ -85,8 +85,9 @@ public:
 
     void free_expr_local_allocations();
 
-    Status filter_block_and_execute_exprs(vectorized::Block* output_block,
-                                          vectorized::Block* temp_block, size_t slot_num);
+    Status filter_block(vectorized::Block* temp_block, size_t slot_num);
+
+    Status execute_exprs(vectorized::Block* output_block, vectorized::Block* temp_block);
 
 protected:
     RuntimeState* _state;

@@ -73,6 +73,10 @@ protected:
     Status open_json_reader();
     Status open_next_reader();
 
+    Status open_based_reader();
+    Status get_range_params(std::string& jsonpath, std::string& json_root, bool& strip_outer_array,
+                            bool& num_as_string, bool& fuzzy_parse);
+
 protected:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
@@ -158,6 +162,7 @@ protected:
     void _close();
     Status _generate_json_paths(const std::string& jsonpath,
                                 std::vector<std::vector<JsonPath>>* vect);
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
 
 protected:
     int _next_line;

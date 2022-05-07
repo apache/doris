@@ -58,9 +58,10 @@ void VJsonScanner::close() {
 
 Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
+    Status status;
     const int batch_size = _state->batch_size();
     size_t slot_num = _src_slot_descs.size();
-    std::shared_ptr<vectorized::Block> temp_block(new vectorized::Block());
+    std::unique_ptr<vectorized::Block> temp_block(new vectorized::Block());
     std::vector<vectorized::MutableColumnPtr> columns(slot_num);
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
     for (int i = 0; i < slot_num; i++) {
@@ -97,41 +98,23 @@ Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
     }
 
     if (columns[0]->size() > 0) {
-        if (!_dest_vexpr_ctx.empty()) {
-            auto n_columns = 0;
-            for (const auto slot_desc : _src_slot_descs) {
-                temp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                         slot_desc->get_data_type_ptr(),
-                                                         slot_desc->col_name()));
-            }
+        auto n_columns = 0;
+        for (const auto slot_desc : _src_slot_descs) {
+            temp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                     slot_desc->get_data_type_ptr(),
+                                                     slot_desc->col_name()));
+        }
 
-            RETURN_IF_ERROR(
-                    filter_block_and_execute_exprs(&output_block, temp_block.get(), slot_num));
+        RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), slot_num));
+
+        if (_dest_vexpr_ctx.empty()) {
+            output_block = *(temp_block.get());
         } else {
-            auto n_columns = 0;
-            for (const auto slot_desc : _src_slot_descs) {
-                output_block.insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                          slot_desc->get_data_type_ptr(),
-                                                          slot_desc->col_name()));
-            }
-
-            // filter src tuple by preceding filter first
-            if (!_vpre_filter_ctxs.empty()) {
-                for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
-                    auto old_rows = output_block.rows();
-                    RETURN_IF_ERROR(
-                            VExprContext::filter_block(_vpre_filter_ctx, &output_block, slot_num));
-                    _counter->num_rows_unselected += old_rows - output_block.rows();
-                }
-            }
+            RETURN_IF_ERROR(BaseScanner::execute_exprs(&output_block, temp_block.get()));
         }
     }
 
-    if (_scanner_eof) {
-        *eof = true;
-    } else {
-        *eof = false;
-    }
+    *eof = _scanner_eof;
     return Status::OK();
 }
 
@@ -140,18 +123,9 @@ Status VJsonScanner::open_next_reader() {
         _scanner_eof = true;
         return Status::OK();
     }
-
-    // init file reader
-    RETURN_IF_ERROR(JsonScanner::open_file_reader());
-
-    // init line reader
-    if (_read_json_by_line) {
-        RETURN_IF_ERROR(JsonScanner::open_line_reader());
-    }
-
+    RETURN_IF_ERROR(JsonScanner::open_based_reader());
     RETURN_IF_ERROR(open_vjson_reader());
     _next_range++;
-
     return Status::OK();
 }
 
@@ -165,24 +139,8 @@ Status VJsonScanner::open_vjson_reader() {
     bool num_as_string = false;
     bool fuzzy_parse = false;
 
-    const TBrokerRangeDesc& range = _ranges[_next_range];
-
-    if (range.__isset.jsonpaths) {
-        jsonpath = range.jsonpaths;
-    }
-    if (range.__isset.json_root) {
-        json_root = range.json_root;
-    }
-    if (range.__isset.strip_outer_array) {
-        strip_outer_array = range.strip_outer_array;
-    }
-    if (range.__isset.num_as_string) {
-        num_as_string = range.num_as_string;
-    }
-    if (range.__isset.fuzzy_parse) {
-        fuzzy_parse = range.fuzzy_parse;
-    }
-
+    RETURN_IF_ERROR(JsonScanner::get_range_params(jsonpath, json_root, strip_outer_array,
+                                                  num_as_string, fuzzy_parse));
     if (_read_json_by_line) {
         _cur_vjson_reader.reset(new VJsonReader(_state, _counter, _profile, strip_outer_array,
                                                 num_as_string, fuzzy_parse, &_scanner_eof, nullptr,
@@ -207,14 +165,8 @@ VJsonReader::VJsonReader(RuntimeState* state, ScannerCounter* counter, RuntimePr
 VJsonReader::~VJsonReader() {}
 
 Status VJsonReader::init(const std::string& jsonpath, const std::string& json_root) {
-    // parse jsonpath
-    if (!jsonpath.empty()) {
-        Status st = JsonReader::_generate_json_paths(jsonpath, &_parsed_jsonpaths);
-        RETURN_IF_ERROR(st);
-    }
-    if (!json_root.empty()) {
-        JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
-    }
+    // generate _parsed_jsonpaths and _parsed_json_root
+    RETURN_IF_ERROR(JsonReader::_parse_jsonpath_and_json_root(jsonpath, json_root));
 
     //improve performance
     if (_parsed_jsonpaths.empty()) { // input is a simple json-string
