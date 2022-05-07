@@ -223,7 +223,7 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         CumulativeCompaction cumulative_compaction(tablet);
         res = cumulative_compaction.compact();
         if (!res) {
-            if (res == Status::OLAPInternalError(OLAP_ERR_BE_NO_SUITABLE_VERSION)) {
+            if (res == Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION)) {
                 // Ignore this error code.
                 VLOG_NOTICE << "failed to init cumulative compaction due to no suitable version,"
                             << "tablet=" << tablet->full_name();
