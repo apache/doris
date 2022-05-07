@@ -34,7 +34,7 @@ under the License.
 
     <module name="SuppressionFilter">
         <property name="file" value="fe/check/checkstyle/suppressions.xml"/>
-        <property name="optional" value="false"/>
+        <property name="optional" value="true"/>
     </module>
 
     <module name="FileTabCharacter">

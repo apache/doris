@@ -24,8 +24,7 @@ under the License.
 
 <suppressions>
     <!-- Excludes test files from having Javadocs for classes and methods -->
-    <suppress files="[\\/]*[\\/]test[\\/].*" checks="MissingJavadocMethod" />
-    <suppress files="[\\/]*[\\/]test[\\/].*" checks="MissingJavadocType" />
-    <suppress files="[\\/]src[\\/]test[\\/].*|[\\/]generated-test-sources[\\/].*" checks="MissingJavadocMethod" />
-    <suppress files="[\\/]src[\\/]test[\\/].*|[\\/]generated-test-sources[\\/].*" checks="MissingJavadocType" />
+    <suppress files="[\\/]jmockit[\\/]" checks=".*" />
+    <suppress files="[\\/]test[\\/]" checks="MissingJavadocMethod" />
+    <suppress files="[\\/]test[\\/]" checks="MissingJavadocType" />
 </suppressions>
