@@ -195,7 +195,8 @@ void ChunkAllocator::free(const Chunk& chunk, MemTracker* tracker) {
     if (tracker) {
         tracker->transfer_to(_mem_tracker.get(), chunk.size);
     } else {
-        tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(), chunk.size);
+        tls_ctx()->_thread_mem_tracker_mgr->mem_tracker()->transfer_to(_mem_tracker.get(),
+                                                                       chunk.size);
     }
     SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     if (chunk.core_id == -1) {

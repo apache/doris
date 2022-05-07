@@ -325,7 +325,8 @@ class IndexChannel {
 public:
     IndexChannel(OlapTableSink* parent, int64_t index_id, bool is_vec)
             : _parent(parent), _index_id(index_id), _is_vectorized(is_vec) {
-        _index_channel_tracker = MemTracker::create_tracker(-1, "IndexChannel:indexID="  + std::to_string(_index_id));
+        _index_channel_tracker =
+                MemTracker::create_tracker(-1, "IndexChannel:indexID=" + std::to_string(_index_id));
     }
     ~IndexChannel() = default;
 
