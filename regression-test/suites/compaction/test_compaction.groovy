@@ -156,6 +156,30 @@ suite("test_compaction") {
                 running = compactionStatus.run_status
             } while (running)
         }
+
+        int rowCount = 0
+        for (String[] tablet in tablets) {
+            String tablet_id = tablet[0]
+            StringBuilder sb = new StringBuilder();
+            sb.append("curl -X GET http://")
+            sb.append(context.config.beHttpAddress)
+            sb.append("/api/compaction/show?tablet_id=")
+            sb.append(tablet_id)
+            String command = sb.toString()
+            // wait for cleaning stale_rowsets
+            process = command.execute()
+            code = process.waitFor()
+            err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+            out = process.getText()
+            logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
+            assertEquals(code, 0)
+            def tabletJson = parseJson(out.trim())
+            assert tabletJson.rowsets instanceof List
+            for (String rowset in (List<String>) tabletJson.rowsets) {
+                rowCount += Integer.parseInt(rowset.split(" ")[1])
+            }
+        }
+        assert (rowCount < 8)
         qt_select_default2 """ SELECT * FROM ${tableName} t ORDER BY user_id; """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
