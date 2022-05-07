@@ -34,7 +34,7 @@ under the License.
 
 ## 测试步骤
 1. 需要预先安装好集群
-2. 修改配置文件`${DORIS_HOME}/conf/regression-conf.groovy`，设置jdbc url、用户等配置项
+2. 修改配置文件`${DORIS_HOME}/regression-test/conf/regression-conf.groovy`，设置jdbc url、用户等配置项
 3. 创建测试用例文件并编写用例
 4. 如果用例文件包含`qt` Action，则需要创建关联的data文件，比如`suites/demo/qt_action.groovy`这个例子，需要用到`data/demo/qt_action.out`这个TSV文件来校验输出是否一致
 5. 运行`${DORIS_HOME}/run-regression-test.sh`测试全部用例,或运行`${DORIS_HOME}/run-regression-test.sh --run <suiteName>` 测试若干用例，更多例子见"启动脚本例子"章节
@@ -277,7 +277,7 @@ test action可以使用更复杂的校验规则来测试，比如验证行数、
 - long time: 验证执行时间是否小于这个值，单位是毫秒
 - Closure<List<List<Object>>, Throwable, Long, Long> check: 自定义回调校验，可传入结果、异常、时间。存在回调函数时，其他校验方式会失效。
 
-下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/qt_action.groovy`:
+下面的样例代码存放于`${DORIS_HOME}/regression-test/suites/demo/test_action.groovy`:
 ```groovy
 suite("test_action", "demo") {
     test {
