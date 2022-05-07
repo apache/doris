@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_GeometryFromText`,`ST_GeomFromText`",
+    "title": "ST_GeometryFromText,ST_GeomFromText",
     "language": "en"
 }
 ---
