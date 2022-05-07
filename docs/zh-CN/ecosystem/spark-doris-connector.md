@@ -92,8 +92,8 @@ export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
 在源码目录下执行：
 
 ```bash
-sh build.sh 2.3.4 2.11 ## spark 2.3.4, scala 2.11
-sh build.sh 3.1.2 2.12 ## spark 3.1.2, scala 2.12
+sh build.sh --spark 2.3.4 --scala 2.11 ## spark 2.3.4, scala 2.11
+sh build.sh --spark 3.1.2 --scala 2.12 ## spark 3.1.2, scala 2.12
 
 ```
 > 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 spark 和 scala 的版本。因为 tag 源码中的版本是固定的。

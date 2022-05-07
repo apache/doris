@@ -91,8 +91,8 @@ Linux:
 Execute following command in source dir
 
 ```bash
-sh build.sh 2.3.4 2.11 ## spark 2.3.4 version, and scala 2.11
-sh build.sh 3.1.2 2.12 ## spark 3.1.2 version, and scala 2.12
+sh build.sh --spark 2.3.4 --scala 2.11 ## spark 2.3.4 version, and scala 2.11
+sh build.sh --spark 3.1.2 --scala 2.12 ## spark 3.1.2 version, and scala 2.12
 ```
 > Note: If you check out the source code from tag, you can just run sh build.sh --tag without specifying the spark and scala versions. This is because the version in the tag source code is fixed.
 
