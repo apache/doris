@@ -53,4 +53,3 @@ mysql> SELECT ST_Contains(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"),
 ```
 ### keywords
 ST_CONTAINS,ST,CONTAINS
-w
