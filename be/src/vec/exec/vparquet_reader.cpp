@@ -37,10 +37,9 @@ namespace vectorized {
 
 // Broker
 VParquetReaderWrap::VParquetReaderWrap(ParquetReaderWrap* parquet_reader,
-                                       const std::vector<SlotDescriptor*>& src_slot_desc, std::string time_zone)
-        : _src_slot_descs(src_slot_desc),
-          _time_zone(std::move(time_zone)),
-          _inited(false) {
+                                       const std::vector<SlotDescriptor*>& src_slot_desc,
+                                       std::string time_zone)
+        : _src_slot_descs(src_slot_desc), _time_zone(std::move(time_zone)), _inited(false) {
     _reader = std::shared_ptr<ParquetReaderWrap>(parquet_reader);
 }
 

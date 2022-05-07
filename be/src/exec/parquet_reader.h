@@ -80,8 +80,7 @@ public:
     Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                const std::string& timezone);
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                    const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                    bool* eof);
+                      const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,

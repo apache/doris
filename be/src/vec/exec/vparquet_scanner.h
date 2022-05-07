@@ -38,10 +38,10 @@ namespace doris::vectorized {
 class VParquetScanner : public ParquetScanner {
 public:
     VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
-                   const TBrokerScanRangeParams& params,
-                   const std::vector<TBrokerRangeDesc>& ranges,
-                   const std::vector<TNetworkAddress>& broker_addresses,
-                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+                    const TBrokerScanRangeParams& params,
+                    const std::vector<TBrokerRangeDesc>& ranges,
+                    const std::vector<TNetworkAddress>& broker_addresses,
+                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     virtual ~VParquetScanner();
 
@@ -66,4 +66,4 @@ private:
     int _num_of_columns_from_file;
 };
 
-} // namespace doris
+} // namespace doris::vectorized

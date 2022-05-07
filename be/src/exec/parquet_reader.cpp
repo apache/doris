@@ -220,11 +220,9 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 }
 
 Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                    const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                                    bool* eof) {
-    if (_batch->num_rows() == 0 ||
-        _current_line_of_batch != 0 ||
-        _current_line_of_group != 0) {
+                                     const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                     bool* eof) {
+    if (_batch->num_rows() == 0 || _current_line_of_batch != 0 || _current_line_of_group != 0) {
         RETURN_IF_ERROR(read_record_batch(tuple_slot_descs, eof));
     }
     *batch = get_batch();

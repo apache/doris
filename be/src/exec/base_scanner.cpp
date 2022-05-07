@@ -112,9 +112,10 @@ Status BaseScanner::init_expr_ctxes() {
         RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
         RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
         // vec
+        RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
+                                                             &_pre_filter_vctxs));
         RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_vctxs));
-        RETURN_IF_ERROR(vectorized::VExpr::prepare(_pre_filter_vctxs, _state, *_row_desc, _mem_tracker));
+                vectorized::VExpr::prepare(_pre_filter_vctxs, _state, *_row_desc, _mem_tracker));
         RETURN_IF_ERROR(vectorized::VExpr::open(_pre_filter_vctxs, _state));
     }
 

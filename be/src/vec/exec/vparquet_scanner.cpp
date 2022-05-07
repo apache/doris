@@ -27,16 +27,17 @@
 namespace doris::vectorized {
 
 VParquetScanner::VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
-                               const TBrokerScanRangeParams& params,
-                               const std::vector<TBrokerRangeDesc>& ranges,
-                               const std::vector<TNetworkAddress>& broker_addresses,
-                               const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : ParquetScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
+                                 const TBrokerScanRangeParams& params,
+                                 const std::vector<TBrokerRangeDesc>& ranges,
+                                 const std::vector<TNetworkAddress>& broker_addresses,
+                                 const std::vector<TExpr>& pre_filter_texprs,
+                                 ScannerCounter* counter)
+        : ParquetScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
+                         counter),
           _batch(nullptr),
           _arrow_batch_cur_idx(0),
           _num_of_columns_from_file(0) {}
-VParquetScanner::~VParquetScanner() {
-}
+VParquetScanner::~VParquetScanner() {}
 
 Status VParquetScanner::open() {
     RETURN_IF_ERROR(ParquetScanner::open());
@@ -85,7 +86,7 @@ Status VParquetScanner::next_arrow_batch() {
 }
 
 Status VParquetScanner::init_arrow_batch_if_necessary() {
-    // 1. init batch if first time 
+    // 1. init batch if first time
     // 2. reset reader if end of file
     Status status;
     if (_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
@@ -114,20 +115,21 @@ Status VParquetScanner::init_src_block(Block* block) {
         auto* array = _batch->column(batch_pos++).get();
         auto pt = arrow_type_to_primitive_type(array->type()->id());
         if (pt == INVALID_TYPE) {
-            return Status::NotSupported(fmt::format(
-                "Not support arrow type:{}", array->type()->name()));
+            return Status::NotSupported(
+                    fmt::format("Not support arrow type:{}", array->type()->name()));
         }
         auto is_nullable = true;
         // let src column be nullable for simplify converting
         DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, is_nullable);
         MutableColumnPtr data_column = data_type->create_column();
-        block->insert(ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+        block->insert(
+                ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     return Status::OK();
 }
 
 Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
-    // overall of type converting: 
+    // overall of type converting:
     // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
     // primitive type(PT1) ==materialize_block==> dest primitive type
     SCOPED_TIMER(_read_timer);
@@ -189,8 +191,7 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
 Status VParquetScanner::eval_conjunts(Block* block) {
     for (auto& vctx : _pre_filter_vctxs) {
         size_t orig_rows = block->rows();
-        RETURN_IF_ERROR(
-            VExprContext::filter_block(vctx, block, block->columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(vctx, block, block->columns()));
         _counter->num_rows_unselected += orig_rows - block->rows();
     }
     return Status::OK();
@@ -205,13 +206,16 @@ void VParquetScanner::fill_columns_from_path(Block* block) {
             auto slot_desc = _src_slot_descs.at(i + start);
             if (slot_desc == nullptr) continue;
             auto is_nullable = slot_desc->is_nullable();
-            DataTypePtr data_type = DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, is_nullable);
+            DataTypePtr data_type =
+                    DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, is_nullable);
             MutableColumnPtr data_column = data_type->create_column();
             const std::string& column_from_path = range.columns_from_path[i];
             for (size_t i = 0; i < rows; ++i) {
-                data_column->insert_data(const_cast<char*>(column_from_path.c_str()), column_from_path.size());
+                data_column->insert_data(const_cast<char*>(column_from_path.c_str()),
+                                         column_from_path.size());
             }
-            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
+            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                slot_desc->col_name()));
         }
     }
 }
@@ -237,7 +241,8 @@ Status VParquetScanner::materialize_block(Block* block, std::vector<MutableColum
                     // fill filter if src has null value and dest column is not nullable
                     IColumn::Filter& filter = assert_cast<ColumnUInt8&>(*filter_column).get_data();
                     const ColumnPtr& null_column_ptr = nullable_column->get_null_map_column_ptr();
-                    const auto& column_data = assert_cast<const ColumnUInt8&>(*null_column_ptr).get_data();
+                    const auto& column_data =
+                            assert_cast<const ColumnUInt8&>(*null_column_ptr).get_data();
                     for (size_t i = 0; i < null_column_ptr->size(); ++i) {
                         filter[i] &= !column_data[i];
                     }
@@ -269,16 +274,13 @@ Status VParquetScanner::cast_src_block(Block* block) {
         auto& arg = block->get_by_name(slot_desc->col_name());
         // remove nullable here, let the get_function decide whether nullable
         auto return_type = slot_desc->get_data_type_ptr();
-        ColumnsWithTypeAndName arguments
-        {
-            arg,
-            {
-                DataTypeString().create_column_const(arg.column->size(), remove_nullable(return_type)->get_family_name()),
-                std::make_shared<DataTypeString>(),
-                ""
-            }
-        };
-        auto func_cast = SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
+        ColumnsWithTypeAndName arguments {
+                arg,
+                {DataTypeString().create_column_const(
+                         arg.column->size(), remove_nullable(return_type)->get_family_name()),
+                 std::make_shared<DataTypeString>(), ""}};
+        auto func_cast =
+                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
         RETURN_IF_ERROR(func_cast->execute(nullptr, *block, {i}, i, arg.column->size()));
         block->get_by_position(i).type = std::move(return_type);
     }
@@ -286,8 +288,8 @@ Status VParquetScanner::cast_src_block(Block* block) {
 }
 
 Status VParquetScanner::append_batch_to_src_block(Block* block) {
-    size_t num_elements =
-            std::min<size_t>((_state->batch_size() - block->rows()), (_batch->num_rows() - _arrow_batch_cur_idx));
+    size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
+                                           (_batch->num_rows() - _arrow_batch_cur_idx));
     size_t column_pos = 0;
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
@@ -296,13 +298,13 @@ Status VParquetScanner::append_batch_to_src_block(Block* block) {
         }
         auto* array = _batch->column(column_pos++).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
-        RETURN_IF_ERROR(arrow_column_to_doris_column(array, _arrow_batch_cur_idx, column_with_type_and_name, num_elements, _state->timezone()));
+        RETURN_IF_ERROR(arrow_column_to_doris_column(array, _arrow_batch_cur_idx,
+                                                     column_with_type_and_name, num_elements,
+                                                     _state->timezone()));
     }
 
     _arrow_batch_cur_idx += num_elements;
     return Status::OK();
 }
 
-
-
-} // namespace doris
+} // namespace doris::vectorized

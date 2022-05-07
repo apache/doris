@@ -226,9 +226,9 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         if (_vectorized) {
-            scan = new vectorized::VParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
-                                      scan_range.ranges, scan_range.broker_addresses,
-                                      _pre_filter_texprs, counter);
+            scan = new vectorized::VParquetScanner(
+                    _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
         } else {
             scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
                                       scan_range.ranges, scan_range.broker_addresses,

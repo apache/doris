@@ -43,8 +43,8 @@ namespace doris {
 // Reader of broker parquet file
 class VParquetReaderWrap {
 public:
-    VParquetReaderWrap(ParquetReaderWrap* reader,
-                    std::vector<SlotDescriptor*>& src_slot_descs, std::string time_zone);
+    VParquetReaderWrap(ParquetReaderWrap* reader, std::vector<SlotDescriptor*>& src_slot_descs,
+                       std::string time_zone);
     virtual ~VParquetReaderWrap();
 
     // Read
