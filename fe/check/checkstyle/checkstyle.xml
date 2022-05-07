@@ -32,13 +32,8 @@ under the License.
         <property name="fileNamePattern" value="module\-info\.java$"/>
     </module>
 
-    <module name="Header">
-        <property name="headerFile" value="check/checkstyle/checkstyle-apache-header.txt"/>
-        <property name="fileExtensions" value="java"/>
-    </module>
-
     <module name="SuppressionFilter">
-        <property name="file" value="check/checkstyle/suppressions.xml"/>
+        <property name="file" value="fe/check/checkstyle/suppressions.xml"/>
         <property name="optional" value="false"/>
     </module>
 
