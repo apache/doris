@@ -29,7 +29,7 @@ public abstract class UnaryExpression<
         extends AbstractExpression<EXPR_TYPE>
         implements UnaryNode<EXPR_TYPE, CHILD_TYPE> {
 
-    public UnaryExpression(NodeType type, Expression child) {
+    public UnaryExpression(NodeType type, CHILD_TYPE child) {
         super(type, child);
     }
 }
