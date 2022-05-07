@@ -78,6 +78,9 @@ private:
     // return -1 if these are not alpha rowsets.
     int64_t _get_input_num_rows_from_seg_grps();
 
+    // check whether we should enable vectorized compaction.
+    bool _should_use_vectorized_compaction();
+
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTracker> _mem_tracker;
