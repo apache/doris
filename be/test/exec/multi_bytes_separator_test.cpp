@@ -38,8 +38,10 @@ namespace doris {
 class MultiBytesSeparatorTest : public testing::Test {
 public:
     MultiBytesSeparatorTest() : _runtime_state(TQueryGlobals()) {}
+
 private:
     RuntimeState _runtime_state;
+
 protected:
     virtual void SetUp() {}
     virtual void TearDown() {}
@@ -57,8 +59,8 @@ TEST_F(MultiBytesSeparatorTest, normal) {
     const std::vector<TBrokerRangeDesc> ranges;
     const std::vector<TNetworkAddress> broker_addresses;
     const std::vector<TExpr> pre_filter_texprs;
-    BrokerScanner scanner(&_runtime_state, nullptr, params, ranges, broker_addresses, pre_filter_texprs,
-                          nullptr);
+    BrokerScanner scanner(&_runtime_state, nullptr, params, ranges, broker_addresses,
+                          pre_filter_texprs, nullptr);
 
 #define private public
 

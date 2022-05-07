@@ -210,22 +210,24 @@ Status VBrokerScanner::_fill_dest_columns(const Slice& line,
 
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.num_of_columns_from_file) {
-        RETURN_IF_ERROR(_fill_columns_from_path(range.num_of_columns_from_file, range.columns_from_path, columns));
+        RETURN_IF_ERROR(_fill_columns_from_path(range.num_of_columns_from_file,
+                                                range.columns_from_path, columns));
     }
 
     return Status::OK();
 }
 
 Status VBrokerScanner::_fill_columns_from_path(int start,
-                                            const std::vector<std::string>& columns_from_path,
-                                            std::vector<MutableColumnPtr>& columns) {
+                                               const std::vector<std::string>& columns_from_path,
+                                               std::vector<MutableColumnPtr>& columns) {
     // values of columns from path can not be null
     for (int i = 0; i < columns_from_path.size(); ++i) {
         int dest_index = i + start;
         auto slot_desc = _src_slot_descs.at(dest_index);
         const std::string& column_from_path = columns_from_path[i];
-        RETURN_IF_ERROR(_write_text_column(const_cast<char*>(column_from_path.c_str()), column_from_path.size(),
-                                           slot_desc, &columns[dest_index], _state));
+        RETURN_IF_ERROR(_write_text_column(const_cast<char*>(column_from_path.c_str()),
+                                           column_from_path.size(), slot_desc, &columns[dest_index],
+                                           _state));
     }
     return Status::OK();
 }

@@ -67,7 +67,7 @@ Status VBrokerScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
         {
             std::unique_lock<std::mutex> l(_batch_queue_lock);
             while (_process_status.ok() && !_runtime_state->is_cancelled() &&
-                _num_running_scanners > 0 && _block_queue.empty()) {
+                   _num_running_scanners > 0 && _block_queue.empty()) {
                 SCOPED_TIMER(_wait_scanner_timer);
                 _queue_reader_cond.wait_for(l, std::chrono::seconds(1));
             }
@@ -160,19 +160,18 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
         }
         auto old_rows = block->rows();
         RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block.get(),
-                                                    _tuple_desc->slots().size()));
+                                                   _tuple_desc->slots().size()));
         counter->num_rows_unselected += old_rows - block->rows();
         if (block->rows() == 0) {
             continue;
         }
 
         std::unique_lock<std::mutex> l(_batch_queue_lock);
-        while (_process_status.ok() && !_scan_finished.load() &&
-                !_runtime_state->is_cancelled() &&
-                // stop pushing more batch if
-                // 1. too many batches in queue, or
-                // 2. at least one batch in queue and memory exceed limit.
-                (_block_queue.size() >= _max_buffered_batches ||
+        while (_process_status.ok() && !_scan_finished.load() && !_runtime_state->is_cancelled() &&
+               // stop pushing more batch if
+               // 1. too many batches in queue, or
+               // 2. at least one batch in queue and memory exceed limit.
+               (_block_queue.size() >= _max_buffered_batches ||
                 (mem_tracker()->any_limit_exceeded() && !_block_queue.empty()))) {
             _queue_writer_cond.wait_for(l, std::chrono::seconds(1));
         }

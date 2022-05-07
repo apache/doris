@@ -47,6 +47,6 @@ private:
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
 
     Status _fill_columns_from_path(int start, const std::vector<std::string>& columns_from_path,
-                                std::vector<MutableColumnPtr>& columns);
+                                   std::vector<MutableColumnPtr>& columns);
 };
 } // namespace doris::vectorized
