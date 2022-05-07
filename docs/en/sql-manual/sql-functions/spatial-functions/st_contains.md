@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Contains`",
+    "title": "ST_Contains",
     "language": "en"
 }
 ---
