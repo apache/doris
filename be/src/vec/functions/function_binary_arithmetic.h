@@ -64,6 +64,7 @@ struct OperationTraits {
     static constexpr bool is_multiply = std::is_same_v<Op, MultiplyImpl<T, T>>;
     static constexpr bool is_division = std::is_same_v<Op, DivideFloatingImpl<T, T>> ||
                                         std::is_same_v<Op, DivideIntegralImpl<T, T>>;
+    static constexpr bool is_mod = std::is_same_v<Op, ModuloImpl<T, T>>;
     static constexpr bool allow_decimal =
             std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>> ||
             std::is_same_v<Op, MultiplyImpl<T, T>> || std::is_same_v<Op, ModuloImpl<T, T>> ||
@@ -255,6 +256,18 @@ struct DecimalBinaryOperation {
                     c[i] = apply_scaled_div(a[i], b[i], scale_a, null_map[i]);
                 }
                 return;
+            } else if constexpr (OpTraits::is_mod) {
+                if (scale_a != 1) {
+                    for (size_t i = 0; i < size; ++i) {
+                        c[i] = apply_scaled_mod<true>(a[i], b[i], scale_a, null_map[i]);
+                    }
+                    return;
+                } else if (scale_b != 1) {
+                    for (size_t i = 0; i < size; ++i) {
+                        c[i] = apply_scaled_mod<false>(a[i], b[i], scale_b, null_map[i]);
+                    }
+                    return;
+                }
             }
         }
         /// default: use it if no return before
@@ -550,6 +563,31 @@ private:
             return apply(a, b, is_null);
         }
     }
+
+    template <bool scale_left>
+    static NativeResultType apply_scaled_mod(NativeResultType a, NativeResultType b,
+                                             NativeResultType scale, UInt8& is_null) {
+        if constexpr (OpTraits::is_mod) {
+            if constexpr (check_overflow) {
+                bool overflow = false;
+                if constexpr (scale_left)
+                    overflow |= common::mul_overflow(a, scale, a);
+                else
+                    overflow |= common::mul_overflow(b, scale, b);
+
+                if (overflow) {
+                    LOG(FATAL) << "Decimal math overflow";
+                }
+            } else {
+                if constexpr (scale_left)
+                    a *= scale;
+                else
+                    b *= scale;
+            }
+
+            return apply(a, b, is_null);
+        }
+    }
 };
 
 /// Used to indicate undefined operation
@@ -671,6 +709,9 @@ private:
                 type.scale_factor_for(type_left, OpTraits::is_multiply);
         typename ResultDataType::FieldType scale_b =
                 type.scale_factor_for(type_right, OpTraits::is_multiply || OpTraits::is_division);
+        if constexpr (OpTraits::is_division && IsDataTypeDecimal<RightDataType>) {
+            scale_a = type_right.get_scale_multiplier();
+        }
         return std::make_tuple(type, scale_a, scale_b);
     }
 
