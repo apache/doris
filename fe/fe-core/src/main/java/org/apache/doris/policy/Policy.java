@@ -34,7 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,15 +45,16 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-
+/**
+ * Save policy for filtering data.
+ **/
 @Data
 @AllArgsConstructor
 public class Policy implements Writable {
-    private static final Logger LOG = LogManager.getLogger(Policy.class);
 
     public static final String ROW_POLICY = "ROW";
+
+    private static final Logger LOG = LogManager.getLogger(Policy.class);
 
     @SerializedName(value = "dbId")
     private long dbId;
@@ -64,13 +66,13 @@ public class Policy implements Writable {
     private String policyName;
 
     /**
-     * ROW
+     * ROW.
      **/
     @SerializedName(value = "type")
-    private String type;
+    private PolicyTypeEnum type;
 
     /**
-     * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails
+     * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails.
      **/
     @SerializedName(value = "filterType")
     private final FilterType filterType;
@@ -78,17 +80,20 @@ public class Policy implements Writable {
     private Expr wherePredicate;
 
     /**
-     * bind user
+     * Policy bind user.
      **/
     @SerializedName(value = "user")
     private final UserIdentity user;
 
     /**
-     * use for Serialization/deserialization
+     * Use for Serialization/deserialization.
      **/
     @SerializedName(value = "originStmt")
     private String originStmt;
 
+    /**
+     * Trans stmt to Policy.
+     **/
     public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
         String curDb = stmt.getTableName().getDb();
         if (curDb == null) {
@@ -98,13 +103,18 @@ public class Policy implements Writable {
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
         UserIdentity userIdent = stmt.getUser();
         userIdent.analyze(ConnectContext.get().getClusterName());
-        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(), stmt.getWherePredicate(), userIdent, stmt.getOrigStmt().originStmt);
+        return new Policy(db.getId(), table.getId(), stmt.getPolicyName(), stmt.getType(), stmt.getFilterType(),
+                stmt.getWherePredicate(), userIdent, stmt.getOrigStmt().originStmt);
     }
 
+    /**
+     * Use for SHOW POLICY.
+     **/
     public List<String> getShowInfo() throws AnalysisException {
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type, this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
+        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type,
+                this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
 
     @Override
@@ -112,6 +122,9 @@ public class Policy implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    /**
+     * Read policy from file.
+     **/
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
         Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
@@ -119,6 +132,9 @@ public class Policy implements Writable {
         return policy;
     }
 
+    /**
+     * Serialization.
+     **/
     public static void parseOriginStmt(Policy policy) {
         try {
             SqlScanner input = new SqlScanner(new StringReader(policy.getOriginStmt()), 0L);
@@ -132,6 +148,7 @@ public class Policy implements Writable {
 
     @Override
     public Policy clone() {
-        return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.wherePredicate, this.user, this.originStmt);
+        return new Policy(this.dbId, this.tableId, this.policyName, this.type, this.filterType, this.wherePredicate,
+                this.user, this.originStmt);
     }
 }

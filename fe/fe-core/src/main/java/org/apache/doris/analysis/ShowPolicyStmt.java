@@ -24,32 +24,30 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import lombok.Getter;
 
-/*
- Show policy statement
- syntax:
-      SHOW ROW POLICY [FOR user]
-*/
+/**
+ * Show policy statement
+ * syntax:
+ * SHOW ROW POLICY [FOR user]
+ **/
 public class ShowPolicyStmt extends ShowStmt {
-    
+
     @Getter
-    private String type;
-    
+    private final PolicyTypeEnum type;
+
     @Getter
-    private UserIdentity user;
-    
-    public ShowPolicyStmt(String type, UserIdentity user) {
+    private final UserIdentity user;
+
+    public ShowPolicyStmt(PolicyTypeEnum type, UserIdentity user) {
         this.type = type;
         this.user = user;
     }
-    
-    public ShowPolicyStmt() {
-    }
-    
+
     private static final ShowResultSetMetaData ROW_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("PolicyName", ScalarType.createVarchar(100)))
@@ -61,7 +59,7 @@ public class ShowPolicyStmt extends ShowStmt {
                     .addColumn(new Column("User", ScalarType.createVarchar(20)))
                     .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
                     .build();
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -73,17 +71,17 @@ public class ShowPolicyStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-    
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW ROW POLICY");
+        sb.append("SHOW ").append(type).append(" POLICY");
         if (user != null) {
             sb.append(" FOR ").append(user);
         }
         return sb.toString();
     }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return ROW_META_DATA;

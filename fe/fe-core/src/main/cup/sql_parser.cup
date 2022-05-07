@@ -1357,7 +1357,7 @@ create_stmt ::=
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
     KW_USING LPAREN expr:wherePredicate RPAREN
     {:
-        RESULT = new CreatePolicyStmt("ROW", ifNotExists, policyName, tbl, filterType, user, wherePredicate);
+        RESULT = new CreatePolicyStmt(PolicyEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
     :}
     ;
 
@@ -2066,11 +2066,11 @@ drop_stmt ::=
     :}
     | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl
     {:
-        RESULT = new DropPolicyStmt("ROW", ifExists, policyName, tbl, null);
+        RESULT = new DropPolicyStmt(PolicyEnum.ROW, ifExists, policyName, tbl, null);
     :}
     | KW_DROP KW_ROW KW_POLICY opt_if_exists:ifExists ident:policyName KW_ON table_name:tbl KW_FOR user_identity:user
     {:
-        RESULT = new DropPolicyStmt("ROW", ifExists, policyName, tbl, user);
+        RESULT = new DropPolicyStmt(PolicyEnum.ROW, ifExists, policyName, tbl, user);
     :}
     ;
 
@@ -2562,11 +2562,11 @@ show_stmt ::=
     :}
     | KW_SHOW KW_ROW KW_POLICY KW_FOR user_identity:user
     {:
-        RESULT = new ShowPolicyStmt("ROW", user);
+        RESULT = new ShowPolicyStmt(PolicyEnum.ROW, user);
     :}
     | KW_SHOW KW_ROW KW_POLICY
     {:
-        RESULT = new ShowPolicyStmt("ROW", null);
+        RESULT = new ShowPolicyStmt(PolicyEnum.ROW, null);
     :}
     ;
 

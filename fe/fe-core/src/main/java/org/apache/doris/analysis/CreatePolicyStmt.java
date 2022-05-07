@@ -23,39 +23,44 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.policy.FilterType;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 
 import lombok.Getter;
 
-/*
- Create policy statement
- syntax:
-      CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
-*/
+/**
+ * Create policy statement.
+ * syntax:
+ * CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
+ */
 public class CreatePolicyStmt extends DdlStmt {
-    
+
     @Getter
-    private final String type;
-    
+    private final PolicyTypeEnum type;
+
     @Getter
     private final boolean ifNotExists;
-    
+
     @Getter
     private final String policyName;
-    
+
     @Getter
     private final TableName tableName;
-    
+
     @Getter
     private final FilterType filterType;
-    
+
     @Getter
     private final UserIdentity user;
-    
+
     @Getter
     private Expr wherePredicate;
-    
-    public CreatePolicyStmt(String type, boolean ifNotExists, String policyName, TableName tableName, String filterType, UserIdentity user, Expr wherePredicate) {
+
+    /**
+     * Use for cup.
+     **/
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName, String filterType,
+                            UserIdentity user, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
@@ -64,7 +69,7 @@ public class CreatePolicyStmt extends DdlStmt {
         this.user = user;
         this.wherePredicate = wherePredicate;
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -75,11 +80,11 @@ public class CreatePolicyStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-    
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE ").append(type).append(" ROW POLICY ");
+        sb.append("CREATE ").append(type).append(" POLICY ");
         if (ifNotExists) {
             sb.append("IF NOT EXISTS");
         }

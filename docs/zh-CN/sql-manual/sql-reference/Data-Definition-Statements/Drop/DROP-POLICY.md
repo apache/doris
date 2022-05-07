@@ -50,17 +50,15 @@ DROP ROW POLICY test_row_policy_1 on table1 [FOR user];
    DROP ROW POLICY test_row_policy_1 on table1
    ```
 
-2. 删除 table1 作用于 root 的 test_row_policy_1 行安全策略
+2. 删除 table1 作用于 test 的 test_row_policy_1 行安全策略
 
    ```sql
-   DROP ROW POLICY test_row_policy_1 on table1 for root
+   DROP ROW POLICY test_row_policy_1 on table1 for test
    ```
 
 ### Keywords
 
-```text
-DROP, POLICY
-```
+    DROP, POLICY
 
 ### Best Practice
 

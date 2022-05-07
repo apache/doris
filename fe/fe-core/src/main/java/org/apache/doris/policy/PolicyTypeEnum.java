@@ -14,32 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.CompoundPredicate;
+public enum PolicyTypeEnum {
 
-import lombok.Getter;
-
-import java.util.Arrays;
-
-/**
- * Use for associating policies.
- **/
-public enum FilterType {
-
-    PERMISSIVE(CompoundPredicate.Operator.OR),
-    RESTRICTIVE(CompoundPredicate.Operator.AND);
-
-    @Getter
-    private final CompoundPredicate.Operator op;
-
-    FilterType(CompoundPredicate.Operator op) {
-        this.op = op;
-    }
-
-    public static FilterType of(String name) {
-        return Arrays.stream(FilterType.values()).filter(f -> f.name().equalsIgnoreCase(name)).findFirst()
-                .orElse(RESTRICTIVE);
-    }
+    ROW
 }

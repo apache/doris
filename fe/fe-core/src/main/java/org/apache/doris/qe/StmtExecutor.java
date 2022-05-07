@@ -677,14 +677,21 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
             }
-            if (parsedStmt instanceof SelectStmt || parsedStmt instanceof SetOperationStmt) {
-                if (parsedStmt instanceof SelectStmt) {
-                    StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
-                } else {
-                    List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
-                    for (SetOperationStmt.SetOperand operand : operands) {
-                        StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer);
-                    }
+            if (parsedStmt instanceof SelectStmt) {
+                StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
+                reAnalyze = true;
+            }
+            if (parsedStmt instanceof SetOperationStmt) {
+                List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
+                for (SetOperationStmt.SetOperand operand : operands) {
+                    StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer);
+                }
+                reAnalyze = true;
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
+                if (queryStmt != null) {
+                    StmtRewriter.rewriteByPolicy(queryStmt, analyzer);
                 }
                 reAnalyze = true;
             }

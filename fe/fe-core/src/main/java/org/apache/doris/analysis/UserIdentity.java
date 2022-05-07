@@ -248,7 +248,8 @@ public class UserIdentity implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         user = Text.readString(in);
         host = Text.readString(in);
         isDomain = in.readBoolean();

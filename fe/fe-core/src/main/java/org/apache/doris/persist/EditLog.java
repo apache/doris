@@ -1423,11 +1423,11 @@ public class EditLog {
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
-    
+
     public void logCreatePolicy(Policy policy) {
         logEdit(OperationType.OP_CREATE_POLICY, policy);
     }
-    
+
     public void logDropPolicy(DropPolicyLog log) {
         logEdit(OperationType.OP_DROP_POLICY, log);
     }

@@ -39,13 +39,15 @@ CREATE POLICY
 
 ```sql
 CREATE ROW POLICY test_row_policy_1 ON test.table1 
-AS {RESTRICTIVE|PERMISSIVE} TO root USING (id in (1, 2));
+AS {RESTRICTIVE|PERMISSIVE} TO test USING (id in (1, 2));
 ```
 
 参数说明：
 
 - filterType：RESTRICTIVE 将一组策略通过 AND 连接, PERMISSIVE 将一组策略通过 OR 连接
 - 配置多个策略首先合并 RESTRICTIVE 的策略，再添加 PERMISSIVE 的策略
+- RESTRICTIVE 和 PERMISSIVE 之间通过 AND 连接的
+- 不允许对 root 和 admin 用户创建
 
 ### Example
 
@@ -53,19 +55,19 @@ AS {RESTRICTIVE|PERMISSIVE} TO root USING (id in (1, 2));
 
    ```sql
    CREATE ROW POLICY test_row_policy_1 ON test.table1 
-   AS RESTRICTIVE TO root USING (c1 = 'a');
+   AS RESTRICTIVE TO test USING (c1 = 'a');
    ```
    ```sql
    CREATE ROW POLICY test_row_policy_2 ON test.table1 
-   AS RESTRICTIVE TO root USING (c2 = 'b');
+   AS RESTRICTIVE TO test USING (c2 = 'b');
    ```
    ```sql
    CREATE ROW POLICY test_row_policy_3 ON test.table1 
-   AS PERMISSIVE TO root USING (c3 = 'c');
+   AS PERMISSIVE TO test USING (c3 = 'c');
    ```
    ```sql
    CREATE ROW POLICY test_row_policy_3 ON test.table1 
-   AS PERMISSIVE TO root USING (c4 = 'd');
+   AS PERMISSIVE TO test USING (c4 = 'd');
    ```
 
    当我们执行对 table1 的查询时被改写后的 sql 为
@@ -76,9 +78,7 @@ AS {RESTRICTIVE|PERMISSIVE} TO root USING (id in (1, 2));
 
 ### Keywords
 
-```text
-CREATE, POLICY
-```
+    CREATE, POLICY
 
 ### Best Practice
 

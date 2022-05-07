@@ -459,7 +459,7 @@ public class Catalog {
     private AuditEventProcessor auditEventProcessor;
 
     private RefreshManager refreshManager;
-    
+
     private PolicyMgr policyMgr;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
@@ -1949,6 +1949,9 @@ public class Catalog {
         return checksum;
     }
 
+    /**
+     * Load policy through file.
+     **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
             policyMgr = PolicyMgr.read(in);

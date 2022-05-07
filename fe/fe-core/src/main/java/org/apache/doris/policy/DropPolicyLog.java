@@ -17,45 +17,51 @@
 
 package org.apache.doris.policy;
 
-import com.google.gson.annotations.SerializedName;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.SneakyThrows;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.annotations.SerializedName;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+/**
+ * Use for transmission drop policy log.
+ **/
 @AllArgsConstructor
 @Getter
 public class DropPolicyLog implements Writable {
-    
+
     @SerializedName(value = "dbId")
     private long dbId;
-    
+
     @SerializedName(value = "tableId")
     private long tableId;
-    
+
     @SerializedName(value = "type")
     private String type;
-    
+
     @SerializedName(value = "policyName")
     private String policyName;
-    
+
     @SerializedName(value = "user")
     private UserIdentity user;
-    
-    @SneakyThrows
-    public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) {
+
+    /**
+     * Generate delete logs through stmt.
+     **/
+    public static DropPolicyLog fromDropStmt(DropPolicyStmt stmt) throws AnalysisException {
         String curDb = stmt.getTableName().getDb();
         if (curDb == null) {
             curDb = ConnectContext.get().getDatabase();
@@ -64,12 +70,12 @@ public class DropPolicyLog implements Writable {
         Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
         return new DropPolicyLog(db.getId(), table.getId(), stmt.getType(), stmt.getPolicyName(), stmt.getUser());
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
-    
+
     public static DropPolicyLog read(DataInput in) throws IOException {
         return GsonUtils.GSON.fromJson(Text.readString(in), DropPolicyLog.class);
     }

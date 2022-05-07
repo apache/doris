@@ -22,34 +22,35 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-/*
- Drop policy statement
- syntax:
-      DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user]
-*/
+/**
+ * Drop policy statement.
+ * syntax:
+ * DROP [ROW] POLICY [IF EXISTS] test_row_policy ON test_table [FOR user]
+ **/
 @AllArgsConstructor
 public class DropPolicyStmt extends DdlStmt {
-    
+
     @Getter
-    private final String type;
-    
+    private final PolicyTypeEnum type;
+
     @Getter
     private final boolean ifExists;
-    
+
     @Getter
     private final String policyName;
-    
+
     @Getter
     private final TableName tableName;
-    
+
     @Getter
     private final UserIdentity user;
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -62,11 +63,11 @@ public class DropPolicyStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }
-    
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("DROP ").append(type).append(" ROW POLICY ");
+        sb.append("DROP ").append(type).append(" POLICY ");
         if (ifExists) {
             sb.append("IF EXISTS ");
         }
