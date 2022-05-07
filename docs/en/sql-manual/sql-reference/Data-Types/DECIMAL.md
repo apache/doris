@@ -29,7 +29,7 @@ under the License.
 DECIMAL (M [,D])
 
 High-precision fixed-point, M stands for the total number of significant numbers (precision), D stands for the maximum number of decimal points (scale).
-The range of M is [1, 27], the range of D is [1, 9], the integer part is [1, 18].
+The range of M is [1, 27], the range of D is [0, 9], the integer part is [1, 18].
 
 in addition, M must be greater than or equal to the value of D. 
 
