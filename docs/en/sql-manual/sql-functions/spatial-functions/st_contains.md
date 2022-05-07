@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Contains`
+## ST_Contains
 ### Description
 #### Syntax
 
