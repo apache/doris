@@ -23,7 +23,7 @@ under the License.
 
     <parent>
         <groupId>org.apache.doris</groupId>
-        <version>${revision}</version>
+        <version>1.0-SNAPSHOT</version>
         <artifactId>fe</artifactId>
         <relativePath>../pom.xml</relativePath>
     </parent>

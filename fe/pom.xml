@@ -27,7 +27,7 @@ under the License.
     </parent>
     <groupId>org.apache.doris</groupId>
     <artifactId>fe</artifactId>
-    <version>${revision}</version>
+    <version>1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
     <name>Doris FE Project Parent POM</name>
     <url>https://doris.apache.org/</url>
@@ -237,8 +237,6 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk-s3.version>1.11.95</aws-java-sdk-s3.version>
         <mariadb-java-client.version>3.0.4</mariadb-java-client.version>
-
-        <revision>1.0-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
     </properties>
     <profiles>
