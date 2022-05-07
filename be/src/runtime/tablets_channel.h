@@ -77,7 +77,8 @@ public:
     // no-op when this channel has been closed or cancelled
     Status close(int sender_id, int64_t backend_id, bool* finished,
                  const google::protobuf::RepeatedField<int64_t>& partition_ids,
-                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                 google::protobuf::RepeatedPtrField<PTabletError>* tablet_error);
 
     // no-op when this channel has been closed or cancelled
     Status cancel();
