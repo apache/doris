@@ -168,6 +168,7 @@ PROPERTIES (
 | min_dwell_time  | INT         | MIN             | 用户最小停留时间       |
 
 即增加了一列 `timestamp`，记录精确到秒的数据灌入时间。
+同时，将`AGGREGATE KEY`设置为`AGGREGATE KEY(user_id, date, timestamp, city, age, sex)`
 
 导入数据如下：
 
