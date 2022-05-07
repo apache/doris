@@ -33,7 +33,7 @@ The range of M is [1, 27], the range of D is [1, 9], the integer part is [1, 18]
 
 in addition, M must be greater than or equal to the value of D. 
 
-The default value is DECIMAL(10, 0).
+The default value is DECIMAL(9, 0).
 
 ### keywords
 DECIMAL
