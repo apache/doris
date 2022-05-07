@@ -970,7 +970,7 @@ module.exports = [
     ],
   },
   {
-    title: "FQA",
+    title: "FAQ",
     directoryPath: "faq/",
     initialOpenGroupIndex: -1,
     children: [

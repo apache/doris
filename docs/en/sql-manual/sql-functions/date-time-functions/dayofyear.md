@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Dayofyear",
+    "title": "dayofyear",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Dayofyear
+## dayofyear
 ### Description
 #### Syntax
 
