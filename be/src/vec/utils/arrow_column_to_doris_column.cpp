@@ -31,6 +31,7 @@
 #include "arrow/scalar.h"
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
+#include "gutil/casts.h"
 
 #define FOR_ARROW_TYPES(M)                            \
     M(::arrow::Type::BOOL, TYPE_BOOLEAN)              \
