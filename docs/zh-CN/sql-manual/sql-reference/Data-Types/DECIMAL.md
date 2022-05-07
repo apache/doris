@@ -27,8 +27,11 @@ under the License.
 ## DECIMAL
 ### description
     DECIMAL(M[,D])
-    高精度定点数，M代表一共有多少个有效数字(precision)，D代表小数点后最多有多少数字(scale)
-    M的范围是[1,27], D的范围[1, 9], 另外，M必须要大于等于D的取值。默认的D取值为0
+    高精度定点数，M 代表一共有多少个有效数字(precision)，D 代表小数位有多少数字(scale)，
+    有效数字 M 的范围是 [1, 27]，小数位数字数量 D 的范围 [1, 9]，整数位数字数量的范围 [1, 18]，
+    另外，M 必须要大于等于 D 的取值。
+
+    默认值为 DECIMAL(10, 0)。
 
 ### keywords
 
