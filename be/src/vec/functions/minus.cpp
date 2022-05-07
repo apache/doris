@@ -49,7 +49,7 @@ struct MinusImpl {
 struct NameMinus {
     static constexpr auto name = "subtract";
 };
-using FunctionMinus = FunctionBinaryArithmetic<MinusImpl, NameMinus>;
+using FunctionMinus = FunctionBinaryArithmetic<MinusImpl, NameMinus, false>;
 
 void register_function_minus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMinus>();

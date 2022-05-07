@@ -106,9 +106,11 @@ public:
         }
 
         // Now, Doris only support precision:27, scale: 9
-        DCHECK(precision_ == 27);
-        DCHECK(scale_ == 9);
+        DCHECK(precision == 27);
+        DCHECK(scale == 9);
     }
+
+    DataTypeDecimal(const DataTypeDecimal& rhs) : precision(rhs.precision), scale(rhs.scale) {}
 
     const char* get_family_name() const override { return "Decimal"; }
     std::string do_get_name() const override;

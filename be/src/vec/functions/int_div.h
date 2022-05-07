@@ -20,14 +20,15 @@
 
 #pragma once
 
-#include "common/compiler_util.h"
-#include "common/logging.h"
-#include "common/status.h"
-#include "runtime/decimalv2_value.h"
-#include "type_traits"
+#include <libdivide.h>
+
+#include <type_traits>
+
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/common/exception.h"
+#include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/functions/function_binary_arithmetic.h"
 
 namespace doris::vectorized {
 
@@ -38,18 +39,34 @@ namespace doris::vectorized {
 template <typename A, typename B>
 struct DivideIntegralImpl {
     using ResultType = typename NumberTraits::ResultOfIntegerDivision<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
     template <typename Result = ResultType>
-    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
-        null_map[index] = b == 0;
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename ColumnVector<Result>::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+        UInt8 is_null = b == 0;
+        memset(null_map.data(), is_null, size);
 
-        /// Otherwise overflow may occur due to integer promotion. Example: int8_t(-1) / uint64_t(2).
-        /// NOTE: overflow is still possible when dividing large signed number to large unsigned number or vice-versa. But it's less harmful.
-        if constexpr (std::is_integral_v<A> && std::is_integral_v<B> &&
-                      (std::is_signed_v<A> || std::is_signed_v<B>))
-            return std::make_signed_t<A>(a) / (std::make_signed_t<B>(b) + (b == 0));
-        else
-            return a / (b + (b == 0));
+        if (!is_null) {
+            if constexpr (!std::is_floating_point_v<A> && !std::is_same_v<A, Int128> &&
+                          !std::is_same_v<A, Int8> && !std::is_same_v<A, UInt8>) {
+                for (size_t i = 0; i < size; i++) {
+                    c[i] = a[i] / libdivide::divider<A>(b);
+                }
+            } else {
+                for (size_t i = 0; i < size; i++) {
+                    c[i] = a[i] / b;
+                }
+            }
+        }
+    }
+
+    template <typename Result = ResultType>
+    static inline Result apply(A a, B b, UInt8& is_null) {
+        is_null = b == 0;
+        return a / (b + is_null);
     }
 };
 
