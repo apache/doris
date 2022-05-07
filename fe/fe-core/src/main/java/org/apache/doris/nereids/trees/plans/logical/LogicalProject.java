@@ -66,7 +66,7 @@ public class LogicalProject<CHILD_TYPE extends Plan<CHILD_TYPE>>
         output = Lists.newArrayListWithCapacity(projects.size());
         for (NamedExpression projection : projects) {
             try {
-                output.add(projection.toAttribute());
+                output.add(projection.toSlot());
             } catch (UnboundException e) {
                 output.clear();
                 break;

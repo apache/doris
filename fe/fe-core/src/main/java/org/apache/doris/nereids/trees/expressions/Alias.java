@@ -64,7 +64,7 @@ public class Alias<CHILD_TYPE extends Expression<CHILD_TYPE>>
     }
 
     @Override
-    public Slot toAttribute() throws UnboundException {
+    public Slot toSlot() throws UnboundException {
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 

@@ -31,7 +31,7 @@ public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>>
     }
 
     @Override
-    public Slot toAttribute() {
+    public Slot toSlot() {
         return this;
     }
 }
