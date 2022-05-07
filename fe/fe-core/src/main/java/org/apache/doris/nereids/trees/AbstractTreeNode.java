@@ -17,16 +17,10 @@
 
 package org.apache.doris.nereids.trees;
 
-import com.google.common.collect.ImmutableList;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.expressions.BinaryPredicate;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
-import org.apache.doris.nereids.types.IntegerType;
 
 import java.util.List;
+
+import com.google.common.collect.ImmutableList;
 
 /**
  * Abstract class for plan node in Nereids, include plan node and expression.
@@ -62,25 +56,5 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
 
     public int arity() {
         return children.size();
-    }
-
-    public static void main(String[] args) {
-        new LogicalJoin<>(JoinType.INNER_JOIN,
-            new BinaryPredicate(
-                new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("tbl1", "a")),
-                new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("tbl2", "b")),
-                BinaryPredicate.Operator.EQ
-            ),
-            new LogicalJoin<>(JoinType.INNER_JOIN,
-                new BinaryPredicate(
-                    new SlotReference("a", IntegerType.INSTANCE, true, ImmutableList.of("tbl1", "a")),
-                    new SlotReference("b", IntegerType.INSTANCE, true, ImmutableList.of("tbl2", "b")),
-                    BinaryPredicate.Operator.EQ
-                ),
-                new LogicalRelation(new Table(Table.TableType.OLAP), ImmutableList.of("tbl1")),
-                new LogicalRelation(new Table(Table.TableType.OLAP), ImmutableList.of("tbl2"))
-            ),
-            new LogicalRelation(new Table(Table.TableType.OLAP), ImmutableList.of("tbl2"))
-        ).left().left();
     }
 }

@@ -71,8 +71,8 @@ public interface NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
      * Tool class for generate next ExprId.
      */
     class NamedExpressionUtils {
-        private static final AtomicLong CURRENT_ID = new AtomicLong();
         static final UUID JVM_ID = UUID.randomUUID();
+        private static final AtomicLong CURRENT_ID = new AtomicLong();
 
         static ExprId newExprId() {
             return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);

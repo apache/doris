@@ -17,17 +17,17 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import java.util.List;
+
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.List;
 
 /**
  * Logical join plan node.

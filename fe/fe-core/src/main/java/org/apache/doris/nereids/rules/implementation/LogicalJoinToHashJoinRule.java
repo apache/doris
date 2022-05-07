@@ -42,12 +42,12 @@ public class LogicalJoinToHashJoinRule extends ImplementationRule {
 
     @Override
     public List<Plan<?>> transform(Plan<?> plan, PlannerContext context) {
-//        LogicalJoin originPlan = (LogicalJoin) plan;
-//        PhysicalBroadcastHashJoin physicalBroadcastHashJoin = new PhysicalBroadcastHashJoin(
-//                originPlan.getJoinType(),
-//                originPlan.getOnClause(),
-//                );
-//        return Lists.newArrayList(physicalBroadcastHashJoin);
+        // LogicalJoin originPlan = (LogicalJoin) plan;
+        // PhysicalBroadcastHashJoin physicalBroadcastHashJoin = new PhysicalBroadcastHashJoin(
+        //         originPlan.getJoinType(),
+        //         originPlan.getOnClause(),
+        //         );
+        // return Lists.newArrayList(physicalBroadcastHashJoin);
         return ImmutableList.of();
     }
 }

@@ -17,14 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-
-import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
+import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
+
+import org.apache.commons.lang3.StringUtils;
 /**
  * Physical project plan node.
  */

@@ -29,7 +29,8 @@ import org.apache.doris.nereids.types.DataType;
 public class BinaryPredicate<
             LEFT_CHILD_TYPE extends Expression<LEFT_CHILD_TYPE>,
             RIGHT_CHILD_TYPE extends Expression<RIGHT_CHILD_TYPE>>
-        extends BinaryExpression<BinaryPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends BinaryExpression<BinaryPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final Operator operator;
 
