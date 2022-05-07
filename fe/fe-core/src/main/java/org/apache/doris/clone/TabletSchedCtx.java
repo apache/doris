@@ -1187,7 +1187,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
     }
 
-    // call this when releaseTabletCtx()
+    /**
+     * call this when releaseTabletCtx()
+     */
     public void resetReplicaState() {
         if (tablet != null) {
             for (Replica replica : tablet.getReplicas()) {
