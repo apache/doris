@@ -311,6 +311,7 @@ Status DeltaWriter::close() {
 }
 
 Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                               google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                                bool is_broken) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
@@ -321,7 +322,13 @@ Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* 
     }
 
     // return error if previous flush failed
-    RETURN_NOT_OK(_flush_token->wait());
+    Status s = _flush_token->wait();
+    if (!s.ok()) {
+        PTabletError* tablet_error = tablet_errors->Add();
+        tablet_error->set_tablet_id(_tablet->tablet_id());
+        tablet_error->set_msg(s.get_error_msg());
+        return s;
+    }
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
