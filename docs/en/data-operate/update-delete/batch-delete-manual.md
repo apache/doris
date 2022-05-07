@@ -25,7 +25,7 @@ under the License.
 -->
 
 # Batch Delete
-Currently, Doris supports multiple import methods such as [broker load](../import/import-way/broker-load-manual.html), [routine load](../import/import-way/routine-load-manual.html), [stream load](../import/import-way/stream-load-manual.html), etc. The data can only be deleted through the delete statement at present. When the delete statement is used to delete, a new data version will be generated every time delete is executed. Frequent deletion will seriously affect the query performance, and when using the delete method to delete, it is achieved by generating an empty rowset to record the deletion conditions. Each time you read, you must filter the deletion jump conditions. Also when there are many conditions, Performance affects. Compared with other systems, the implementation of greenplum is more like a traditional database product. Snowflake is implemented through the merge syntax.
+Currently, Doris supports multiple import methods such as [broker load](../import/import-way/broker-load-manual.md), [routine load](../import/import-way/routine-load-manual.md), [stream load](../import/import-way/stream-load-manual.md), etc. The data can only be deleted through the delete statement at present. When the delete statement is used to delete, a new data version will be generated every time delete is executed. Frequent deletion will seriously affect the query performance, and when using the delete method to delete, it is achieved by generating an empty rowset to record the deletion conditions. Each time you read, you must filter the deletion jump conditions. Also when there are many conditions, Performance affects. Compared with other systems, the implementation of greenplum is more like a traditional database product. Snowflake is implemented through the merge syntax.
 
 For scenarios similar to the import of cdc data, insert and delete in the data data generally appear interspersed. In this scenario, our current import method is not enough, even if we can separate insert and delete, it can solve the import problem , But still cannot solve the problem of deletion. Use the batch delete function to solve the needs of these scenarios.
 There are three ways to merge data import:
@@ -131,7 +131,7 @@ The writing method of `Routine Load` adds a mapping to the `columns` field. The 
 ```
 
 ## Note
-1. Since import operations other than stream load may be executed out of order inside doris, if it is not stream load when importing using the `MERGE` method, it needs to be used with load sequence. For the specific syntax, please refer to the [sequence](sequence-column-manual.html) column related documents
+1. Since import operations other than stream load may be executed out of order inside doris, if it is not stream load when importing using the `MERGE` method, it needs to be used with load sequence. For the specific syntax, please refer to the [sequence](sequence-column-manual.md) column related documents
 2. `DELETE ON` condition can only be used with MERGE.
 
 ## Usage example

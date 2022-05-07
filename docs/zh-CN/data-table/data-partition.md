@@ -40,7 +40,7 @@ under the License.
 
 - Column： 用于描述一行数据中不同的字段。
 
-  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.html)。
+  Column 可以分为两大类：Key 和 Value。从业务角度看，Key 和 Value 可以分别对应维度列和指标列。从聚合模型的角度来说，Key 列相同的行，会聚合成一行。其中 Value 列的聚合方式由用户在建表时指定。关于更多聚合模型的介绍，可以参阅 [Doris 数据模型](data-model.md)。
 
 ### Tablet & Partition
 
@@ -54,7 +54,7 @@ under the License.
 
 我们以一个建表操作来说明 Doris 的数据划分。
 
-Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令返回成功即表示建表成功。具体建表语法可以参考[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)，也可以通过 `HELP CREATE TABLE;` 查看更多帮助。
+Doris 的建表是一个同步命令，SQL执行完成即返回结果，命令返回成功即表示建表成功。具体建表语法可以参考[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)，也可以通过 `HELP CREATE TABLE;` 查看更多帮助。
 
 本小节通过一个例子，来介绍 Doris 的建表方式。
 
@@ -126,7 +126,7 @@ PROPERTIES
 
 ### 列定义
 
-这里我们只以 AGGREGATE KEY 数据模型为例进行说明。更多数据模型参阅 [Doris 数据模型](./data-model.html)。
+这里我们只以 AGGREGATE KEY 数据模型为例进行说明。更多数据模型参阅 [Doris 数据模型](./data-model.md)。
 
 列的基本类型，可以通过在 mysql-client 中执行 `HELP CREATE TABLE;` 查看。
 
@@ -337,7 +337,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 一个 Partition 的 Bucket 数量一旦指定，不可更改。所以在确定 Bucket 数量时，需要预先考虑集群扩容的情况。比如当前只有 3 台 host，每台 host 有 1 块盘。如果 Bucket 的数量只设置为 3 或更小，那么后期即使再增加机器，也不能提高并发度。
    - 举一些例子：假设在有10台BE，每台BE一块磁盘的情况下。如果一个表总大小为 500MB，则可以考虑4-8个分片。5GB：8-16个分片。50GB：32个分片。500GB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。5TB：建议分区，每个分区大小在 50GB 左右，每个分区16-32个分片。
 
-   > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.html) 命令查看，结果除以副本数，即表的数据量。
+   > 注：表的数据量可以通过 [`SHOW DATA`](../sql-manual/sql-reference/Show-Statements/SHOW-DATA.md) 命令查看，结果除以副本数，即表的数据量。
 
 #### 复合分区与单分区
 
@@ -356,7 +356,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 ### PROPERTIES
 
-在建表语句的最后 PROPERTIES 中，关于PROPERTIES中可以设置的相关参数，我们可以查看[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)中查看详细的介绍。
+在建表语句的最后 PROPERTIES 中，关于PROPERTIES中可以设置的相关参数，我们可以查看[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)中查看详细的介绍。
 
 ### ENGIN
 
@@ -387,11 +387,11 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    - 在 fe.log 中，查找对应时间点的 `Failed to create partition` 日志。在该日志中，会出现一系列类似 `{10001-10010}` 字样的数字对。数字对的第一个数字表示 Backend ID，第二个数字表示 Tablet ID。如上这个数字对，表示 ID 为 10001 的 Backend 上，创建 ID 为 10010 的 Tablet 失败了。
    - 前往对应 Backend 的 be.INFO 日志，查找对应时间段内，tablet id 相关的日志，可以找到错误信息。
    - 以下罗列一些常见的 tablet 创建失败错误，包括但不限于：
-     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/install-deploy.html) 检查 FE 和 BE 的连通性。
+     - BE 没有收到相关 task，此时无法在 be.INFO 中找到 tablet id 相关日志或者 BE 创建成功，但汇报失败。以上问题，请参阅 [安装与部署](../install/install-deploy.md) 检查 FE 和 BE 的连通性。
      - 预分配内存失败。可能是表中一行的字节长度超过了 100KB。
      - `Too many open files`。打开的文件句柄数超过了 Linux 系统限制。需修改 Linux 系统的句柄数限制。
 
-   如果创建数据分片时超时，也可以通过在 fe.conf 中设置 `tablet_create_timeout_second=xxx` 以及 `max_create_table_timeout_second=xxx` 来延长超时时间。其中 `tablet_create_timeout_second` 默认是1秒, `max_create_table_timeout_second` 默认是60秒，总体的超时时间为min(tablet_create_timeout_second * replication_num, max_create_table_timeout_second)，具体参数设置可参阅 [FE配置项](../admin-manual/config/fe-config.html) 。
+   如果创建数据分片时超时，也可以通过在 fe.conf 中设置 `tablet_create_timeout_second=xxx` 以及 `max_create_table_timeout_second=xxx` 来延长超时时间。其中 `tablet_create_timeout_second` 默认是1秒, `max_create_table_timeout_second` 默认是60秒，总体的超时时间为min(tablet_create_timeout_second * replication_num, max_create_table_timeout_second)，具体参数设置可参阅 [FE配置项](../admin-manual/config/fe-config.md) 。
 
 3. 建表命令长时间不返回结果。
 
@@ -401,4 +401,4 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
 
 ## 更多帮助
 
-关于数据划分更多的详细说明，我们可以在[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)命令手册中查阅，也可以在Mysql客户端下输入 `HELP CREATE TABLE;` 获取更多的帮助信息。
+关于数据划分更多的详细说明，我们可以在[CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)命令手册中查阅，也可以在Mysql客户端下输入 `HELP CREATE TABLE;` 获取更多的帮助信息。

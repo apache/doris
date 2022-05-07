@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.html)文档。
+该命令用于创建一张表。本文档主语介绍创建 Doris 自维护的表的语法。外部表语法请参阅 [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md)文档。
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
@@ -150,7 +150,7 @@ distribution_info
 
 * `engine_type`
 
-    表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.html) 文档。示例：
+    表引擎类型。本文档中类型皆为 OLAP。其他外部表引擎类型见 [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) 文档。示例：
     
     `ENGINE=olap`
     
@@ -536,7 +536,7 @@ distribution_info
 
 #### 分区和分桶
 
-一个表必须指定分桶列，但可以不指定分区。关于分区和分桶的具体介绍，可参阅 [数据划分](../../../../data-table/data-partition.html) 文档。
+一个表必须指定分桶列，但可以不指定分区。关于分区和分桶的具体介绍，可参阅 [数据划分](../../../../data-table/data-partition.md) 文档。
 
 Doris 中的表可以分为分区表和无分区的表。这个属性在建表时确定，之后不可更改。即对于分区表，可以在之后的使用过程中对分区进行增删操作，而对于无分区的表，之后不能再进行增加分区等操作。
 
@@ -546,7 +546,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 #### 动态分区
 
-动态分区功能主要用于帮助用户自动的管理分区。通过设定一定的规则，Doris 系统定期增加新的分区或删除历史分区。可参阅 [动态分区](../../../../advanced/partition/dynamic-partition.html) 文档查看更多帮助。
+动态分区功能主要用于帮助用户自动的管理分区。通过设定一定的规则，Doris 系统定期增加新的分区或删除历史分区。可参阅 [动态分区](../../../../advanced/partition/dynamic-partition.md) 文档查看更多帮助。
 
 #### 物化视图
 
@@ -556,7 +556,7 @@ Doris 中的表可以分为分区表和无分区的表。这个属性在建表�
 
 如果在之后的使用过程中添加物化视图，如果表中已有数据，则物化视图的创建时间取决于当前数据量大小。
 
-关于物化视图的介绍，请参阅文档 [物化视图](../../../../advanced/materialized-view.html)。
+关于物化视图的介绍，请参阅文档 [物化视图](../../../../advanced/materialized-view.md)。
 
 #### 索引
 

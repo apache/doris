@@ -32,7 +32,7 @@ CREATE EXTERNAL TABLE
 
 ### Description
 
-This statement is used to create an external table, see [CREATE TABLE](./CREATE-TABLE.html) for the specific syntax.
+This statement is used to create an external table, see [CREATE TABLE](./CREATE-TABLE.md) for the specific syntax.
 
 Which type of external table is mainly identified by the ENGINE type, currently MYSQL, BROKER, HIVE, ICEBERG are optional
 

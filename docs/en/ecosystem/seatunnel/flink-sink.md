@@ -78,7 +78,7 @@ Number of retries after writing to Doris fails
 
 Import parameters for Stream load. For example: 'doris.column_separator' = ', ' etc.
 
-[More Stream Load parameter configuration](../../data-operate/import/import-way/stream-load-manual.html)
+[More Stream Load parameter configuration](../../data-operate/import/import-way/stream-load-manual.md)
 
 ### Examples
 Socket To Doris
