@@ -1,6 +1,6 @@
 ---
 {
-    "title": "date",
+    "title": "DATE",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## date
+## DATE
 ### Description
 DATE function
 Syntax:
