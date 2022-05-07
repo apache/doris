@@ -127,7 +127,7 @@ public class MysqlTable extends Table {
                         + "Please set proper resource or add properties('password'='xxxx') when create table");
             }
 
-	    charset = properties.get(MYSQL_CHARSET);
+            charset = properties.get(MYSQL_CHARSET);
             if (charset == null) {
                 charset = "utf8";
             }
@@ -212,8 +212,8 @@ public class MysqlTable extends Table {
     }
 
     public TTableDescriptor toThrift() {
-        TMySQLTable tMySQLTable = 
-                new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), mysqlDatabaseName, mysqlTableName, getCharset());
+        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), 
+                mysqlDatabaseName, mysqlTableName, getCharset());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setMysqlTable(tMySQLTable);
@@ -231,7 +231,7 @@ public class MysqlTable extends Table {
         sb.append(getPasswd());
         sb.append(mysqlDatabaseName);
         sb.append(mysqlTableName);
-	sb.append(getCharset());
+        sb.append(getCharset());
         String md5 = DigestUtils.md5Hex(sb.toString());
         LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
         return md5;
@@ -249,7 +249,7 @@ public class MysqlTable extends Table {
         serializeMap.put(MYSQL_PASSWORD, passwd);
         serializeMap.put(MYSQL_DATABASE, mysqlDatabaseName);
         serializeMap.put(MYSQL_TABLE, mysqlTableName);
-	serializeMap.put(MYSQL_CHARSET, charset);
+        serializeMap.put(MYSQL_CHARSET, charset);
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -282,6 +282,6 @@ public class MysqlTable extends Table {
         passwd = serializeMap.get(MYSQL_PASSWORD);
         mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
         mysqlTableName = serializeMap.get(MYSQL_TABLE);
-	charset = serializeMap.get(MYSQL_CHARSET);
+        charset = serializeMap.get(MYSQL_CHARSET);
     }
 }

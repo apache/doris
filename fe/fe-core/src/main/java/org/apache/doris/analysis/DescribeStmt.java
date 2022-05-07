@@ -208,7 +208,7 @@ public class DescribeStmt extends ShowStmt {
                                                      mysqlTable.getPasswd(),
                                                      mysqlTable.getMysqlDatabaseName(),
                                                      mysqlTable.getMysqlTableName(),
-						     mysqlTable.getCharset());
+                                                     mysqlTable.getCharset());
                     totalRows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());

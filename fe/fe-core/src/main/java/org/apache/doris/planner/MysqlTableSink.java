@@ -39,7 +39,7 @@ public class MysqlTableSink extends DataSink {
         passwd = mysqlTable.getPasswd();
         db = mysqlTable.getMysqlDatabaseName();
         tbl = mysqlTable.getMysqlTableName();
-	charset = mysqlTable.getCharset();
+        charset = mysqlTable.getCharset();
     }
 
     @Override
