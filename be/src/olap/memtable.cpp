@@ -43,18 +43,27 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
           _table_mem_pool(new MemPool(_mem_tracker.get())),
           _schema_size(_schema->schema_size()),
           _rowset_writer(rowset_writer) {
+    if (_keys_type == KeysType::DUP_KEYS) {
+        _insert_fn = &MemTable::_insert_dup;
+    } else {
+        _insert_fn = &MemTable::_insert_agg;
+    }
+    if (_tablet_schema->has_sequence_col()) {
+        _aggregate_two_row_fn = &MemTable::_aggregate_two_row_with_sequence;
+    } else {
+        _aggregate_two_row_fn = &MemTable::_aggregate_two_row;
+    }
     if (tablet_schema->sort_type() == SortType::ZORDER) {
-        _row_comparator =
-                std::make_shared<TupleRowZOrderComparator>(_schema, tablet_schema->sort_col_num());
+        _row_comparator = std::make_shared<TupleRowZOrderComparator>(
+                _schema, tablet_schema->sort_col_num());
     } else {
         _row_comparator = std::make_shared<RowCursorComparator>(_schema);
     }
-    _skip_list = new Table(_row_comparator.get(), _table_mem_pool.get(),
-                           _keys_type == KeysType::DUP_KEYS);
+    _skip_list = std::make_unique<Table>(_row_comparator.get(), _table_mem_pool.get(),
+                                         _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
-    delete _skip_list;
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -65,42 +74,40 @@ int MemTable::RowCursorComparator::operator()(const char* left, const char* righ
     return compare_row(lhs_row, rhs_row);
 }
 
-void MemTable::insert(const Tuple* tuple) {
+// For non-DUP models, for the data rows passed from the upper layer, when copying the data,
+// we first allocate from _buffer_mem_pool, and then check whether it already exists in
+// _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
+// otherwise, we need to copy it into _table_mem_pool before we can insert it.
+void MemTable::_insert_agg(const Tuple* tuple) {
     _rows++;
-    bool overwritten = false;
-    uint8_t* _tuple_buf = nullptr;
-    if (_keys_type == KeysType::DUP_KEYS) {
-        // Will insert directly, so use memory from _table_mem_pool
-        _tuple_buf = _table_mem_pool->allocate(_schema_size);
-        ContiguousRow row(_schema, _tuple_buf);
-        _tuple_to_row(tuple, &row, _table_mem_pool.get());
-        _skip_list->Insert((TableKey)_tuple_buf, &overwritten);
-        DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
-        return;
-    }
-
-    // For non-DUP models, for the data rows passed from the upper layer, when copying the data,
-    // we first allocate from _buffer_mem_pool, and then check whether it already exists in
-    // _skiplist.  If it exists, we aggregate the new row into the row in skiplist.
-    // otherwise, we need to copy it into _table_mem_pool before we can insert it.
-    _tuple_buf = _buffer_mem_pool->allocate(_schema_size);
-    ContiguousRow src_row(_schema, _tuple_buf);
+    uint8_t* tuple_buf = _buffer_mem_pool->allocate(_schema_size);
+    ContiguousRow src_row(_schema, tuple_buf);
     _tuple_to_row(tuple, &src_row, _buffer_mem_pool.get());
 
-    bool is_exist = _skip_list->Find((TableKey)_tuple_buf, &_hint);
+    bool is_exist = _skip_list->Find((TableKey)tuple_buf, &_hint);
     if (is_exist) {
-        _aggregate_two_row(src_row, _hint.curr->key);
+        (this->*_aggregate_two_row_fn)(src_row, _hint.curr->key);
     } else {
-        _tuple_buf = _table_mem_pool->allocate(_schema_size);
-        ContiguousRow dst_row(_schema, _tuple_buf);
+        tuple_buf = _table_mem_pool->allocate(_schema_size);
+        ContiguousRow dst_row(_schema, tuple_buf);
         _agg_object_pool.acquire_data(&_agg_buffer_pool);
         copy_row_in_memtable(&dst_row, src_row, _table_mem_pool.get());
-        _skip_list->InsertWithHint((TableKey)_tuple_buf, is_exist, &_hint);
+        _skip_list->InsertWithHint((TableKey)tuple_buf, is_exist, &_hint);
     }
 
     // Make MemPool to be reusable, but does not free its memory
     _buffer_mem_pool->clear();
     _agg_buffer_pool.clear();
+}
+
+void MemTable::_insert_dup(const Tuple* tuple) {
+    _rows++;
+    bool overwritten = false;
+    uint8_t* tuple_buf = _table_mem_pool->allocate(_schema_size);
+    ContiguousRow row(_schema, tuple_buf);
+    _tuple_to_row(tuple, &row, _table_mem_pool.get());
+    _skip_list->Insert((TableKey)tuple_buf, &overwritten);
+    DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
 }
 
 void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool) {
@@ -116,12 +123,14 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
 void MemTable::_aggregate_two_row(const ContiguousRow& src_row, TableKey row_in_skiplist) {
     ContiguousRow dst_row(_schema, row_in_skiplist);
-    if (_tablet_schema->has_sequence_col()) {
-        agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
-                                     _table_mem_pool.get());
-    } else {
-        agg_update_row(&dst_row, src_row, _table_mem_pool.get());
-    }
+    agg_update_row(&dst_row, src_row, _table_mem_pool.get());
+}
+
+void MemTable::_aggregate_two_row_with_sequence(const ContiguousRow& src_row,
+                                                TableKey row_in_skiplist) {
+    ContiguousRow dst_row(_schema, row_in_skiplist);
+    agg_update_row_with_sequence(&dst_row, src_row, _tablet_schema->sequence_col_idx(),
+                                 _table_mem_pool.get());
 }
 
 OLAPStatus MemTable::flush() {
@@ -134,7 +143,7 @@ OLAPStatus MemTable::flush() {
         if (st == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
-            Table::Iterator it(_skip_list);
+            Table::Iterator it(_skip_list.get());
             for (it.SeekToFirst(); it.Valid(); it.Next()) {
                 char* row = (char*)it.key();
                 ContiguousRow dst_row(_schema, row);
@@ -158,7 +167,7 @@ OLAPStatus MemTable::close() {
 }
 
 MemTable::Iterator::Iterator(MemTable* memtable)
-        : _mem_table(memtable), _it(memtable->_skip_list) {}
+        : _mem_table(memtable), _it(memtable->_skip_list.get()) {}
 
 void MemTable::Iterator::seek_to_first() {
     _it.SeekToFirst();

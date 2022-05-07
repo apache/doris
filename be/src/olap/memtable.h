@@ -46,7 +46,7 @@ public:
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
-    void insert(const Tuple* tuple);
+    inline void insert(const Tuple* tuple) { (this->*_insert_fn)(tuple); }
     /// Flush
     OLAPStatus flush();
     OLAPStatus close();
@@ -88,6 +88,9 @@ public:
 private:
     void _tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* mem_pool);
     void _aggregate_two_row(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _aggregate_two_row_with_sequence(const ContiguousRow& new_row, TableKey row_in_skiplist);
+    void _insert_dup(const Tuple* tuple);
+    void _insert_agg(const Tuple* tuple);
 
     int64_t _tablet_id;
     Schema* _schema;
@@ -112,7 +115,7 @@ private:
     ObjectPool _agg_object_pool;
 
     size_t _schema_size;
-    Table* _skip_list;
+    std::unique_ptr<Table> _skip_list;
     Table::Hint _hint;
 
     RowsetWriter* _rowset_writer;
@@ -123,6 +126,9 @@ private:
     // This is not the rows in this memtable, because rows may be merged
     // in unique or aggragate key model.
     int64_t _rows = 0;
+    void (MemTable::*_insert_fn)(const Tuple* tuple) = nullptr;
+    void (MemTable::*_aggregate_two_row_fn)(const ContiguousRow& new_row,
+                                            TableKey row_in_skiplist) = nullptr;
 
 }; // class MemTable
 

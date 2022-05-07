@@ -47,14 +47,13 @@ namespace segment_v2 {
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
-            : _size_estimate(0), _prepared_size(0), _options(options) {
+            : _size_estimate(0), _options(options) {
         reset();
     }
 
     bool is_page_full() override {
         // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && (_size_estimate > _options.data_page_size ||
-                                                _prepared_size > _options.data_page_size);
+        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -101,7 +100,6 @@ public:
         _buffer.clear();
         _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
         _size_estimate = sizeof(uint32_t);
-        _prepared_size = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
     }
@@ -127,10 +125,15 @@ public:
         return Status::OK();
     }
 
-    void update_prepared_size(size_t added_size) {
-        _prepared_size += added_size;
-        _prepared_size += sizeof(uint32_t);
+    inline Slice operator[](size_t idx) const {
+        DCHECK(!_finished);
+        DCHECK_LT(idx, _offsets.size());
+        size_t value_size =
+                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
+        return Slice(&_buffer[_offsets[idx]], value_size);
     }
+
+    inline Slice get(std::size_t idx) const { return (*this)[idx]; }
 
 private:
     void _copy_value_at(size_t idx, faststring* value) const {
@@ -141,7 +144,6 @@ private:
 
     faststring _buffer;
     size_t _size_estimate;
-    size_t _prepared_size;
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;
