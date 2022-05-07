@@ -127,7 +127,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private boolean existPolicy(long dbId, long tableId, String type, String policyName, UserIdentity user) {
+    private boolean existPolicy(long dbId, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
         List<Policy> policies = getDbPolicies(dbId);
         return policies.stream().anyMatch(policy -> matchPolicy(policy, tableId, type, policyName, user));
     }
@@ -176,9 +176,9 @@ public class PolicyMgr implements Writable {
         updateMergePolicyMap(dbId);
     }
 
-    private boolean matchPolicy(Policy policy, long tableId, String type, String policyName, UserIdentity user) {
+    private boolean matchPolicy(Policy policy, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
         return policy.getTableId() == tableId
-                && StringUtils.equals(policy.getType(), type)
+                && policy.getType().equals(type)
                 && StringUtils.equals(policy.getPolicyName(), policyName)
                 && (user == null || StringUtils.equals(policy.getUser().getQualifiedUser(), user.getQualifiedUser()));
     }
@@ -241,9 +241,6 @@ public class PolicyMgr implements Writable {
             Map<String, Policy> andMap = new HashMap<>();
             Map<String, Policy> orMap = new HashMap<>();
             for (Policy policy : policies) {
-                if (policy.getWherePredicate() == null) {
-                    Policy.parseOriginStmt(policy);
-                }
                 // read from json, need set isAnalyzed
                 policy.getUser().setIsAnalyzed();
                 String key =

@@ -50,7 +50,7 @@ public class DropPolicyLog implements Writable {
     private long tableId;
 
     @SerializedName(value = "type")
-    private String type;
+    private PolicyTypeEnum type;
 
     @SerializedName(value = "policyName")
     private String policyName;

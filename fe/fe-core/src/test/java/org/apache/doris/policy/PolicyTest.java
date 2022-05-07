@@ -27,6 +27,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -42,29 +43,26 @@ public class PolicyTest {
     private static String runningDir = "fe/mocked/policyTest/" + UUID.randomUUID() + "/";
     
     private static ConnectContext connectContext;
+
+    private static DorisAssert dorisAssert;
     
     @BeforeClass
     public static void beforeClass() throws Exception {
+        // create cluster
         UtFrameUtils.createDorisCluster(runningDir);
-        
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
-        
+        dorisAssert = new DorisAssert(connectContext);
         // create database
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-        Catalog.getCurrentCatalog().getDb("test");
-        
-        MetricRepo.init();
-        Catalog.getCurrentCatalog().changeDb(connectContext, "default_cluster:test");
-        createTable("create table table1\n" +
+        dorisAssert.withDatabase("test");
+        dorisAssert.useDatabase("test");
+        // create table
+        dorisAssert.withTable("create table table1\n" +
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\");");
-        createTable("create table table2\n" +
+        dorisAssert.withTable("create table table2\n" +
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
                 "properties(\"replication_num\" = \"1\");");
-        Catalog.getCurrentCatalog().changeDb(connectContext, "default_cluster:test");
     }
     
     @AfterClass
@@ -153,7 +151,7 @@ public class PolicyTest {
         dropPolicy("DROP ROW POLICY test_row_policy1 ON test.table1");
         dropPolicy("DROP ROW POLICY test_row_policy2 ON test.table1");
     }
-    
+
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);

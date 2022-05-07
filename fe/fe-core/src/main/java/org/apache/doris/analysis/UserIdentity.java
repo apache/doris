@@ -181,6 +181,10 @@ public class UserIdentity implements Writable {
         return user.equals(PaloAuth.ROOT_USER);
     }
 
+    public boolean isAdminUser() {
+        return user.equals(PaloAuth.ADMIN_USER);
+    }
+
     public TUserIdentity toThrift() {
         Preconditions.checkState(isAnalyzed);
         TUserIdentity tUserIdent = new TUserIdentity();

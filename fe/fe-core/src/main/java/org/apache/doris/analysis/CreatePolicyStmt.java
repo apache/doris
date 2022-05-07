@@ -75,6 +75,10 @@ public class CreatePolicyStmt extends DdlStmt {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         user.analyze(analyzer.getClusterName());
+        if (user.isRootUser() || user.isAdminUser()) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                    user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+        }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");

@@ -29,13 +29,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import lombok.AllArgsConstructor;
-import lombok.Data;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,12 +45,15 @@ import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 
+import lombok.AllArgsConstructor;
+import lombok.Data;
+
 /**
  * Save policy for filtering data.
  **/
 @Data
 @AllArgsConstructor
-public class Policy implements Writable {
+public class Policy implements Writable, GsonPostProcessable {
 
     public static final String ROW_POLICY = "ROW";
 
@@ -113,7 +116,7 @@ public class Policy implements Writable {
     public List<String> getShowInfo() throws AnalysisException {
         Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
-        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type,
+        return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
 
@@ -127,22 +130,21 @@ public class Policy implements Writable {
      **/
     public static Policy read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        Policy policy = GsonUtils.GSON.fromJson(json, Policy.class);
-        parseOriginStmt(policy);
-        return policy;
+        return GsonUtils.GSON.fromJson(json, Policy.class);
     }
 
-    /**
-     * Serialization.
-     **/
-    public static void parseOriginStmt(Policy policy) {
+    @Override
+    public void gsonPostProcess() throws IOException {
+        if (wherePredicate != null) {
+            return;
+        }
         try {
-            SqlScanner input = new SqlScanner(new StringReader(policy.getOriginStmt()), 0L);
+            SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
             SqlParser parser = new SqlParser(input);
             CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
-            policy.setWherePredicate(stmt.getWherePredicate());
+            wherePredicate = stmt.getWherePredicate();
         } catch (Exception e) {
-            LOG.warn("parse originStmt error", e);
+            throw new IOException("policy parse originStmt error", e);
         }
     }
 
