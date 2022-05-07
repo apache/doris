@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_binary_arithmetic.h"
-#include "vec/functions/function_binary_arithmetic_to_null_type.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_math_unary_to_null_type.h"
 #include "vec/functions/function_string.h"
@@ -150,17 +151,39 @@ struct LogName {
 template <typename A, typename B>
 struct LogImpl {
     using ResultType = Float64;
+    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+
     static const constexpr bool allow_decimal = false;
+    static constexpr double EPSILON = 1e-9;
+
+    template <typename Result = ResultType>
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename ColumnVector<Result>::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+        UInt8 is_null = b <= 0;
+        memset(null_map.data(), is_null, size);
+
+        if (!is_null) {
+            for (size_t i = 0; i < size; i++) {
+                if (a[i] <= 0 || std::fabs(a[i] - 1.0) < EPSILON) {
+                    null_map[i] = 1;
+                } else {
+                    c[i] = static_cast<Float64>(std::log(static_cast<Float64>(b)) /
+                                                std::log(static_cast<Float64>(a[i])));
+                }
+            }
+        }
+    }
 
     template <typename Result>
-    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
-        constexpr double EPSILON = 1e-9;
-        null_map[index] = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+    static inline Result apply(A a, B b, UInt8& is_null) {
+        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
                                     std::log(static_cast<Float64>(a)));
     }
 };
-using FunctionLog = FunctionBinaryArithmeticToNullType<LogImpl, LogName>;
+using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
 
 struct CeilName {
     static constexpr auto name = "ceil";
@@ -357,7 +380,7 @@ struct PowImpl {
 struct PowName {
     static constexpr auto name = "pow";
 };
-using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName>;
+using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
 template <typename A, typename B>
 struct TruncateImpl {
@@ -374,7 +397,7 @@ struct TruncateImpl {
 struct TruncateName {
     static constexpr auto name = "truncate";
 };
-using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName>;
+using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName, false>;
 
 /// round(double,int32)-->double
 /// key_str:roundFloat64Int32
@@ -395,7 +418,7 @@ struct RoundTwoImpl {
                 my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, false));
     }
 };
-using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName>;
+using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName, false>;
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
