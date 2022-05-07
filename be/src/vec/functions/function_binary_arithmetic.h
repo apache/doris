@@ -756,6 +756,16 @@ public:
 
     size_t get_number_of_arguments() const override { return 2; }
 
+    DataTypes get_variadic_argument_types_impl() const override {
+        using OpImpl = Operation<typename OpTraits::T, typename OpTraits::T>;
+        constexpr bool has_variadic_argument =
+                !std::is_void_v<decltype(has_variadic_argument_types(std::declval<OpImpl>()))>;
+        if constexpr (has_variadic_argument) {
+            return OpImpl::get_variadic_argument_types();
+        }
+        return {};
+    }
+
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DataTypePtr type_res;
         bool valid = cast_both_types(
