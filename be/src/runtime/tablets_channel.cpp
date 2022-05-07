@@ -80,7 +80,8 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                              const google::protobuf::RepeatedField<int64_t>& partition_ids,
-                             google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                             google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                             google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
@@ -128,8 +129,9 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) !=
-                                            _broken_tablets.end()));
+            writer->close_wait(
+                    tablet_vec, tablet_errors,
+                    (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
         }
     }
     return Status::OK();
