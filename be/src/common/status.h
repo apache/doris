@@ -201,7 +201,7 @@ namespace doris {
     M(OLAP_ERR_DELETE_SAVE_HEADER_FAILED, -1902, "", true)               \
     M(OLAP_ERR_DELETE_INVALID_PARAMETERS, -1903, "", true)               \
     M(OLAP_ERR_DELETE_INVALID_VERSION, -1904, "", true)                  \
-    M(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, -2000, "", true)          \
+    M(OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSION, -2000, "", false)         \
     M(OLAP_ERR_CUMULATIVE_REPEAT_INIT, -2001, "", true)                  \
     M(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS, -2002, "", true)           \
     M(OLAP_ERR_CUMULATIVE_FAILED_ACQUIRE_DATA_SOURCE, -2003, "", true)   \
