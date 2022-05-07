@@ -25,76 +25,43 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
-import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.BeforeClass;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
-import java.io.File;
 import java.io.StringReader;
 import java.lang.reflect.Method;
-import java.util.UUID;
 
-public class AdminShowReplicaTest {
-
-    // use a unique dir so that it won't be conflict with other unit test which
-    // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/AdminShowReplicaTest/" + UUID.randomUUID().toString() + "/";
-
-    private static ConnectContext connectContext;
-
-    @BeforeClass
-    public static void beforeClass() throws Exception {
-        UtFrameUtils.createDorisCluster(runningDir);
-
-        // create connect context
-        connectContext = UtFrameUtils.createDefaultCtx();
-
-        // create database
-        String createDbStmtStr = "create database test;";
-        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createDb(createDbStmt);
-
+public class AdminShowReplicaTest extends TestWithFeService {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
         createTable("create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                "    partition p1 values less than(\"2021-07-01\"),\n" +
-                "    partition p2 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties(\"replication_num\" = \"1\");");
-    }
-
-    @AfterClass
-    public static void tearDown() {
-        File file = new File(runningDir);
-        file.delete();
-    }
-
-    private static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+                        "(k1 date, k2 int)\n" +
+                        "partition by range(k1)\n" +
+                        "(\n" +
+                        "    partition p1 values less than(\"2021-07-01\"),\n" +
+                        "    partition p2 values less than(\"2021-08-01\")\n" +
+                        ")\n" +
+                        "distributed by hash(k2) buckets 10\n" +
+                        "properties(\"replication_num\" = \"1\");");
     }
 
     @Test
     public void testShowReplicaDistribution() throws Exception {
         String stmtStr = "admin show replica distribution from test.tbl1 partition(p1)";
-        AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                stmtStr, connectContext);
+        AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) parseAndAnalyzeStmt(
+                stmtStr);
         ShowExecutor executor = new ShowExecutor(connectContext, stmt);
         ShowResultSet resultSet = executor.execute();
         Assert.assertEquals(1, resultSet.getResultRows().size());
         Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
 
         stmtStr = "show data skew from test.tbl1 partition(p1)";
-        ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) UtFrameUtils.parseAndAnalyzeStmt(
-                stmtStr, connectContext);
+        ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) parseAndAnalyzeStmt(stmtStr);
         executor = new ShowExecutor(connectContext, skewStmt);
         resultSet = executor.execute();
         Assert.assertEquals(10, resultSet.getResultRows().size());
@@ -189,6 +156,5 @@ public class AdminShowReplicaTest {
         }
         return true;
     }
-
 
 }
