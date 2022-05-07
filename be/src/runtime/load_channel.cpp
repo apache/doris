@@ -99,7 +99,8 @@ Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
         bool finished = false;
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), 
                                        &finished, request.partition_ids(),
-                                       response->mutable_tablet_vec()));
+                                       response->mutable_tablet_vec(),
+                                       response->mutable_tablet_errors()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
