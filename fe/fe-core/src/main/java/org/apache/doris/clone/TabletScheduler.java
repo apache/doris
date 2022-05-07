@@ -385,7 +385,7 @@ public class TabletScheduler extends MasterDaemon {
         long start = System.currentTimeMillis();
         List<TabletSchedCtx> currentBatch = getNextTabletCtxBatch();
         LOG.debug("get {} tablets to schedule", currentBatch.size());
-        
+
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TabletSchedCtx tabletCtx : currentBatch) {
             try {
@@ -1574,7 +1574,10 @@ public class TabletScheduler extends MasterDaemon {
 
         // 2. release ctx
         timeoutTablets.stream().forEach(t -> {
-            releaseTabletCtx(t, TabletSchedCtx.State.CANCELLED, false);
+            // Set "resetReplicaState" to true because
+            // the timeout task should also be considered as UNRECOVERABLE,
+            // so need to reset replica state.
+            releaseTabletCtx(t, TabletSchedCtx.State.CANCELLED, true);
             stat.counterCloneTaskTimeout.incrementAndGet();
         });
     }
