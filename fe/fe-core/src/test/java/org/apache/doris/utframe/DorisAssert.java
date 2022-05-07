@@ -29,6 +29,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -83,6 +84,14 @@ public class DorisAssert {
 
     public DorisAssert useDatabase(String dbName) {
         ctx.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        return this;
+    }
+
+    public DorisAssert useUser(String userName) throws AnalysisException {
+        UserIdentity user = new UserIdentity(userName, "%");
+        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setCurrentUserIdentity(user);
+        ctx.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
         return this;
     }
 
