@@ -261,7 +261,8 @@ module.exports = [
         children: [
           "native-user-defined-function",
           "remote-user-defined-function",
-          "contribute-udf"
+          "contribute-udf",
+          "java-user-defined-function"
         ],
       },
     ],
