@@ -109,7 +109,7 @@ BE 的配置项有两种方式进行配置：
 
 ### `enable_vectorized_compaction`
 
-默认值：false
+默认值：true
 
 是否开启向量化compaction
 
