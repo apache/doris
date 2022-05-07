@@ -22,65 +22,48 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
+#include <arrow/array.h>
 #include "common/status.h"
-#include "exec/base_scanner.h"
+#include <exec/parquet_scanner.h>
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
-#include "util/slice.h"
 
-namespace doris {
+namespace doris::vectorized {
 
-class Tuple;
-class SlotDescriptor;
-struct Slice;
-class ParquetReaderWrap;
-class RuntimeState;
-class ExprContext;
-class TupleDescriptor;
-class TupleRow;
-class RowDescriptor;
-class RuntimeProfile;
-class StreamLoadPipe;
-
-// Broker scanner convert the data read from broker to doris's tuple.
-class ParquetScanner : public BaseScanner {
+// VParquet scanner convert the data read from Parquet to doris's columns.
+class VParquetScanner : public ParquetScanner {
 public:
-    ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
+    VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                    const TBrokerScanRangeParams& params,
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~ParquetScanner();
+    virtual ~VParquetScanner();
 
     // Open this scanner, will initialize information need to
-    virtual Status open();
+    Status open();
 
-    // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple);
+    Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof);
 
-    // Close this scanner
-    virtual void close();
+private:
+    Status next_arrow_batch();
+    Status init_arrow_batch_if_necessary();
+    Status init_src_block(Block* block);
+    Status append_batch_to_src_block(Block* block);
+    Status cast_src_block(Block* block);
+    Status eval_conjunts(Block* block);
+    Status materialize_block(Block* block, std::vector<MutableColumnPtr>& columns);
+    void fill_columns_from_path(Block* block);
 
-protected:
-    // Read next buffer from reader
-    Status open_next_reader();
-
-protected:
-    //const TBrokerScanRangeParams& _params;
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
-    // Reader
-    ParquetReaderWrap* _cur_file_reader;
-    int _next_range;
-    bool _cur_file_eof; // is read over?
-
-    // used to hold current StreamLoadPipe
-    std::shared_ptr<StreamLoadPipe> _stream_load_pipe;
+private:
+    std::shared_ptr<arrow::RecordBatch> _batch;
+    size_t _arrow_batch_cur_idx;
+    int _num_of_columns_from_file;
 };
 
 } // namespace doris

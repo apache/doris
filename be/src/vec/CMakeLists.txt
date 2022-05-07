@@ -101,6 +101,7 @@ set(VEC_FILES
   exec/vtable_function_node.cpp
   exec/vbroker_scan_node.cpp
   exec/vbroker_scanner.cpp
+  exec/vparquet_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
@@ -190,6 +191,7 @@ set(VEC_FILES
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vpartition_info.cpp
+  utils/arrow_column_to_doris_column.cpp
   runtime/vsorted_run_merger.cpp)
 
 add_library(Vec STATIC

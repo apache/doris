@@ -192,6 +192,10 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.STRING);
     }
 
+    public boolean isVarchar() {
+        return isScalarType(PrimitiveType.VARCHAR);
+    }
+
     // only metric types have the following constraint:
     // 1. don't support as key column
     // 2. don't support filter

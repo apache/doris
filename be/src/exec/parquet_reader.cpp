@@ -219,6 +219,24 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
     return Status::OK();
 }
 
+Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
+                                    const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                    bool* eof) {
+    if (_batch->num_rows() == 0 ||
+        _current_line_of_batch != 0 ||
+        _current_line_of_group != 0) {
+        RETURN_IF_ERROR(read_record_batch(tuple_slot_descs, eof));
+    }
+    *batch = get_batch();
+    return Status::OK();
+}
+
+const std::shared_ptr<arrow::RecordBatch>& ParquetReaderWrap::get_batch() {
+    _current_line_of_batch += _batch->num_rows();
+    _current_line_of_group += _batch->num_rows();
+    return _batch;
+}
+
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
                                            uint8_t* buf, int32_t* wbytes) {
     const auto type = std::static_pointer_cast<arrow::TimestampType>(ts_array->type());
