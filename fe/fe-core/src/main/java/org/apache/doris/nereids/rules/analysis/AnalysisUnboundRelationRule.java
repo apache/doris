@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 
-import com.alibaba.google.common.collect.ImmutableList;
-import com.alibaba.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 

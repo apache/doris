@@ -17,8 +17,8 @@
 
 package org.apache.doris.nereids.pattern;
 
+import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Objects;
@@ -26,7 +26,7 @@ import java.util.Objects;
 /**
  * Pattern node used in pattern matching.
  */
-public class Pattern extends TreeNode<Pattern> {
+public class Pattern extends AbstractTreeNode<Pattern> {
     public static final Pattern PATTERN_MULTI_LEAF_INSTANCE = new Pattern(NodeType.PATTERN_MULTI_LEAF);
     public static final Pattern PATTERN_LEAF_INSTANCE = new Pattern(NodeType.PATTERN_LEAF);
 
@@ -39,11 +39,8 @@ public class Pattern extends TreeNode<Pattern> {
      * @param children sub pattern
      */
     public Pattern(NodeType nodeType, Pattern... children) {
-        super(NodeType.PATTERN);
+        super(NodeType.PATTERN, children);
         this.nodeType = nodeType;
-        for (Pattern child : children) {
-            addChild(child);
-        }
     }
 
     /**
@@ -66,7 +63,7 @@ public class Pattern extends TreeNode<Pattern> {
             return false;
         }
 
-        if (plan.getChildren().size() < this.getChildren().size() && children.contains(PATTERN_MULTI_LEAF_INSTANCE)) {
+        if (plan.children().size() < this.children().size() && children.contains(PATTERN_MULTI_LEAF_INSTANCE)) {
             return false;
         }
 

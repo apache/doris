@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * Physical olap scan plan node.
  */
-public class PhysicalOlapScan extends PhysicalScan {
+public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;

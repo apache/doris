@@ -19,15 +19,18 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Physical filter plan node.
  */
-public class PhysicalFilter extends PhysicalPlan {
+public class PhysicalFilter<CHILD_TYPE extends Plan<CHILD_TYPE>>
+        extends PhysicalUnary<PhysicalFilter<CHILD_TYPE>, CHILD_TYPE> {
+
     private final Expression predicates;
 
-    public PhysicalFilter(Expression predicates) {
-        super(NodeType.PHYSICAL_FILTER);
+    public PhysicalFilter(Expression predicates, CHILD_TYPE child) {
+        super(NodeType.PHYSICAL_FILTER, child);
         this.predicates = predicates;
     }
 

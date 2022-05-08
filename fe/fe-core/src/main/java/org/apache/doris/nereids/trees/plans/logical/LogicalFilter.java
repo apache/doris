@@ -21,16 +21,19 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
  * Logical filter plan node.
  */
-public class LogicalFilter extends LogicalUnary {
+public class LogicalFilter<CHILD_TYPE extends Plan<CHILD_TYPE>>
+         extends LogicalUnary<LogicalFilter<CHILD_TYPE>, CHILD_TYPE> {
+
     private final Expression predicates;
 
-    public LogicalFilter(Expression predicates, LogicalPlan child) {
+    public LogicalFilter(Expression predicates, CHILD_TYPE child) {
         super(NodeType.LOGICAL_FILTER, child);
         this.predicates = predicates;
     }
