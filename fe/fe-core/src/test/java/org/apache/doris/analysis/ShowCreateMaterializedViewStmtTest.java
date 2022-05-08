@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.utframe.DorisAssert;
@@ -71,5 +73,25 @@ public class ShowCreateMaterializedViewStmtTest {
         ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
                 "CREATE MATERIALIZED VIEW test_mv as select k1 from test.table1;");
+    }
+
+    @Test
+    public void testNoView() throws Exception {
+        String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv_empty on test.table1;";
+        ShowCreateMaterializedViewStmt showStmt =
+                (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
+        ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
+        Assert.assertTrue(executor.execute().getResultRows().isEmpty());
+    }
+
+    @Test
+    public void testNoTable() throws Exception {
+        String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.table1_error;";
+        ShowCreateMaterializedViewStmt showStmt =
+                (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
+        ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "Unknown table 'table1_error' in default_cluster:test", executor::execute);
+
     }
 }

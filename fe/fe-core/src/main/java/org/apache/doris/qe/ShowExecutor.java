@@ -2187,19 +2187,21 @@ public class ShowExecutor {
         ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) stmt;
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getTableName().getDb());
         Table table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
-        OlapTable baseTable = ((OlapTable) table);
-        Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
-        MaterializedIndexMeta meta = baseTable.getIndexMetaByIndexId(indexIdByName);
-        if (meta == null || meta.getDefineStmt() == null) {
-            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
-            return;
+        if (table instanceof OlapTable) {
+            OlapTable baseTable = ((OlapTable) table);
+            Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
+            if (indexIdByName != null) {
+                MaterializedIndexMeta meta = baseTable.getIndexMetaByIndexId(indexIdByName);
+                if (meta != null && meta.getDefineStmt() != null) {
+                    String originStmt = meta.getDefineStmt().originStmt;
+                    List<String> data = new ArrayList<>();
+                    data.add(showStmt.getTableName().getTbl());
+                    data.add(showStmt.getMvName());
+                    data.add(originStmt);
+                    resultRowSet.add(data);
+                }
+            }
         }
-        String originStmt = meta.getDefineStmt().originStmt;
-        List<String> data = new ArrayList<>();
-        data.add(showStmt.getTableName().getTbl());
-        data.add(showStmt.getMvName());
-        data.add(originStmt);
-        resultRowSet.add(data);
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
     }
 
