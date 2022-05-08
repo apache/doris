@@ -18,42 +18,27 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.types.DataType;
 
-import java.util.List;
-
-/**
- * Abstract class for all Expression in Nereids.
- */
-public abstract class AbstractExpression<EXPR_TYPE extends AbstractExpression<EXPR_TYPE>>
-        extends AbstractTreeNode<EXPR_TYPE>
-        implements Expression<EXPR_TYPE> {
-
-    public AbstractExpression(NodeType type, Expression... children) {
-        super(type, children);
+public class LessThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Constructor of Less Than And Equal.
+     *
+     * @param left  left child of Less Than And Equal
+     * @param right right child of Less Than And Equal
+     */
+    public LessThanEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.LTE_COMPARISON_PREDICATE, left, right);
     }
 
-    public DataType getDataType() throws UnboundException {
-        throw new UnboundException("dataType");
-    }
-
-    public String sql() throws UnboundException {
-        throw new UnboundException("sql");
-    }
-
+    @Override
     public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
+        return left().nullable() || right().nullable();
     }
 
     @Override
-    public List<Expression> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Expression child(int index) {
-        return (Expression) children.get(index);
+    public String toString() {
+        return "(" + left() + " <= " + right() + ")";
     }
 }

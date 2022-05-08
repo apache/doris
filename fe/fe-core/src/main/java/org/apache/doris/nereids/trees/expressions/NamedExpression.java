@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.NodeType;
 
 import org.apache.commons.collections.CollectionUtils;
 
@@ -28,28 +29,26 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Expression in Nereids that having name.
  */
-public interface NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
-        extends Expression<EXPR_TYPE> {
+public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
+    extends Expression<EXPR_TYPE> {
 
-    @Override
-    Expression child(int index);
+    public NamedExpression(NodeType type, Expression... children) {
+        super(type, children);
+    }
 
-    @Override
-    List<Expression> children();
-
-    default Slot toSlot() throws UnboundException {
+    public Slot toSlot() throws UnboundException {
         throw new UnboundException("toSlot");
     }
 
-    default String getName() throws UnboundException {
+    public String getName() throws UnboundException {
         throw new UnboundException("name");
     }
 
-    default ExprId getExprId() throws UnboundException {
+    public ExprId getExprId() throws UnboundException {
         throw new UnboundException("exprId");
     }
 
-    default List<String> getQualifier() throws UnboundException {
+    public List<String> getQualifier() throws UnboundException {
         throw new UnboundException("qualifier");
     }
 
@@ -59,23 +58,11 @@ public interface NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
      * @return qualified name
      * @throws UnboundException throw this exception if this expression is unbound
      */
-    default String getQualifiedName() throws UnboundException {
+    public String getQualifiedName() throws UnboundException {
         String qualifiedName = "";
         if (CollectionUtils.isNotEmpty(getQualifier())) {
             qualifiedName = String.join(".", getQualifier()) + ".";
         }
         return qualifiedName + getName();
-    }
-
-    /**
-     * Tool class for generate next ExprId.
-     */
-    class NamedExpressionUtils {
-        static final UUID JVM_ID = UUID.randomUUID();
-        private static final AtomicLong CURRENT_ID = new AtomicLong();
-
-        static ExprId newExprId() {
-            return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);
-        }
     }
 }

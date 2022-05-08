@@ -17,13 +17,17 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.UnaryNode;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * Abstract class for all expression that have one child.
- */
-public interface UnaryExpression<
-    EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>, CHILD_TYPE extends Expression>
-    extends UnaryNode<EXPR_TYPE, CHILD_TYPE> {
+public class NamedExpressionUtil {
+    /**
+     * Tool class for generate next ExprId.
+     */
+    static final UUID JVM_ID = UUID.randomUUID();
+    private static final AtomicLong CURRENT_ID = new AtomicLong();
 
+    public static ExprId newExprId() {
+        return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);
+    }
 }

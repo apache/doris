@@ -31,7 +31,7 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class BinaryPredicateTest {
+public class ComparisonPredicateTest {
 
     @Mocked
     Analyzer analyzer;

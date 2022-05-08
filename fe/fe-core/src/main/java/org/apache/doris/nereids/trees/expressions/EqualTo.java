@@ -17,13 +17,23 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.NodeType;
 
-/**
- * Abstract class for all expression that have one child.
- */
-public interface UnaryExpression<
-    EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>, CHILD_TYPE extends Expression>
-    extends UnaryNode<EXPR_TYPE, CHILD_TYPE> {
+public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
+    public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.EQ_COMPARISON_PREDICATE, left, right);
+    }
+
+    @Override
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " = " + right() + ")";
+    }
 }

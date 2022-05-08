@@ -25,8 +25,7 @@ import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.BinaryPredicate;
-import org.apache.doris.nereids.trees.expressions.BinaryPredicate.Operator;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -329,33 +328,31 @@ public interface Patterns {
     }
 
     /**
-     * create a binaryPredicate pattern.
+     * TODO create a ComparisonPredicate pattern.
      */
-    default PatternDescriptor<BinaryPredicate<Expression, Expression>, Expression> binaryPredicate() {
+
+    /**
+     * TODO create a ComparisonPredicate pattern with children patterns.
+     */
+
+    /**
+     * create a equal to predicate pattern.
+     */
+    default PatternDescriptor<EqualTo<Expression, Expression>, Expression> eqcomparisonPredicate() {
         return new PatternDescriptor<>(
-                new Pattern<>(NodeType.BINARY_PREDICATE),
+                new Pattern<>(NodeType.EQ_COMPARISON_PREDICATE),
                 defaultPromise()
         );
     }
 
     /**
-     * create a binaryPredicate pattern with operator type.
+     * create a equal to predicate pattern with children patterns.
      */
-    default PatternDescriptor<BinaryPredicate<Expression, Expression>, Expression> binaryPredicate(Operator operator) {
-        return new PatternDescriptor<BinaryPredicate<Expression, Expression>, Expression>(
-                new Pattern<>(NodeType.BINARY_PREDICATE),
-                defaultPromise()
-        ).when(p -> p.getOperator() == operator);
-    }
-
-    /**
-     * create a binaryPredicate pattern with children patterns.
-     */
-    default <C1 extends Expression, C2 extends Expression> PatternDescriptor<BinaryPredicate<C1, C2>, Expression>
-            binaryPredicate(PatternDescriptor<C1, Expression> leftChildPattern,
+    default <C1 extends Expression, C2 extends Expression> PatternDescriptor<EqualTo<C1, C2>, Expression>
+    eqcomparisonPredicate(PatternDescriptor<C1, Expression> leftChildPattern,
                 PatternDescriptor<C2, Expression> rightChildPattern) {
         return new PatternDescriptor<>(
-                new Pattern<>(NodeType.BINARY_PREDICATE,
+                new Pattern<>(NodeType.EQ_COMPARISON_PREDICATE,
                         leftChildPattern.pattern,
                         rightChildPattern.pattern
                 ),

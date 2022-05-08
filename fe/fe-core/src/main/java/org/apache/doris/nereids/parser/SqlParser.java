@@ -63,7 +63,7 @@ public class SqlParser {
             tree = parser.singleStatement();
         }
 
-        AstBuilder astBuilder = new AstBuilder();
-        return (LogicalPlan) astBuilder.visit(tree);
+        LogicalPlanBuilder logicalPlanBuilder = new LogicalPlanBuilder();
+        return (LogicalPlan) logicalPlanBuilder.visit(tree);
     }
 }

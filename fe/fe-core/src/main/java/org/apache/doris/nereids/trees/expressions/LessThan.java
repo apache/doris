@@ -17,13 +17,28 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.NodeType;
 
-/**
- * Abstract class for all expression that have one child.
- */
-public interface UnaryExpression<
-    EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>, CHILD_TYPE extends Expression>
-    extends UnaryNode<EXPR_TYPE, CHILD_TYPE> {
+public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Constructor of Less Than Comparison Predicate.
+     *
+     * @param left  left child of Less Than
+     * @param right right child of Less Than
+     */
+    public LessThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.LT_COMPARISON_PREDICATE, left, right);
+    }
 
+    @Override
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " < " + right() + ")";
+    }
 }

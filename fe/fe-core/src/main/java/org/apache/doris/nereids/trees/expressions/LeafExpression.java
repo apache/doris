@@ -18,16 +18,10 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.LeafNode;
-import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Abstract class for all expression that have no child.
+ * Interface for all expression that have no child.
  */
-public abstract class LeafExpression<EXPR_TYPE extends LeafExpression<EXPR_TYPE>>
-        extends AbstractExpression<EXPR_TYPE>
-        implements LeafNode<EXPR_TYPE> {
-
-    public LeafExpression(NodeType type) {
-        super(type);
-    }
+public interface LeafExpression<EXPR_TYPE extends LeafExpression<EXPR_TYPE>>
+    extends LeafNode<EXPR_TYPE> {
 }

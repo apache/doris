@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -28,8 +28,8 @@ import java.util.List;
  * Expression for alias, such as col1 as c1.
  */
 public class Alias<CHILD_TYPE extends Expression>
-        extends UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE>
-        implements NamedExpression<Alias<CHILD_TYPE>> {
+    extends NamedExpression<Alias<CHILD_TYPE>>
+    implements UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE> {
 
     private final ExprId exprId;
     private final String name;
@@ -43,7 +43,7 @@ public class Alias<CHILD_TYPE extends Expression>
      */
     public Alias(CHILD_TYPE child, String name) {
         super(NodeType.ALIAS, child);
-        exprId = NamedExpressionUtils.newExprId();
+        exprId = NamedExpressionUtil.newExprId();
         this.name = name;
         qualifier = Lists.newArrayList();
     }
