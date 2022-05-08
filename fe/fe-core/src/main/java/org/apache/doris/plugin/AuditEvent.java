@@ -84,6 +84,8 @@ public class AuditEvent {
     public String sqlHash = "";
     @AuditField(value = "peakMemoryBytes")
     public long peakMemoryBytes = -1;
+    @AuditField(value = "SqlDigest")
+    public String sqlDigest = "";
 
     public static class AuditEventBuilder {
 
@@ -183,6 +185,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setSqlHash(String sqlHash) {
             auditEvent.sqlHash = sqlHash;
+            return this;
+        }
+
+        public AuditEventBuilder setSqlDigest(String sqlDigest) {
+            auditEvent.sqlDigest = sqlDigest;
             return this;
         }
 

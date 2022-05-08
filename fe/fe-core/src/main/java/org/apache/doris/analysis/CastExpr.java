@@ -207,6 +207,27 @@ public class CastExpr extends Expr {
     }
 
     @Override
+    public String toDigestImpl() {
+        boolean isVerbose = ConnectContext.get() != null &&
+                ConnectContext.get().getExecutor() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null &&
+                ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
+            return getChild(0).toDigest();
+        }
+        if (isAnalyzed) {
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toDigest() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
+            }
+        } else {
+            return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
+        }
+    }
+
+    @Override
     protected void treeToThriftHelper(TExpr container) {
         if (noOp) {
             getChild(0).treeToThriftHelper(container);
