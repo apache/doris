@@ -270,6 +270,19 @@ public class InPredicate extends Predicate {
     }
 
     @Override
+    public String toDigestImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = (isNotIn) ? "NOT " : "";
+        strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");
+        for (int i = 1; i < children.size(); ++i) {
+            strBuilder.append(getChild(i).toDigest());
+            strBuilder.append((i + 1 != children.size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
+    }
+
+    @Override
     public String toString() {
         return toSql();
     }
