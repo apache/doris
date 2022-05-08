@@ -192,6 +192,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     }
 
     auto target_block_row = 0;
+    auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
     _insert_data_normal(target_columns);
@@ -218,6 +219,8 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
 
             _insert_data_normal(target_columns);
             target_block_row++;
+        } else {
+            merged_row++;
         }
 
         _append_agg_data(target_columns);
@@ -227,7 +230,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
 
-    _merged_rows += target_block_row;
+    _merged_rows += merged_row;
     return Status::OK();
 }
 
@@ -260,7 +263,6 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
-    _merged_rows += target_block_row;
     return Status::OK();
 }
 

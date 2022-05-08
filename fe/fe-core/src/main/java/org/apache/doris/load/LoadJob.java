@@ -489,7 +489,6 @@ public class LoadJob implements Writable {
     public void setHadoopEtlJobId(String etlJobId) {
         if (etlJobType == EtlJobType.HADOOP) {
             ((HadoopEtlJobInfo) etlJobInfo).setEtlJobId(etlJobId);
-            ;
         }
     }
 

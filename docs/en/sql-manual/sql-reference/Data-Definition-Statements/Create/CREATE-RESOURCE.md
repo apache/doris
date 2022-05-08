@@ -108,6 +108,8 @@ illustrate:
    - odbc_type: the type of the external database, currently supports oracle, mysql, postgresql
    - user: username of the foreign database
    - password: the password information of the corresponding user
+   - charset: connection charset
+   - There is also support for implementing custom parameters per ODBC Driver, see the description of the corresponding ODBC Driver
 
 3. Create S3 resource
 

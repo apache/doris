@@ -455,7 +455,7 @@ public final class SparkDpp implements java.io.Serializable {
                     if(!validateData(columnObject, baseIndex.getColumn(columnName), parsers.get(i), row)) {
                         abnormalRowAcc.add(1);
                         return result.iterator();
-                    };
+                    }
                     keyColumns.add(columnObject);
                 }
 
@@ -465,7 +465,7 @@ public final class SparkDpp implements java.io.Serializable {
                     if(!validateData(columnObject,  baseIndex.getColumn(columnName), parsers.get(i + keyColumnNames.size()),row)) {
                         abnormalRowAcc.add(1);
                         return result.iterator();
-                    };
+                    }
                     valueColumns.add(columnObject);
                 }
 

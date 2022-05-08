@@ -44,28 +44,6 @@ namespace doris {
 
 const size_t FileResultWriter::OUTSTREAM_BUFFER_SIZE_BYTES = 1024 * 1024;
 
-// deprecated
-FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
-                                   const std::vector<ExprContext*>& output_expr_ctxs,
-                                   RuntimeProfile* parent_profile, BufferControlBlock* sinker,
-                                   bool output_object_data)
-        : _file_opts(file_opts),
-          _output_expr_ctxs(output_expr_ctxs),
-          _parent_profile(parent_profile),
-          _sinker(sinker) {
-    if (_file_opts->is_local_file) {
-        _storage_type = TStorageBackendType::LOCAL;
-    } else {
-        _storage_type = TStorageBackendType::BROKER;
-    }
-    // The new file writer needs to use fragment instance id as part of the file prefix.
-    // But during the upgrade process, the old version of fe will be called to the new version of be,
-    // resulting in no such attribute. So we need a mock here.
-    _fragment_instance_id.hi = 12345678987654321;
-    _fragment_instance_id.lo = 98765432123456789;
-    _output_object_data = output_object_data;
-}
-
 FileResultWriter::FileResultWriter(const ResultFileOptions* file_opts,
                                    const TStorageBackendType::type storage_type,
                                    const TUniqueId fragment_instance_id,

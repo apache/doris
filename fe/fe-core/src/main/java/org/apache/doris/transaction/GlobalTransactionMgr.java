@@ -211,7 +211,7 @@ public class GlobalTransactionMgr implements Writable {
      * @throws UserException
      * @throws TransactionCommitFailedException
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
-     * @note callers should get db.write lock before call this api
+     * @note callers should get all tables' write locks before call this api
      */
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
@@ -263,7 +263,7 @@ public class GlobalTransactionMgr implements Writable {
             // so we just return false to indicate publish timeout
             return false;
         }
-        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
+        return dbTransactionMgr.waitForTransactionFinished(db, transactionId, publishTimeoutMillis);
     }
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)

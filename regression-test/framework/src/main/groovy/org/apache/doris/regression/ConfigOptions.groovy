@@ -37,9 +37,13 @@ class ConfigOptions {
     static Option feHttpPasswordOpt
     static Option pathOpt
     static Option dataOpt
+    static Option pluginOpt
     static Option suiteOpt
+    static Option excludeSuiteOpt
     static Option groupsOpt
+    static Option excludeGroupsOpt
     static Option directoriesOpt
+    static Option excludeDirectoriesOpt
     static Option confOpt
     static Option genOutOpt
     static Option forceGenOutOpt
@@ -114,6 +118,14 @@ class ConfigOptions {
                 .longOpt("dataPath")
                 .desc("the data path")
                 .build()
+        pluginOpt = Option.builder("plugin")
+                .argName("pluginPath")
+                .required(false)
+                .hasArg(true)
+                .type(String.class)
+                .longOpt("plugin")
+                .desc("the plugin path")
+                .build()
         suiteOpt = Option.builder("s")
                 .argName("suiteName")
                 .required(false)
@@ -122,6 +134,15 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("suite")
                 .desc("the suite name wildcard to be test")
+                .build()
+        excludeSuiteOpt = Option.builder("xs")
+                .argName("excludeSuiteName")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("excludeSuite")
+                .desc("the suite name wildcard will not be tested")
                 .build()
         groupsOpt = Option.builder("g")
                 .argName("groups")
@@ -132,6 +153,15 @@ class ConfigOptions {
                 .longOpt("groups")
                 .desc("the suite group to be test")
                 .build()
+        excludeGroupsOpt = Option.builder("xg")
+                .argName("excludeGroupNames")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("excludeGroups")
+                .desc("the suite group will not be tested")
+                .build()
         directoriesOpt = Option.builder("d")
                 .argName("directories")
                 .required(false)
@@ -140,6 +170,15 @@ class ConfigOptions {
                 .type(String.class)
                 .longOpt("directories")
                 .desc("only the use cases in these directories can be executed")
+                .build()
+        excludeDirectoriesOpt = Option.builder("xd")
+                .argName("excludeDirectoryNames")
+                .required(false)
+                .hasArg(true)
+                .optionalArg(true)
+                .type(String.class)
+                .longOpt("excludeDirectories")
+                .desc("the use cases in these directories will not be tested")
                 .build()
         feHttpAddressOpt = Option.builder("ha")
                 .argName("address")
@@ -237,10 +276,14 @@ class ConfigOptions {
                 .addOption(passwordOpt)
                 .addOption(pathOpt)
                 .addOption(dataOpt)
+                .addOption(pluginOpt)
                 .addOption(confOpt)
                 .addOption(suiteOpt)
+                .addOption(excludeSuiteOpt)
                 .addOption(groupsOpt)
+                .addOption(excludeGroupsOpt)
                 .addOption(directoriesOpt)
+                .addOption(excludeDirectoriesOpt)
                 .addOption(feHttpAddressOpt)
                 .addOption(feHttpUserOpt)
                 .addOption(feHttpPasswordOpt)

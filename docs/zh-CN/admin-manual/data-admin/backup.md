@@ -52,6 +52,8 @@ Doris 支持将当前数据以文件的形式，通过 broker 备份到远端存
    ALTER TABLE tbl1 SET ("dynamic_partition.enable"="true")
    ```
 
+4. 备份和恢复操作都不会保留表的 `colocate_with` 属性。
+
 ## 开始备份
 
 1. 创建一个hdfs的远程仓库example_repo：

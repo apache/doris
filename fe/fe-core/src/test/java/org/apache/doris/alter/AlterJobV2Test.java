@@ -57,7 +57,6 @@ public class AlterJobV2Test {
         FeConstants.runningUnitTest = true;
 
         UtFrameUtils.createDorisCluster(runningDir);
-        Config.enable_alpha_rowset = true;
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -67,8 +66,6 @@ public class AlterJobV2Test {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
         createTable("CREATE TABLE test.schema_change_test(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');");
-
-        createTable("CREATE TABLE test.segmentv2(k1 int, k2 int, v1 int sum) distributed by hash(k1) buckets 3 properties('replication_num' = '1', 'storage_format' = 'v1');");
     }
 
     @AfterClass
@@ -134,7 +131,7 @@ public class AlterJobV2Test {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
         // 2. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         // 3. check show alter table column
         String showAlterStmtStr = "show alter table rollup from test;";
@@ -143,59 +140,6 @@ public class AlterJobV2Test {
         ShowResultSet showResultSet = showExecutor.execute();
         System.out.println(showResultSet.getMetaData());
         System.out.println(showResultSet.getResultRows());
-    }
-
-    @Test
-    @Deprecated
-    public void testAlterSegmentV2() throws Exception {
-        // TODO this test should remove after we disable segment v1 completely
-        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable tbl = db.getTableOrMetaException("segmentv2", Table.TableType.OLAP);
-        Assert.assertEquals(TStorageFormat.V1, tbl.getTableProperty().getStorageFormat());
-
-        // 1. create a rollup r1
-        String alterStmtStr = "alter table test.segmentv2 add rollup r1(k2, v1)";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-
-        String sql = "select k2, sum(v1) from test.segmentv2 group by k2";
-        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: r1"));
-
-        // 2. create a rollup with segment v2
-        alterStmtStr = "alter table test.segmentv2 add rollup segmentv2(k2, v1) properties('storage_format' = 'v2')";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: r1"));
-
-        // set use_v2_rollup = true;
-        connectContext.getSessionVariable().setUseV2Rollup(true);
-        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
-        Assert.assertTrue(explainString.contains("rollup: __v2_segmentv2"));
-
-        // 3. process alter segment v2
-        alterStmtStr = "alter table test.segmentv2 set ('storage_format' = 'v2');";
-        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        // 4. check alter job
-        alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
-        waitAlterJobDone(alterJobs);
-        // 5. check storage format of table
-        Assert.assertEquals(TStorageFormat.V2, tbl.getTableProperty().getStorageFormat());
-
-        // 6. alter again, that no job will be created
-        try {
-            Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-            Assert.fail();
-        } catch (DdlException e) {
-            Assert.assertTrue(e.getMessage().contains("Nothing is changed"));
-        }
     }
 
     @Test
@@ -219,7 +163,7 @@ public class AlterJobV2Test {
 
 
         alterTable("alter table test.dup_table add rollup r1(v1,v2,k2,k1);");
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
         ExceptionChecker.expectThrowsNoException(() -> alterTable("alter table test.dup_table modify column v2 varchar(2);"));
     }
@@ -253,7 +197,7 @@ public class AlterJobV2Test {
                 "city,\n" +
                 "user_id,\n" +
                 "date;");
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         waitAlterJobDone(alterJobs);
     }
 }

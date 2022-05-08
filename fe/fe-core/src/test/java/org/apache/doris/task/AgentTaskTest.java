@@ -28,7 +28,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TKeysType;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
@@ -86,8 +85,6 @@ public class AgentTaskTest {
     private AgentTask dropTask;
     private AgentTask pushTask;
     private AgentTask cloneTask;
-    private AgentTask rollupTask;
-    private AgentTask schemaChangeTask;
     private AgentTask cancelDeleteTask;
     private AgentTask storageMediaMigrationTask;
 
@@ -130,18 +127,6 @@ public class AgentTaskTest {
                 new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
                         Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
-        // rollup
-        rollupTask =
-                new CreateRollupTask(null, backendId1, dbId, tableId, partitionId, indexId2, indexId1,
-                                     tabletId2, tabletId1, replicaId2, shortKeyNum, schemaHash2, schemaHash1,
-                                     storageType, columns, null, 0, TKeysType.AGG_KEYS);
-
-        // schemaChange
-        schemaChangeTask =
-                new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1, 
-                                     tabletId1, replicaId1, columns, schemaHash2, schemaHash1, 
-                                     shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
-
         // storageMediaMigrationTask
         storageMediaMigrationTask =
                 new StorageMediaMigrationTask(backendId1, tabletId1, schemaHash1, TStorageMedium.HDD);
@@ -158,17 +143,12 @@ public class AgentTaskTest {
         agentBatchTask.addTask(createReplicaTask);
         Assert.assertEquals(1, agentBatchTask.getTaskNum());
 
-        agentBatchTask.addTask(rollupTask);
-        Assert.assertEquals(2, agentBatchTask.getTaskNum());
-
         List<AgentTask> allTasks = agentBatchTask.getAllTasks();
-        Assert.assertEquals(2, allTasks.size());
+        Assert.assertEquals(1, allTasks.size());
 
         for (AgentTask agentTask : allTasks) {
             if (agentTask instanceof CreateReplicaTask) {
                 Assert.assertEquals(createReplicaTask, agentTask);
-            } else if (agentTask instanceof CreateRollupTask) {
-                Assert.assertEquals(rollupTask, agentTask);
             } else {
                 Assert.fail();
             }
@@ -206,18 +186,6 @@ public class AgentTaskTest {
         Assert.assertEquals(cloneTask.getSignature(), request4.getSignature());
         Assert.assertNotNull(request4.getCloneReq());
 
-        // rollup
-        TAgentTaskRequest request5 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, rollupTask);
-        Assert.assertEquals(TTaskType.ROLLUP, request5.getTaskType());
-        Assert.assertEquals(rollupTask.getSignature(), request5.getSignature());
-        Assert.assertNotNull(request5.getAlterTabletReq());
-
-        // schemaChange
-        TAgentTaskRequest request6 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, schemaChangeTask);
-        Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTaskType());
-        Assert.assertEquals(schemaChangeTask.getSignature(), request6.getSignature());
-        Assert.assertNotNull(request6.getAlterTabletReq());
-
         // storageMediaMigrationTask
         TAgentTaskRequest request7 =
             (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
@@ -242,24 +210,18 @@ public class AgentTaskTest {
         AgentTask task = AgentTaskQueue.getTask(backendId1, TTaskType.CREATE, createReplicaTask.getSignature());
         Assert.assertEquals(createReplicaTask, task);
 
-        // diff
-        AgentTaskQueue.addTask(rollupTask);
-
         Map<TTaskType, Set<Long>> runningTasks = new HashMap<TTaskType, Set<Long>>();
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId1, runningTasks);
-        Assert.assertEquals(2, diffTasks.size());
+        Assert.assertEquals(1, diffTasks.size());
 
         Set<Long> set = new HashSet<Long>();
         set.add(createReplicaTask.getSignature());
         runningTasks.put(TTaskType.CREATE, set);
         diffTasks = AgentTaskQueue.getDiffTasks(backendId1, runningTasks);
-        Assert.assertEquals(1, diffTasks.size());
-        Assert.assertEquals(rollupTask, diffTasks.get(0));
+        Assert.assertEquals(0, diffTasks.size());
 
         // remove
         AgentTaskQueue.removeTask(backendId1, TTaskType.CREATE, createReplicaTask.getSignature());
-        Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
-        AgentTaskQueue.removeTask(backendId1, TTaskType.ROLLUP, rollupTask.getSignature());
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
     }
 

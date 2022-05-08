@@ -967,7 +967,17 @@ module.exports = [
       "tpc-h"
     ],
   },
-    {
+  {
+    title: "Design Documents",
+    directoryPath: "design/",
+    initialOpenGroupIndex: -1,
+    children: [
+      "doris_storage_optimization",
+      "grouping_sets_design",
+      "metadata-design",
+    ],
+  },  
+  {
     title: "Doris User",
     directoryPath: "case-user/",
     initialOpenGroupIndex: -1,
@@ -1010,7 +1020,8 @@ module.exports = [
         initialOpenGroupIndex: -1,
         children: [
           "how-to-contribute",
-          "committer-guide",
+          "contributor-guide",
+          "how-to-be-a-committer",
           "commit-format-specification",
           "pull-request",
         ],

@@ -338,7 +338,7 @@ Like the slave node in mysql, Canal Server also needs to save the latest consump
 
 ### Configure Target Table Properties
 
-User needs to first create the target table which is corresponding to the MySQL side.
+User needs to first create the target table which is corresponding to the MySQL side
 
 Binlog Load can only support unique target tables from now, and the batch delete feature of the target table must be activated.
 
@@ -346,24 +346,59 @@ For the method of enabling Batch Delete, please refer to the batch delete functi
 
 Example:
 
-```
--- create target table
-CREATE TABLE `test1` (
-  `a` int(11) NOT NULL COMMENT "",
-  `b` int(11) NOT NULL COMMENT ""
+```text
+--create Mysql table
+CREATE TABLE `demo.source_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- create Doris table
+CREATE TABLE `target_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
 ) ENGINE=OLAP
-UNIQUE KEY(`a`)
+UNIQUE KEY(`id`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`a`) BUCKETS 8;
+DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
 ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 ```
+**! !  Doris table structure and Mysql table structure field order must be consistent ! !**
 
 ### Create SyncJob
 
+```text
+CREATE SYNC `demo`.`job`
+(
+FROM `demo`.`source_test1` INTO `target_test`
+(id,name)
+)
+FROM BINLOG
+(
+"type" = "canal",
+"canal.server.ip" = "127.0.0.1",
+"canal.server.port" = "11111",
+"canal.destination" = "xxx",
+"canal.username" = "canal",
+"canal.password" = "canal"
+);
+```
+
 The detailed syntax for creating a data synchronization job can be connected to Doris and [CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) to view the syntax help. Here is a detailed introduction to the precautions when creating a job.
 
+grammar：
+```
+CREATE SYNC [db.]job_name
+ (
+        channel_desc, 
+        channel_desc
+        ...
+ )
+binlog_desc
+```
 * job_name
 
 	`job_Name` is the unique identifier of the SyncJob in the current database. With a specified job name, only one SyncJob can be running at the same time.

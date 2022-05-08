@@ -79,10 +79,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             return;
         }
 
-        // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
-        // but should do more work. for example, if a table is migrate from one cluster to another cluster
-        // should publish to two clusters.
-        // attention here, we publish transaction state to all backends including dead backend, if not publish to dead backend
+        // ATTN, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
         List<Long> allBackends = Catalog.getCurrentSystemInfo().getBackendIds(false);
         if (allBackends.isEmpty()) {
@@ -197,7 +194,6 @@ public class PublishVersionDaemon extends MasterDaemon {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
                         }
-
 
                         for (long tableId : transactionState.getTableIdList()) {
                             Table table = db.getTableNullable(tableId);

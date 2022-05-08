@@ -72,7 +72,7 @@ PROPERTIES (
 );
 ```
 
-sequence_type用来指定sequence列的类型，可以为整型和时间类型。
+sequence_type用来指定sequence列的类型，可以为整型和时间类型（DATE、DATETIME）。
 
 **Stream Load**
 

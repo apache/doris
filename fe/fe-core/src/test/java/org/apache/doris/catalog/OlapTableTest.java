@@ -17,10 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Maps;
-import mockit.Mock;
-import mockit.MockUp;
-
 import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
@@ -28,6 +24,7 @@ import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -37,6 +34,9 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+
+import mockit.Mock;
+import mockit.MockUp;
 
 public class OlapTableTest {
 
@@ -88,10 +88,13 @@ public class OlapTableTest {
 
         OlapTable olapTable = new OlapTable();
         olapTable.setTableProperty(tableProperty);
+        olapTable.setColocateGroup("test_group");
+        Assert.assertTrue(olapTable.isColocateTable());
 
         olapTable.resetPropertiesForRestore();
         Assert.assertEquals(tableProperty.getProperties(), olapTable.getTableProperty().getProperties());
         Assert.assertFalse(tableProperty.getDynamicPartitionProperty().isExist());
+        Assert.assertFalse(olapTable.isColocateTable());
 
         // restore with dynamic partition keys
         properties = Maps.newHashMap();
