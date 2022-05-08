@@ -62,7 +62,7 @@ Status VParquetScanner::open() {
 }
 
 // get next available arrow batch
-Status VParquetScanner::next_arrow_batch() {
+Status VParquetScanner::_next_arrow_batch() {
     _arrow_batch_cur_idx = 0;
     // first, init file reader
     if (_cur_file_reader == nullptr || _cur_file_eof) {
@@ -85,13 +85,13 @@ Status VParquetScanner::next_arrow_batch() {
     return Status::EndOfFile("EOF");
 }
 
-Status VParquetScanner::init_arrow_batch_if_necessary() {
+Status VParquetScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
     Status status;
     if (_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
         while (!_scanner_eof) {
-            status = next_arrow_batch();
+            status = _next_arrow_batch();
             if (_scanner_eof) {
                 return status;
             }
@@ -105,7 +105,7 @@ Status VParquetScanner::init_arrow_batch_if_necessary() {
     return status;
 }
 
-Status VParquetScanner::init_src_block(Block* block) {
+Status VParquetScanner::_init_src_block(Block* block) {
     size_t batch_pos = 0;
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
@@ -135,7 +135,7 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
     SCOPED_TIMER(_read_timer);
     // init arrow batch
     {
-        Status st = init_arrow_batch_if_necessary();
+        Status st = _init_arrow_batch_if_necessary();
         if (!st.ok()) {
             if (!st.is_end_of_file()) {
                 return st;
@@ -145,17 +145,17 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
         }
     }
     Block src_block;
-    RETURN_IF_ERROR(init_src_block(&src_block));
+    RETURN_IF_ERROR(_init_src_block(&src_block));
     // convert arrow batch to block until reach the batch_size
     while (!_scanner_eof) {
         // cast arrow type to PT0 and append it to src block
         // for example: arrow::Type::INT16 => TYPE_SMALLINT
-        RETURN_IF_ERROR(append_batch_to_src_block(&src_block));
+        RETURN_IF_ERROR(_append_batch_to_src_block(&src_block));
         // finalize the src block if full
         if (src_block.rows() >= _state->batch_size()) {
             break;
         }
-        auto status = next_arrow_batch();
+        auto status = _next_arrow_batch();
         // if ok, append the batch to the src columns
         if (status.ok()) {
             continue;
@@ -169,26 +169,26 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
             break;
         }
         _cur_file_eof = true;
-        RETURN_IF_ERROR(next_arrow_batch());
+        RETURN_IF_ERROR(_next_arrow_batch());
         // there may be different arrow file, so reinit block here
-        RETURN_IF_ERROR(init_src_block(&src_block));
+        RETURN_IF_ERROR(_init_src_block(&src_block));
     }
     COUNTER_UPDATE(_rows_read_counter, src_block.rows());
     SCOPED_TIMER(_materialize_timer);
     // cast PT0 => PT1
     // for example: TYPE_SMALLINT => TYPE_VARCHAR
-    RETURN_IF_ERROR(cast_src_block(&src_block));
+    RETURN_IF_ERROR(_cast_src_block(&src_block));
     // range of current file
-    fill_columns_from_path(&src_block);
-    RETURN_IF_ERROR(eval_conjunts(&src_block));
+    _fill_columns_from_path(&src_block);
+    RETURN_IF_ERROR(_eval_conjunts(&src_block));
     // materialize, src block => dest columns
-    RETURN_IF_ERROR(materialize_block(&src_block, columns));
+    RETURN_IF_ERROR(_materialize_block(&src_block, columns));
     *eof = _scanner_eof;
     return Status::OK();
 }
 
 // eval conjuncts, for example: t1 > 1
-Status VParquetScanner::eval_conjunts(Block* block) {
+Status VParquetScanner::_eval_conjunts(Block* block) {
     for (auto& vctx : _pre_filter_vctxs) {
         size_t orig_rows = block->rows();
         RETURN_IF_ERROR(VExprContext::filter_block(vctx, block, block->columns()));
@@ -197,7 +197,7 @@ Status VParquetScanner::eval_conjunts(Block* block) {
     return Status::OK();
 }
 
-void VParquetScanner::fill_columns_from_path(Block* block) {
+void VParquetScanner::_fill_columns_from_path(Block* block) {
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.num_of_columns_from_file) {
         int start = range.num_of_columns_from_file;
@@ -220,7 +220,7 @@ void VParquetScanner::fill_columns_from_path(Block* block) {
     }
 }
 
-Status VParquetScanner::materialize_block(Block* block, std::vector<MutableColumnPtr>& columns) {
+Status VParquetScanner::_materialize_block(Block* block, std::vector<MutableColumnPtr>& columns) {
     int ctx_idx = 0;
     size_t orig_rows = block->rows();
     auto filter_column = ColumnUInt8::create(orig_rows, 1);
@@ -264,7 +264,7 @@ Status VParquetScanner::materialize_block(Block* block, std::vector<MutableColum
 
 // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
 // primitive type(PT1) ==materialize_block==> dest primitive type
-Status VParquetScanner::cast_src_block(Block* block) {
+Status VParquetScanner::_cast_src_block(Block* block) {
     // cast primitive type(PT0) to primitive type(PT1)
     for (size_t i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
@@ -287,7 +287,7 @@ Status VParquetScanner::cast_src_block(Block* block) {
     return Status::OK();
 }
 
-Status VParquetScanner::append_batch_to_src_block(Block* block) {
+Status VParquetScanner::_append_batch_to_src_block(Block* block) {
     size_t num_elements = std::min<size_t>((_state->batch_size() - block->rows()),
                                            (_batch->num_rows() - _arrow_batch_cur_idx));
     size_t column_pos = 0;

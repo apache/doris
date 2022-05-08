@@ -51,14 +51,14 @@ public:
     Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof);
 
 private:
-    Status next_arrow_batch();
-    Status init_arrow_batch_if_necessary();
-    Status init_src_block(Block* block);
-    Status append_batch_to_src_block(Block* block);
-    Status cast_src_block(Block* block);
-    Status eval_conjunts(Block* block);
-    Status materialize_block(Block* block, std::vector<MutableColumnPtr>& columns);
-    void fill_columns_from_path(Block* block);
+    Status _next_arrow_batch();
+    Status _init_arrow_batch_if_necessary();
+    Status _init_src_block(Block* block);
+    Status _append_batch_to_src_block(Block* block);
+    Status _cast_src_block(Block* block);
+    Status _eval_conjunts(Block* block);
+    Status _materialize_block(Block* block, std::vector<MutableColumnPtr>& columns);
+    void _fill_columns_from_path(Block* block);
 
 private:
     std::shared_ptr<arrow::RecordBatch> _batch;
