@@ -461,8 +461,7 @@ Status DataDir::load() {
     // ignore any errors when load tablet or rowset, because fe will repair them after report
     int64_t invalid_rowset_counter = 0;
     for (auto rowset_meta : dir_rowset_metas) {
-        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id(),
-                                                             rowset_meta->tablet_schema_hash());
+        TabletSharedPtr tablet = _tablet_manager->get_tablet(rowset_meta->tablet_id());
         // tablet maybe dropped, but not drop related rowset meta
         if (tablet == nullptr) {
             VLOG_NOTICE << "could not find tablet id: " << rowset_meta->tablet_id()
