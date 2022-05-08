@@ -322,4 +322,4 @@ template <>
 struct hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
-} // namespace doris
+} // namespace std
