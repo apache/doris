@@ -636,6 +636,7 @@ module.exports = [
                   "CREATE-RESOURCE",
                   "CREATE-SQL-BLOCK-RULE",
                   "CREATE-TABLE-LIKE",
+                  "CREATE-TABLE-AS-SELECT",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
                   "CREATE-EXTERNAL-TABLE",
