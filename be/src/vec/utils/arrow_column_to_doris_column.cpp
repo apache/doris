@@ -36,13 +36,13 @@
 #define FOR_ARROW_TYPES(M)                            \
     M(::arrow::Type::BOOL, TYPE_BOOLEAN)              \
     M(::arrow::Type::INT8, TYPE_TINYINT)              \
-    M(::arrow::Type::UINT8, TYPE_SMALLINT)            \
+    M(::arrow::Type::UINT8, TYPE_TINYINT)            \
     M(::arrow::Type::INT16, TYPE_SMALLINT)            \
-    M(::arrow::Type::UINT16, TYPE_INT)                \
+    M(::arrow::Type::UINT16, TYPE_SMALLINT)                \
     M(::arrow::Type::INT32, TYPE_INT)                 \
-    M(::arrow::Type::UINT32, TYPE_BIGINT)             \
+    M(::arrow::Type::UINT32, TYPE_INT)             \
     M(::arrow::Type::INT64, TYPE_BIGINT)              \
-    M(::arrow::Type::UINT64, TYPE_LARGEINT)           \
+    M(::arrow::Type::UINT64, TYPE_BIGINT)           \
     M(::arrow::Type::HALF_FLOAT, TYPE_FLOAT)          \
     M(::arrow::Type::FLOAT, TYPE_FLOAT)               \
     M(::arrow::Type::DOUBLE, TYPE_DOUBLE)             \
@@ -58,7 +58,9 @@
     M(arrow::Type::UINT8, UInt8)        \
     M(arrow::Type::INT8, Int8)          \
     M(arrow::Type::INT16, Int16)        \
+    M(arrow::Type::UINT16, UInt16)        \
     M(arrow::Type::INT32, Int32)        \
+    M(arrow::Type::UINT32, UInt32)        \
     M(arrow::Type::UINT64, UInt64)      \
     M(arrow::Type::INT64, Int64)        \
     M(arrow::Type::HALF_FLOAT, Float32) \
