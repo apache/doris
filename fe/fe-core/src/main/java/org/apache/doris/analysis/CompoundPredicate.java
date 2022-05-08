@@ -95,6 +95,15 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
+    public String toDigestImpl() {
+        if (children.size() == 1) {
+            return "NOT " + getChild(0).toDigest();
+        } else {
+            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+        }
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPOUND_PRED;
         msg.setOpcode(op.toThrift());

@@ -292,6 +292,61 @@ public class FunctionCallExpr extends Expr {
         return sb.toString();
     }
 
+    private String paramsToDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+
+        if (fnParams.isStar()) {
+            sb.append("*");
+        }
+        if (fnParams.isDistinct()) {
+            sb.append("DISTINCT ");
+        }
+        int len = children.size();
+        List<String> result = Lists.newArrayList();
+        if (fnName.getFunction().equalsIgnoreCase("json_array") ||
+                fnName.getFunction().equalsIgnoreCase("json_object")) {
+            len = len - 1;
+        }
+        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+            len = len - 1;
+        }
+        for (int i = 0; i < len; ++i) {
+            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+                result.add("\'***\'");
+            } else {
+                result.add(children.get(i).toDigest());
+            }
+        }
+        sb.append(Joiner.on(", ").join(result)).append(")");
+        return sb.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(((FunctionCallExpr) expr).fnName);
+        sb.append(paramsToDigest());
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
+                fnName.getFunction().equalsIgnoreCase("json_array") ||
+                fnName.getFunction().equalsIgnoreCase("json_object")) {
+            return forJSON(sb.toString());
+        }
+        return sb.toString();
+    }
+
     @Override
     public String debugString() {
         return MoreObjects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",

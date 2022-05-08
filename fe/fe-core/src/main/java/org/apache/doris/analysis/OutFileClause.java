@@ -529,6 +529,15 @@ public class OutFileClause {
         return sb.toString();
     }
 
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" INTO OUTFILE '").append(" ? ").append(" FORMAT AS ").append(" ? ");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append(" PROPERTIES(").append(" ? ").append(")");
+        }
+        return sb.toString();
+    }
+
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
         if (isCsvFormat()) {
