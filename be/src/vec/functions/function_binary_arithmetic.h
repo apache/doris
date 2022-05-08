@@ -58,19 +58,20 @@ struct ModuloImpl;
 template <template <typename, typename> typename Operation>
 struct OperationTraits {
     using T = UInt8;
-    static constexpr bool is_plus_minus = std::is_same_v<Operation<T, T>, PlusImpl<T, T>> ||
-                                          std::is_same_v<Operation<T, T>, MinusImpl<T, T>>;
-    static constexpr bool is_multiply = std::is_same_v<Operation<T, T>, MultiplyImpl<T, T>>;
-    static constexpr bool is_division = std::is_same_v<Operation<T, T>, DivideFloatingImpl<T, T>> ||
-                                        std::is_same_v<Operation<T, T>, DivideIntegralImpl<T, T>>;
+    using Op = Operation<T, T>;
+    static constexpr bool is_plus_minus =
+            std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>>;
+    static constexpr bool is_multiply = std::is_same_v<Op, MultiplyImpl<T, T>>;
+    static constexpr bool is_division = std::is_same_v<Op, DivideFloatingImpl<T, T>> ||
+                                        std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool allow_decimal =
-            std::is_same_v<Operation<T, T>, PlusImpl<T, T>> ||
-            std::is_same_v<Operation<T, T>, MinusImpl<T, T>> ||
-            std::is_same_v<Operation<T, T>, MultiplyImpl<T, T>> ||
-            std::is_same_v<Operation<T, T>, ModuloImpl<T, T>> ||
-            std::is_same_v<Operation<T, T>, DivideFloatingImpl<T, T>> ||
-            std::is_same_v<Operation<T, T>, DivideIntegralImpl<T, T>>;
+            std::is_same_v<Op, PlusImpl<T, T>> || std::is_same_v<Op, MinusImpl<T, T>> ||
+            std::is_same_v<Op, MultiplyImpl<T, T>> || std::is_same_v<Op, ModuloImpl<T, T>> ||
+            std::is_same_v<Op, DivideFloatingImpl<T, T>> ||
+            std::is_same_v<Op, DivideIntegralImpl<T, T>>;
     static constexpr bool can_overflow = is_plus_minus || is_multiply;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Op>()))>;
 };
 
 template <typename A, typename B, typename Op, typename ResultType = typename Op::ResultType>
@@ -757,11 +758,8 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        using OpImpl = Operation<typename OpTraits::T, typename OpTraits::T>;
-        constexpr bool has_variadic_argument =
-                !std::is_void_v<decltype(has_variadic_argument_types(std::declval<OpImpl>()))>;
-        if constexpr (has_variadic_argument) {
-            return OpImpl::get_variadic_argument_types();
+        if constexpr (OpTraits::has_variadic_argument) {
+            return OpTraits::Op::get_variadic_argument_types();
         }
         return {};
     }
