@@ -17,19 +17,44 @@
 
 package org.apache.doris.nereids.trees;
 
+
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 
 /**
- * interface for all node in Nereids, include plan node and expression.
+ * Abstract class for plan node in Nereids, include plan node and expression.
  *
  * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
+public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_TYPE>>
+        implements TreeNode<NODE_TYPE> {
 
-    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> List<CHILD_TYPE> children();
+    protected final NodeType type;
+    protected final List<TreeNode> children;
 
-    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> CHILD_TYPE child(int index);
+    public AbstractTreeNode(NodeType type, TreeNode... children) {
+        this.type = type;
+        this.children = ImmutableList.copyOf(children);
+    }
 
-    int arity();
+    public AbstractTreeNode(NodeType type, List<NODE_TYPE> children) {
+        this.type = type;
+        this.children = ImmutableList.copyOf(children);
+    }
+
+    @Override
+    public <CHILD_TYPE extends TreeNode<CHILD_TYPE>> List<CHILD_TYPE> children() {
+        return (List) children;
+    }
+
+    @Override
+    public <CHILD_TYPE extends TreeNode<CHILD_TYPE>> CHILD_TYPE child(int index) {
+        return (CHILD_TYPE) children.get(index);
+    }
+
+    public int arity() {
+        return children.size();
+    }
 }

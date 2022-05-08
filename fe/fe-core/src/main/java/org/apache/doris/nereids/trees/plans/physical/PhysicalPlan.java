@@ -18,30 +18,19 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
- * Abstract class for all physical plan node.
+ * interface for all physical plan.
  */
-public abstract class PhysicalPlan extends Plan<PhysicalPlan> {
-    protected LogicalProperties logicalProperties;
-    protected PhysicalProperties physicalProperties;
-
-    public PhysicalPlan(NodeType type) {
-        super(type, true);
-    }
-
-    public void setLogicalProperties(LogicalProperties logicalProperties) {
-        this.logicalProperties = logicalProperties;
-    }
+public interface PhysicalPlan<PLAN_TYPE extends PhysicalPlan<PLAN_TYPE>> extends Plan<PLAN_TYPE> {
+    @Override
+    List<Plan> children();
 
     @Override
-    public List<Slot> getOutput() {
-        return logicalProperties.getOutput();
-    }
+    Plan child(int index);
+
+    void setLogicalProperties(LogicalProperties logicalProperties);
 }

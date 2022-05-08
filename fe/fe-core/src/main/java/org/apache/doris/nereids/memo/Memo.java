@@ -53,7 +53,7 @@ public class Memo {
             return plan.getPlanReference();
         }
         List<PlanReference> childReferences = Lists.newArrayList();
-        for (Plan<?> childrenPlan : plan.getChildren()) {
+        for (Plan<?> childrenPlan : plan.children()) {
             childReferences.add(newPlanReference(childrenPlan, null));
         }
         PlanReference newPlanReference = new PlanReference(plan);

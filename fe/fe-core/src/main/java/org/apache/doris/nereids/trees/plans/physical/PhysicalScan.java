@@ -25,7 +25,9 @@ import java.util.List;
 /**
  * Abstract class for all physical scan node.
  */
-public abstract class PhysicalScan extends PhysicalPlan {
+public abstract class PhysicalScan<PLAN_TYPE extends PhysicalScan<PLAN_TYPE>>
+        extends PhysicalLeaf<PLAN_TYPE> {
+
     protected final Table table;
     protected final List<String> qualifier;
 
