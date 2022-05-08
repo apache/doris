@@ -463,4 +463,24 @@ public class InlineViewRef extends TableRef {
 
         return sb.toString();
     }
+
+    @Override
+    public String tableRefToDigest() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+        if (view != null) {
+            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+        }
+
+        StringBuilder sb = new StringBuilder()
+                .append("(")
+                .append(queryStmt.toDigest())
+                .append(") ")
+                .append(aliasSql);
+
+        return sb.toString();
+    }
 }

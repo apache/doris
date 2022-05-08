@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -133,6 +135,10 @@ public class ConnectProcessor {
             } else {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                if (elapseMs > Config.qe_slow_log_ms) {
+                    String sqlDigest = DigestUtils.md5Hex(((QueryStmt) parsedStmt).toDigest());
+                    ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
+                }
             }
             ctx.getAuditEventBuilder().setIsQuery(true);
             ctx.getQueryDetail().setEventTime(endTime);
@@ -183,7 +189,6 @@ public class ConnectProcessor {
         }
         String sqlHash = DigestUtils.md5Hex(originStmt);
         ctx.setSqlHash(sqlHash);
-
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
                 .setTimestamp(System.currentTimeMillis())
