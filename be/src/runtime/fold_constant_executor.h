@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/expr.h"

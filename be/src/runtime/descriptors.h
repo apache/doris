@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/descriptors.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
-#define DORIS_BE_RUNTIME_DESCRIPTORS_H
+#pragma once
 
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
@@ -476,5 +475,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

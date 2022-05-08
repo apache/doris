@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #ifdef __SSE2__
 #include <emmintrin.h>
 #endif

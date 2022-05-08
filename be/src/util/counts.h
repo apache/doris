@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_COUNTS_H_
-#define DORIS_BE_SRC_UTIL_COUNTS_H_
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -135,5 +134,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_COUNTS_H_

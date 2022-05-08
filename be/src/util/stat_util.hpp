@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/stat-util.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_STAT_UTIL_HPP
+#pragma once
 
 #include <math.h>
 
@@ -50,5 +49,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

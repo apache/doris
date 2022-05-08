@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-recvr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
-#define DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H
+#pragma once
 
 #include <mutex>
 
@@ -202,5 +201,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // end DORIS_BE_SRC_RUNTIME_DATA_STREAM_RECVR_H

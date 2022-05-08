@@ -35,8 +35,7 @@
 // http://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html
 //
 
-#ifndef BASE_ATOMICOPS_INTERNALS_GCC_GENERIC_H_
-#define BASE_ATOMICOPS_INTERNALS_GCC_GENERIC_H_
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -197,5 +196,3 @@ inline Atomic64 Release_Load(volatile const Atomic64* ptr) {
 
 } // namespace subtle
 } // namespace base
-
-#endif // BASE_ATOMICOPS_INTERNALS_GCC_GENERIC_H_

@@ -18,15 +18,13 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn-evaluator.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
-#define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
+#pragma once
 
 #include <string>
 #include <vector>
 
 #include "gen_cpp/Exprs_types.h"
 #include "udf/udf.h"
-//#include "exprs/opcode_registry.h"
 #include "exprs/expr_context.h"
 #include "exprs/hybrid_map.h"
 #include "runtime/descriptors.h"
@@ -346,5 +344,3 @@ inline void AggFnEvaluator::finalize(const std::vector<AggFnEvaluator*>& evaluat
 }
 
 } // namespace doris
-
-#endif

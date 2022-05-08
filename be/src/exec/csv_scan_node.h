@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H
+#pragma once
 
 #include <fstream>
 #include <sstream>
@@ -131,5 +130,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCAN_NODE_H

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
-#define DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
+#pragma once
 
 #include <cstdint>
 #include <map>
@@ -168,4 +167,3 @@ private:
     static std::map<TResourceType::type, std::string> _s_resource_cgroups;
 };
 } // namespace doris
-#endif

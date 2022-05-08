@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/row-batch.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_ROW_BATCH_H
-#define DORIS_BE_RUNTIME_ROW_BATCH_H
+#pragma once
 
 #include <cstring>
 #include <vector>
@@ -506,5 +505,3 @@ private:
          _iter.next())
 
 } // namespace doris
-
-#endif
