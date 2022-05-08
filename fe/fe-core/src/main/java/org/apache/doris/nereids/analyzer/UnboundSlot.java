@@ -21,14 +21,14 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.util.Utils;
 
-import com.alibaba.google.common.collect.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
 /**
  * Slot has not been bound.
  */
-public class UnboundSlot extends Slot {
+public class UnboundSlot extends Slot<UnboundSlot> {
     private final List<String> nameParts;
 
     public UnboundSlot(List<String> nameParts) {

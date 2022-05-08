@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -27,11 +28,13 @@ import java.util.List;
 /**
  * Physical project plan node.
  */
-public class PhysicalProject extends PhysicalPlan {
+public class PhysicalProject<CHILD_TYPE extends Plan<CHILD_TYPE>>
+        extends PhysicalUnary<PhysicalProject<CHILD_TYPE>, CHILD_TYPE> {
+
     private final List<? extends NamedExpression> projects;
 
-    public PhysicalProject(List<? extends NamedExpression> projects) {
-        super(NodeType.PHYSICAL_PROJECT);
+    public PhysicalProject(List<? extends NamedExpression> projects, CHILD_TYPE child) {
+        super(NodeType.PHYSICAL_PROJECT, child);
         this.projects = projects;
     }
 
