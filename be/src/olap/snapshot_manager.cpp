@@ -70,7 +70,8 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
-    TabletSharedPtr ref_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
+    TabletSharedPtr ref_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (ref_tablet == nullptr) {
         LOG(WARNING) << "failed to get tablet. tablet=" << request.tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);

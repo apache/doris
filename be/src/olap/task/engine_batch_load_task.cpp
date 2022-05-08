@@ -289,7 +289,8 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
@@ -350,7 +351,8 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
     }
 
     // 1. Get all tablets with same tablet_id
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);

@@ -73,8 +73,8 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(
               << ", new_tablet_id=" << request.new_tablet_id
               << ", migration_version=" << request.migration_version;
 
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.base_tablet_id);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
@@ -96,16 +96,19 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(
 Status StorageMigrationV2Handler::_do_process_storage_migration_v2(
         const TStorageMigrationReqV2& request) {
     Status res = Status::OK();
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // new tablet has to exist
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
+    TabletSharedPtr new_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
     if (new_tablet == nullptr) {
-        LOG(WARNING) << "fail to find new tablet." << " new_tablet=" << request.new_tablet_id;
+        LOG(WARNING) << "fail to find new tablet."
+                     << " new_tablet=" << request.new_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 

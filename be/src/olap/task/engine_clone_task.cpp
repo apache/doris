@@ -76,7 +76,8 @@ Status EngineCloneTask::_do_clone() {
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
     bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {
