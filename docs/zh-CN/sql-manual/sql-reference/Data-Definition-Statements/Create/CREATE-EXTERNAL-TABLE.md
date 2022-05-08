@@ -32,7 +32,7 @@ CREATE EXTERNAL TABLE
 
 ### Description
 
-此语句用来创建外部表，具体语法参阅 [CREATE TABLE](./CREATE-TABLE.html)。
+此语句用来创建外部表，创建内部表语法请参阅 [CREATE TABLE](./CREATE-TABLE.html)。
 
 主要通过 ENGINE 类型来标识是哪种类型的外部表，目前可选 MYSQL、BROKER、HIVE、ICEBERG
 

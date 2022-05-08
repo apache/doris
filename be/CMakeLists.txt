@@ -335,6 +335,19 @@ add_library(breakpad STATIC IMPORTED)
 set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
 
 if (ARCH_AMD64)
+    # kerberos lib for libhdfs3 
+    add_library(krb5support STATIC IMPORTED)
+    set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libkrb5support.a)
+    
+    add_library(krb5 STATIC IMPORTED)
+    set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libkrb5.a)
+
+    add_library(k5crypto STATIC IMPORTED)
+    set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libk5crypto.a)
+
+    add_library(gssapi_krb5 STATIC IMPORTED)
+    set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgssapi_krb5.a)
+
     # libhdfs3 only support x86 or amd64
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
@@ -503,6 +516,14 @@ endif()
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
 
+
+set(KRB5_LIBS
+    krb5support
+    krb5
+    com_err
+    gssapi_krb5
+    k5crypto)
+
 set(AWS_LIBS
     aws-sdk-s3
     aws-sdk-core
@@ -564,6 +585,7 @@ set(COMMON_THIRDPARTY
     libevent_pthreads
     idn
     gsasl
+    ${KRB5_LIBS}
     curl
     libz
     libbz2
@@ -647,6 +669,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libstdc++
     -static-libgcc
     -lstdc++fs
+    -lresolv
 )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")

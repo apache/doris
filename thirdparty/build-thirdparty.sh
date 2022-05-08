@@ -900,7 +900,17 @@ build_gsasl() {
     check_if_source_exist $GSASL_SOURCE
     cd $TP_SOURCE_DIR/$GSASL_SOURCE
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../configure --prefix=$TP_INSTALL_DIR --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
+    ../configure --prefix=$TP_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no
+    make -j $PARALLEL && make install
+}
+
+# krb5
+build_krb5() {
+    check_if_source_exist $KRB5_SOURCE
+    cd $TP_SOURCE_DIR/$KRB5_SOURCE/src
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CFLAGS="-fcommon" \
+    ../configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static
     make -j $PARALLEL && make install
 }
 
@@ -999,6 +1009,7 @@ build_lzma
 build_xml2
 build_idn
 build_gsasl
+build_krb5
 build_hdfs3
 build_benchmark
 build_breakpad

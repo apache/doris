@@ -41,8 +41,11 @@ Status HDFSCommonBuilder::runKinit() {
         return Status::InvalidArgument("Invalid hdfs_kerberos_principal or hdfs_kerberos_keytab");
     }
     std::stringstream ss;
-    ss << "kinit -R -t \"" << hdfs_kerberos_keytab << "\" -k " << hdfs_kerberos_principal;
+    std::string ticket_cache_path = "/tmp/krb5cc_doris";
+    ss << "kinit -c \""<< ticket_cache_path <<"\" -R -t \"" << 
+       hdfs_kerberos_keytab << "\" -k " << hdfs_kerberos_principal;
     LOG(INFO) << "kinit command: " << ss.str();
+    hdfsBuilderSetKerbTicketCachePath(hdfs_builder, ticket_cache_path.c_str());
     std::string msg;
     AgentUtils util;
     bool rc = util.exec_cmd(ss.str(), &msg);
@@ -60,11 +63,6 @@ HDFSCommonBuilder createHDFSBuilder(THdfsParams hdfsParams) {
         hdfsBuilderSetUserName(builder.get(), hdfsParams.user.c_str());
     }
     // set kerberos conf
-    if (hdfsParams.__isset.hdfs_security_authentication) {
-        if (hdfsParams.hdfs_security_authentication == "kerberos") {
-            builder.needKinit = true;
-        }
-    }
     if (hdfsParams.__isset.hdfs_kerberos_principal) {
         builder.needKinit = true;
         builder.hdfs_kerberos_principal = hdfsParams.hdfs_kerberos_principal;

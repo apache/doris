@@ -321,10 +321,16 @@ IDN_SOURCE="libidn-1.38"
 IDN_MD5SUM="718ff3700dd71f830c592ebe97249193"
 
 # gsasl
-GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.10.0.tar.gz"
-GSASL_NAME="libgsasl-1.10.0.tar.gz"
-GSASL_SOURCE="libgsasl-1.10.0"
-GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
+GSASL_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL_NAME="libgsasl-1.8.0.tar.gz"
+GSASL_SOURCE="libgsasl-1.8.0"
+GSASL_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
+
+# krb5
+KRB5_DOWNLOAD="https://kerberos.org/dist/krb5/1.19/krb5-1.19.tar.gz"
+KRB5_NAME="krb5-1.19.tar.gz"
+KRB5_SOURCE="krb5-1.19"
+KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
 HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
@@ -423,6 +429,7 @@ LZMA
 XML2
 IDN
 GSASL
+KRB5
 HDFS3
 LIBDIVIDE
 PDQSORT

@@ -30,6 +30,7 @@ Hive External Table of Doris provides Doris with direct access to Hive external 
 
  1. support for Hive data sources to access Doris
  2. Support joint queries between Doris and Hive data sources to perform more complex analysis operations
+ 3. Support access to kerberos-enabled Hive data sources
 
 This document introduces how to use this feature and the considerations.
 
@@ -84,11 +85,37 @@ PROPERTIES (
 'database' = 'hive_db',
 'table' = 'hive_table',
 'dfs.nameservices'='hacluster',
-'dfs.ha.namenodes.hacluster'='3,4',
-'dfs.namenode.rpc-address.hacluster.3'='192.168.0.93:8020',
-'dfs.namenode.rpc-address.hacluster.4'='172.21.16.11:8020',
+'dfs.ha.namenodes.hacluster'='n1,n2',
+'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
 'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
+
+
+-- Example 3: Create the hive external table under hive_db in Hive cluster with HDFS HA and enable kerberos authentication. 
+CREATE TABLE `t_hive` (
+  `k1` int NOT NULL COMMENT "",
+  `k2` char(10) NOT NULL COMMENT "",
+  `k3` datetime NOT NULL COMMENT "",
+  `k5` varchar(20) NOT NULL COMMENT "",
+  `k6` double NOT NULL COMMENT ""
+) ENGINE=HIVE
+COMMENT "HIVE"
+PROPERTIES (
+'hive.metastore.uris' = 'thrift://192.168.0.1:9083',
+'database' = 'hive_db',
+'table' = 'hive_table',
+'dfs.nameservices'='hacluster',
+'dfs.ha.namenodes.hacluster'='n1,n2',
+'dfs.namenode.rpc-address.hacluster.n1'='192.168.0.1:8020',
+'dfs.namenode.rpc-address.hacluster.n2'='192.168.0.2:8020',
+'dfs.client.failover.proxy.provider.hacluster'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider',
+'dfs.namenode.kerberos.principal'='hadoop/_HOST@REALM.COM'
+'hadoop.security.authentication'='kerberos',
+'hadoop.kerberos.principal'='doris_test@REALM.COM',
+'hadoop.kerberos.keytab'='/path/to/doris_test.keytab'
+);
+
 ```
 
 #### Parameter Description
@@ -103,10 +130,22 @@ PROPERTIES (
     - `hive.metastore.uris`: Hive Metastore service address
     - `database`: the name of the database to which Hive is mounted
     - `table`: the name of the table to which Hive is mounted
-    - `dfs.nameservices`：the logical name for this new nameservice. See hdfs-site.xml
+    - `dfs.nameservices`: the logical name for this new nameservice. See hdfs-site.xml
     - `dfs.ha.namenodes.[nameservice ID]`：unique identifiers for each NameNode in the nameservice. See hdfs-site.xml
     - `dfs.namenode.rpc-address.[nameservice ID].[name node ID]`：the fully-qualified RPC address for each NameNode to listen on. See hdfs-site.xml
     - `dfs.client.failover.proxy.provider.[nameservice ID]`：the Java class that HDFS clients use to contact the Active NameNode, usually it is org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
+- For a kerberos enabled Hive datasource, additional properties need to be set:
+    - `dfs.namenode.kerberos.principal`: HDFS namenode service principal
+    - `hadoop.security.authentication`: HDFS authentication type. Possible values are simple or kerberos, default simple
+    - `hadoop.kerberos.principal`: The Kerberos pincipal that Doris will use when connectiong to HDFS.
+    - `hadoop.kerberos.keytab`: HDFS client keytab location.
+
+**Note:**
+- To enable Doris to access the hadoop cluster with kerberos authentication enabled, you need to deploy the Kerberos client kinit on the Doris running node, configure krb5.conf, and fill in the KDC service information.
+- The value of the PROPERTIES property `hadoop.kerberos.keytab` needs to specify the absolute path of the keytab local file and allow the Doris process to access it.
+
+
+
     
 ## Data Type Matching
 

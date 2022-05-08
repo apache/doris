@@ -85,11 +85,11 @@ public class BrokerUtil {
     private static int READ_BUFFER_SIZE_B = 1024 * 1024;
     public static String HDFS_FS_KEY = "fs.defaultFS";
     // simple or kerberos
-    public static String HDFS_SECURITY_AUTHENTICATION = "hdfs.security.authentication";
-    public static String HDFS_USER_KEY = "hdfs.username";
-    public static String HDFS_KERBEROS_PRINCIPAL = "hdfs.kerberos.principal";
-    public static String HDFS_KERBEROS_KEYTAB = "hdfs.kerberos.keytab";
-    public static String HDFS_KERBEROS_KEYTAB_WITH_BASE64 = "hdfs.kerberos.keytab.base64";
+    public static String HDFS_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
+    public static String HDFS_USER_KEY = "hadoop.username";
+    public static String HDFS_KERBEROS_PRINCIPAL = "hadoop.kerberos.principal";
+    public static String HDFS_KERBEROS_KEYTAB = "hadoop.kerberos.keytab";
+    public static String HDFS_KERBEROS_KEYTAB_WITH_BASE64 = "hadoop.kerberos.keytab.base64";
 
     public static void generateHdfsParam(Map<String, String> properties, TBrokerRangeDesc rangeDesc) {
         rangeDesc.setHdfsParams(new THdfsParams());
@@ -97,8 +97,6 @@ public class BrokerUtil {
         for (Map.Entry<String, String> property : properties.entrySet()) {
             if (property.getKey().equalsIgnoreCase(HDFS_FS_KEY)) {
                 rangeDesc.hdfs_params.setFsName(property.getValue());
-            } else if (property.getKey().equalsIgnoreCase(HDFS_SECURITY_AUTHENTICATION)) {
-                rangeDesc.hdfs_params.setHdfsSecurityAuthentication(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HDFS_USER_KEY)) {
                 rangeDesc.hdfs_params.setUser(property.getValue());
             } else if (property.getKey().equalsIgnoreCase(HDFS_KERBEROS_PRINCIPAL)) {

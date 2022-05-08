@@ -31,8 +31,11 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
+
+import com.google.common.base.Strings;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -54,11 +57,10 @@ import org.apache.hadoop.hive.ql.plan.ExprNodeGenericFuncDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.PrimitiveTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-
-import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -160,6 +162,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get data files of partitions in hive table, filter by partition predicate
+     *
      * @param hiveTable
      * @param hivePartitionPredicate
      * @param fileStatuses
@@ -177,7 +180,7 @@ public class HiveMetaStoreClientHelper {
             List<Partition> hivePartitions = new ArrayList<>();
             try {
                 client.listPartitionsByExpr(hiveTable.getHiveDb(), hiveTable.getHiveTable(),
-                        SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
+                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate), null, (short) -1, hivePartitions);
             } catch (TException e) {
                 LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
                 throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
@@ -245,14 +248,24 @@ public class HiveMetaStoreClientHelper {
     private static List<RemoteIterator<LocatedFileStatus>> getRemoteIterator(Table table, Map<String, String> properties) throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> iterators = new ArrayList<>();
         Configuration configuration = new Configuration(false);
+        boolean isSecurityEnabled = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (!entry.getKey().equals(HiveTable.HIVE_METASTORE_URIS)) {
                 configuration.set(entry.getKey(), entry.getValue());
+            }
+            // login user from keytab
+            if (entry.getKey().contains("kerberos")) {
+                isSecurityEnabled = true;
             }
         }
         String location = table.getSd().getLocation();
         org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(location);
         try {
+            if (isSecurityEnabled) {
+                UserGroupInformation.setConfiguration(configuration);
+                UserGroupInformation.loginUserFromKeytab(properties.get(BrokerUtil.HDFS_KERBEROS_PRINCIPAL),
+                    properties.get(BrokerUtil.HDFS_KERBEROS_KEYTAB));
+            }
             FileSystem fileSystem = path.getFileSystem(configuration);
             iterators.add(fileSystem.listLocatedStatus(path));
         } catch (IOException e) {

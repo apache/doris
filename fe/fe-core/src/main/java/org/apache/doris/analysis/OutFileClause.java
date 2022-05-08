@@ -23,11 +23,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -89,6 +89,8 @@ public class OutFileClause {
     private static final String S3_FILE_PREFIX = "S3://";
     private static final String HDFS_FILE_PREFIX = "hdfs://";
     private static final String HDFS_PROP_PREFIX = "hdfs.";
+    private static final String DFS_PROP_PREFIX = "dfs.";
+    private static final String HADOOP_PROP_PREFIX = "hadoop.";
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
@@ -431,8 +433,12 @@ public class OutFileClause {
                 brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             } else if (entry.getKey().startsWith(HDFS_PROP_PREFIX)
-                    && storageType == StorageBackend.StorageType.HDFS) {
+                && storageType == StorageBackend.StorageType.HDFS) {
                 brokerProps.put(entry.getKey().substring(HDFS_PROP_PREFIX.length()), entry.getValue());
+                processedPropKeys.add(entry.getKey());
+            } else if ((entry.getKey().startsWith(DFS_PROP_PREFIX) || entry.getKey().startsWith(HADOOP_PROP_PREFIX))
+                && storageType == StorageBackend.StorageType.HDFS) {
+                brokerProps.put(entry.getKey(), entry.getValue());
                 processedPropKeys.add(entry.getKey());
             }
         }

@@ -129,18 +129,24 @@ public class HiveTable extends Table {
             if (Strings.isNullOrEmpty(keytabPath) && Strings.isNullOrEmpty(keytabContent)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG, BrokerUtil.HDFS_KERBEROS_KEYTAB, BrokerUtil.HDFS_KERBEROS_KEYTAB));
             }
-            copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB);
-            hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB, keytabPath);
-            copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64);
-            hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64, keytabContent);
+            if (!Strings.isNullOrEmpty(keytabPath)) {
+                hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB, keytabPath);
+                copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB);
+            }
+            if (!Strings.isNullOrEmpty(keytabContent)) {
+                hiveProperties.put(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64, keytabContent);
+                copiedProps.remove(BrokerUtil.HDFS_KERBEROS_KEYTAB_WITH_BASE64);
+            }
+
         }
-
-        hiveProperties.put(BrokerUtil.HDFS_USER_KEY, copiedProps.get(BrokerUtil.HDFS_USER_KEY));
-        copiedProps.remove(BrokerUtil.HDFS_USER_KEY);
-
+        String HDFSUserName = copiedProps.get(BrokerUtil.HDFS_USER_KEY);
+        if (!Strings.isNullOrEmpty(HDFSUserName)) {
+            hiveProperties.put(BrokerUtil.HDFS_USER_KEY, HDFSUserName);
+            copiedProps.remove(BrokerUtil.HDFS_USER_KEY);
+        }
         if (!copiedProps.isEmpty()) {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
-            while(iter.hasNext()) {
+            while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 if (entry.getKey().startsWith(HIVE_HDFS_PREFIX)) {
                     hiveProperties.put(entry.getKey(), entry.getValue());

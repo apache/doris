@@ -271,10 +271,21 @@ fi
 cd -
 echo "Finished patching $S2_SOURCE"
 
+# gsasl patch to fix link error such as mutilple func defination
+# when link target with kerberos
+cd $TP_SOURCE_DIR/$GSASL_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libgsasl-1.8.0.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $GSASL_SOURCE"
+
 # hdfs3 patch to fix compile error
 cd $TP_SOURCE_DIR/$HDFS3_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/libhdfs3-master.patch
+    patch -p1 < $TP_PATCH_DIR/libhdfs3-enable-kerberos.patch
     touch $PATCHED_MARK
 fi
 cd -
