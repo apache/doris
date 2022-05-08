@@ -15,18 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.OneRuleFactory;
 
 /**
- * Abstract class for all exploration rules.
+ * abstract class for all rule factories build one rule used in rewrite stage.
  */
-public abstract class ExplorationRule extends Rule {
-    public ExplorationRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.EXPLORE);
-    }
+public abstract class OneRewriteRuleFactory
+        extends OneRuleFactory implements RewriteRuleFactory {
 }

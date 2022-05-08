@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.UnaryNode;
  */
 public abstract class UnaryExpression<
             EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Expression<CHILD_TYPE>>
+            CHILD_TYPE extends Expression>
         extends AbstractExpression<EXPR_TYPE>
         implements UnaryNode<EXPR_TYPE, CHILD_TYPE> {
 

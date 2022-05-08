@@ -28,6 +28,8 @@ public enum RuleType {
     COLUMN_PRUNE_PROJECTION,
 
     // exploration rules
+    LOGICAL_JOIN_COMMUTATIVE,
+    LOGICAL_JOIN_ASSOCIATIVE_LEFT_TO_RIGHT,
 
     // implementation rules
     LOGICAL_JOIN_TO_HASH_JOIN_RULE,

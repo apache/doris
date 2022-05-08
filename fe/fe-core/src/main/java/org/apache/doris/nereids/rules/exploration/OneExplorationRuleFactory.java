@@ -15,18 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.rules.exploration;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.OneRuleFactory;
 
 /**
- * Abstract class for all rules used in analysis stage.
+ * abstract class for all rule factories build one rule used in exploration stage.
  */
-public abstract class AnalysisRule extends Rule {
-    public AnalysisRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.ANALYSIS);
-    }
+public abstract class OneExplorationRuleFactory extends OneRuleFactory implements ExplorationRuleFactory {
 }

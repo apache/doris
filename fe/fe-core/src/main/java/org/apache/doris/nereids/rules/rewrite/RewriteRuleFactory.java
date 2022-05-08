@@ -15,34 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.trees.BinaryNode;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.RulePromise;
 
 /**
- * interface for all plan that have two children.
+ * interface for all rewrite rule factories.
  */
-public interface BinaryPlan<
-            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
+public interface RewriteRuleFactory extends RuleFactory {
     @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    @Override
-    default LEFT_CHILD_TYPE left() {
-        return BinaryNode.super.left();
-    }
-
-    @Override
-    default RIGHT_CHILD_TYPE right() {
-        return BinaryNode.super.right();
+    default RulePromise defaultPromise() {
+        return RulePromise.REWRITE;
     }
 }

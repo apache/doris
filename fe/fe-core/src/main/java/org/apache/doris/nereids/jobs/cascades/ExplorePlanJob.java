@@ -55,7 +55,7 @@ public class ExplorePlanJob extends Job {
             pushTask(new ApplyRuleJob(planReference, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (!childPattern.children().isEmpty()) {
+                if (childPattern.arity() > 0) {
                     Group childSet = planReference.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }

@@ -15,19 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.expression;
+package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
 
 /**
- * Abstract class for all expression rules.
+ * interface for all implementation rule factories.
  */
-public abstract class ExpressionRule extends Rule {
-    public ExpressionRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.EXPRESSION);
+public interface ImplementationRuleFactory extends RuleFactory {
+    @Override
+    default RulePromise defaultPromise() {
+        return RulePromise.IMPLEMENT;
     }
-
 }

@@ -27,9 +27,11 @@ import java.util.List;
  */
 public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
-    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> List<CHILD_TYPE> children();
+    NodeType getType();
 
-    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> CHILD_TYPE child(int index);
+    <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children();
+
+    <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index);
 
     int arity();
 }

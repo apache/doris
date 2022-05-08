@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelationRule;
+import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelation;
+import org.apache.doris.nereids.rules.exploration.JoinAssociativeLeftToRight;
+import org.apache.doris.nereids.rules.exploration.JoinCommutative;
+import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 
-import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.List;
 
@@ -28,15 +31,45 @@ import java.util.List;
  * Containers for set of different type rules.
  */
 public class RuleSet {
-    public static List<Rule> ANALYSIS_RULES = ImmutableList.<Rule>builder()
-            .add(new AnalysisUnboundRelationRule())
+    public static final List<Rule> ANALYSIS_RULES = factories()
+            .add(new AnalysisUnboundRelation())
             .build();
 
+    public static final List<Rule> EXPLORATION_RULES = factories()
+            .add(new JoinCommutative())
+            .add(new JoinAssociativeLeftToRight())
+            .build();
+
+    public static final List<Rule> IMPLEMENTATION_RULES = factories()
+            .add(new LogicalJoinToHashJoin())
+            .build();
+
+    public List<Rule> getAnalysisRules() {
+        return ANALYSIS_RULES;
+    }
+
     public List<Rule> getExplorationRules() {
-        return Lists.newArrayList();
+        return EXPLORATION_RULES;
     }
 
     public List<Rule> getImplementationRules() {
-        return Lists.newArrayList();
+        return IMPLEMENTATION_RULES;
+    }
+
+    private static RuleFactories factories() {
+        return new RuleFactories();
+    }
+
+    private static class RuleFactories {
+        final Builder<Rule> rules = ImmutableList.builder();
+
+        public RuleFactories add(RuleFactory ruleFactory) {
+            rules.addAll(ruleFactory.buildRules());
+            return this;
+        }
+
+        public List<Rule> build() {
+            return rules.build();
+        }
     }
 }

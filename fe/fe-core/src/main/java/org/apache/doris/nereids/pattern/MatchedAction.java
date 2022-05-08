@@ -15,34 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.trees.BinaryNode;
-
-import java.util.List;
+import org.apache.doris.nereids.trees.TreeNode;
 
 /**
- * interface for all plan that have two children.
+ * Define an callback action when match a pattern, usually implement as a rule body.
+ * e.g. exchange join children for JoinCommutative Rule
  */
-public interface BinaryPlan<
-            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    @Override
-    default LEFT_CHILD_TYPE left() {
-        return BinaryNode.super.left();
-    }
-
-    @Override
-    default RIGHT_CHILD_TYPE right() {
-        return BinaryNode.super.right();
-    }
+public interface MatchedAction<INPUT_TYPE extends TreeNode, OUTPUT_TYPE extends TreeNode> {
+    OUTPUT_TYPE apply(MatchingContext<INPUT_TYPE> ctx);
 }

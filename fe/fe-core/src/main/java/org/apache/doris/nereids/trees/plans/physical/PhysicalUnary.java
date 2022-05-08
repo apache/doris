@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.UnaryPlan;
  */
 public abstract class PhysicalUnary<
             PLAN_TYPE extends PhysicalUnary<PLAN_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Plan<CHILD_TYPE>>
+            CHILD_TYPE extends Plan>
         extends AbstractPhysicalPlan<PLAN_TYPE>
         implements UnaryPlan<PLAN_TYPE, CHILD_TYPE> {
 

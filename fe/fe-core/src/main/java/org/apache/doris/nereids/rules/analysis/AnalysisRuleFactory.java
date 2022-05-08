@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
 
 /**
- * Abstract class for all rewrite rules.
+ * interface for all rule factories used in analysis stage.
  */
-public abstract class RewriteRule extends Rule {
-    public RewriteRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.REWRITE);
+public interface AnalysisRuleFactory extends RuleFactory {
+    @Override
+    default RulePromise defaultPromise() {
+        return RulePromise.ANALYSIS;
     }
 }

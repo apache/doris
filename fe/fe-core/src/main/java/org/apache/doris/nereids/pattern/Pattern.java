@@ -17,20 +17,24 @@
 
 package org.apache.doris.nereids.pattern;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.TreeNode;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 
 /**
  * Pattern node used in pattern matching.
  */
-public class Pattern extends AbstractTreeNode<Pattern> {
-    public static final Pattern PATTERN_MULTI_LEAF_INSTANCE = new Pattern(NodeType.PATTERN_MULTI_LEAF);
-    public static final Pattern PATTERN_LEAF_INSTANCE = new Pattern(NodeType.PATTERN_LEAF);
-
+public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
     private final NodeType nodeType;
+    public static final Pattern MULTI = new Pattern(NodeType.MULTI);
+    public static final Pattern ANY = new Pattern(NodeType.ANY);
+
+    public final List<Predicate<T>> predicates;
 
     /**
      * Constructor for Pattern.
@@ -41,6 +45,13 @@ public class Pattern extends AbstractTreeNode<Pattern> {
     public Pattern(NodeType nodeType, Pattern... children) {
         super(NodeType.PATTERN, children);
         this.nodeType = nodeType;
+        this.predicates = ImmutableList.of();
+    }
+
+    public Pattern(NodeType nodeType, List<Predicate<T>> predicates, Pattern... children) {
+        super(NodeType.PATTERN, children);
+        this.nodeType = nodeType;
+        this.predicates = ImmutableList.copyOf(predicates);
     }
 
     /**
@@ -55,23 +66,37 @@ public class Pattern extends AbstractTreeNode<Pattern> {
     /**
      * Return ture if current Pattern match Plan in params.
      *
-     * @param plan wait to match
+     * @param root wait to match
      * @return ture if current Pattern match Plan in params
      */
-    public boolean matchRoot(Plan<?> plan) {
-        if (plan == null) {
+    public boolean matchRoot(T root) {
+        if (root == null) {
             return false;
         }
 
-        if (plan.children().size() < this.children().size() && children.contains(PATTERN_MULTI_LEAF_INSTANCE)) {
+        if (root.children().size() < this.children().size() && !children.contains(MULTI)) {
             return false;
         }
 
-        if (nodeType == NodeType.PATTERN_MULTI_LEAF || nodeType == NodeType.PATTERN_LEAF) {
+        if (nodeType == NodeType.MULTI || nodeType == NodeType.ANY) {
             return true;
         }
 
-        return getNodeType().equals(plan.getType());
+        return getNodeType().equals(root.getType())
+                && predicates.stream().allMatch(predicate -> predicate.test(root));
+    }
+
+    public boolean matchChildren(T root) {
+        for (int i = 0; i < arity(); i++) {
+            if (!child(i).match(root.child(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean match(T root) {
+        return matchRoot(root) && matchChildren(root);
     }
 
     @Override
@@ -89,5 +114,15 @@ public class Pattern extends AbstractTreeNode<Pattern> {
     @Override
     public int hashCode() {
         return Objects.hash(nodeType);
+    }
+
+    @Override
+    public List<Pattern> children() {
+        return (List) children;
+    }
+
+    @Override
+    public Pattern child(int index) {
+        return (Pattern) children.get(index);
     }
 }

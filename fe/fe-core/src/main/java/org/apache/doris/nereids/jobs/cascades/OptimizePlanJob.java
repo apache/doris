@@ -59,7 +59,7 @@ public class OptimizePlanJob extends Job {
             // child before applying the rule. (assumes task pool is effectively a stack)
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (!childPattern.children().isEmpty()) {
+                if (childPattern.arity() > 0) {
                     Group childSet = planReference.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }

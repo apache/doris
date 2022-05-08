@@ -45,12 +45,17 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
     }
 
     @Override
-    public <CHILD_TYPE extends TreeNode<CHILD_TYPE>> List<CHILD_TYPE> children() {
+    public NodeType getType() {
+        return type;
+    }
+
+    @Override
+    public <CHILD_TYPE extends TreeNode> List<CHILD_TYPE> children() {
         return (List) children;
     }
 
     @Override
-    public <CHILD_TYPE extends TreeNode<CHILD_TYPE>> CHILD_TYPE child(int index) {
+    public <CHILD_TYPE extends TreeNode> CHILD_TYPE child(int index) {
         return (CHILD_TYPE) children.get(index);
     }
 
