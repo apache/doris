@@ -15,19 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
-
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.LeafPlan;
+package org.apache.doris.nereids.trees;
 
 /**
- * Abstract class for all logical plan that have no child.
+ * interface for all tree node that have one child.
  */
-public abstract class LogicalLeaf<PLAN_TYPE extends LogicalLeaf<PLAN_TYPE>>
-        extends AbstractLogicalPlan<PLAN_TYPE>
-        implements LeafPlan<PLAN_TYPE> {
+public interface UnaryNode<
+            NODE_TYPE extends UnaryNode<NODE_TYPE, CHILD_TYPE>,
+            CHILD_TYPE extends TreeNode<CHILD_TYPE>>
+        extends TreeNode<NODE_TYPE> {
 
-    public LogicalLeaf(NodeType type) {
-        super(type);
+    default CHILD_TYPE child() {
+        return child(0);
+    }
+
+    @Override
+    default int arity() {
+        return 1;
     }
 }

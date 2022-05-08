@@ -18,16 +18,17 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.plans.LeafPlan;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * Abstract class for all logical plan that have no child.
+ * Abstract class for all concrete logical plan.
  */
-public abstract class LogicalLeaf<PLAN_TYPE extends LogicalLeaf<PLAN_TYPE>>
-        extends AbstractLogicalPlan<PLAN_TYPE>
-        implements LeafPlan<PLAN_TYPE> {
+public abstract class AbstractLogicalPlan<PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE>>
+        extends AbstractPlan<PLAN_TYPE>
+        implements LogicalPlan<PLAN_TYPE> {
 
-    public LogicalLeaf(NodeType type) {
-        super(type);
+    public AbstractLogicalPlan(NodeType type, Plan... children) {
+        super(type, children);
     }
 }

@@ -17,24 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.List;
 import java.util.function.BiFunction;
 
 /**
  * Abstract class for all logical plan in Nereids.
  */
-public abstract class LogicalPlan extends Plan<LogicalPlan> {
-    public LogicalPlan(NodeType type) {
-        super(type, false);
-    }
+public interface LogicalPlan<PLAN_TYPE extends LogicalPlan<PLAN_TYPE>> extends Plan<PLAN_TYPE> {
+
+    @Override
+    List<Plan> children();
+
+    @Override
+    Plan child(int index);
 
     /**
      * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
      * passed function. The original plan is returned when the context does not exist.
      */
-    public <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
+    default <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
         if (ctx != null) {
             return f.apply(ctx, this);
         } else {

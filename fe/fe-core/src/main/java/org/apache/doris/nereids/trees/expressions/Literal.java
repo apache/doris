@@ -30,7 +30,7 @@ import org.apache.doris.nereids.types.StringType;
 /**
  * All data type literal expression in Nereids.
  */
-public class Literal extends Expression {
+public class Literal extends LeafExpression<Literal> {
     private final DataType dataType;
     private final Object value;
 

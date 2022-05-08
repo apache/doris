@@ -57,9 +57,9 @@ public class OptimizePlanJob extends Job {
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the
             // child before applying the rule. (assumes task pool is effectively a stack)
-            for (int i = 0; i < rule.getPattern().getChildren().size(); ++i) {
-                Pattern childPattern = rule.getPattern().getChild(i);
-                if (!childPattern.getChildren().isEmpty()) {
+            for (int i = 0; i < rule.getPattern().children().size(); ++i) {
+                Pattern childPattern = rule.getPattern().child(i);
+                if (!childPattern.children().isEmpty()) {
                     Group childSet = planReference.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }

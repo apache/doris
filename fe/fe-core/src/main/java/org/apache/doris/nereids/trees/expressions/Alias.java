@@ -27,7 +27,10 @@ import java.util.List;
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias extends NamedExpression {
+public class Alias<CHILD_TYPE extends Expression<CHILD_TYPE>>
+        extends UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE>
+        implements NamedExpression<Alias<CHILD_TYPE>> {
+
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
@@ -38,16 +41,11 @@ public class Alias extends NamedExpression {
      * @param child expression that alias represents for
      * @param name alias name
      */
-    public Alias(Expression child, String name) {
-        super(NodeType.ALIAS);
-        exprId = NamedExpression.newExprId();
+    public Alias(CHILD_TYPE child, String name) {
+        super(NodeType.ALIAS, child);
+        exprId = NamedExpressionUtils.newExprId();
         this.name = name;
         qualifier = Lists.newArrayList();
-        addChild(child);
-    }
-
-    public Expression child() {
-        return getChild(0);
     }
 
     @Override
@@ -66,7 +64,7 @@ public class Alias extends NamedExpression {
     }
 
     @Override
-    public Slot toAttribute() throws UnboundException {
+    public Slot toSlot() throws UnboundException {
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 
