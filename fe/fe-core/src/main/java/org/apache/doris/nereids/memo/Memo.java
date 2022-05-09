@@ -21,17 +21,17 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.Lists;
-import org.glassfish.jersey.internal.guava.Sets;
+import com.google.common.collect.Sets;
 
-import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
     private final List<Group> groups = Lists.newArrayList();
-    private final HashSet<GroupExpression> groupExpressions = Sets.newHashSet();
+    private final Set<GroupExpression> groupExpressions = Sets.newHashSet();
     private Group rootSet;
 
     public void initialize(LogicalPlan plan) {
