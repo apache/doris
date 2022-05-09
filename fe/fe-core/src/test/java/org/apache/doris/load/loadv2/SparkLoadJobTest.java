@@ -530,21 +530,16 @@ public class SparkLoadJobTest {
         MetaContext metaContext = new MetaContext();
         metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        System.out.println("version1: " + MetaContext.get().getMetaVersion());
 
         // 1. Write objects to file
         File file = new File("./testSparkLoadJobPersist");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         sparkLoadJob.write(dos);
-        System.out.println("version2: " + MetaContext.get().getMetaVersion());
         dos.flush();
         dos.close();
-        System.out.println("version3: " + MetaContext.get().getMetaVersion());
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        System.out.println("version4: " + MetaContext.get().getMetaVersion());
-        System.out.println("version5: " + Catalog.getCurrentCatalogJournalVersion());
         SparkLoadJob sparkLoadJob2 = (SparkLoadJob) SparkLoadJob.read(dis);
         Assert.assertEquals("my_spark", sparkLoadJob2.getResourceName());
         Assert.assertEquals(label, sparkLoadJob2.getLabel());
