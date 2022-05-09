@@ -355,8 +355,9 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
         }
 
         if (!(res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
-                                           sm_params.new_tablet->tablet_path_desc(), rs_reader,
-                                           rowset_writer.get(), new_tablet)).ok()) {
+                                            sm_params.new_tablet->tablet_path_desc(), rs_reader,
+                                            rowset_writer.get(), new_tablet))
+                    .ok()) {
             LOG(WARNING) << "failed to add_rowset. version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
             new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
