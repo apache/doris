@@ -370,7 +370,7 @@ public class RoutineLoadManagerTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Config.max_routine_load_task_num_per_be = 0;
         Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
-        routineLoadJobMap.put(1l, routineLoadJob);
+        routineLoadJobMap.put(1L, routineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
 
 
@@ -817,7 +817,7 @@ public class RoutineLoadManagerTest {
         };
 
         Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
-        Assert.assertEquals(1, (int) result.get(1l));
+        Assert.assertEquals(1, (int) result.get(1L));
 
     }
 

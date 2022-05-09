@@ -19,16 +19,10 @@ package org.apache.doris.common.path;
 
 import static com.google.common.collect.Maps.newHashMap;
 
-import org.apache.doris.service.ExecuteEnv;
-
-import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Map;
-
-import mockit.Injectable;
 
 public class PathTrieTest {
     @Test

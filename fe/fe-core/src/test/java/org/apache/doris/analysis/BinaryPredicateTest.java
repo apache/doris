@@ -25,10 +25,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-import com.google.common.collect.RangeSet;
-import com.google.common.collect.TreeRangeSet;
-
-import java.util.List;
 
 import mockit.Expectations;
 import mockit.Injectable;

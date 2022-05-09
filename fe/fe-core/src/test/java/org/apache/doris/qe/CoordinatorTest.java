@@ -17,6 +17,11 @@
 
 package org.apache.doris.qe;
 
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import mockit.Mocked;
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -46,14 +51,8 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
-
-import org.apache.commons.collections.map.HashedMap;
 import org.junit.Assert;
 import org.junit.Test;
-
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -61,8 +60,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import mockit.Mocked;
 
 public class CoordinatorTest extends Coordinator {
     static Planner planner = new Planner();
@@ -253,14 +250,14 @@ public class CoordinatorTest extends Coordinator {
         TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
 
         HashMap<Long, Backend> idToBackend = new HashMap<>();
-        idToBackend.put(0l, backend0);
-        idToBackend.put(1l, backend1);
-        idToBackend.put(2l, backend2);
+        idToBackend.put(0L, backend0);
+        idToBackend.put(1L, backend1);
+        idToBackend.put(2L, backend2);
 
         Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
-        addressToBackendID.put(be0, 0l);
-        addressToBackendID.put(be1, 1l);
-        addressToBackendID.put(be2, 2l);
+        addressToBackendID.put(be0, 0L);
+        addressToBackendID.put(be1, 1L);
+        addressToBackendID.put(be2, 2L);
 
         Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
                 olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
@@ -377,14 +374,14 @@ public class CoordinatorTest extends Coordinator {
         TNetworkAddress be2 = new TNetworkAddress("0.0.0.2", 3000);
 
         HashMap<Long, Backend> idToBackend = new HashMap<>();
-        idToBackend.put(0l, backend0);
-        idToBackend.put(1l, backend1);
-        idToBackend.put(2l, backend2);
+        idToBackend.put(0L, backend0);
+        idToBackend.put(1L, backend1);
+        idToBackend.put(2L, backend2);
 
         Map<TNetworkAddress, Long> addressToBackendID = new HashMap<>();
-        addressToBackendID.put(be0, 0l);
-        addressToBackendID.put(be1, 1l);
-        addressToBackendID.put(be2, 2l);
+        addressToBackendID.put(be0, 0L);
+        addressToBackendID.put(be1, 1L);
+        addressToBackendID.put(be2, 2L);
 
         Deencapsulation.invoke(bucketShuffleJoinController, "computeScanRangeAssignmentByBucket",
                 olapScanNode, ImmutableMap.copyOf(idToBackend), addressToBackendID);
@@ -565,10 +562,11 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                put(0l, backend0).
-                put(1l, backend1).
-                put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
         FragmentScanRangeAssignment assignment = new FragmentScanRangeAssignment();
         List<TScanRangeLocations> locations = new ArrayList<>();
@@ -617,10 +615,11 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
         Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
         fragmentIdToSeqToAddressMap.put(planFragmentId, new HashedMap());
@@ -680,10 +679,11 @@ public class CoordinatorTest extends Coordinator {
         addressToBackendID.put(tScanRangeLocation2.server, tScanRangeLocation2.backend_id);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Map<PlanFragmentId, Map<Long, Integer>> fragmentIdToBuckendIdBucketCountMap = Maps.newHashMap();
         Map<Long, Integer> backendIdBucketCountMap = new HashMap<Long, Integer>();
         fragmentIdToBuckendIdBucketCountMap.put(planFragmentId, backendIdBucketCountMap);
@@ -814,10 +814,11 @@ public class CoordinatorTest extends Coordinator {
         backend2.setBePort(9050);
 
         ImmutableMap<Long, Backend> idToBackend =
-                new ImmutableMap.Builder<Long, Backend>().
-                        put(0l, backend0).
-                        put(1l, backend1).
-                        put(2l, backend2).build();
+                new ImmutableMap.Builder<Long, Backend>()
+                    .put(0L, backend0)
+                    .put(1L, backend1)
+                    .put(2L, backend2)
+                    .build();
         Deencapsulation.setField(coordinator, "idToBackend", idToBackend);
 
         Deencapsulation.invoke(coordinator, "computeScanRangeAssignment");

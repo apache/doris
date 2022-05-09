@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterJobV2.JobType;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaHeader;
 import org.apache.doris.common.io.CountingDataOutputStream;
@@ -39,9 +36,6 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
 import java.util.Random;
 import mockit.Expectations;
 

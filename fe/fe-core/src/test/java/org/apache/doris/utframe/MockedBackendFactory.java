@@ -278,7 +278,7 @@ public class MockedBackendFactory {
 
         @Override
         public long getTrashUsedCapacity() throws TException {
-            return  0l;
+            return  0L;
         }
 
         @Override
