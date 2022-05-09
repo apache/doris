@@ -31,8 +31,6 @@ public interface Plan<PLAN_TYPE extends Plan<PLAN_TYPE>> extends TreeNode<PLAN_T
 
     List<Slot> getOutput() throws UnboundException;
 
-    GroupExpression getGroupExpression();
-
     void setGroupExpression(GroupExpression groupExpression);
 
     String treeString();

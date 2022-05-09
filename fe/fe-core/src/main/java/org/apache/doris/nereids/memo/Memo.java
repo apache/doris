@@ -49,16 +49,13 @@ public class Memo {
      */
     // TODO: need to merge PlanRefSet if new PlanRef is same with some one already in memo
     public GroupExpression newGroupExpression(Plan<?> plan, Group target) {
-        if (plan.getGroupExpression() != null) {
-            return plan.getGroupExpression();
-        }
-        List<GroupExpression> childReferences = Lists.newArrayList();
+        List<GroupExpression> childGroupExpr = Lists.newArrayList();
         for (Plan<?> childrenPlan : plan.children()) {
-            childReferences.add(newGroupExpression(childrenPlan, null));
+            childGroupExpr.add(newGroupExpression(childrenPlan, null));
         }
         GroupExpression newGroupExpression = new GroupExpression(plan);
         groupExpressions.add(newGroupExpression);
-        for (GroupExpression childReference : childReferences) {
+        for (GroupExpression childReference : childGroupExpr) {
             newGroupExpression.addChild(childReference.getParent());
         }
 

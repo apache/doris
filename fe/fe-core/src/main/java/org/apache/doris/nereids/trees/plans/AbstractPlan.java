@@ -48,11 +48,6 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
     public abstract List<Slot> getOutput() throws UnboundException;
 
     @Override
-    public GroupExpression getGroupExpression() {
-        return groupExpression;
-    }
-
-    @Override
     public void setGroupExpression(GroupExpression groupExpression) {
         this.groupExpression = groupExpression;
     }
