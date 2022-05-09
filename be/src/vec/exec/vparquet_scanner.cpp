@@ -189,7 +189,7 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
 
 // eval conjuncts, for example: t1 > 1
 Status VParquetScanner::_eval_conjunts(Block* block) {
-    for (auto& vctx : _pre_filter_vctxs) {
+    for (auto& vctx : _vpre_filter_ctxs) {
         size_t orig_rows = block->rows();
         RETURN_IF_ERROR(VExprContext::filter_block(vctx, block, block->columns()));
         _counter->num_rows_unselected += orig_rows - block->rows();
@@ -230,7 +230,7 @@ Status VParquetScanner::_materialize_block(Block* block, std::vector<MutableColu
         }
         int dest_index = ctx_idx++;
 
-        VExprContext* ctx = _dest_vexpr_ctxs[dest_index];
+        VExprContext* ctx = _dest_vexpr_ctx[dest_index];
         int result_column_id = 0;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
