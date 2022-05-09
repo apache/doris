@@ -339,8 +339,7 @@ Status JsonReader::_parse_jsonpath_and_json_root(const std::string& jsonpath,
                                                  const std::string& json_root) {
     // parse jsonpath
     if (!jsonpath.empty()) {
-        Status st = _generate_json_paths(jsonpath, &_parsed_jsonpaths);
-        RETURN_IF_ERROR(st);
+        RETURN_IF_ERROR(_generate_json_paths(jsonpath, &_parsed_jsonpaths));
     }
     if (!json_root.empty()) {
         JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);

@@ -171,7 +171,7 @@ Status VJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,
                 continue; // continue to read next
             }
             RETURN_IF_ERROR(st);
-            if (*is_empty_row == true && st == Status::OK()) {
+            if (*is_empty_row == true) {
                 return Status::OK();
             }
             _name_map.clear();
@@ -245,6 +245,10 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
     int nullcount = 0;
     int ctx_idx = 0;
     for (auto slot_desc : slot_descs) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+
         int dest_index = ctx_idx++;
         auto* column_ptr = columns[dest_index].get();
         rapidjson::Value::ConstMemberIterator it = objectValue.MemberEnd();
@@ -397,7 +401,7 @@ Status VJsonReader::_vhandle_nested_complex_json(std::vector<MutableColumnPtr>& 
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row == true && st == Status::OK()) {
+        if (*is_empty_row == true) {
             return Status::OK();
         }
         *is_empty_row = false;
@@ -488,7 +492,7 @@ Status VJsonReader::_parse_json(bool* is_empty_row, bool* eof) {
             *is_empty_row = true;
         }
     }
-    return st;
+    return Status::OK();
 }
 
 Status VJsonReader::_append_error_msg(const rapidjson::Value& objectValue, std::string error_msg,

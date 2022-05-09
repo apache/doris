@@ -319,7 +319,7 @@ Status BaseScanner::fill_dest_block(vectorized::Block* dest_block,
                                                              slot_desc->col_name()));
     }
 
-    RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), _src_slot_descs.size()));
+    RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), _dest_tuple_desc->slots().size()));
 
     if (_dest_vexpr_ctx.empty()) {
         *dest_block = *temp_block;
