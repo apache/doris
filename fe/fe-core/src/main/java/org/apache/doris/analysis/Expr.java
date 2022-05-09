@@ -965,7 +965,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     //        }
     //    }
 
-<<<<<<< HEAD
     public List<String> childrenToDigest() {
         List<String> childrenDigestList = Lists.newArrayList();
         for (Expr child : children) {

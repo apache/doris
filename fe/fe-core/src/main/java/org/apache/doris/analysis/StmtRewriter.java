@@ -1155,12 +1155,13 @@ public class StmtRewriter {
         return exprWithSubquery.substitute(smap, analyzer, false);
     }
 
-    public static void rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
+    public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Catalog currentCatalog = Catalog.getCurrentCatalog();
         if (!(statementBase instanceof SelectStmt)) {
-            return;
+            return false;
         }
         SelectStmt selectStmt = (SelectStmt) statementBase;
+        boolean reAnalyze = false;
         for (int i = 0; i < selectStmt.fromClause_.size(); i++) {
             TableRef tableRef = selectStmt.fromClause_.get(i);
             if (tableRef instanceof InlineViewRef) {
@@ -1193,7 +1194,9 @@ public class StmtRewriter {
                     LimitElement.NO_LIMIT);
             selectStmt.fromClause_.set(i, new InlineViewRef(tableRef.getAliasAsName().getTbl(), stmt));
             selectStmt.analyze(analyzer);
+            reAnalyze = true;
         }
+        return reAnalyze;
     }
 }
 

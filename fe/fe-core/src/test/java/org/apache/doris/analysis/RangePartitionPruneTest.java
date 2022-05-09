@@ -17,9 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 
 import org.junit.jupiter.api.Test;
+
+import mockit.Expectations;
 
 public class RangePartitionPruneTest extends PartitionPruneTestBase {
 
@@ -111,6 +115,12 @@ public class RangePartitionPruneTest extends PartitionPruneTestBase {
     }
 
     private void initTestCases() {
+        new Expectations() {
+            {
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeMetaVersion.VERSION_CURRENT;
+            }
+        };
         // 1. Single partition column
         // no filters
         addCase("select * from test.t1", "partitions=8/8", "partitions=8/8");

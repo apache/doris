@@ -868,6 +868,7 @@ under the License.
                 <groupId>org.apache.parquet</groupId>
                 <artifactId>parquet-common</artifactId>
                 <version>${parquet.version}</version>
+                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>commons-collections</groupId>

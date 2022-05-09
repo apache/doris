@@ -678,22 +678,23 @@ public class StmtExecutor implements ProfileWriter {
                 reAnalyze = true;
             }
             if (parsedStmt instanceof SelectStmt) {
-                StmtRewriter.rewriteByPolicy(parsedStmt, analyzer);
-                reAnalyze = true;
+                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)) {
+                    reAnalyze = true;
+                }
             }
             if (parsedStmt instanceof SetOperationStmt) {
                 List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
                 for (SetOperationStmt.SetOperand operand : operands) {
-                    StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer);
+                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)) {
+                        reAnalyze = true;
+                    }
                 }
-                reAnalyze = true;
             }
             if (parsedStmt instanceof InsertStmt) {
                 QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
-                if (queryStmt != null) {
-                    StmtRewriter.rewriteByPolicy(queryStmt, analyzer);
+                if (queryStmt != null && StmtRewriter.rewriteByPolicy(queryStmt, analyzer)) {
+                    reAnalyze = true;
                 }
-                reAnalyze = true;
             }
             if (reAnalyze) {
                 // The rewrites should have no user-visible effect. Remember the original result
