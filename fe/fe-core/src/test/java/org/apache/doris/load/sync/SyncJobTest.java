@@ -28,8 +28,6 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;

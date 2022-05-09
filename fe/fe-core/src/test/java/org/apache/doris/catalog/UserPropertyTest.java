@@ -29,7 +29,6 @@ import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

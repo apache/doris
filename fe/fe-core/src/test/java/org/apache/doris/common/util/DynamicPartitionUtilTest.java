@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;

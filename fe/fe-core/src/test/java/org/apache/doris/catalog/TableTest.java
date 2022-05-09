@@ -26,7 +26,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,7 +38,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class TableTest {
