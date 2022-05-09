@@ -57,11 +57,7 @@ public:
 
     ~VJsonScanner();
 
-    Status open() override;
-
-    void close() override;
-
-    Status get_next(vectorized::Block& output_block, bool* eof) override;
+    Status get_next(vectorized::Block* output_block, bool* eof) override;
 
 private:
     Status open_vjson_reader();

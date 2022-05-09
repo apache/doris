@@ -153,9 +153,6 @@ Status VBrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range, Scanner
             return Status::OK();
         }
 
-        // get block
-        RETURN_IF_ERROR(scanner->get_next(*(block.get()), &scanner_eof));
-
         std::shared_ptr<vectorized::Block> block(new vectorized::Block());
         RETURN_IF_ERROR(scanner->get_next(block.get(), &scanner_eof));
         if (block->rows() == 0) {

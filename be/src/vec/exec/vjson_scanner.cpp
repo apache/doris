@@ -43,25 +43,12 @@ VJsonScanner::VJsonScanner(RuntimeState* state, RuntimeProfile* profile,
         : JsonScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_vjson_reader(nullptr) {}
 
-VJsonScanner::~VJsonScanner() {
-    close();
-}
+VJsonScanner::~VJsonScanner() {}
 
-Status VJsonScanner::open() {
-    RETURN_IF_ERROR(BaseScanner::open());
-    return Status::OK();
-}
-
-void VJsonScanner::close() {
-    BaseScanner::close();
-}
-
-Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
+Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
-    Status status;
     const int batch_size = _state->batch_size();
     size_t slot_num = _src_slot_descs.size();
-    std::unique_ptr<vectorized::Block> temp_block(new vectorized::Block());
     std::vector<vectorized::MutableColumnPtr> columns(slot_num);
     auto string_type = make_nullable(std::make_shared<DataTypeString>());
     for (int i = 0; i < slot_num; i++) {
@@ -94,25 +81,10 @@ Status VJsonScanner::get_next(vectorized::Block& output_block, bool* eof) {
             continue;
         }
         COUNTER_UPDATE(_rows_read_counter, 1);
-        SCOPED_TIMER(_materialize_timer);
     }
 
-    if (columns[0]->size() > 0) {
-        auto n_columns = 0;
-        for (const auto slot_desc : _src_slot_descs) {
-            temp_block->insert(ColumnWithTypeAndName(std::move(columns[n_columns++]),
-                                                     slot_desc->get_data_type_ptr(),
-                                                     slot_desc->col_name()));
-        }
-
-        RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), slot_num));
-
-        if (_dest_vexpr_ctx.empty()) {
-            output_block = *(temp_block.get());
-        } else {
-            RETURN_IF_ERROR(BaseScanner::execute_exprs(&output_block, temp_block.get()));
-        }
-    }
+    SCOPED_TIMER(_materialize_timer);
+    RETURN_IF_ERROR(BaseScanner::fill_dest_block(output_block, columns));
 
     *eof = _scanner_eof;
     return Status::OK();
@@ -296,7 +268,7 @@ Status VJsonReader::_set_column_value(rapidjson::Value& objectValue,
         } else { // not found
             if (slot_desc->is_nullable()) {
                 auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-                nullable_column->insert_data(nullptr, 0);
+                nullable_column->insert_default();
                 nullcount++;
             } else {
                 RETURN_IF_ERROR(_append_error_msg(
@@ -360,7 +332,7 @@ Status VJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator v
     case rapidjson::Type::kNullType:
         if (slot_desc->is_nullable()) {
             auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-            nullable_column->insert_data(nullptr, 0);
+            nullable_column->insert_default();
         } else {
             RETURN_IF_ERROR(_append_error_msg(
                     *value, "Json value is null, but the column `{}` is not nullable.",
@@ -463,7 +435,7 @@ Status VJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
             // not match in jsondata.
             if (slot_descs[i]->is_nullable()) {
                 auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-                nullable_column->insert_data(nullptr, 0);
+                nullable_column->insert_default();
                 nullcount++;
             } else {
                 RETURN_IF_ERROR(_append_error_msg(

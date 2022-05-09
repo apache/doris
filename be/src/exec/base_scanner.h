@@ -72,13 +72,12 @@ public:
         return Status::NotSupported("Not Implemented get block");
     }
 
-    virtual Status get_next(vectorized::Block& output_block, bool* eof) {
-        return Status::NotSupported("Not Implemented get block");
-    }
-
     // Close this scanner
     virtual void close() = 0;
     Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
+
+    Status fill_dest_block(vectorized::Block* dest_block,
+                           std::vector<vectorized::MutableColumnPtr>& columns);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
@@ -121,8 +120,6 @@ protected:
     // and will be converted to `_pre_filter_ctxs` when scanner is open.
     const std::vector<TExpr> _pre_filter_texprs;
     std::vector<ExprContext*> _pre_filter_ctxs;
-    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
 
     bool _strict_mode;
 
