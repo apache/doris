@@ -175,7 +175,7 @@ public class SingleNodePlanner {
      * they are never unnested, and therefore the corresponding parent scan should not
      * materialize them.
      */
-    private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) {
+    private PlanNode createEmptyNode(PlanNode inputPlan, QueryStmt stmt, Analyzer analyzer) throws UserException {
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         if (inputPlan != null) {
             tupleIds = inputPlan.tupleIds;
@@ -1165,7 +1165,7 @@ public class SingleNodePlanner {
      * Returns a MergeNode that materializes the exprs of the constant selectStmt. Replaces the resultExprs of the
      * selectStmt with SlotRefs into the materialized tuple.
      */
-    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) {
+    private PlanNode createConstantSelectPlan(SelectStmt selectStmt, Analyzer analyzer) throws UserException {
         Preconditions.checkState(selectStmt.getTableRefs().isEmpty());
         ArrayList<Expr> resultExprs = selectStmt.getResultExprs();
         // Create tuple descriptor for materialized tuple.

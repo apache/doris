@@ -349,8 +349,8 @@ public class OlapScanNode extends ScanNode {
          * - When Join reorder is turned on, the cardinality must be calculated before the reorder algorithm.
          * - So only an inaccurate cardinality can be calculated here.
          */
+        mockRowCountInStatistic();
         if (analyzer.safeIsEnableJoinReorderBasedCost()) {
-            mockRowCountInStatistic();
             computeInaccurateCardinality();
         }
     }
@@ -397,7 +397,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (cardinality > 0) {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;

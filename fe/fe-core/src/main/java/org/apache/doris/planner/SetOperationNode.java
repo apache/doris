@@ -82,19 +82,34 @@ public abstract class SetOperationNode extends PlanNode {
 
     protected final TupleId tupleId;
 
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        setOpResultExprs_ = Lists.newArrayList();
+        tupleId_ = tupleId;
+        isInSubplan_ = false;
+    }
+
+    protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
+                               List<Expr> setOpResultExprs, boolean isInSubplan, NodeType nodeType) {
+        super(id, tupleId.asList(), planNodeName, nodeType);
+        setOpResultExprs_ = setOpResultExprs;
+        tupleId_ = tupleId;
+        isInSubplan_ = isInSubplan;
+    }
+
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName) {
-        super(id, tupleId.asList(), planNodeName);
-        setOpResultExprs = Lists.newArrayList();
-        this.tupleId = tupleId;
-        isInSubplan = false;
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        setOpResultExprs_ = Lists.newArrayList();
+        this.tupleId_ = tupleId;
+        isInSubplan_ = false;
     }
 
     protected SetOperationNode(PlanNodeId id, TupleId tupleId, String planNodeName,
                                List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId.asList(), planNodeName);
-        this.setOpResultExprs = setOpResultExprs;
-        this.tupleId = tupleId;
-        this.isInSubplan = isInSubplan;
+        super(id, tupleId.asList(), planNodeName, NodeType.SET_OPERATION_NODE);
+        this.setOpResultExprs_ = setOpResultExprs;
+        this.tupleId_ = tupleId;
+        this.isInSubplan_ = isInSubplan;
     }
 
     public void addConstExprList(List<Expr> exprs) {
@@ -181,7 +196,7 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     @Override
-    public void computeStats(Analyzer analyzer) {
+    public void computeStats(Analyzer analyzer) throws UserException {
         super.computeStats(analyzer);
         if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
             return;
@@ -314,7 +329,7 @@ public abstract class SetOperationNode extends PlanNode {
      * been evaluated during registration to set analyzer.hasEmptyResultSet_.
      */
     @Override
-    public void init(Analyzer analyzer) {
+    public void init(Analyzer analyzer) throws UserException {
         Preconditions.checkState(conjuncts.isEmpty());
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
