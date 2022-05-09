@@ -133,9 +133,9 @@ public class EditLogFileOutputStream extends EditLogOutputStream {
             fc.write(fill, newSize);
         }
     }
-    
+
     File getFile() {
         return file;
     }
-    
+
 }

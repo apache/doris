@@ -45,7 +45,9 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -58,10 +60,6 @@ import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class StmtExecutorTest {
     private ConnectContext ctx;
@@ -733,4 +731,3 @@ public class StmtExecutorTest {
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
     }
 }
-

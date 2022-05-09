@@ -234,4 +234,3 @@ public class VariableMgrTest {
         Assert.fail("No exception throws.");
     }
 }
-

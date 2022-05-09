@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/OrderByElement.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -37,18 +34,18 @@ public class OrderByElement {
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
     // "NULLS LAST", and null if not specified.
     private final Boolean nullsFirstParam;
-    
+
     public OrderByElement(Expr expr, boolean isAsc, Boolean nullsFirstParam) {
         super();
         this.expr = expr;
         this.isAsc = isAsc;
         this.nullsFirstParam = nullsFirstParam;
     }
-    
+
     public void setExpr(Expr e) {
         this.expr = e;
     }
-    
+
     public Expr getExpr() {
         return expr;
     }
@@ -56,7 +53,7 @@ public class OrderByElement {
     public boolean getIsAsc() {
         return isAsc;
     }
-    
+
     public Boolean getNullsFirstParam() {
         return nullsFirstParam;
     }

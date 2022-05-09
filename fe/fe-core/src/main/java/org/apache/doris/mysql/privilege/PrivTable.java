@@ -25,7 +25,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

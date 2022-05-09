@@ -14,29 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Subquery.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.catalog.MultiRowType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-
-
 import org.apache.doris.thrift.TExprNode;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Class representing a subquery. A Subquery consists of a QueryStmt and has
@@ -200,4 +195,3 @@ public class Subquery extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {}
 }
-

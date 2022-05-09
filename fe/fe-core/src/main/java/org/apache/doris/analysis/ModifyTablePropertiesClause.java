@@ -106,7 +106,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         sb.append("PROPERTIES (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
-        
+
         return sb.toString();
     }
 

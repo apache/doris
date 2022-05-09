@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Expr.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -42,7 +39,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1437,7 +1433,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     /**
      * This method is mainly used to find the original column corresponding to the current expr.
      * Find the initial slotRef from the current slot ref.
-     * 
+     *
      * If the initial expr is not a slotRef, it returns null directly.
      * If the current slotRef comes from another expression transformation,
      *   rather than directly from another slotRef, null will also be returned.

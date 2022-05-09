@@ -17,8 +17,7 @@
 
 package org.apache.doris.common.path;
 
-import static com.google.common.collect.Maps.newHashMap;
-
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -46,20 +45,20 @@ public class PathTrieTest {
         Assert.assertEquals(trie.retrieve("a/b/c/d"), null);
         Assert.assertEquals(trie.retrieve("g/t/x"), "three");
 
-        Map<String, String> params = newHashMap();
+        Map<String, String> params = Maps.newHashMap();
         Assert.assertEquals(trie.retrieve("index1/insert/12", params), "bingo");
         Assert.assertEquals(params.size(), 2);
         Assert.assertEquals(params.get("index"), "index1");
         Assert.assertEquals(params.get("docId"), "12");
     }
-    
+
     @Test
     public void testEmptyPath() {
         PathTrie<String> trie = new PathTrie<>();
         trie.insert("/", "walla");
         Assert.assertEquals(trie.retrieve(""), "walla");
     }
-    
+
     @Test
     public void testDifferentNamesOnDifferentPath() {
         PathTrie<String> trie = new PathTrie<>();

@@ -14,20 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticWindow.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
-
-import java.math.BigDecimal;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
 import org.apache.doris.thrift.TAnalyticWindowType;
+
 import com.google.common.base.Preconditions;
+
+import java.math.BigDecimal;
 
 /**
  * Windowing clause of an analytic expr

@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -252,7 +251,7 @@ public class BackendLoadStatistic {
 
     public void calcScore(Map<TStorageMedium, Double> avgClusterUsedCapacityPercentMap,
             Map<TStorageMedium, Double> avgClusterReplicaNumPerBackendMap) {
-        
+
         for (TStorageMedium medium : TStorageMedium.values()) {
             LoadScore loadScore = calcSore(totalUsedCapacityMap.getOrDefault(medium, 0L),
                     totalCapacityMap.getOrDefault(medium, 1L),
@@ -269,13 +268,13 @@ public class BackendLoadStatistic {
 
     public static LoadScore calcSore(long beUsedCapacityB, long beTotalCapacityB, long beTotalReplicaNum,
             double avgClusterUsedCapacityPercent, double avgClusterReplicaNumPerBackend) {
-        
+
         double usedCapacityPercent = (beUsedCapacityB / (double) beTotalCapacityB);
         double capacityProportion = avgClusterUsedCapacityPercent <= 0 ? 0.0
                 : usedCapacityPercent / avgClusterUsedCapacityPercent;
         double replicaNumProportion = avgClusterReplicaNumPerBackend <= 0 ? 0.0
                 : beTotalReplicaNum / avgClusterReplicaNumPerBackend;
-        
+
         LoadScore loadScore = new LoadScore();
 
         // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
@@ -288,7 +287,7 @@ public class BackendLoadStatistic {
         loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;
         loadScore.score = capacityProportion * loadScore.capacityCoefficient
                 + replicaNumProportion * loadScore.replicaNumCoefficient;
-        
+
         return loadScore;
     }
 
@@ -380,7 +379,7 @@ public class BackendLoadStatistic {
 
     /**
      * Classify the paths into 'low', 'mid' and 'high',
-     * and skip offline path, and path with different storage medium 
+     * and skip offline path, and path with different storage medium
      */
     public void getPathStatisticByClass(
             Set<Long> low, Set<Long> mid, Set<Long> high, TStorageMedium storageMedium) {

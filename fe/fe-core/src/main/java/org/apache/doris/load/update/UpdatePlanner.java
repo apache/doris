@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.update;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DescriptorTable;
@@ -46,8 +47,6 @@ import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
-
-import static org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PRFIX;
 
 
 public class UpdatePlanner extends Planner {
@@ -163,8 +162,8 @@ public class UpdatePlanner extends Planner {
         for (int i = 0; i < targetTable.getFullSchema().size(); i++) {
             Column column = targetTable.getFullSchema().get(i);
             // pay attention to case ignore of column name
-            String originColumnName = (column.getName().startsWith(SHADOW_NAME_PRFIX) ?
-                    column.getName().substring(SHADOW_NAME_PRFIX.length()) : column.getName())
+            String originColumnName = (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX) ?
+                    column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()) : column.getName())
                     .toLowerCase();
             Expr setExpr = columnNameToSetExpr.get(originColumnName);
             SlotDescriptor srcSlotDesc = columnNameToSrcSlotDesc.get(originColumnName);

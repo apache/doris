@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/StmtRewriter.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -29,7 +26,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -506,7 +502,7 @@ public class StmtRewriter {
         rewrittenStmt.reset();
         Subquery newSubquery = new Subquery(rewrittenStmt);
         newSubquery.analyze(analyzer);
-        
+
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         smap.put(subquery, newSubquery);
         return expr.substitute(smap, analyzer, false);
@@ -1142,4 +1138,3 @@ public class StmtRewriter {
         return exprWithSubquery.substitute(smap, analyzer, false);
     }
 }
-

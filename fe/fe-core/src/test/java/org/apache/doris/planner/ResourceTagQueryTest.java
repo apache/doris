@@ -49,7 +49,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
@@ -303,5 +302,3 @@ public class ResourceTagQueryTest {
         System.out.println("table " + tbl.getId() + " is stable");
     }
 }
-
-

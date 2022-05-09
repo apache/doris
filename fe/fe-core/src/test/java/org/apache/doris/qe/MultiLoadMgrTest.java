@@ -25,16 +25,14 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 
 public class MultiLoadMgrTest {

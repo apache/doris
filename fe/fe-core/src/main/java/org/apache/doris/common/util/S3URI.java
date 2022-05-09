@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.ImmutableSet;
-
 import org.apache.parquet.Strings;
 import org.apache.parquet.glob.GlobExpander;
 
@@ -173,4 +172,3 @@ public class S3URI {
         return location;
     }
 }
-

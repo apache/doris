@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+
 import org.apache.spark.Partitioner;
 
 import java.io.Serializable;

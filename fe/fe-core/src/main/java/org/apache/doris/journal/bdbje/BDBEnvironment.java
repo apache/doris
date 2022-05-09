@@ -33,17 +33,16 @@ import com.sleepycat.je.Durability.SyncPolicy;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.EnvironmentFailureException;
 import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
 import com.sleepycat.je.rep.NodeType;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
+import com.sleepycat.je.rep.RollbackException;
 import com.sleepycat.je.rep.StateChangeListener;
 import com.sleepycat.je.rep.util.DbResetRepGroup;
 import com.sleepycat.je.rep.util.ReplicationGroupAdmin;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,15 +57,15 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/* this class contains the reference to bdb environment. 
- * including all the opened databases and the replicationGroupAdmin. 
+/* this class contains the reference to bdb environment.
+ * including all the opened databases and the replicationGroupAdmin.
  * we can get the information of this bdb group through the API of replicationGroupAdmin
  */
 public class BDBEnvironment {
     private static final Logger LOG = LogManager.getLogger(BDBEnvironment.class);
     private static final int RETRY_TIME = 3;
     private static final int MEMORY_CACHE_PERCENT = 20;
-    
+
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
 
     private ReplicatedEnvironment replicatedEnvironment;
@@ -77,7 +76,7 @@ public class BDBEnvironment {
     private ReplicationGroupAdmin replicationGroupAdmin = null;
     private ReentrantReadWriteLock lock;
     private List<Database> openedDatabases;
-    
+
     public BDBEnvironment() {
         openedDatabases = new ArrayList<Database>();
         this.lock = new ReentrantReadWriteLock(true);
@@ -86,7 +85,7 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort, boolean isElectable) {
-        
+
         // Almost never used, just in case the master can not restart
         if (Config.metadata_failure_recovery.equals("true")) {
             if (!isElectable) {
@@ -128,11 +127,11 @@ public class BDBEnvironment {
         environmentConfig.setCachePercent(MEMORY_CACHE_PERCENT);
         environmentConfig.setLockTimeout(Config.bdbje_lock_timeout_second, TimeUnit.SECONDS);
         if (isElectable) {
-            Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy), 
+            Durability durability = new Durability(getSyncPolicy(Config.master_sync_policy),
                     getSyncPolicy(Config.replica_sync_policy), getAckPolicy(Config.replica_ack_policy));
             environmentConfig.setDurability(durability);
         }
-        
+
         // set database config
         dbConfig = new DatabaseConfig();
         dbConfig.setTransactional(true);
@@ -149,11 +148,11 @@ public class BDBEnvironment {
             try {
                 // open the environment
                 replicatedEnvironment = new ReplicatedEnvironment(envHome, replicationConfig, environmentConfig);
-                
+
                 // get replicationGroupAdmin object.
                 Set<InetSocketAddress> adminNodes = new HashSet<InetSocketAddress>();
                 // 1. add helper node
-                InetSocketAddress helper = new InetSocketAddress(helperHostPort.split(":")[0], 
+                InetSocketAddress helper = new InetSocketAddress(helperHostPort.split(":")[0],
                                                                  Integer.parseInt(helperHostPort.split(":")[1]));
                 adminNodes.add(helper);
                 LOG.info("add helper[{}] as ReplicationGroupAdmin", helperHostPort);
@@ -166,15 +165,15 @@ public class BDBEnvironment {
                 }
 
                 replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, adminNodes);
-                
+
                 // get a BDBHA object and pass the reference to Catalog
                 HAProtocol protocol = new BDBHA(this, selfNodeName);
                 Catalog.getCurrentCatalog().setHaProtocol(protocol);
-                
+
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
                 replicatedEnvironment.setStateChangeListener(listener);
-                
+
                 // open epochDB. the first parameter null means auto-commit
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
@@ -201,11 +200,11 @@ public class BDBEnvironment {
             }
         }
     }
-    
+
     public ReplicationGroupAdmin getReplicationGroupAdmin() {
         return this.replicationGroupAdmin;
     }
-    
+
     public void setNewReplicationGroupAdmin(Set<InetSocketAddress> newHelperNodes) {
         this.replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, newHelperNodes);
     }
@@ -219,7 +218,7 @@ public class BDBEnvironment {
     public ReplicatedEnvironment getReplicatedEnvironment() {
         return replicatedEnvironment;
     }
-    
+
     // return the database reference with the given name
     // also try to close previous opened database.
     public Database openDatabase(String dbName) {
@@ -240,17 +239,17 @@ public class BDBEnvironment {
                      * In the case when 3 FE (1 master and 2 followers) start at same time,
                      * We may catch com.sleepycat.je.rep.DatabasePreemptedException which said that
                      * "Database xx has been forcibly closed in order to apply a replicated remove operation."
-                     * 
+                     *
                      * Because when Master FE finished to save image, it try to remove old journals,
                      * and also remove the databases these old journals belongs to.
                      * So after Master removed the database from replicatedEnvironment,
                      * call db.getDatabaseName() will throw DatabasePreemptedException,
                      * because it has already been destroyed.
-                     * 
+                     *
                      * The reason why Master can safely remove a database is because it knows that all
                      * non-master FE have already load the journal ahead of this database. So remove the
                      * database is safe.
-                     * 
+                     *
                      * Here we just try to close the useless database(which may be removed by Master),
                      * so even we catch the exception, just ignore it is OK.
                      */
@@ -277,7 +276,7 @@ public class BDBEnvironment {
         }
         return db;
     }
-    
+
     // close and remove the database whose name is dbName
     public void removeDatabase(String dbName) {
         lock.writeLock().lock();
@@ -309,7 +308,7 @@ public class BDBEnvironment {
             lock.writeLock().unlock();
         }
     }
-    
+
     // get journal db names and sort the names
     public List<Long> getDatabaseNames() {
         List<Long> ret = new ArrayList<Long>();
@@ -340,7 +339,7 @@ public class BDBEnvironment {
                 return null;
             }
         }
-        
+
         if (names != null) {
             for (String name : names) {
                 if (StringUtils.isNumeric(name)) {
@@ -350,7 +349,7 @@ public class BDBEnvironment {
                 }
             }
         }
-        
+
         Collections.sort(ret);
         return ret;
     }
@@ -366,7 +365,7 @@ public class BDBEnvironment {
             }
         }
         openedDatabases.clear();
-        
+
         if (epochDB != null) {
             try {
                 epochDB.close();
@@ -386,7 +385,7 @@ public class BDBEnvironment {
             }
         }
     }
-    
+
         // Close environment
     public void closeReplicatedEnvironment() {
         if (replicatedEnvironment != null) {
@@ -431,7 +430,7 @@ public class BDBEnvironment {
         // default value is WRITE_NO_SYNC
         return Durability.SyncPolicy.WRITE_NO_SYNC;
     }
-    
+
     private ReplicaAckPolicy getAckPolicy(String policy) {
         if (policy.equalsIgnoreCase("ALL")) {
             return Durability.ReplicaAckPolicy.ALL;
@@ -442,5 +441,5 @@ public class BDBEnvironment {
         // default value is SIMPLE_MAJORITY
         return Durability.ReplicaAckPolicy.SIMPLE_MAJORITY;
     }
-    
+
 }

@@ -67,7 +67,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -106,7 +105,7 @@ public class TabletScheduler extends MasterDaemon {
     private static final long SCHEDULE_INTERVAL_MS = 1000; // 1s
 
     // 1 slot for reduce unnecessary balance task, provided a more accurate estimate of capacity
-    public static final int BALANCE_SLOT_NUM_FOR_PATH = 1; 
+    public static final int BALANCE_SLOT_NUM_FOR_PATH = 1;
 
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.

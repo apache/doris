@@ -33,10 +33,10 @@ import com.google.common.base.Preconditions;
 /*
  *  SHOW ALL GRANTS;
  *      show all grants.
- *      
+ *
  *  SHOW GRANTS:
  *      show grants of current user
- *      
+ *
  *  SHOW GRANTS FOR user@'xxx';
  *      show grants for specified user identity
  */

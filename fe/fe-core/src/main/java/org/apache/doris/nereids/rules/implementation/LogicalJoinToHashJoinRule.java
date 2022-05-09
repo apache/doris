@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.Plan;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 

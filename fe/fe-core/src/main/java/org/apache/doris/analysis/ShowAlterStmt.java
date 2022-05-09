@@ -17,8 +17,8 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -36,7 +36,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -88,11 +87,11 @@ public class ShowAlterStmt extends ShowStmt {
 
     private void getPredicateValue(Expr subExpr) throws AnalysisException {
         if (!(subExpr instanceof BinaryPredicate)) {
-            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported."); 
+            throw new AnalysisException("The operator =|>=|<=|>|<|!= are supported.");
         }
         BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
         if (!(subExpr.getChild(0) instanceof SlotRef)) {
-            throw new AnalysisException("Only support column = xxx syntax."); 
+            throw new AnalysisException("Only support column = xxx syntax.");
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
@@ -131,13 +130,13 @@ public class ShowAlterStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        //first analyze 
-        analyzeSyntax(analyzer);        
+        //first analyze
+        analyzeSyntax(analyzer);
 
         // check auth when get job info
         handleShowAlterTable(analyzer);
     }
-    
+
     public void analyzeSyntax(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
@@ -174,8 +173,8 @@ public class ShowAlterStmt extends ShowStmt {
             limitElement.analyze(analyzer);
         }
     }
-    
-    
+
+
     public void handleShowAlterTable(Analyzer analyzer) throws UserException {
         Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
 

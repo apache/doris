@@ -19,10 +19,9 @@ package org.apache.doris.backup;
 
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 
+import junit.framework.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import junit.framework.Assert;
 
 public class RestoreFileMappingTest {
 

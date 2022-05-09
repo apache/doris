@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Range;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SelectStmt;
@@ -60,9 +59,9 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Types;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
-import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.qe.cache.CacheCoordinator;
+import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.qe.cache.PartitionCache;
 import org.apache.doris.qe.cache.PartitionRange;
 import org.apache.doris.qe.cache.RowBatchBuilder;
@@ -74,7 +73,11 @@ import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Range;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -87,11 +90,6 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class PartitionCacheTest {
     private static final Logger LOG = LogManager.getLogger(PartitionCacheTest.class);
@@ -1231,4 +1229,3 @@ public class PartitionCacheTest {
         }
     }
 }
-

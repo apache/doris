@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FunctionCallExpr.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -48,7 +45,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,7 +81,7 @@ public class FunctionCallExpr extends Expr {
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
-    // use to record the num of json_object parameters 
+    // use to record the num of json_object parameters
     private int originChildSize;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
@@ -1221,4 +1217,3 @@ public class FunctionCallExpr extends Expr {
         return result.toString();
     }
 }
-

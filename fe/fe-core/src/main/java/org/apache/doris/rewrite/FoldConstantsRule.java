@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FoldConstantsRule.java
-// and modified by Doris
 
 package org.apache.doris.rewrite;
 
@@ -50,7 +47,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -363,7 +359,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
-            
+
             Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
@@ -395,4 +391,3 @@ public class FoldConstantsRule implements ExprRewriteRule {
         return resultMap;
     }
 }
-

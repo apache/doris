@@ -95,7 +95,6 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -651,4 +650,3 @@ public class JournalEntity implements Writable {
         Preconditions.checkState(isRead);
     }
 }
-

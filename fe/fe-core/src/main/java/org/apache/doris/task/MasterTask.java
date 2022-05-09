@@ -17,14 +17,14 @@
 
 package org.apache.doris.task;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public abstract class MasterTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(MasterTask.class);
 
     protected long signature;
-    
+
     @Override
     public void run() {
         try {
@@ -33,11 +33,11 @@ public abstract class MasterTask implements Runnable {
             LOG.error("task exec error ", e);
         }
     }
-    
+
     public long getSignature() {
         return signature;
     }
-    
+
     /**
      * implement in child
      */

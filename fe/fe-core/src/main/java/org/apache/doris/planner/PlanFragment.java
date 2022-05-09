@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanFragment.java
-// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -33,7 +30,6 @@ import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -119,7 +115,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
-    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics correctly when query contains limit, it is necessary to send query
     // statistics with every batch, or only in close.
     private boolean transferQueryStatisticsWithEveryBatch;
 

@@ -17,6 +17,8 @@
 
 package org.apache.doris.http;
 
+import okhttp3.Request;
+import okhttp3.Response;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
@@ -24,10 +26,6 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
-
-import okhttp3.Request;
-import okhttp3.Response;
-import static org.junit.Assert.assertTrue;
 
 public class TableSchemaActionTest extends DorisHttpTestCase {
 
@@ -41,7 +39,7 @@ public class TableSchemaActionTest extends DorisHttpTestCase {
                 .url(URI + QUERY_PLAN_URI)
                 .build();
         Response response = networkClient.newCall(request).execute();
-        assertTrue(response.isSuccessful());
+        Assert.assertTrueassertTrue(response.isSuccessful());
         String respStr = response.body().string();
         Assert.assertNotNull(respStr);
         JSONObject object = (JSONObject) JSONValue.parse(respStr);

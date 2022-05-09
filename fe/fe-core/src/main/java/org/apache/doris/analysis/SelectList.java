@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SelectList.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -45,7 +42,7 @@ public class SelectList {
 
     // END: Members that need to be reset()
     // ///////////////////////////////////////
-    
+
     public SelectList(SelectList other) {
         items = Lists.newArrayList();
         for (SelectListItem item : other.items) {
@@ -58,7 +55,7 @@ public class SelectList {
         items = Lists.newArrayList();
         this.isDistinct = false;
     }
-    
+
     public SelectList(List<SelectListItem> items, boolean isDistinct) {
         this.isDistinct = isDistinct;
         this.items = items;
@@ -115,7 +112,7 @@ public class SelectList {
             item.setExpr(rewriter.rewrite(item.getExpr(), analyzer));
         }
     }
-    
+
     @Override
     public SelectList clone() {
         return new SelectList(this);

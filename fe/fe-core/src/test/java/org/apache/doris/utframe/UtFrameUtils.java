@@ -50,7 +50,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 
@@ -313,4 +312,3 @@ public class UtFrameUtils {
         return DigestUtils.md5Hex(digest);
     }
 }
-

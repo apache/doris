@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/HashJoinNode.java
-// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -48,7 +45,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -172,7 +168,7 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-    
+
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
      * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that

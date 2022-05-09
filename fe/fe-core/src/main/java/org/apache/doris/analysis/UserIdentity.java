@@ -238,4 +238,3 @@ public class UserIdentity implements Writable {
         isAnalyzed = true;
     }
 }
-

@@ -17,15 +17,6 @@
 
 package org.apache.doris.plugin;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.FeConstants;
@@ -33,8 +24,15 @@ import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
+
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 
 public class PluginInfoTest {
     private Catalog catalog;
@@ -56,11 +54,11 @@ public class PluginInfoTest {
             PluginInfo info = PluginInfo.readFromProperties(PluginTestUtil.getTestPath("source"),
                     "test");
 
-            assertEquals("plugin_test", info.getName());
-            assertEquals(PluginType.STORAGE, info.getType());
-            assertTrue(DigitalVersion.CURRENT_DORIS_VERSION.onOrAfter(info.getVersion()));
-            assertTrue(DigitalVersion.JDK_9_0_0.onOrAfter(info.getJavaVersion()));
-            assertTrue(DigitalVersion.JDK_1_8_0.before(info.getJavaVersion()));
+            Assert.assertEquals("plugin_test", info.getName());
+            Assert.assertEquals(PluginType.STORAGE, info.getType());
+            Assert.assertTrue(DigitalVersion.CURRENT_DORIS_VERSION.onOrAfter(info.getVersion()));
+            Assert.assertTrue(DigitalVersion.JDK_9_0_0.onOrAfter(info.getJavaVersion()));
+            Assert.assertTrue(DigitalVersion.JDK_1_8_0.before(info.getJavaVersion()));
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -85,8 +83,8 @@ public class PluginInfoTest {
 
         DataInputStream dis = new DataInputStream(new ByteArrayInputStream(dob.getData()));
         PluginInfo pi = PluginInfo.read(dis);
-        assertFalse(pi.properties.isEmpty());
-        assertEquals("cf0c536b8f2a0a0690b44d783d019e90", pi.properties.get("md5sum"));
-        assertEquals(info, pi);
+        Assert.assertFalse(pi.properties.isEmpty());
+        Assert.assertEquals("cf0c536b8f2a0a0690b44d783d019e90", pi.properties.get("md5sum"));
+        Assert.assertEquals(info, pi);
     }
 }

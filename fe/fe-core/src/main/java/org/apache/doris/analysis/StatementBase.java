@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/StatementBase.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -151,11 +148,11 @@ public abstract class StatementBase implements ParseNode {
         Preconditions.checkNotNull(resultExprs);
         Preconditions.checkState(resultExprs.size() == types.size());
         for (int i = 0; i < types.size(); ++i) {
-            //The specific type of the date type is determined by the 
+            //The specific type of the date type is determined by the
             //actual type of the return value, not by the function return value type in FE Function
             //such as the result of str_to_date may be either DATE or DATETIME
             if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
-                continue;                               
+                continue;
             }
             if (!resultExprs.get(i).getType().equals(types.get(i))) {
                 resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));

@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/InPredicate.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -34,7 +31,6 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -164,14 +160,14 @@ public class InPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        
+
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
                     toSql());
-            } 
+            }
             Subquery subquery = (Subquery)getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +

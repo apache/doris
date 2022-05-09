@@ -17,23 +17,6 @@
 
 package org.apache.doris.utframe;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.StringReader;
-import java.net.DatagramSocket;
-import java.net.ServerSocket;
-import java.net.SocketException;
-import java.nio.channels.SocketChannel;
-import java.nio.file.Files;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import org.apache.commons.io.FileUtils;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -65,10 +48,26 @@ import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.StringReader;
+import java.net.DatagramSocket;
+import java.net.ServerSocket;
+import java.net.SocketException;
+import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * This is the base class for unit class that wants to start a FE service.

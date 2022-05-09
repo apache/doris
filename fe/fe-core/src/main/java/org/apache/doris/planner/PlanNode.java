@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanNode.java
-// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -47,7 +44,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -398,7 +394,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public void transferConjuncts(PlanNode recipient) {
         recipient.vconjunct = vconjunct;
         vconjunct = null;
-        
+
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }

@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LiteralExpr.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -26,7 +23,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -220,7 +216,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     public void readFields(DataInput in) throws IOException {
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -244,4 +240,3 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return this instanceof NullLiteral;
     }
 }
-

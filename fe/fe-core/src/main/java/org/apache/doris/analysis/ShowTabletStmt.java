@@ -107,7 +107,7 @@ public class ShowTabletStmt extends ShowStmt {
     public boolean hasPartition() { return partitionNames != null; }
 
     public PartitionNames getPartitionNames() { return partitionNames; }
-    
+
     public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
 
     public long getLimit() { return  limitElement.getLimit(); }

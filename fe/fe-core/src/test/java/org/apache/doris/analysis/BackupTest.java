@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.qe.ConnectContext;
+
 import com.google.common.collect.Lists;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.qe.ConnectContext;
 import org.junit.Before;
 import org.junit.Test;
 

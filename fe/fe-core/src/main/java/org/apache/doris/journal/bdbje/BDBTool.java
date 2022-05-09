@@ -33,7 +33,6 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
-
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 
@@ -101,7 +100,7 @@ public class BDBTool {
                         System.err.println("Not a valid from key: " + fromKeyStr);
                         return false;
                     }
-                    
+
                     // set end key
                     Long endKey = fromKey + db.count() - 1;
                     if (options.hasEndKey()) {
@@ -112,13 +111,13 @@ public class BDBTool {
                             return false;
                         }
                     }
-                    
+
                     if (fromKey > endKey) {
                         System.err.println("from key should less than or equal to end key["
                                 + fromKey + " vs. " + endKey + "]");
                         return false;
                     }
-                    
+
                     // meta version
                     MetaContext metaContext = new MetaContext();
                     metaContext.setMetaVersion(options.getMetaVersion());

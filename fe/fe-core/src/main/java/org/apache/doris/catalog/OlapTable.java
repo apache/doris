@@ -61,7 +61,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -130,7 +129,7 @@ public class OlapTable extends Table {
     private Type sequenceType;
 
     private TableIndexes indexes;
-    
+
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
     // using same id is not suitable for our new framework.
@@ -151,7 +150,7 @@ public class OlapTable extends Table {
         this.colocateGroup = null;
 
         this.indexes = null;
-      
+
         this.tableProperty = null;
 
         this.hasSequenceCol = false;
@@ -803,7 +802,7 @@ public class OlapTable extends Table {
      * `getAllPartitions()`
      *
      */
-    
+
     // get partition by name, not including temp partitions
     @Override
     public Partition getPartition(String partitionName) {
@@ -827,7 +826,7 @@ public class OlapTable extends Table {
         }
         return partition;
     }
-    
+
     // get all partitions except temp partitions
     public Collection<Partition> getPartitions() {
         return idToPartition.values();
@@ -935,7 +934,7 @@ public class OlapTable extends Table {
     public void setColocateGroup(String colocateGroup) {
         this.colocateGroup = colocateGroup;
     }
-    
+
     // when the table is creating new rollup and enter finishing state, should tell be not auto load to new rollup
     // it is used for stream load
     // the caller should get db lock when call this method
@@ -1131,7 +1130,7 @@ public class OlapTable extends Table {
         } else {
             out.writeBoolean(false);
         }
-      
+
         // tableProperty
         if (tableProperty == null) {
             out.writeBoolean(false);
@@ -1220,7 +1219,7 @@ public class OlapTable extends Table {
         if (in.readBoolean()) {
             tableProperty = TableProperty.read(in);
         }
-        
+
         // temp partitions
         tempPartitions = TempPartitions.read(in);
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
@@ -1297,7 +1296,7 @@ public class OlapTable extends Table {
                 copied.dropPartitionAndReserveTablet(partName);
             }
         }
-        
+
         return copied;
     }
 
@@ -1587,19 +1586,19 @@ public class OlapTable extends Table {
      *      2. {[0, 10), [15, 20)} === {[0, 10), [15, 18), [18, 20)}
      *      3. {[0, 10), [15, 20)} === {[0, 10), [15, 20)}
      *      4. {[0, 10), [15, 20)} !== {[0, 20)}
-     *      
+     *
      * If useTempPartitionName is false and replaced partition number are equal,
      * the replaced partitions' name will remain unchanged.
      * What is "remain unchange"?
      *      1. replace partition (p1, p2) with temporary partition (tp1, tp2). After replacing, the partition
      *         names are still p1 and p2.
-     * 
+     *
      */
     public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
             boolean strictRange, boolean useTempPartitionName) throws DdlException {
         // check partition items
         checkPartition(partitionNames, tempPartitionNames, strictRange);
-        
+
         // begin to replace
         // 1. drop old partitions
         for (String partitionName : partitionNames) {

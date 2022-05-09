@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/NullLiteral.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -64,7 +61,7 @@ public class NullLiteral extends LiteralExpr {
       super.resetAnalysisState();
       type = Type.NULL;
     }
-    
+
     @Override
     public Expr clone() {
         return new NullLiteral(this);
@@ -144,7 +141,7 @@ public class NullLiteral extends LiteralExpr {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
     }
-    
+
     public static NullLiteral read(DataInput in) throws IOException {
         NullLiteral literal = new NullLiteral();
         literal.readFields(in);

@@ -38,7 +38,7 @@ public class DropPartitionInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
-    
+
     private DropPartitionInfo() {
     }
 
@@ -49,11 +49,11 @@ public class DropPartitionInfo implements Writable {
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -96,9 +96,9 @@ public class DropPartitionInfo implements Writable {
         if (!(obj instanceof DropPartitionInfo)) {
             return false;
         }
-        
+
         DropPartitionInfo info = (DropPartitionInfo) obj;
-        
+
         return (dbId.equals(info.dbId))
                 && (tableId.equals(info.tableId))
                 && (partitionName.equals(info.partitionName))

@@ -32,11 +32,10 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.sql.Connection;
@@ -235,4 +234,3 @@ public class StatementSubmitter {
         }
     }
 }
-

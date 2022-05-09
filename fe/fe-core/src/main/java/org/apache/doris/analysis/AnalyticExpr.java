@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticExpr.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -28,13 +25,13 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TreeNode;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -480,7 +477,7 @@ public class AnalyticExpr extends Expr {
         standardize(analyzer);
 
         // But in Vectorized mode, after calculate a window, will be call reset() to reset state,
-        // And then restarted calculate next new window; 
+        // And then restarted calculate next new window;
         if (!VectorizedUtil.isVectorized()) {
             // min/max is not currently supported on sliding windows (i.e. start bound is not
             // unbounded).
@@ -710,14 +707,14 @@ public class AnalyticExpr extends Expr {
             resetWindow = true;
         }
 
-       // Change first_value/last_value RANGE windows to ROWS 
+       // Change first_value/last_value RANGE windows to ROWS
        if ((analyticFnName.getFunction().equalsIgnoreCase(FIRSTVALUE)
                 || analyticFnName.getFunction().equalsIgnoreCase(LASTVALUE))
                 && window != null
                 && window.getType() == AnalyticWindow.Type.RANGE) {
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS, window.getLeftBoundary(),
                         window.getRightBoundary());
-        } 
+        }
     }
 
     /**

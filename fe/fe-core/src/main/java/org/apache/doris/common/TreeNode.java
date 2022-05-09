@@ -14,18 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TreeNode.java
-// and modified by Doris
 
 package org.apache.doris.common;
+
+import com.google.common.base.Predicate;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-
-import com.google.common.base.Predicate;
-import com.google.common.collect.Lists;
 
 /**
  * Generic tree structure. Only concrete subclasses of this can be instantiated.
@@ -44,7 +41,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
     public void addChildren(List <? extends NodeType > n) {
         children.addAll(n);
     }
-    
+
     public boolean hasChild(int i) { return children.size() > i; }
     public void setChild(int index, NodeType n) { children.set(index, n); }
     public ArrayList<NodeType> getChildren() { return children; }
@@ -168,7 +165,7 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         for (C node: nodeList) if (node.contains(cl)) return true;
         return false;
     }
-    
+
     public boolean containsSubclass(Class cl) {
         if (cl.isAssignableFrom(this.getClass())) {
             return true;

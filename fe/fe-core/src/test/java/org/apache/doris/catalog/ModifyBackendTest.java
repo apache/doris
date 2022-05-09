@@ -204,4 +204,3 @@ public class ModifyBackendTest {
         Assert.assertTrue(backend.isLoadAvailable());
     }
 }
-

@@ -66,7 +66,7 @@ public class TablePattern implements Writable {
     public String getTbl() {
         return tbl;
     }
-    
+
     public PrivLevel getPrivLevel() {
         Preconditions.checkState(isAnalyzed);
         if (db.equals("*")) {

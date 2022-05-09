@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LimitElement.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -25,16 +22,16 @@ package org.apache.doris.analysis;
  */
 public class LimitElement {
     public static LimitElement NO_LIMIT = new LimitElement();
-    
+
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
-    
+
     private long limit;
     private long offset;
 
     // END: Members that need to be reset()
     /////////////////////////////////////////
-    
+
     public LimitElement() {
         limit = -1;
         offset = 0;
@@ -111,7 +108,7 @@ public class LimitElement {
     public void analyze(Analyzer analyzer) {
         if (limit == 0) analyzer.setHasEmptyResultSet();
     }
-    
+
     public void reset() {
     }
 }

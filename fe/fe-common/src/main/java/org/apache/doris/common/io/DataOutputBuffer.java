@@ -34,7 +34,7 @@ import java.io.OutputStream;
  *
  * <p>
  * Typical usage is something like the following:
- * 
+ *
  * <pre>
  *
  * DataOutputBuffer buffer = new DataOutputBuffer();
@@ -46,7 +46,7 @@ import java.io.OutputStream;
  *   ... write data to its ultimate destination ...
  * }
  * </pre>
- * 
+ *
  */
 public class DataOutputBuffer extends DataOutputStream {
 

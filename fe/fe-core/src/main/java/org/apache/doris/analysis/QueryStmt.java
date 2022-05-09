@@ -14,9 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/QueryStmt.java
-// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -30,7 +27,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -222,7 +218,7 @@ public abstract class QueryStmt extends StatementBase {
         for (TableRef tblRef : tblRefs) {
             if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
             /*if (tblRef.isCorrelated()) {
-             *   
+             *
              *   // Check if the correlated table ref is rooted at a tuple descriptor from within
              *   // this query stmt. If so, the correlation is contained within this stmt
              *   // and the table ref does not conflict with absolute refs.
@@ -233,7 +229,7 @@ public abstract class QueryStmt extends StatementBase {
              *       if (correlatedRef == null) correlatedRef = tblRef;
              *       correlatedTupleIds.add(t.getResolvedPath().getRootDesc().getId());
              *   }
-             *   
+             *
             }*/
             if (correlatedRef != null && absoluteRef != null) {
                 throw new AnalysisException(String.format(

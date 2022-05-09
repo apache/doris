@@ -74,9 +74,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -86,6 +83,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -179,7 +178,7 @@ public class RestoreJob extends AbstractJob {
     public RestoreFileMapping getFileMapping() {
         return fileMapping;
     }
-    
+
     public int getMetaVersion() {
         return metaVersion;
     }
@@ -407,7 +406,7 @@ public class RestoreJob extends AbstractJob {
      *      * A. View already exist. The same signature is allowed.
      *      * B. View does not exist.
      * All newly created table/partition/index/tablet/replica should be saved for rolling back.
-     * 
+     *
      * Step:
      * 1. download and deserialize backup meta from repository.
      * 2. set all existing restored table's state to RESTORE.
@@ -1706,7 +1705,7 @@ public class RestoreJob extends AbstractJob {
         Text.writeString(out, backupTimestamp);
         jobInfo.write(out);
         out.writeBoolean(allowLoad);
-        
+
         Text.writeString(out, state.name());
 
         if (backupMeta != null) {
@@ -1857,4 +1856,3 @@ public class RestoreJob extends AbstractJob {
         return sb.toString();
     }
 }
-

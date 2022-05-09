@@ -23,9 +23,8 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import com.google.common.collect.Maps;
-
 import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -73,7 +72,7 @@ public class DynamicPartitionUtilTest {
     @Test
     public void testGetPartitionRangeString() throws DateTimeException {
         // TimeUnit: DAY
-        
+
         // 1. 2020-05-25, offset -7
         DynamicPartitionProperty property = new DynamicPartitionProperty(getDynamProp("DAY", -3, 3, -1, -1));
         String res = DynamicPartitionUtil.getPartitionRangeString(property, getZonedDateTimeFromStr("2020-05-25"), -7,

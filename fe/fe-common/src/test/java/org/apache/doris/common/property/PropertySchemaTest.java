@@ -18,6 +18,7 @@
 package org.apache.doris.common.property;
 
 import org.apache.doris.thrift.TPropertyVal;
+
 import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Rule;

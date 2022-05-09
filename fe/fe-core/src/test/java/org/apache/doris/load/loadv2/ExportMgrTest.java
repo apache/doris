@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Maps;
-import mockit.Mocked;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.TableName;
@@ -27,6 +25,9 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
+
+import com.google.common.collect.Maps;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

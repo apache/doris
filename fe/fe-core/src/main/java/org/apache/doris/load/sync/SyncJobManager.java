@@ -33,7 +33,6 @@ import org.apache.doris.load.sync.canal.CanalSyncJob;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -365,7 +364,7 @@ public class SyncJobManager implements Writable {
             writeUnlock();
         }
     }
-    
+
     public void replayUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
         writeLock();
         try {
