@@ -30,7 +30,7 @@ under the License.
 
 This happens because the corresponding tablet does not find a copy that can be queried, usually because the BE is down, the copy is missing, etc. You can first pass the `show tablet tablet_id` statement and then execute the following `show proc` statement to view the replica information corresponding to this tablet and check whether the replica is complete. At the same time, you can also query the progress of replica scheduling and repair in the cluster through `show proc "/cluster_balance"` information.
 
-For commands related to data copy management, please refer to [Data Copy Management](../admin-manual/maint-monitor/tablet-repair-and-balance.html).
+For commands related to data copy management, please refer to [Data Copy Management](../admin-manual/maint-monitor/tablet-repair-and-balance.md).
 
 ### Q2. Show backends/frontends The information viewed is incomplete
 
@@ -65,4 +65,4 @@ For example, the table is defined as k1, v1. A batch of imported data is as foll
 
 Then maybe the result of copy 1 is `1, "abc"`, and the result of copy 2 is `1, "def"`. As a result, the query results are inconsistent.
 
-To ensure that the data sequence between different replicas is unique, you can refer to the [Sequence Column](../data-operate/update-delete/sequence-column-manual.html) function.
+To ensure that the data sequence between different replicas is unique, you can refer to the [Sequence Column](../data-operate/update-delete/sequence-column-manual.md) function.

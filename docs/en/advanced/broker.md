@@ -74,8 +74,8 @@ Different types of brokers support different storage systems.
 
 ## Function provided by Broker
 
-1. [Broker Load](../data-operate/import/import-way/broker-load-manual.html)
-2. [Export](../data-operate/export/export-manual.html)
+1. [Broker Load](../data-operate/import/import-way/broker-load-manual.md)
+2. [Export](../data-operate/export/export-manual.md)
 3. [Backup](../admin-manual/data-admin/backup.md)
 
 ## Broker Information

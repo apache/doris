@@ -81,7 +81,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
 3. 使用API手动迁移数据
 
-   Doris提供了[HTTP API](../admin-manual/http-actions/tablet-migration-action.html)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
+   Doris提供了[HTTP API](../admin-manual/http-actions/tablet-migration-action.md)，可以手动指定一个磁盘上的数据分片迁移到另一个磁盘上。
 
 ### Q5. 如何正确阅读 FE/BE 日志?
 
@@ -255,7 +255,7 @@ http {
 1. 本次FE启动时获取到的本机IP和上次启动不一致，通常是因为没有正确设置 `priority_network` 而导致 FE 启动时匹配到了错误的 IP 地址。需修改 `priority_network` 后重启 FE。
 2. 集群内多数 Follower FE 节点未启动。比如有 3 个 Follower，只启动了一个。此时需要将另外至少一个 FE 也启动，FE 可选举组方能选举出 Master 已提供服务。
 
-如果以上情况都不能解决，可以按照 Doris 官网文档中的[元数据运维文档](../admin-manual/maint-monitor/metadata-operation.html)进行恢复。
+如果以上情况都不能解决，可以按照 Doris 官网文档中的[元数据运维文档](../admin-manual/maint-monitor/metadata-operation.md)进行恢复。
 
 ### Q10. Lost connection to MySQL server at 'reading initial communication packet', system error: 0
 
@@ -265,11 +265,11 @@ http {
 
 有时重启 FE，会出现如上错误（通常只会出现在多 Follower 的情况下）。并且错误中的两个数值相差2。导致 FE 启动失败。
 
-这是 bdbje 的一个 bug，尚未解决。遇到这种情况，只能通过[元数据运维文档](../admin-manual/maint-monitor/metadata-operation.html) 中的 故障恢复 进行操作来恢复元数据了。
+这是 bdbje 的一个 bug，尚未解决。遇到这种情况，只能通过[元数据运维文档](../admin-manual/maint-monitor/metadata-operation.md) 中的 故障恢复 进行操作来恢复元数据了。
 
 ### Q12. Doris编译安装JDK版本不兼容问题
 
-在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation.html)
+在自己使用 Docker 编译 Doris 的时候，编译完成安装以后启动FE，出现 `java.lang.Suchmethoderror: java.nio. ByteBuffer. limit (I)Ljava/nio/ByteBuffer;` 异常信息，这是因为Docker里默认是JDK 11，如果你的安装环境是使用JDK8 ，需要在 Docker 里 JDK 环境切换成 JDK8，具体切换方法参照[编译文档](../install/source-install/compilation.md)
 
 ### Q13. 本地启动 FE 或者启动单元测试报错 Cannot find external parser table action_table.dat
 执行如下命令
@@ -287,7 +287,7 @@ cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.d
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且选择 在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。具体使用方式见 [ODBC外表使用文档](../extending-doris/odbc-of-doris.md)
+解决方式是使用`Connector/ODBC 8.0.28` 版本的 ODBC Connector， 并且选择 在操作系统处选择 `Linux - Generic`, 这个版本的ODBC Driver 使用 openssl 1.1 版本。具体使用方式见 [ODBC外表使用文档](../ecosystem/external-table/odbc-of-doris.md)
 可以通过如下方式验证 MySQL ODBC Driver 使用的openssl 版本
 ```
 ldd /path/to/libmyodbc8w.so |grep libssl.so

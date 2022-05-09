@@ -34,7 +34,7 @@ CREATE MATERIALIZED VIEW
 
 该语句用于创建物化视图。
 
-该操作为异步操作，提交成功后，需通过 [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.html) 查看作业进度。在显示 FINISHED 后既可通过 `desc [table_name] all` 命令来查看物化视图的 schema 了。
+该操作为异步操作，提交成功后，需通过 [SHOW ALTER TABLE MATERIALIZED VIEW](../../Show-Statements/SHOW-ALTER-TABLE-MATERIALIZED-VIEW.md) 查看作业进度。在显示 FINISHED 后既可通过 `desc [table_name] all` 命令来查看物化视图的 schema 了。
 
 语法：
 

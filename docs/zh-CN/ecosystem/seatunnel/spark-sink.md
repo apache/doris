@@ -76,7 +76,7 @@ Spark 通过 Stream Load 方式写入,每个批次提交条数
 
 Stream Load 方式写入的 Http 参数优化,在官网参数前加上'Doris.'前缀
 
-[更多 Stream Load 参数配置](../../data-operate/import/import-way/stream-load-manual.html)
+[更多 Stream Load 参数配置](../../data-operate/import/import-way/stream-load-manual.md)
 
 ### Examples
 Hive 迁移数据至 Doris
