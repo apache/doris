@@ -175,7 +175,7 @@ public class CanalSyncChannel extends SyncChannel {
                 }
             } else {
                 String failMsg = "current running txns on db " + db.getId () + " is "
-                    + databaseTransactionMgr.getRunningTxnNums () + ", larger than limit " + Config.max_running_txn_num_per_db
+                    + databaseTransactionMgr.getRunningTxnNums () + ", larger than limit " + Config.max_running_txn_num_per_db;
                 throw new BeginTransactionException(failMsg);
             }
         }
