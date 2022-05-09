@@ -153,7 +153,8 @@ Status StorageBackendMgr::get_storage_param(const std::string& storage_name,
     return _get_storage_param_unlocked(storage_name, storage_param);
 }
 
-Status StorageBackendMgr::_get_storage_param_unlocked(const std::string& storage_name, StorageParamPB* storage_param) {
+Status StorageBackendMgr::_get_storage_param_unlocked(
+        const std::string& storage_name, StorageParamPB* storage_param) {
     if (_storage_backend_map.find(storage_name) == _storage_backend_map.end()) {
         return Status::InternalError("storage_name not exist: " + storage_name);
     }
