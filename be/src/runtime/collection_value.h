@@ -38,17 +38,17 @@ class ArrayIterator;
 template <PrimitiveType type>
 struct ArrayIteratorFunctions;
 template <typename T>
-constexpr std::enable_if_t<std::is_base_of_v<ArrayIteratorFunctionsBase, T>, bool>
+inline constexpr std::enable_if_t<std::is_base_of_v<ArrayIteratorFunctionsBase, T>, bool>
         IsTypeFixedWidth = true;
 
 template <>
-constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_CHAR>> = false;
+inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_CHAR>> = false;
 template <>
-constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_VARCHAR>> = false;
+inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_VARCHAR>> = false;
 template <>
-constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_STRING>> = false;
+inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_STRING>> = false;
 template <>
-constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_ARRAY>> = false;
+inline constexpr bool IsTypeFixedWidth<ArrayIteratorFunctions<TYPE_ARRAY>> = false;
 
 /**
  * The format of array-typed slot.
