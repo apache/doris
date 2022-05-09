@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Injectable;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;

@@ -24,7 +24,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.ScalarType;
