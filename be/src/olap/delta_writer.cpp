@@ -324,9 +324,11 @@ Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* 
     // return error if previous flush failed
     Status s = _flush_token->wait();
     if (!s.ok()) {
+#ifndef BE_TEST
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(_tablet->tablet_id());
         tablet_error->set_msg(s.get_error_msg());
+#endif
         return s;
     }
 
