@@ -590,6 +590,7 @@ TEST_F(VJsonScannerTest, simple_array_json) {
     status = scan_node.get_next(&_runtime_state, &block, &eof);
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
+    scan_node.close(&_runtime_state);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_file_reader) {
@@ -647,6 +648,7 @@ TEST_F(VJsonScannerTest, use_jsonpaths_with_file_reader) {
     status = scan_node.get_next(&_runtime_state, &block, &eof);
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
+    scan_node.close(&_runtime_state);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_with_line_reader) {
@@ -705,6 +707,7 @@ TEST_F(VJsonScannerTest, use_jsonpaths_with_line_reader) {
     status = scan_node.get_next(&_runtime_state, &block, &eof);
     ASSERT_EQ(0, block.rows());
     ASSERT_TRUE(eof);
+    scan_node.close(&_runtime_state);
 }
 
 TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
@@ -756,6 +759,7 @@ TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
     ASSERT_EQ(columns[2].to_string(0), "\\N");
     ASSERT_EQ(columns[2].to_string(1), "\\N");
     block.clear();
+    scan_node.close(&_runtime_state);
 }
 
 } // namespace vectorized
