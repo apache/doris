@@ -30,8 +30,7 @@ namespace doris {
 
 class ExecEnv;
 
-template <typename T>
-class PInternalServiceImpl : public T {
+class PInternalServiceImpl : public PBackendService {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
     virtual ~PInternalServiceImpl();
