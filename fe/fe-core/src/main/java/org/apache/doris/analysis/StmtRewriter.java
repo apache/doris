@@ -1166,7 +1166,7 @@ public class StmtRewriter {
             TableRef tableRef = selectStmt.fromClause_.get(i);
             if (tableRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tableRef;
-                rewriteByPolicy(viewRef.getQueryStmt(), analyzer);
+                reAnalyze = rewriteByPolicy(viewRef.getQueryStmt(), analyzer);
                 continue;
             }
             Table table = tableRef.getTable();
