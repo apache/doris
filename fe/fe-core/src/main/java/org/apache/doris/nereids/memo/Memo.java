@@ -21,7 +21,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.Lists;
+import org.glassfish.jersey.internal.guava.Sets;
 
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -29,7 +31,7 @@ import java.util.List;
  */
 public class Memo {
     private final List<Group> groups = Lists.newArrayList();
-    private final List<GroupExpression> groupExpressions = Lists.newArrayList();
+    private final HashSet<GroupExpression> groupExpressions = Sets.newHashSet();
     private Group rootSet;
 
     public void initialize(LogicalPlan plan) {
@@ -43,7 +45,7 @@ public class Memo {
     /**
      * Add plan to Memo.
      *
-     * @param plan {@link Plan} to be added
+     * @param plan   {@link Plan} to be added
      * @param target target group to add plan. null to generate new Group
      * @return Reference of plan in Memo
      */
@@ -54,18 +56,27 @@ public class Memo {
             childGroupExpr.add(newGroupExpression(childrenPlan, null));
         }
         GroupExpression newGroupExpression = new GroupExpression(plan);
-        groupExpressions.add(newGroupExpression);
         for (GroupExpression childReference : childGroupExpr) {
             newGroupExpression.addChild(childReference.getParent());
         }
 
+        return insertGroupExpression(newGroupExpression, target);
+    }
+
+    private GroupExpression insertGroupExpression(GroupExpression groupExpression, Group target) {
+        if (groupExpressions.contains(groupExpression)) {
+            return groupExpression;
+        }
+
+        groupExpressions.add(groupExpression);
+
         if (target != null) {
-            target.addGroupExpression(newGroupExpression);
+            target.addGroupExpression(groupExpression);
         } else {
-            Group group = new Group(newGroupExpression);
+            Group group = new Group(groupExpression);
             groups.add(group);
         }
-        return newGroupExpression;
+        return groupExpression;
     }
 
     private void mergeGroup(Group group1, Group group2) {
