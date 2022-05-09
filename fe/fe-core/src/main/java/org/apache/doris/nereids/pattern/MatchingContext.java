@@ -21,13 +21,20 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.trees.TreeNode;
 
 /**
- * Define a context when match a pattern pass through a MatchedAction
+ * Define a context when match a pattern pass through a MatchedAction.
  */
 public class MatchingContext<T extends TreeNode> {
     public final T root;
     public final Pattern<T> pattern;
     public final PlannerContext plannerContext;
 
+    /**
+     * the MatchingContext is the param pass through the MatchedAction.
+     *
+     * @param root the matched tree node root
+     * @param pattern the defined pattern
+     * @param plannerContext the planner context
+     */
     public MatchingContext(T root, Pattern<T> pattern, PlannerContext plannerContext) {
         this.root = root;
         this.pattern = pattern;

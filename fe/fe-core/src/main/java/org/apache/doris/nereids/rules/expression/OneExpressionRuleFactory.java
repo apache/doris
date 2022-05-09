@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.rules.OneRuleFactory;
 
 /**
- * abstract class for all rule factories build one rule used for expressions;
+ * abstract class for all rule factories build one rule used for expressions.
  */
 public abstract class OneExpressionRuleFactory
         extends OneRuleFactory implements ExpressionRuleFactory {

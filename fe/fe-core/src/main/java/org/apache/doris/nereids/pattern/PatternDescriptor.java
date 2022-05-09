@@ -17,9 +17,10 @@
 
 package org.apache.doris.nereids.pattern;
 
-import com.clearspring.analytics.util.Lists;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.trees.TreeNode;
+
+import com.clearspring.analytics.util.Lists;
 
 import java.util.List;
 import java.util.Objects;

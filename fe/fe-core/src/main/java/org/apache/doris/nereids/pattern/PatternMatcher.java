@@ -38,6 +38,13 @@ public class PatternMatcher<INPUT_TYPE extends TreeNode, OUTPUT_TYPE extends Tre
     public final RulePromise defaultRulePromise;
     public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction;
 
+    /**
+     * PatternMatcher wrap a pattern, defaultRulePromise and matchedAction.
+     *
+     * @param pattern pattern
+     * @param defaultRulePromise defaultRulePromise
+     * @param matchedAction matched callback function
+     */
     public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
             MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
@@ -50,6 +57,13 @@ public class PatternMatcher<INPUT_TYPE extends TreeNode, OUTPUT_TYPE extends Tre
         return toRule(ruleType, defaultRulePromise);
     }
 
+    /**
+     * convert current PatternMatcher to a rule.
+     *
+     * @param ruleType what type of the new rule?
+     * @param rulePromise what priority of the new rule?
+     * @return Rule
+     */
     public Rule toRule(RuleType ruleType, RulePromise rulePromise) {
         return new Rule(ruleType, pattern, rulePromise) {
             @Override

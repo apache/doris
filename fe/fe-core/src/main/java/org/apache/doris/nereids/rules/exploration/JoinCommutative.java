@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * rule factory for exchange inner join's children
+ * rule factory for exchange inner join's children.
  */
 public class JoinCommutative extends OneExplorationRuleFactory {
     @Override

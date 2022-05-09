@@ -17,24 +17,26 @@
 
 package org.apache.doris.nereids.pattern;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
 
+
 /**
  * Pattern node used in pattern matching.
  */
 public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
-    private final NodeType nodeType;
-    public static final Pattern MULTI = new Pattern(NodeType.MULTI);
     public static final Pattern ANY = new Pattern(NodeType.ANY);
+    public static final Pattern MULTI = new Pattern(NodeType.MULTI);
 
     public final List<Predicate<T>> predicates;
+    private final NodeType nodeType;
 
     /**
      * Constructor for Pattern.
@@ -48,6 +50,13 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         this.predicates = ImmutableList.of();
     }
 
+    /**
+     * Constructor for Pattern.
+     *
+     * @param nodeType node type to matching
+     * @param predicates custom matching predicate
+     * @param children sub pattern
+     */
     public Pattern(NodeType nodeType, List<Predicate<T>> predicates, Pattern... children) {
         super(NodeType.PATTERN, children);
         this.nodeType = nodeType;
@@ -86,6 +95,12 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
                 && predicates.stream().allMatch(predicate -> predicate.test(root));
     }
 
+    /**
+     * Return ture if children patterns match Plan in params.
+     *
+     * @param root wait to match
+     * @return ture if children Patterns match root's children in params
+     */
     public boolean matchChildren(T root) {
         for (int i = 0; i < arity(); i++) {
             if (!child(i).match(root.child(i))) {
@@ -95,6 +110,12 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
         return true;
     }
 
+    /**
+     * Return ture if children patterns match Plan in params.
+     *
+     * @param root wait to match
+     * @return ture if current pattern and children patterns match root in params
+     */
     public boolean match(T root) {
         return matchRoot(root) && matchChildren(root);
     }

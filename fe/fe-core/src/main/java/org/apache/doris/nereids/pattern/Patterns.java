@@ -60,6 +60,9 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
+    /**
+     * create a unboundRelation pattern.
+     */
     default PatternDescriptor<UnboundRelation> unboundRelation() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_UNBOUND_RELATION),
@@ -67,6 +70,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalFilter pattern.
+     */
     default PatternDescriptor<LogicalFilter<Plan>> logicalFilter() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_FILTER),
@@ -74,6 +80,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalFilter pattern with child pattern.
+     */
     default <T extends Plan> PatternDescriptor<LogicalFilter<T>> logicalFilter(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_FILTER, childPattern.pattern),
@@ -81,6 +90,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalProject pattern.
+     */
     default PatternDescriptor<LogicalProject<Plan>> logicalProject() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_PROJECT),
@@ -88,6 +100,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalProject pattern.
+     */
     default <T extends Plan> PatternDescriptor<LogicalProject> logicalProject(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_PROJECT, childPattern.pattern),
@@ -95,6 +110,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalJoin pattern.
+     */
     default PatternDescriptor<LogicalJoin<Plan, Plan>> logicalJoin() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_JOIN),
@@ -102,6 +120,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalJoin pattern with join type.
+     */
     default PatternDescriptor<LogicalJoin<Plan, Plan>> logicalJoin(JoinType joinType) {
         return new PatternDescriptor<LogicalJoin<Plan, Plan>>(
                 new Pattern<>(NodeType.LOGICAL_JOIN),
@@ -109,6 +130,9 @@ public interface Patterns {
         ).when(j -> j.getJoinType() == joinType);
     }
 
+    /**
+     * create a logicalJoin pattern with joinType and children patterns.
+     */
     default <C1 extends Plan, C2 extends Plan> PatternDescriptor<LogicalJoin<C1, C2>> logicalJoin(
             JoinType joinType, PatternDescriptor<C1> leftChildPattern, PatternDescriptor<C2> rightChildPattern) {
         return new PatternDescriptor<LogicalJoin<C1, C2>>(
@@ -117,6 +141,9 @@ public interface Patterns {
         ).when(j -> j.getJoinType() == joinType);
     }
 
+    /**
+     * create a logicalJoin pattern with children patterns.
+     */
     default <C1 extends Plan, C2 extends Plan> PatternDescriptor<LogicalJoin<C1, C2>> logicalJoin(
             PatternDescriptor<C1> leftChildPattern, PatternDescriptor<C2> rightChildPattern) {
         return new PatternDescriptor<>(
@@ -125,6 +152,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a logicalJoin pattern with joinType is inner.
+     */
     default PatternDescriptor<LogicalJoin<Plan, Plan>> innerLogicalJoin() {
         return new PatternDescriptor<LogicalJoin<Plan, Plan>>(
                 new Pattern<>(NodeType.LOGICAL_JOIN),
@@ -132,6 +162,9 @@ public interface Patterns {
         ).when(j -> j.getJoinType() == JoinType.INNER_JOIN);
     }
 
+    /**
+     * create a logical join pattern with join type is inner and children patterns.
+     */
     default <C1 extends Plan, C2 extends Plan> PatternDescriptor<LogicalJoin<C1, C2>> innerLogicalJoin(
             PatternDescriptor<C1> leftChildPattern, PatternDescriptor<C2> rightChildPattern) {
         return new PatternDescriptor<LogicalJoin<C1, C2>>(
@@ -140,6 +173,9 @@ public interface Patterns {
         ).when(j -> j.getJoinType() == JoinType.INNER_JOIN);
     }
 
+    /**
+     * create a logicalRelation pattern.
+     */
     default PatternDescriptor<LogicalRelation> logicalRelation() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LOGICAL_BOUND_RELATION),
@@ -149,6 +185,9 @@ public interface Patterns {
 
     // physical pattern descriptors
 
+    /**
+     * create a physicalFilter pattern.
+     */
     default PatternDescriptor<PhysicalFilter<Plan>> physicalFilter() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_FILTER),
@@ -156,6 +195,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalFilter pattern with child pattern.
+     */
     default <T extends Plan> PatternDescriptor<PhysicalFilter<T>> physicalFilter(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_FILTER, childPattern.pattern),
@@ -163,6 +205,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalProject pattern.
+     */
     default PatternDescriptor<PhysicalProject<Plan>> physicalProject() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_PROJECT),
@@ -170,6 +215,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalProject pattern with child pattern.
+     */
     default <T extends Plan> PatternDescriptor<PhysicalProject<T>> physicalProject(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_PROJECT, childPattern.pattern),
@@ -177,6 +225,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalBroadcastHashJoin pattern.
+     */
     default PatternDescriptor<PhysicalBroadcastHashJoin<Plan, Plan>> physicalBroadcastHashJoin() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_BROADCAST_HASH_JOIN),
@@ -184,6 +235,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalBroadcastHashJoin pattern with children patterns.
+     */
     default <C1 extends Plan, C2 extends Plan> PatternDescriptor<PhysicalBroadcastHashJoin<C1, C2>>
             physicalBroadcastHashJoin(PatternDescriptor<C1> leftChildPattern, PatternDescriptor<C2> rightChildPattern) {
         return new PatternDescriptor<>(
@@ -195,6 +249,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a physicalOlapScan pattern.
+     */
     default PatternDescriptor<PhysicalOlapScan> physicalOlapScan() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.PHYSICAL_OLAP_SCAN),
@@ -204,6 +261,9 @@ public interface Patterns {
 
     // expression pattern descriptors
 
+    /**
+     * create a unboundAlias pattern.
+     */
     default PatternDescriptor<UnboundAlias<Expression>> unboundAlias() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.UNBOUND_ALIAS),
@@ -211,6 +271,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a unboundAlias pattern.
+     */
     default <T extends Expression> PatternDescriptor<UnboundAlias<T>>
             unboundAlias(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
@@ -219,6 +282,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a unboundSlot pattern.
+     */
     default PatternDescriptor<UnboundSlot> unboundSlot() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.UNBOUND_SLOT),
@@ -226,6 +292,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a unboundStar pattern.
+     */
     default PatternDescriptor<UnboundStar> unboundStar() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.UNBOUND_STAR),
@@ -233,6 +302,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a literal pattern.
+     */
     default PatternDescriptor<Literal> literal() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.LITERAL),
@@ -240,6 +312,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a slotReference pattern.
+     */
     default PatternDescriptor<SlotReference> slotReference() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.SLOT_REFERENCE),
@@ -247,6 +322,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a binaryPredicate pattern.
+     */
     default PatternDescriptor<BinaryPredicate<Expression, Expression>> binaryPredicate() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.BINARY_PREDICATE),
@@ -254,6 +332,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a binaryPredicate pattern with operator type.
+     */
     default PatternDescriptor<BinaryPredicate<Expression, Expression>> binaryPredicate(Operator operator) {
         return new PatternDescriptor<BinaryPredicate<Expression, Expression>>(
                 new Pattern<>(NodeType.BINARY_PREDICATE),
@@ -261,6 +342,9 @@ public interface Patterns {
         ).when(p -> p.getOperator() == operator);
     }
 
+    /**
+     * create a binaryPredicate pattern with children patterns.
+     */
     default <C1 extends Expression, C2 extends Expression> PatternDescriptor<BinaryPredicate<C1, C2>>
             binaryPredicate(PatternDescriptor<C1> leftChildPattern, PatternDescriptor<C2> rightChildPattern) {
         return new PatternDescriptor<>(
@@ -272,6 +356,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a alias pattern.
+     */
     default PatternDescriptor<Alias<Expression>> alias() {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.ALIAS),
@@ -279,6 +366,9 @@ public interface Patterns {
         );
     }
 
+    /**
+     * create a alias pattern with child pattern.
+     */
     default <T extends Expression> PatternDescriptor<Alias<T>> alias(PatternDescriptor<T> childPattern) {
         return new PatternDescriptor<>(
                 new Pattern<>(NodeType.ALIAS, childPattern.pattern),
