@@ -100,7 +100,8 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
     char* memory = (char*)::mmap(start, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
-        OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
+        LOG(WARNING) << "fail to mmap. [errno='" << Errno::no() << "' errno_str='" << Errno::str()
+                     << "']";
         RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
@@ -112,7 +113,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 
     if (nullptr == buf) {
         deleter(memory);
-        OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
+        LOG(WARNING) << "fail to allocate StorageByteBuffer.";
         RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
@@ -128,7 +129,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(void* start, uint64_t length, int pro
 StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset, int prot,
                                            int flags) {
     if (nullptr == handler) {
-        OLAP_LOG_WARNING("invalid file handler");
+        LOG(WARNING) << "invalid file handler";
         return nullptr;
     }
 
@@ -138,7 +139,8 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
     char* memory = (char*)::mmap(nullptr, length, prot, flags, fd, offset);
 
     if (MAP_FAILED == memory) {
-        OLAP_LOG_WARNING("fail to mmap. [errno='%d' errno_str='%s']", Errno::no(), Errno::str());
+        LOG(WARNING) << "fail to mmap. [errno='" << Errno::no() << "' errno_str='" << Errno::str()
+                     << "']";
         RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }
@@ -150,7 +152,7 @@ StorageByteBuffer* StorageByteBuffer::mmap(FileHandler* handler, uint64_t offset
 
     if (nullptr == buf) {
         deleter(memory);
-        OLAP_LOG_WARNING("fail to allocate StorageByteBuffer.");
+        LOG(WARNING) << "fail to allocate StorageByteBuffer.";
         RELEASE_THREAD_LOCAL_MEM_TRACKER(length);
         return nullptr;
     }

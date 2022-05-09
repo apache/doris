@@ -100,8 +100,8 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
-        OLAP_LOG_WARNING("Condition op type is invalid. [name=%s, op=%d, size=%d]",
-                         tcond.column_name.c_str(), op, tcond.condition_values.size());
+        LOG(WARNING) << "Condition op type is invalid. [name=" << tcond.column_name << ", op=" << op
+                     << ", size=" << tcond.condition_values.size() << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     if (op == OP_IS) {
@@ -110,8 +110,8 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
-            OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
+            LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
         if (strcasecmp(operand->c_str(), "NULL") == 0) {
@@ -125,14 +125,14 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
-            OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
+            LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
         Status res = f->from_string(*operand);
         if (!res.ok()) {
-            OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
+            LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
             return res;
         }
         operand_field = f.release();
@@ -142,14 +142,14 @@ Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
         for (auto& operand : tcond.condition_values) {
             std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == nullptr) {
-                OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                                 tcond.column_name.c_str(), operand.c_str(), op);
+                LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                             << ", operand=" << operand.c_str() << ", op_type=" << op << "]";
                 return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
             Status res = f->from_string(operand);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
-                                 tcond.column_name.c_str(), operand.c_str(), op);
+                LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
+                             << ", operand=" << operand.c_str() << ", op_type=" << op << "]";
                 return res;
             }
             if (min_value_field == nullptr || f->cmp(min_value_field) < 0) {
