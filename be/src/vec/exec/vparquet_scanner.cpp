@@ -128,7 +128,7 @@ Status VParquetScanner::_init_src_block(Block* block) {
     return Status::OK();
 }
 
-Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* eof) {
+Status VParquetScanner::get_next(vectorized::Block* block, bool* eof) {
     // overall of type converting:
     // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
     // primitive type(PT1) ==materialize_block==> dest primitive type
@@ -182,7 +182,7 @@ Status VParquetScanner::get_next(std::vector<MutableColumnPtr>& columns, bool* e
     _fill_columns_from_path(&src_block);
     RETURN_IF_ERROR(_eval_conjunts(&src_block));
     // materialize, src block => dest columns
-    RETURN_IF_ERROR(_materialize_block(&src_block, columns));
+    RETURN_IF_ERROR(_materialize_block(&src_block, block));
     *eof = _scanner_eof;
     return Status::OK();
 }
@@ -220,7 +220,7 @@ void VParquetScanner::_fill_columns_from_path(Block* block) {
     }
 }
 
-Status VParquetScanner::_materialize_block(Block* block, std::vector<MutableColumnPtr>& columns) {
+Status VParquetScanner::_materialize_block(Block* block, Block* dest_block) {
     int ctx_idx = 0;
     size_t orig_rows = block->rows();
     auto filter_column = ColumnUInt8::create(orig_rows, 1);
@@ -250,15 +250,17 @@ Status VParquetScanner::_materialize_block(Block* block, std::vector<MutableColu
                 ptr = nullable_column->get_nested_column_ptr();
             }
         }
-        columns[dest_index] = (*std::move(ptr)).mutate();
+        dest_block->insert(vectorized::ColumnWithTypeAndName(std::move(ptr),
+                                                             slot_desc->get_data_type_ptr(),
+                                                             slot_desc->col_name()));
     }
-    const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
-    size_t after_filtered_rows = orig_rows;
-    for (size_t i = 0; i < columns.size(); ++i) {
-        columns[i] = (*std::move(columns[i]->filter(filter, 0))).mutate();
-        after_filtered_rows = columns[i]->size();
-    }
-    _counter->num_rows_filtered += orig_rows - after_filtered_rows;
+    size_t dest_size = dest_block->columns();
+    // do filter
+    dest_block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
+                                                        std::make_shared<vectorized::DataTypeUInt8>(),
+                                                        "filter column"));
+    RETURN_IF_ERROR(Block::filter_block(dest_block, dest_size, dest_size));
+    _counter->num_rows_filtered += orig_rows - dest_block->rows();
     return Status::OK();
 }
 

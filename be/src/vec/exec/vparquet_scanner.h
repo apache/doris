@@ -48,7 +48,7 @@ public:
     // Open this scanner, will initialize information need to
     Status open();
 
-    Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof);
+    Status get_next(Block* block, bool* eof);
 
 private:
     Status _next_arrow_batch();
@@ -57,7 +57,7 @@ private:
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
     Status _eval_conjunts(Block* block);
-    Status _materialize_block(Block* block, std::vector<MutableColumnPtr>& columns);
+    Status _materialize_block(Block* block, Block* dest_block);
     void _fill_columns_from_path(Block* block);
 
 private:
