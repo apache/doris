@@ -106,6 +106,10 @@ public class TupleDescriptor {
         return slots;
     }
 
+    /**
+     * @param slotId
+     * @return this slot's desc
+     */
     public SlotDescriptor getSlot(int slotId) {
         for (SlotDescriptor slotDesc : slots) {
             if (slotDesc.getId().asInt() == slotId) {

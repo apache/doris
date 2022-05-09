@@ -1073,7 +1073,7 @@ public class Load {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 // only support parquet format now
                 if (useVectorizedLoad  && formatType == TFileFormatType.FORMAT_PARQUET
-                    && tblColumn != null) {
+                        && tblColumn != null) {
                     // in vectorized load
                     if (exprArgsColumns.contains(columnName)) {
                         // columns in expr args should be varchar type
@@ -1117,7 +1117,8 @@ public class Load {
 
         LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
         // we only support parquet format now
-        // use implicit deduction to convert columns that are not in the doris table from varchar to a more appropriate type
+        // use implicit deduction to convert columns
+        // that are not in the doris table from varchar to a more appropriate type
         if (useVectorizedLoad && formatType == TFileFormatType.FORMAT_PARQUET) {
             // analyze all exprs
             Map<String, Expr> cloneExprsByName = Maps.newHashMap(exprsByName);
@@ -1206,8 +1207,9 @@ public class Load {
             exprsByName.put(entry.getKey(), expr);
         }
     }
+
     /**
-     * @param excludedColumns: columns that the type should not be inferred from expr.
+     * @param excludedColumns columns that the type should not be inferred from expr.
      *                         1. column exists in both schema and expr args.
      */
     private static void replaceVarcharWithCastType(Map<String, Expr> exprsByName, TupleDescriptor srcTupleDesc,
