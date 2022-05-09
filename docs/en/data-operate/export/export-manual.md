@@ -97,12 +97,12 @@ When all data is exported, Doris will rename these files to the user-specified p
 
 ### Broker parameter
 
-Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.html)
+Export needs to use the Broker process to access remote storage. Different brokers need to provide different parameters. For details, please refer to [Broker documentation](../../advanced/broker.md)
 
 
 ## Start Export
 
-For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html).
+For detailed usage of Export, please refer to [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md).
 
 Export's detailed commands can be passed through `HELP EXPORT;` Examples are as follows:
 
@@ -134,7 +134,7 @@ WITH BROKER "hdfs"
 * `timeout`: homework timeout. Default 2 hours. Unit seconds.
 * `tablet_num_per_task`: The maximum number of fragments allocated per query plan. The default is 5.
 
-After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html)  command. The results are as follows:
+After submitting a job, the job status can be imported by querying the   [SHOW EXPORT](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md)  command. The results are as follows:
 
 ```sql
 mysql> show EXPORT\G;
@@ -207,4 +207,4 @@ Usually, a query plan for an Export job has only two parts `scan`- `export`, and
 
 ## More Help
 
-For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.html) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
+For more detailed syntax and best practices used by Export, please refer to the [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) command manual, you can also You can enter `HELP EXPORT` at the command line of the MySql client for more help.
