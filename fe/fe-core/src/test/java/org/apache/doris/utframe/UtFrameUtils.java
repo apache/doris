@@ -314,3 +314,4 @@ public class UtFrameUtils {
         return DigestUtils.md5Hex(digest);
     }
 }
+
