@@ -250,15 +250,14 @@ Status VParquetScanner::_materialize_block(Block* block, Block* dest_block) {
                 ptr = nullable_column->get_nested_column_ptr();
             }
         }
-        dest_block->insert(vectorized::ColumnWithTypeAndName(std::move(ptr),
-                                                             slot_desc->get_data_type_ptr(),
-                                                             slot_desc->col_name()));
+        dest_block->insert(vectorized::ColumnWithTypeAndName(
+                std::move(ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
     }
     size_t dest_size = dest_block->columns();
     // do filter
-    dest_block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
-                                                        std::make_shared<vectorized::DataTypeUInt8>(),
-                                                        "filter column"));
+    dest_block->insert(vectorized::ColumnWithTypeAndName(
+            std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
+            "filter column"));
     RETURN_IF_ERROR(Block::filter_block(dest_block, dest_size, dest_size));
     _counter->num_rows_filtered += orig_rows - dest_block->rows();
     return Status::OK();
