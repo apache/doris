@@ -126,6 +126,9 @@ public:
     // Return the scratch directory path for the device.
     std::string get_tmp_dir_path(DeviceId device_id) const;
 
+    // Return a random scratch directory path from the devices.
+    std::string get_tmp_dir_path();
+
     // Total number of devices with tmp directories that are active. There is one tmp
     // directory per device.
     int num_active_tmp_devices();
