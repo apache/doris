@@ -1045,20 +1045,12 @@ public class Load {
             return;
         }
 
-        // load sql '(a, b)set(c=a, d=b)', tmpSet save {a,b}.
-        Set<String> tmpSet = Sets.newHashSet();
-        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
-            if (importColumnDesc.getExpr() == null) {
-                tmpSet.add(importColumnDesc.getColumnName());
-            }
-        }
-
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             String realColName;
-            if (tbl.getColumn(columnName) == null || tmpSet.contains(columnName)) {
+            if (tbl.getColumn(columnName) == null || importColumnDesc.getExpr() == null) {
                 realColName = columnName;
             } else {
                 realColName = tbl.getColumn(columnName).getName();
