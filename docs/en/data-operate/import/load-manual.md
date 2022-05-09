@@ -34,25 +34,25 @@ Doris provides a variety of data import solutions, and you can choose different 
 
 | Data Source                          | Import Method                                                |
 | ------------------------------------ | ------------------------------------------------------------ |
-| Object Storage (s3), HDFS            | [Import data using Broker](./import-scenes/external-storage-load.html) |
-| Local file                           | [Import local data](./import-scenes/local-file-load.html)    |
-| Kafka                                | [Subscribe to Kafka data](./import-scenes/kafka-load.html)   |
-| Mysql, PostgreSQL, Oracle, SQLServer | [Sync data via external table](./import-scenes/external-table-load.html) |
-| Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.html)       |
-| Import JSON format data              | [JSON format data import](./import-way/load-json-format.html) |
-| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.html)          |
+| Object Storage (s3), HDFS            | [Import data using Broker](./import-scenes/external-storage-load.md) |
+| Local file                           | [Import local data](./import-scenes/local-file-load.md)    |
+| Kafka                                | [Subscribe to Kafka data](./import-scenes/kafka-load.md)   |
+| Mysql, PostgreSQL, Oracle, SQLServer | [Sync data via external table](./import-scenes/external-table-load.md) |
+| Import via JDBC                      | [Sync data using JDBC](./import-scenes/jdbc-load.md)       |
+| Import JSON format data              | [JSON format data import](./import-way/load-json-format.md) |
+| MySQL Binlog                         | [Binlog Load](./import-way/binlog-load-manual.md)          |
 
 ### Divided by import method
 
 | Import method name | Use method                                                   |
 | ------------------ | ------------------------------------------------------------ |
-| Spark Load         | [Import external data via Spark](./import-way/spark-load-manual.html) |
-| Broker Load        | [Import external storage data via Broker](./import-way/broker-load-manual.html) |
-| Stream Load        | [Stream import data (local file and memory data)](./import-way/stream-load-manual.html) |
-| Routine Load       | [Import Kafka data](./import-way/routine-load-manual.html)   |
-| Binlog Load        | [collect Mysql Binlog import data](./import-way/binlog-load-manual.html) |
-| Insert Into        | [External table imports data through INSERT](./import-way/insert-into-manual.html) |
-| S3 Load            | [Object storage data import of S3 protocol](./import-way/s3-load-manual.html) |
+| Spark Load         | [Import external data via Spark](./import-way/spark-load-manual.md) |
+| Broker Load        | [Import external storage data via Broker](./import-way/broker-load-manual.md) |
+| Stream Load        | [Stream import data (local file and memory data)](./import-way/stream-load-manual.md) |
+| Routine Load       | [Import Kafka data](./import-way/routine-load-manual.md)   |
+| Binlog Load        | [collect Mysql Binlog import data](./import-way/binlog-load-manual.md) |
+| Insert Into        | [External table imports data through INSERT](./import-way/insert-into-manual.md) |
+| S3 Load            | [Object storage data import of S3 protocol](./import-way/s3-load-manual.md) |
 
 ## Supported data formats
 

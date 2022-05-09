@@ -33,9 +33,9 @@ Doris provides a graphical command to help users analyze a specific import more 
 
 ## Import plan tree
 
-If you don't know much about Doris' query plan tree, please read the previous article [DORIS/best practices/query analysis](./query-analysis.html).
+If you don't know much about Doris' query plan tree, please read the previous article [DORIS/best practices/query analysis](./query-analysis.md).
 
-The execution process of a [Broker Load](../../data-operate/import/import-way/broker-load-manual.html) request is also based on Doris' query framework. A Broker Load job will be split into multiple subtasks based on the number of DATA INFILE clauses in the import request. Each subtask can be regarded as an independent import execution plan. An import plan consists of only one Fragment, which is composed as follows:
+The execution process of a [Broker Load](../../data-operate/import/import-way/broker-load-manual.md) request is also based on Doris' query framework. A Broker Load job will be split into multiple subtasks based on the number of DATA INFILE clauses in the import request. Each subtask can be regarded as an independent import execution plan. An import plan consists of only one Fragment, which is composed as follows:
 
 ```sql
 ┌────────────────┐

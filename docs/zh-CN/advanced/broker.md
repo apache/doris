@@ -67,9 +67,9 @@ Broker 在 Doris 系统架构中的位置如下：
 
 ## 需要 Broker 的操作
 
-1. [Broker Load](../data-operate/import/import-way/broker-load-manual.html)
-2. [数据导出（Export）](../data-operate/export/export-manual.html)
-3. [数据备份](../admin-manual/data-admin/backup.html)
+1. [Broker Load](../data-operate/import/import-way/broker-load-manual.md)
+2. [数据导出（Export）](../data-operate/export/export-manual.md)
+3. [数据备份](../admin-manual/data-admin/backup.md)
 
 ## Broker 信息
 
