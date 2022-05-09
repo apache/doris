@@ -65,8 +65,8 @@ public:
     virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
                             bool* fill_tuple) override;
 
-    Status get_next(std::vector<vectorized::MutableColumnPtr>& columns, bool* eof) override {
-        return Status::NotSupported("Not Implemented get columns");
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
     }
 
     // Close this scanner
@@ -77,6 +77,8 @@ protected:
     Status open_next_reader();
 
     Status _line_to_src_tuple(const Slice& line);
+
+    Status _line_split_to_values(const Slice& line);
 
 private:
     Status open_file_reader();
