@@ -26,6 +26,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
@@ -65,11 +66,11 @@ public class InsertStreamTxnExecutor {
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
         SystemInfoService.BeAvailablePredicate beAvailablePredicate =
                 new SystemInfoService.BeAvailablePredicate(false, true, true);
-        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                1, beAvailablePredicate, false,
-                txnEntry.getDb().getClusterName(), null, null);
-        if (beIds == null || beIds.isEmpty()) {
-            throw new UserException("there is no backend load available or scanNode backend available.");
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
+                .needLoadAvailable().needQueryAvailable().build();
+        List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (beIds.isEmpty()) {
+            throw new UserException("No available backend to match the policy: " + policy);
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
