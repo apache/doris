@@ -170,7 +170,7 @@ public class ClusterLoadStatistic {
             }
 
             if (Math.abs(beStat.getLoadScore(medium) - avgLoadScore) / avgLoadScore > Config.balance_load_score_threshold) {
-                if (beStat.getLoadScore(medium) > avgLoadScore) {
+                if (beStat.getLoadScore(medium) > avgLoadScore && beStat.getUsedPercent(medium) > Config.high_load_capacity_used_percent_threshold) {
                     beStat.setClazz(medium, Classification.HIGH);
                     highCounter++;
                 } else if (beStat.getLoadScore(medium) < avgLoadScore) {

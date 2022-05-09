@@ -77,7 +77,7 @@ public class BackendLoadStatistic {
         INIT,
         LOW, // load score is Config.balance_load_score_threshold lower than average load score of cluster
         MID, // between LOW and HIGH
-        HIGH // load score is Config.balance_load_score_threshold higher than average load score of cluster
+        HIGH // load score is Config.balance_load_score_threshold higher than average load score of cluster, and capacity used percent higher than Config.high_load_used_percent_threshold
     }
 
     private SystemInfoService infoService;
@@ -136,6 +136,13 @@ public class BackendLoadStatistic {
 
     public long getTotalUsedCapacityB(TStorageMedium medium) {
         return totalUsedCapacityMap.getOrDefault(medium, 0L);
+    }
+
+    public double getUsedPercent(TStorageMedium medium) {
+        if (totalUsedCapacityMap.containsKey(medium) && totalCapacityMap.containsKey(medium)) {
+            return totalCapacityMap.get(medium) <= 0 ? 0.0 : totalUsedCapacityMap.get(medium) / (double) totalCapacityMap.get(medium);
+        }
+        return 0.0;
     }
 
     public long getReplicaNum(TStorageMedium medium) {
@@ -233,7 +240,7 @@ public class BackendLoadStatistic {
 
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
                     / avgUsedPercent > Config.balance_load_score_threshold) {
-                if (pathStat.getUsedPercent() > avgUsedPercent) {
+                if (pathStat.getUsedPercent() > avgUsedPercent && pathStat.getUsedPercent() > Config.high_load_capacity_used_percent_threshold) {
                     pathStat.setClazz(Classification.HIGH);
                     highCounter++;
                 } else if (pathStat.getUsedPercent() < avgUsedPercent) {
@@ -278,11 +285,12 @@ public class BackendLoadStatistic {
         
         LoadScore loadScore = new LoadScore();
 
-        // If this backend's capacity used percent < 50%, set capacityCoefficient to 0.5.
+        // If this backend's capacity used percent < Config.high_load_capacity_used_percent_threshold (default 50%),
+        // set capacityCoefficient to 0.5.
         // Else if capacity used percent > 75%, set capacityCoefficient to 1.
         // Else, capacityCoefficient changed smoothly from 0.5 to 1 with used capacity increasing
         // Function: (2 * usedCapacityPercent - 0.5)
-        loadScore.capacityCoefficient = usedCapacityPercent < 0.5 ? 0.5
+        loadScore.capacityCoefficient = usedCapacityPercent < Config.high_load_capacity_used_percent_threshold ? 0.5
                 : (usedCapacityPercent > Config.capacity_used_percent_high_water ? 1.0
                         : (2 * usedCapacityPercent - 0.5));
         loadScore.replicaNumCoefficient = 1 - loadScore.capacityCoefficient;

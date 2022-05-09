@@ -689,7 +689,17 @@ rebalancer 类型（忽略大小写）：BeLoad、Partition。 如果类型解�
 
 是否为 Master FE 节点独有的配置项：true
 
-集群 balance 百分比的阈值，如果一个BE的负载分数比平均分数低10%，这个后端将被标记为低负载，如果负载分数比平均分数高10%，将被标记为高负载。
+集群 balance 百分比的阈值，如果一个BE的负载分数比平均分数低10%，这个后端将被标记为低负载，如果负载分数比平均分数高10%，且磁盘使用率高于参数`high_load_capacity_used_percent_threshold`，默认为0.5，将被标记为高负载。
+
+### `high_load_capacity_used_percent_threshold`
+
+默认值：0.5 (50%)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+节点被标记为高负载条件之一的磁盘使用率阈值，如果一个BE的负载分数比平均分数10%，这个后端将被标记为低负载，如果负载分数比平均分数高`balance_load_score_threshold`，默认10%，且该节点的磁盘使用率高于50%，将被标记为高负载。
 
 ### `schedule_slot_num_per_path`
 

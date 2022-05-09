@@ -1124,11 +1124,19 @@ public class Config extends ConfigBase {
 
     /**
      * the threshold of cluster balance score, if a backend's load score is 10% lower than average score,
-     * this backend will be marked as LOW load, if load score is 10% higher than average score, HIGH load
-     * will be marked.
+     * this backend will be marked as LOW load, if load score is 10% higher than average score, and its
+     * usedPercent is greater than the config high_load_capacity_used_percent_threshold, default 0.4, HIGH load will
+     * be marked.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static double balance_load_score_threshold = 0.1; // 10%
+
+    /**
+     * the threshold of High load capacity usedPercent, if load score is balance_load_score_threshold higher than
+     * average score, default 0.1, and its capacity usedPercent is greater than 0.5, HIGH load will be marked.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static double high_load_capacity_used_percent_threshold = 0.5; // 50%
 
     /**
      * if set to true, TabletScheduler will not do balance.
