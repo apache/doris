@@ -15,17 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.PlanRuleFactory;
-import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
- * interface for all rewrite rule factories.
+ * abstract class for all rule factories build one plan rule.
  */
-public interface RewriteRuleFactory extends PlanRuleFactory {
-    @Override
-    default RulePromise defaultPromise() {
-        return RulePromise.REWRITE;
-    }
+public abstract class OnePlanRuleFactory extends OneRuleFactory<Plan> implements PlanRuleFactory {
 }

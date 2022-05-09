@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.rules.OneRuleFactory;
+import org.apache.doris.nereids.rules.OnePlanRuleFactory;
 
 /**
  * abstract class for all rule factories build one rule used in rewrite stage.
  */
 public abstract class OneRewriteRuleFactory
-        extends OneRuleFactory implements RewriteRuleFactory {
+        extends OnePlanRuleFactory implements RewriteRuleFactory {
 }

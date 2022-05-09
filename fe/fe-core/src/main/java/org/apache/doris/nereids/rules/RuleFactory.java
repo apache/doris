@@ -18,15 +18,16 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.pattern.Patterns;
+import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
 
 /**
  * interface for all rule factories for build some rules.
  */
-public interface RuleFactory extends Patterns {
+public interface RuleFactory<TYPE extends TreeNode> extends Patterns {
     // need implement
-    List<Rule> buildRules();
+    List<Rule<TYPE>> buildRules();
 
     // need implement
     @Override

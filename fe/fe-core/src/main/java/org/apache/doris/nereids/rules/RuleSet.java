@@ -21,6 +21,9 @@ import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelation;
 import org.apache.doris.nereids.rules.exploration.JoinAssociativeLeftToRight;
 import org.apache.doris.nereids.rules.exploration.JoinCommutative;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
+import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -31,44 +34,48 @@ import java.util.List;
  * Containers for set of different type rules.
  */
 public class RuleSet {
-    public static final List<Rule> ANALYSIS_RULES = factories()
+    public static final List<Rule<Plan>> ANALYSIS_RULES = planRuleFactories()
             .add(new AnalysisUnboundRelation())
             .build();
 
-    public static final List<Rule> EXPLORATION_RULES = factories()
+    public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
             .add(new JoinCommutative())
             .add(new JoinAssociativeLeftToRight())
             .build();
 
-    public static final List<Rule> IMPLEMENTATION_RULES = factories()
+    public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()
             .add(new LogicalJoinToHashJoin())
             .build();
 
-    public List<Rule> getAnalysisRules() {
+    public List<Rule<Plan>> getAnalysisRules() {
         return ANALYSIS_RULES;
     }
 
-    public List<Rule> getExplorationRules() {
+    public List<Rule<Plan>> getExplorationRules() {
         return EXPLORATION_RULES;
     }
 
-    public List<Rule> getImplementationRules() {
+    public List<Rule<Plan>> getImplementationRules() {
         return IMPLEMENTATION_RULES;
     }
 
-    private static RuleFactories factories() {
+    private static RuleFactories<Plan> planRuleFactories() {
         return new RuleFactories();
     }
 
-    private static class RuleFactories {
-        final Builder<Rule> rules = ImmutableList.builder();
+    private static RuleFactories<Expression> expressionRuleFactories() {
+        return new RuleFactories();
+    }
 
-        public RuleFactories add(RuleFactory ruleFactory) {
+    private static class RuleFactories<TYPE extends TreeNode> {
+        final Builder<Rule<TYPE>> rules = ImmutableList.builder();
+
+        public RuleFactories<TYPE> add(RuleFactory<TYPE> ruleFactory) {
             rules.addAll(ruleFactory.buildRules());
             return this;
         }
 
-        public List<Rule> build() {
+        public List<Rule<TYPE>> build() {
             return rules.build();
         }
     }

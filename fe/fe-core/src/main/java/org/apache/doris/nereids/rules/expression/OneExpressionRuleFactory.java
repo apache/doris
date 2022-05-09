@@ -18,10 +18,11 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.OneRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
  * abstract class for all rule factories build one rule used for expressions.
  */
 public abstract class OneExpressionRuleFactory
-        extends OneRuleFactory implements ExpressionRuleFactory {
+        extends OneRuleFactory<Expression> implements ExpressionRuleFactory {
 }

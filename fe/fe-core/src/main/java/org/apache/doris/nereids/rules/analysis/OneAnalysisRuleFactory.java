@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.nereids.rules.OneRuleFactory;
+import org.apache.doris.nereids.rules.OnePlanRuleFactory;
 
 /**
  * abstract class for all rule factories build one rule used in analysis stage.
  */
 public abstract class OneAnalysisRuleFactory
-        extends OneRuleFactory implements AnalysisRuleFactory {
+        extends OnePlanRuleFactory implements AnalysisRuleFactory {
 }

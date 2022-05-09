@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.rules.OneRuleFactory;
+import org.apache.doris.nereids.rules.OnePlanRuleFactory;
 
 /**
  * abstract class for all rule factories build one rule used in implementation stage.
  */
 public abstract class OneImplementationRuleFactory
-        extends OneRuleFactory implements ImplementationRuleFactory {
+        extends OnePlanRuleFactory implements ImplementationRuleFactory {
 }

@@ -19,11 +19,12 @@ package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 /**
  * interface for all expression rule factories.
  */
-public interface ExpressionRuleFactory extends RuleFactory {
+public interface ExpressionRuleFactory extends RuleFactory<Expression> {
     @Override
     default RulePromise defaultPromise() {
         return RulePromise.EXPRESSION;
