@@ -32,7 +32,7 @@ ALTER TABLE REPLACE
 
 ### Description
 
-This statement is used to modify the attributes of the schema of the existing table. The syntax is basically similar to [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.html).
+This statement is used to modify the attributes of the schema of the existing table. The syntax is basically similar to [ALTER TABLE CULUMN](ALTER-TABLE-COLUMN.md).
 
 ```sql
 ALTER TABLE [database.]table MODIFY NEW_COLUMN_INFO REPLACE OLD_COLUMN_INFO ;

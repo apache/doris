@@ -30,7 +30,7 @@ under the License.
 
 这种情况是因为对应的 tablet 没有找到可以查询的副本，通常原因可能是 BE 宕机、副本缺失等。可以先通过 `show tablet tablet_id` 语句，然后执行后面的 `show proc` 语句，查看这个 tablet 对应的副本信息，检查副本是否完整。同时还可以通过 `show proc "/cluster_balance"` 信息来查询集群内副本调度和修复的进度。
 
-关于数据副本管理相关的命令，可以参阅 [数据副本管理](../admin-manual/maint-monitor/tablet-repair-and-balance.html)。
+关于数据副本管理相关的命令，可以参阅 [数据副本管理](../admin-manual/maint-monitor/tablet-repair-and-balance.md)。
 
 ### Q2. show backends/frontends 查看到的信息不完整
 
@@ -65,4 +65,4 @@ Doris的 Master FE 节点会主动发送心跳给各个FE或BE节点，并且在
 
 那么可能副本1 的结果是 `1, "abc"`，而副本2 的结果是 `1, "def"`。从而导致查询结果不一致。
 
-为了确保不同副本之间的数据先后顺序唯一，可以参考 [Sequence Column](../data-operate/update-delete/sequence-column-manual.html) 功能。
+为了确保不同副本之间的数据先后顺序唯一，可以参考 [Sequence Column](../data-operate/update-delete/sequence-column-manual.md) 功能。

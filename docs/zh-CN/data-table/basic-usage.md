@@ -89,7 +89,7 @@ Query OK, 0 rows affected (0.00 sec)
 CREATE DATABASE example_db;
 ```
 
-> 所有命令都可以使用 `HELP command;` 查看到详细的语法帮助，如：`HELP CREATE DATABASE;`。也可以查阅官网 [SHOW CREATE DATABASE](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE.html) 命令手册。
+> 所有命令都可以使用 `HELP command;` 查看到详细的语法帮助，如：`HELP CREATE DATABASE;`。也可以查阅官网 [SHOW CREATE DATABASE](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE.md) 命令手册。
 >
 > 如果不清楚命令的全名，可以使用 "help 命令某一字段" 进行模糊查询。如键入 'HELP CREATE'，可以匹配到 `CREATE DATABASE`, `CREATE TABLE`, `CREATE USER` 等命令。
 >
@@ -135,7 +135,7 @@ mysql> SHOW DATABASES;
 
 ### 账户授权
 
-example_db 创建完成之后，可以通过 root/admin 账户使用[GRANT](../sql-manual/sql-reference/Account-Management-Statements/GRANT.html)命令将 example_db 读写权限授权给普通账户，如 test。授权之后采用 test 账户登录就可以操作 example_db 数据库了。
+example_db 创建完成之后，可以通过 root/admin 账户使用[GRANT](../sql-manual/sql-reference/Account-Management-Statements/GRANT.md)命令将 example_db 读写权限授权给普通账户，如 test。授权之后采用 test 账户登录就可以操作 example_db 数据库了。
 
 ```sql
 mysql> GRANT ALL ON example_db TO test;
@@ -144,9 +144,9 @@ Query OK, 0 rows affected (0.01 sec)
 
 ### 建表
 
-使用 [CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令建立一个表(Table)。更多详细参数可以 `HELP CREATE TABLE;`		
+使用 [CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) 命令建立一个表(Table)。更多详细参数可以 `HELP CREATE TABLE;`		
 
-首先，我们需要使用[USE](../sql-manual/sql-reference/Utility-Statements/USE.html)命令来切换数据库：
+首先，我们需要使用[USE](../sql-manual/sql-reference/Utility-Statements/USE.md)命令来切换数据库：
 
 ```sql
 mysql> USE example_db;
@@ -272,7 +272,7 @@ mysql> DESC table2;
 
 ### 导入数据
 
-Doris 支持多种数据导入方式。具体可以参阅[数据导入](../data-operate/import/load-manual.html)文档。这里我们使用流式导入和 Broker 导入做示例。
+Doris 支持多种数据导入方式。具体可以参阅[数据导入](../data-operate/import/load-manual.md)文档。这里我们使用流式导入和 Broker 导入做示例。
 
 #### 流式导入
 

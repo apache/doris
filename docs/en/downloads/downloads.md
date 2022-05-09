@@ -85,4 +85,4 @@ You can download source code from following links, then compile and install Dori
 
 To verify the downloaded files, please read [Verify Apache Release](../community/release-and-verify/release-verify.md) and using these [KEYS](https://downloads.apache.org/incubator/doris/KEYS).
 
-After verification, please read [Compilation](../installing/compilation.md) and [Installation and deployment](../installing/install-deploy.md) to compile and install Doris.
+After verification, please read [Compilation](../install/source-install/compilation.md) and [Installation and deployment](../install/install-deploy.md) to compile and install Doris.
