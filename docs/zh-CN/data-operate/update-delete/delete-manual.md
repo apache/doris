@@ -30,7 +30,7 @@ Delete不同于其他导入方式，它是一个同步过程，与Insert into相
 
 ## 语法
 
-delete操作的语法详见官网 [DELETE](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) 语法。
+delete操作的语法详见官网 [DELETE](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.md) 语法。
 
 ## 返回结果
 
@@ -148,9 +148,9 @@ mysql> show delete from test_db;
 
 ## 注意事项
 
-- 不同于 Insert into 命令，delete 不能手动指定`label`，有关 label 的概念可以查看[Insert Into](../import/import-way/insert-into-manual.html) 文档。
+- 不同于 Insert into 命令，delete 不能手动指定`label`，有关 label 的概念可以查看[Insert Into](../import/import-way/insert-into-manual.md) 文档。
 
 ## 更多帮助
 
-关于 **delete** 使用的更多详细语法，请参阅 [delete](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP DELETE` 获取更多帮助信息。
+关于 **delete** 使用的更多详细语法，请参阅 [delete](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/DELETE.md) 命令手册，也可以在Mysql客户端命令行下输入 `HELP DELETE` 获取更多帮助信息。
 

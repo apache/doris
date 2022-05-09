@@ -17,50 +17,19 @@
 
 package org.apache.doris.nereids.trees;
 
-import com.google.common.collect.Lists;
-
 import java.util.List;
 
 /**
- * Abstract class for all node in Nereids, include plan node and expression.
+ * interface for all node in Nereids, include plan node and expression.
  *
- * @param <NodeType> either {@link org.apache.doris.nereids.trees.plans.Plan}
+ * @param <NODE_TYPE> either {@link org.apache.doris.nereids.trees.plans.Plan}
  *                 or {@link org.apache.doris.nereids.trees.expressions.Expression}
  */
-public abstract class TreeNode<NodeType extends TreeNode<NodeType>> {
-    protected final org.apache.doris.nereids.trees.NodeType type;
-    protected List<NodeType> children = Lists.newArrayList();
+public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
 
-    public TreeNode(org.apache.doris.nereids.trees.NodeType type) {
-        this.type = type;
-    }
+    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> List<CHILD_TYPE> children();
 
-    public NodeType getChild(int i) {
-        return children.get(i);
-    }
+    <CHILD_TYPE extends TreeNode<CHILD_TYPE>> CHILD_TYPE child(int index);
 
-    public void addChild(NodeType child) {
-        children.add(child);
-    }
-
-    public List<NodeType> getChildren() {
-        return children;
-    }
-
-    public int arity() {
-        return children.size();
-    }
-
-    public void replaceChild(int index, NodeType child) {
-        children.remove(index);
-        children.add(index, child);
-    }
-
-    public void removeAllChildren() {
-        children.clear();
-    }
-
-    public void setChildren(List<NodeType> children) {
-        this.children = children;
-    }
+    int arity();
 }

@@ -86,4 +86,4 @@ under the License.
 
 关于如何校验下载文件，请参阅 [校验下载文件](../community/release-and-verify/release-verify.md)，并使用这些[KEYS](https://downloads.apache.org/incubator/doris/KEYS)。
 
-校验完成后，可以参阅 [编译文档](../installing/compilation.md) 以及 [安装与部署文档](../installing/install-deploy.md) 进行 Doris 的编译、安装与部署。
+校验完成后，可以参阅 [编译文档](../install/source-install/compilation.md) 以及 [安装与部署文档](../install/install-deploy.md) 进行 Doris 的编译、安装与部署。

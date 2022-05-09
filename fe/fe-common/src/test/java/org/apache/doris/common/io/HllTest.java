@@ -33,8 +33,8 @@ public class HllTest {
     public void testFindFirstNonZeroBitPosition() {
         Assert.assertTrue(Hll.getLongTailZeroNum(0) == 0);
         Assert.assertTrue(Hll.getLongTailZeroNum(1) == 0);
-        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 30) == 30);
-        Assert.assertTrue(Hll.getLongTailZeroNum(1l << 62) == 62);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1L << 30) == 30);
+        Assert.assertTrue(Hll.getLongTailZeroNum(1L << 62) == 62);
     }
 
     @Test

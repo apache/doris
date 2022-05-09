@@ -17,19 +17,14 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.UtFrameUtils;
+import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.Assert;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class PartitionPruneTestBase {
-    protected static String runningDir;
-    protected static ConnectContext connectContext;
-
+public abstract class PartitionPruneTestBase extends TestWithFeService {
     protected List<TestCase> cases = new ArrayList<>();
 
     protected void doTest() throws Exception {
@@ -41,16 +36,10 @@ public class PartitionPruneTestBase {
         }
     }
 
-    protected static void createTable(String sql) throws Exception {
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
-    }
-
     private void assertExplainContains(int version, String sql, String subString) throws Exception {
         Assert.assertTrue(String.format("version=%d, sql=%s, expectResult=%s",
-            version, sql, subString),
-            UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql)
-                .contains(subString));
+                version, sql, subString),
+            getSQLPlanOrErrorMsg("explain " + sql).contains(subString));
     }
 
     protected void addCase(String sql, String v1Result, String v2Result) {

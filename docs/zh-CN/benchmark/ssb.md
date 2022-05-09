@@ -36,7 +36,7 @@ under the License.
 
 ## 环境准备
 
-请先参照 [官方文档](../install/install-deploy.html) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE，1 BE）。
+请先参照 [官方文档](../install/install-deploy.md) 进行 Doris 的安装部署，以获得一个正常运行中的 Doris 集群（至少包含 1 FE，1 BE）。
 
 以下文档中涉及的脚本都存放在 Doris 代码库的 `tools/ssb-tools/` 下。
 
@@ -178,5 +178,5 @@ SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.co
     >
     > 注4：Parallelism 表示查询并发度，通过 `set parallel_fragment_exec_instance_num=8` 设置。
     >
-    > 注5：Runtime Filter Mode 是 Runtime Filter 的类型，通过 `set runtime_filter_type="BLOOM_FILTER"` 设置。（[Runtime Filter](../advanced/join-optimization/runtime-filter.html) 功能对 SSB 测试集效果显著。因为该测试集中，Join 算子右表的数据可以对左表起到很好的过滤作用。你可以尝试通过 `set runtime_filter_mode=off` 关闭该功能，看看查询延迟的变化。）
+    > 注5：Runtime Filter Mode 是 Runtime Filter 的类型，通过 `set runtime_filter_type="BLOOM_FILTER"` 设置。（[Runtime Filter](../advanced/join-optimization/runtime-filter.md) 功能对 SSB 测试集效果显著。因为该测试集中，Join 算子右表的数据可以对左表起到很好的过滤作用。你可以尝试通过 `set runtime_filter_mode=off` 关闭该功能，看看查询延迟的变化。）
 

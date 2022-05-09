@@ -96,6 +96,18 @@ public class LimitElement {
         return sb.toString();
     }
 
+    public String toDigest() {
+        if (limit == -1) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(" LIMIT ");
+        if (offset != 0) {
+            sb.append(offset + "?, ");
+        }
+        sb.append("" + " ? ");
+        return sb.toString();
+    }
+
     public void analyze(Analyzer analyzer) {
         if (limit == 0) analyzer.setHasEmptyResultSet();
     }

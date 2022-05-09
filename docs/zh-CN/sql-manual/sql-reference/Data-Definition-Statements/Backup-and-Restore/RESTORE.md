@@ -116,4 +116,4 @@ PROPERTIES
 
 4. 恢复操作的效率：
 
-   在集群规模相同的情况下，恢复操作的耗时基本等同于备份操作的耗时。如果想加速恢复操作，可以先通过设置 `replication_num` 参数，仅恢复一个副本，之后在通过调整副本数 [ALTER TABLE PROPERTY](../../Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)，将副本补齐。
+   在集群规模相同的情况下，恢复操作的耗时基本等同于备份操作的耗时。如果想加速恢复操作，可以先通过设置 `replication_num` 参数，仅恢复一个副本，之后在通过调整副本数 [ALTER TABLE PROPERTY](../../Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.md)，将副本补齐。

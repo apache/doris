@@ -114,5 +114,5 @@ PROPERTIES
 ### Best Practice
 
 1. 一个集群可以创建过多个仓库。只有拥有 ADMIN 权限的用户才能创建仓库。
-2. 任何用户都可以通过 [SHOW REPOSITORIES](../../Show-Statements/SHOW-REPOSITORIES.html) 命令查看已经创建的仓库。
+2. 任何用户都可以通过 [SHOW REPOSITORIES](../../Show-Statements/SHOW-REPOSITORIES.md) 命令查看已经创建的仓库。
 3. 在做数据迁移操作时，需要在源集群和目的集群创建完全相同的仓库，以便目的集群可以通过这个仓库，查看到源集群备份的数据快照。

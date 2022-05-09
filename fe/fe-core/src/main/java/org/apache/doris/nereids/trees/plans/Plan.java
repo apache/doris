@@ -23,83 +23,25 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.alibaba.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
-
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * Abstract class for all plan node.
- *
- * @param <PlanType> either {@link org.apache.doris.nereids.trees.plans.logical.LogicalPlan}
- *                  or {@link org.apache.doris.nereids.trees.plans.physical.PhysicalPlan}
  */
-public abstract class Plan<PlanType extends Plan<PlanType>> extends TreeNode<PlanType> {
+public interface Plan<PLAN_TYPE extends Plan<PLAN_TYPE>> extends TreeNode<PLAN_TYPE> {
+    NodeType getType();
 
-    protected final boolean isPhysical;
-    protected PlanReference planReference;
-    protected List<Slot> output = Lists.newArrayList();
+    List<Slot> getOutput() throws UnboundException;
 
-    public Plan(NodeType type, boolean isPhysical) {
-        super(type);
-        this.isPhysical = isPhysical;
-    }
+    PlanReference getPlanReference();
 
-    public org.apache.doris.nereids.trees.NodeType getType() {
-        return type;
-    }
+    void setPlanReference(PlanReference planReference);
 
-    public boolean isPhysical() {
-        return isPhysical;
-    }
+    String treeString();
 
-    public boolean isLogical() {
-        return !isPhysical;
-    }
+    @Override
+    List<Plan> children();
 
-    public abstract List<Slot> getOutput() throws UnboundException;
-
-    public PlanReference getPlanReference() {
-        return planReference;
-    }
-
-    public void setPlanReference(PlanReference planReference) {
-        this.planReference = planReference;
-    }
-
-    /**
-     * Get tree like string describing query plan.
-     *
-     * @return tree like string describing query plan
-     */
-    public String treeString() {
-        List<String> lines = new ArrayList<>();
-        treeString(lines, 0, new ArrayList<>(), this);
-        return StringUtils.join(lines, "\n");
-    }
-
-    private void treeString(List<String> lines, int depth, List<Boolean> lastChildren, Plan<PlanType> plan) {
-        StringBuilder sb = new StringBuilder();
-        if (depth > 0) {
-            if (lastChildren.size() > 1) {
-                for (int i = 0; i < lastChildren.size() - 1; i++) {
-                    sb.append(lastChildren.get(i) ? "   " : "|  ");
-                }
-            }
-            if (lastChildren.size() > 0) {
-                Boolean last = lastChildren.get(lastChildren.size() - 1);
-                sb.append(last ? "+--" : "|--");
-            }
-        }
-        sb.append(plan.toString());
-        lines.add(sb.toString());
-
-        List<PlanType> children = plan.getChildren();
-        for (int i = 0; i < children.size(); i++) {
-            List<Boolean> newLasts = new ArrayList<>(lastChildren);
-            newLasts.add(i + 1 == children.size());
-            treeString(lines, depth + 1, newLasts, children.get(i));
-        }
-    }
+    @Override
+    Plan child(int index);
 }

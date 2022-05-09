@@ -222,6 +222,15 @@ public class ArithmeticExpr extends Expr {
     }
 
     @Override
+    public String toDigestImpl() {
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toDigest();
+        } else {
+            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+        }
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARITHMETIC_EXPR;
         if (!type.isDecimalV2()) {

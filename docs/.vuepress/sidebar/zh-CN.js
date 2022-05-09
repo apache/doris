@@ -195,6 +195,7 @@ module.exports = [
       "broker",
       "resource",
       "orthogonal-bitmap-manual",
+      "using-hll",
       "variables",
       "time-zone",
       "small-file-mgr",
@@ -260,7 +261,8 @@ module.exports = [
         children: [
           "native-user-defined-function",
           "remote-user-defined-function",
-          "contribute-udf"
+          "contribute-udf",
+          "java-user-defined-function"
         ],
       },
     ],

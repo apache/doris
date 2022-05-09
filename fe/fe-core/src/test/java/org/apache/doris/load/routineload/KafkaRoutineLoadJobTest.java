@@ -252,7 +252,7 @@ public class KafkaRoutineLoadJobTest {
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
         List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
         for (String s : kafkaPartitionString.split(",")) {
-            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0l));
+            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0L));
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
@@ -262,7 +262,7 @@ public class KafkaRoutineLoadJobTest {
         Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
         Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
 
-        long dbId = 1l;
+        long dbId = 1L;
         long tableId = 2L;
 
         new Expectations() {

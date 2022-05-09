@@ -706,6 +706,10 @@ public abstract class QueryStmt extends StatementBase {
         return outFileClause != null ? outFileClause.clone() : null;
     }
 
+    public String toDigest() {
+        return "";
+    }
+
     /**
      * C'tor for cloning.
      */

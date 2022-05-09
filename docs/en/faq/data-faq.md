@@ -72,7 +72,7 @@ If no BE node is down, you need to pass the show tablet 110309738 statement, and
 
 Usually occurs in operations such as Import, Alter, etc. This error means that the usage of the corresponding disk corresponding to the BE exceeds the threshold (default 95%). In this case, you can first use the show backends command, where MaxDiskUsedPct shows the usage of the disk with the highest usage on the corresponding BE. If If it exceeds 95%, this error will be reported.
 
-At this point, you need to go to the corresponding BE node to check the usage in the data directory. The trash directory and snapshot directory can be manually cleaned to free up space. If the data directory occupies a large space, you need to consider deleting some data to free up space. For details, please refer to [Disk Space Management](../admin-manual/maint-monitor/disk-capacity.html).
+At this point, you need to go to the corresponding BE node to check the usage in the data directory. The trash directory and snapshot directory can be manually cleaned to free up space. If the data directory occupies a large space, you need to consider deleting some data to free up space. For details, please refer to [Disk Space Management](../admin-manual/maint-monitor/disk-capacity.md).
 
 ### Q7. Calling stream load to import data through a Java program may result in a Broken Pipe error when a batch of data is large.
 

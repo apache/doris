@@ -19,11 +19,9 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.dpp.MinimumCoverageRollupTreeBuilder;
-import org.apache.doris.load.loadv2.dpp.RollupTreeNode;
+
 import org.junit.Assert;
 import org.junit.Test;
-
 import java.util.ArrayList;
 import java.util.List;
 

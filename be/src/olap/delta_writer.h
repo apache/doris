@@ -67,7 +67,9 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec, bool is_broken);
+    Status close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
+                      bool is_broken);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -88,6 +90,10 @@ public:
     Status wait_flush();
 
     int64_t tablet_id() { return _tablet->tablet_id(); }
+
+    int64_t save_mem_consumption_snapshot();
+
+    int64_t get_mem_consumption_snapshot() const;
 
 private:
     DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, bool is_vec);
@@ -122,6 +128,9 @@ private:
 
     // use in vectorized load
     bool _is_vec;
+
+    //only used for std::sort more detail see issue(#9237)
+    int64_t _mem_consumption_snapshot = 0;
 };
 
 } // namespace doris

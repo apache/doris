@@ -201,7 +201,7 @@ public void run(SourceContext sourceContext){
 
 ### 4.4 Implement Flink SQL on Doris
 
-Refer to [Flink Custom Source&Sink](https://ci.apache.org/projects/flink/flink-docs-stable/zh/dev/table/sourceSinks.html) and Flink-jdbc-connector to implement the following As a result, Flink SQL can be used to directly manipulate Doris tables, including reading and writing.
+Refer to [Flink Custom Source&Sink](https://ci.apache.org/projects/flink/flink-docs-stable/zh/dev/table/sourceSinks.md) and Flink-jdbc-connector to implement the following As a result, Flink SQL can be used to directly manipulate Doris tables, including reading and writing.
 
 #### 4.4.1 Implementation details
 

@@ -660,6 +660,57 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toDigest());
+            strBuilder.append(" ");
+        }
+
+        strBuilder.append(operands.get(0).getQueryStmt().toDigest());
+        for (int i = 1; i < operands.size() - 1; ++i) {
+            strBuilder.append(
+                    " " + operands.get(i).getOperation().toString() + " "
+                            + ((operands.get(i).getQualifier() == Qualifier.ALL) ? "ALL " : ""));
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append("(");
+            }
+            strBuilder.append(operands.get(i).getQueryStmt().toDigest());
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append(")");
+            }
+        }
+        // Determine whether we need parenthesis around the last Set operand.
+        SetOperand lastOperand = operands.get(operands.size() - 1);
+        QueryStmt lastQueryStmt = lastOperand.getQueryStmt();
+        strBuilder.append(" " + lastOperand.getOperation().toString() + " "
+                + ((lastOperand.getQualifier() == Qualifier.ALL) ? "ALL " : ""));
+        if (lastQueryStmt instanceof SetOperationStmt || ((hasOrderByClause() || hasLimitClause()) &&
+                !lastQueryStmt.hasLimitClause() &&
+                !lastQueryStmt.hasOrderByClause())) {
+            strBuilder.append("(");
+            strBuilder.append(lastQueryStmt.toDigest());
+            strBuilder.append(")");
+        } else {
+            strBuilder.append(lastQueryStmt.toDigest());
+        }
+        // Order By clause
+        if (hasOrderByClause()) {
+            strBuilder.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                strBuilder.append(orderByElements.get(i).getExpr().toDigest());
+                strBuilder.append(orderByElements.get(i).getIsAsc() ? " ASC" : " DESC");
+                strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+        // Limit clause.
+        if (hasLimitClause()) {
+            strBuilder.append(limitElement.toDigest());
+        }
+        return strBuilder.toString();
+    }
+
+    @Override
     public ArrayList<String> getColLabels() {
         Preconditions.checkState(operands.size() > 0);
         return operands.get(0).getQueryStmt().getColLabels();

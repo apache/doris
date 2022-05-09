@@ -81,7 +81,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.html), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -255,7 +255,7 @@ There are usually two reasons for this problem:
 1. The local IP obtained when FE is started this time is inconsistent with the last startup, usually because `priority_network` is not set correctly, which causes FE to match the wrong IP address when it starts. Restart FE after modifying `priority_network`.
 2. Most Follower FE nodes in the cluster are not started. For example, there are 3 Followers, and only one is started. At this time, at least one other FE needs to be started, so that the FE electable group can elect the Master to provide services.
 
-If the above situation cannot be solved, you can restore it according to the [metadata operation and maintenance document] (../admin-manual/maint-monitor/metadata-operation.html) in the Doris official website document.
+If the above situation cannot be solved, you can restore it according to the [metadata operation and maintenance document] (../admin-manual/maint-monitor/metadata-operation.md) in the Doris official website document.
 
 ### Q10. Lost connection to MySQL server at 'reading initial communication packet', system error: 0
 
@@ -265,11 +265,11 @@ If the following problems occur when using MySQL client to connect to Doris, thi
 
 Sometimes when FE is restarted, the above error will occur (usually only in the case of multiple Followers). And the two values in the error differ by 2. Causes FE to fail to start.
 
-This is a bug in bdbje that has not yet been resolved. In this case, you can only restore the metadata by performing the operation of failure recovery in [Metadata Operation and Maintenance Documentation](../admin-manual/maint-monitor/metadata-operation.html).
+This is a bug in bdbje that has not yet been resolved. In this case, you can only restore the metadata by performing the operation of failure recovery in [Metadata Operation and Maintenance Documentation](../admin-manual/maint-monitor/metadata-operation.md).
 
 ### Q12. Doris compile and install JDK version incompatibility problem
 
-When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.html)
+When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.md)
 
 ### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
 Run the following command
@@ -287,7 +287,7 @@ In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the dor
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
 ```
-The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1,1. For details, see the [ODBC exterior documentation](. /extending-doris/odbc-of-doris.md)
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1,1. For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md)
 You can verify the version of openssl used by MySQL ODBC Driver by
 ```
 ldd /path/to/libmyodbc8w.so |grep libssl.so

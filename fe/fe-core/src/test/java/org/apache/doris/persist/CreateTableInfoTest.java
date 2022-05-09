@@ -24,7 +24,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.ScalarType;
@@ -48,7 +47,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 public class CreateTableInfoTest {
     private Catalog catalog;

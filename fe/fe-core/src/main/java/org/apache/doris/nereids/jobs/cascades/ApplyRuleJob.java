@@ -25,6 +25,7 @@ import org.apache.doris.nereids.memo.PlanReference;
 import org.apache.doris.nereids.pattern.PatternMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import java.util.List;
 
@@ -67,7 +68,7 @@ public class ApplyRuleJob extends Job {
                 PlanReference newReference = context.getOptimizerContext().getMemo()
                         .newPlanReference(newPlan, planReference.getParent());
                 // TODO need to check return is a new Reference, other wise will be into a dead loop
-                if (newPlan.isLogical()) {
+                if (newPlan instanceof LogicalPlan) {
                     pushTask(new DeriveStatsJob(newReference, context));
                     if (exploredOnly) {
                         pushTask(new ExplorePlanJob(newReference, context));

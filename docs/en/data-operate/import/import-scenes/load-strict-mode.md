@@ -36,7 +36,7 @@ Strict mode is all False by default, i.e. off.
 
 Different import methods set strict mode in different ways.
 
-1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.html)
+1. [BROKER LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD.md)
 
    ```sql
    LOAD LABEL example_db.label1
@@ -57,7 +57,7 @@ Different import methods set strict mode in different ways.
    )
    ````
 
-2. [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.html)
+2. [STREAM LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md)
 
    ```bash
    curl --location-trusted -u user:passwd \
@@ -66,7 +66,7 @@ Different import methods set strict mode in different ways.
    http://host:port/api/example_db/my_table/_stream_load
    ````
 
-3. [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.html)
+3. [ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md)
 
    ```sql
    CREATE ROUTINE LOAD example_db.test_job ON my_table
@@ -81,9 +81,9 @@ Different import methods set strict mode in different ways.
    );
    ````
 
-4. [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.html)
+4. [INSERT](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT.md)
 
-   Set via [session variables](../../../advanced/variables.html):
+   Set via [session variables](../../../advanced/variables.md):
 
    ```sql
    SET enable_insert_strict = true;
