@@ -26,7 +26,6 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.doris.external.elasticsearch.QueryBuilders;
 import org.junit.Test;
 
 
