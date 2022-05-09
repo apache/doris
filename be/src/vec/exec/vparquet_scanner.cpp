@@ -113,14 +113,13 @@ Status VParquetScanner::_init_src_block(Block* block) {
             continue;
         }
         auto* array = _batch->column(batch_pos++).get();
-        auto pt = arrow_type_to_primitive_type(array->type()->id());
-        if (pt == INVALID_TYPE) {
+        // let src column be nullable for simplify converting
+        auto is_nullable = true;
+        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(array->type()->id(), is_nullable);
+        if (data_type == nullptr) {
             return Status::NotSupported(
                     fmt::format("Not support arrow type:{}", array->type()->name()));
         }
-        auto is_nullable = true;
-        // let src column be nullable for simplify converting
-        DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, is_nullable);
         MutableColumnPtr data_column = data_type->create_column();
         block->insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));

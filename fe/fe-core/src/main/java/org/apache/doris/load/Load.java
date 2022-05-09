@@ -1065,32 +1065,37 @@ public class Load {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             Column tblColumn = tbl.getColumn(columnName);
-            String realColName =  tblColumn == null ? columnName
-                    : tbl.getColumn(columnName).getName();
+            String realColName =  tblColumn == null ? columnName : tblColumn.getName();
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
                 // only support parquet format now
-                if (exprArgsColumns.contains(columnName) || formatType != TFileFormatType.FORMAT_PARQUET
-                    || !useVectorizedLoad) {
-                    // columns in expr args should be parsed as varchar type
+                if (useVectorizedLoad  && formatType == TFileFormatType.FORMAT_PARQUET
+                    && tblColumn != null) {
+                    // in vectorized load
+                    if (exprArgsColumns.contains(columnName)) {
+                        // columns in expr args should be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        excludedColumns.add(realColName);
+                    } else {
+                        // columns from files like parquet files can be parsed as the type in table schema
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                    }
+                    // non-nullable column is allowed in vectorized load with parquet format
+                    slotDesc.setIsNullable(tblColumn.isAllowNull());
+                } else {
+                    // columns default be varchar type
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                     slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    excludedColumns.add(realColName);
                     // ISSUE A: src slot should be nullable even if the column is not nullable.
                     // because src slot is what we read from file, not represent to real column value.
                     // If column is not nullable, error will be thrown when filling the dest slot,
                     // which is not nullable.
                     slotDesc.setIsNullable(true);
-                } else {
-                    // in vectorized load,
-                    // columns from files like parquet files can be parsed as the type in table schema
-                    slotDesc.setType(tblColumn.getType());
-                    slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
-                    // non-nullable column is allowed in vectorized load with parquet format
-                    slotDesc.setIsNullable(tblColumn.isAllowNull());
                 }
                 slotDesc.setIsMaterialized(true);
                 params.addToSrcSlotIds(slotDesc.getId().asInt());
@@ -1142,14 +1147,17 @@ public class Load {
             for (SlotRef slot : slots) {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
-                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
-                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
-                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
-                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
-                    } else {
-                        throw new UserException("unknown reference column, column=" + entry.getKey()
-                                + ", reference=" + slot.getColumnName());
+                    if (entry.getKey() != null) {
+                        if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                            throw new UserException("unknown reference column in DELETE ON clause:"
+                                + slot.getColumnName());
+                        } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                            throw new UserException("unknown reference column in ORDER BY clause:"
+                                + slot.getColumnName());
+                        }
                     }
+                    throw new UserException("unknown reference column, column=" + entry.getKey()
+                            + ", reference=" + slot.getColumnName());
                 }
                 smap.getLhs().add(slot);
                 smap.getRhs().add(new SlotRef(slotDesc));
