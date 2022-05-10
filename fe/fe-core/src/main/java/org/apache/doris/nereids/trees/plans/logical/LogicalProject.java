@@ -31,7 +31,7 @@ import java.util.List;
 /**
  * Logical project plan node.
  */
-public class LogicalProject<CHILD_TYPE extends Plan<CHILD_TYPE>>
+public class LogicalProject<CHILD_TYPE extends Plan>
         extends LogicalUnary<LogicalProject<CHILD_TYPE>, CHILD_TYPE> {
 
     private final List<? extends NamedExpression> projects;

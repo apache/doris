@@ -22,8 +22,8 @@ package org.apache.doris.nereids.trees;
  */
 public interface BinaryNode<
             NODE_TYPE extends BinaryNode<NODE_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends TreeNode<LEFT_CHILD_TYPE>,
-            RIGHT_CHILD_TYPE extends TreeNode<RIGHT_CHILD_TYPE>>
+            LEFT_CHILD_TYPE extends TreeNode,
+            RIGHT_CHILD_TYPE extends TreeNode>
         extends TreeNode<NODE_TYPE> {
 
     default LEFT_CHILD_TYPE left() {

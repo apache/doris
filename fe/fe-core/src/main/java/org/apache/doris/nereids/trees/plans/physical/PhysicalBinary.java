@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
  */
 public abstract class PhysicalBinary<
             PLAN_TYPE extends PhysicalBinary<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan<LEFT_CHILD_TYPE>,
-            RIGHT_CHILD_TYPE extends Plan<RIGHT_CHILD_TYPE>>
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalPlan<PLAN_TYPE>
         implements BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 

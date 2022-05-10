@@ -22,7 +22,7 @@ package org.apache.doris.nereids.trees;
  */
 public interface UnaryNode<
             NODE_TYPE extends UnaryNode<NODE_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends TreeNode<CHILD_TYPE>>
+            CHILD_TYPE extends TreeNode>
         extends TreeNode<NODE_TYPE> {
 
     default CHILD_TYPE child() {
