@@ -18,13 +18,14 @@
 #include "vec/exec/vbroker_scanner.h"
 
 #include <fmt/format.h>
+
 #include <iostream>
 #include <sstream>
 
-#include "exec/text_converter.h"
 #include "exec/exec_node.h"
-#include "exprs/expr_context.h"
 #include "exec/plain_text_line_reader.h"
+#include "exec/text_converter.h"
+#include "exprs/expr_context.h"
 #include "util/utf8_check.h"
 
 namespace doris::vectorized {

@@ -20,9 +20,9 @@
 #include <memory>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "olap/column_predicate.h"
 #include "olap/block_column_predicate.h"
+#include "olap/column_predicate.h"
+#include "olap/olap_common.h"
 #include "vec/core/block.h"
 
 namespace doris {

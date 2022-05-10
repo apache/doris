@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+
 #include "udf/udf.h"
 
 namespace doris {

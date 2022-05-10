@@ -5,12 +5,12 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <boost/stacktrace.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
-
-#include <boost/stacktrace.hpp>
-#include <glog/logging.h>
 
 #include "common/compiler_util.h"
 #include "common/logging.h"

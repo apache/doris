@@ -16,11 +16,11 @@
 // under the License.
 
 #pragma once
-#include <cstring>
 #include <fmt/format.h>
 
-#include "vec/columns/column_string.h"
+#include <cstring>
 
+#include "vec/columns/column_string.h"
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized {

@@ -18,12 +18,12 @@
 #pragma once
 
 #include <math.h>
+#include <parallel_hashmap/phmap.h>
 #include <stdio.h>
 
 #include <map>
 #include <set>
 #include <string>
-#include <parallel_hashmap/phmap.h>
 
 #ifdef __x86_64__
 #include <immintrin.h>

@@ -18,9 +18,11 @@
 #include "exec/broker_scanner.h"
 
 #include <fmt/format.h>
+
 #include <iostream>
 #include <sstream>
 
+#include "common/consts.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
@@ -38,7 +40,6 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
-#include "common/consts.h"
 
 namespace doris {
 

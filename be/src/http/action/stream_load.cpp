@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/utils.h"
 #include "gen_cpp/FrontendService.h"
@@ -59,7 +60,6 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "common/consts.h"
 
 namespace doris {
 

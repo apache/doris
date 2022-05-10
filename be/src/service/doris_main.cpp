@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
 
 #include <condition_variable>
 #include <cstring>
-#include <errno.h>
 #include <mutex>
-#include <setjmp.h>
 #include <thread>
-#include <unistd.h>
 #include <unordered_map>
 
 #include "util/jni-util.h"

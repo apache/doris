@@ -25,16 +25,15 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gutil/strings/substitute.h"
+#include "olap/delta_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
-#include "gutil/strings/substitute.h"
-
 #include "vec/core/block.h"
-#include "olap/delta_writer.h"
 
 namespace doris {
 

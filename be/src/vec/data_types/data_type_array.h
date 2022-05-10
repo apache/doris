@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "vec/data_types/data_type.h"
 #include "vec/columns/column_array.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
 

@@ -18,13 +18,13 @@
 #include "vec/sink/vtablet_sink.h"
 
 #include "runtime/thread_context.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/doris_metrics.h"
+#include "util/proto_util.h"
+#include "util/time.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "util/debug/sanitizer_scopes.h"
-#include "util/time.h"
-#include "util/proto_util.h"
 
 namespace doris {
 namespace stream_load {

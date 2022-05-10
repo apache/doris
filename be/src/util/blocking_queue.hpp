@@ -20,9 +20,10 @@
 
 #pragma once
 
-#include <list>
 #include <unistd.h>
+
 #include <condition_variable>
+#include <list>
 #include <mutex>
 
 #include "common/logging.h"

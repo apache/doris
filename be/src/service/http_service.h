@@ -19,8 +19,8 @@
 
 #include <memory>
 
-#include "common/status.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 
 namespace doris {
 

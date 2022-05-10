@@ -24,9 +24,9 @@
 #include "olap/skiplist.h"
 #include "runtime/mem_tracker.h"
 #include "util/tuple_row_zorder_compare.h"
-#include "vec/core/block.h"
-#include "vec/common/string_ref.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_ref.h"
+#include "vec/core/block.h"
 
 namespace doris {
 

@@ -20,8 +20,9 @@
 
 #include "runtime/runtime_state.h"
 
-#include <boost/algorithm/string/join.hpp>
 #include <fmt/format.h>
+
+#include <boost/algorithm/string/join.hpp>
 #include <sstream>
 #include <string>
 

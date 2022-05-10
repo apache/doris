@@ -4,8 +4,9 @@
 
 #include "common/status.h"
 
-#include <boost/stacktrace.hpp>
 #include <glog/logging.h>
+
+#include <boost/stacktrace.hpp>
 
 #include "gutil/strings/fastmem.h" // for memcpy_inlined
 namespace doris {
