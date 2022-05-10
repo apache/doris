@@ -900,6 +900,7 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 }
 
 Status TabletManager::start_trash_sweep() {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     {
         std::vector<TabletSharedPtr>
                 all_tablets; // we use this vector to save all tablet ptr for saving lock time.
@@ -1021,6 +1022,7 @@ void TabletManager::unregister_clone_tablet(int64_t tablet_id) {
 void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId tablet_id,
                                                   SchemaHash schema_hash,
                                                   const string& schema_hash_path) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     // acquire the read lock, so that there is no creating tablet or load tablet from meta tasks
     // create tablet and load tablet task should check whether the dir exists
     tablets_shard& shard = _get_tablets_shard(tablet_id);
@@ -1132,6 +1134,7 @@ void TabletManager::get_partition_related_tablets(int64_t partition_id,
 }
 
 void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::vector<TabletSharedPtr> related_tablets;
     {
         for (auto& tablets_shard : _tablets_shards) {

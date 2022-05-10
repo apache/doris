@@ -386,8 +386,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
 
 uint32_t TabletColumn::mem_size() const {
     auto size = sizeof(TabletColumn);
+    size += _col_name.size();
     if (_has_default_value) {
         size += _default_value.size();
+    }
+    if (_has_referenced_column) {
+        size += _referenced_column.size();
     }
     for (auto& sub_column : _sub_columns) {
         size += sub_column.mem_size();
