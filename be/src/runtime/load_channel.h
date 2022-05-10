@@ -128,7 +128,7 @@ private:
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
                               TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
