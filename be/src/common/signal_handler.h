@@ -33,10 +33,10 @@
 
 #pragma once
 
-#include <boost/stacktrace.hpp>
 #include <glog/logging.h>
 #include <gutil/macros.h>
 
+#include <boost/stacktrace.hpp>
 #include <csignal>
 #include <ctime>
 #ifdef HAVE_UCONTEXT_H

@@ -16,18 +16,18 @@
 // under the License.
 
 #include "beta_rowset_reader.h"
+
 #include <utility>
+
 #include "olap/delete_handler.h"
 #include "olap/generic_iterators.h"
-#include "vec/olap/vgeneric_iterators.h"
-
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
-
 #include "vec/core/block.h"
+#include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
 

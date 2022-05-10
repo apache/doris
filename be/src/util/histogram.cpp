@@ -18,9 +18,10 @@
 #include "util/histogram.h"
 
 #include <stdio.h>
-#include <limits>
+
 #include <cinttypes>
 #include <cmath>
+#include <limits>
 
 namespace doris {
 

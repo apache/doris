@@ -17,9 +17,8 @@
 
 #include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
-#include "vec/functions/function_binary_arithmetic.h"
-#include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_math_unary_to_null_type.h"
 #include "vec/functions/function_string.h"

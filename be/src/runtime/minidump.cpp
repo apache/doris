@@ -20,12 +20,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "client/linux/handler/exception_handler.h"
 #include "common/config.h"
 #include "env/env.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
-
-#include "client/linux/handler/exception_handler.h"
 
 namespace doris {
 

@@ -24,9 +24,9 @@
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/doris_metrics.h"
-#include "vec/core/field.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/core/field.h"
 
 namespace doris {
 

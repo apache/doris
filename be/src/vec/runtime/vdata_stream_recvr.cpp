@@ -21,7 +21,6 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/uid_util.h"
-
 #include "vec/core/block.h"
 #include "vec/core/materialize_block.h"
 #include "vec/core/sort_cursor.h"

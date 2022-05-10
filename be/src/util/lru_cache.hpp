@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include <iterator>
 #include <list>
 #include <unordered_map>
-#include <iterator>
 
 namespace doris {
 
