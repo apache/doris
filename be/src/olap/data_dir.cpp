@@ -814,8 +814,9 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     std::filesystem::path trash_local_path(trash_local_file);
     string trash_local_dir = trash_local_path.parent_path().string();
     if (!FileUtils::check_exist(trash_local_dir) && !FileUtils::create_dir(trash_local_dir).ok()) {
-        OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
-                         segment_path_desc.filepath.c_str(), trash_local_dir.c_str());
+        LOG(WARNING) << "delete file failed. due to mkdir failed. [file="
+                     << segment_path_desc.filepath.c_str() << " new_dir=" << trash_local_dir.c_str()
+                     << "]";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
@@ -843,9 +844,9 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
             Status rename_status = storage_backend->rename_dir(segment_path_desc.remote_path,
                                                                trash_path_desc.remote_path);
             if (!rename_status.ok()) {
-                OLAP_LOG_WARNING("Move remote file to trash failed. [file=%s target='%s']",
-                                 segment_path_desc.remote_path.c_str(),
-                                 trash_path_desc.remote_path.c_str());
+                LOG(WARNING) << "Move remote file to trash failed. [file="
+                             << segment_path_desc.remote_path << " target='"
+                             << trash_path_desc.remote_path << "']";
                 return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
             }
         } else if (status.is_not_found()) {
@@ -860,8 +861,8 @@ Status DataDir::move_to_trash(const FilePathDesc& segment_path_desc) {
     VLOG_NOTICE << "move file to trash. " << segment_path_desc.filepath << " -> "
                 << trash_local_file;
     if (rename(segment_path_desc.filepath.c_str(), trash_local_file.c_str()) < 0) {
-        OLAP_LOG_WARNING("move file to trash failed. [file=%s target='%s' err='%m']",
-                         segment_path_desc.filepath.c_str(), trash_local_file.c_str());
+        LOG(WARNING) << "move file to trash failed. [file=" << segment_path_desc.filepath
+                     << " target='" << trash_local_file << "' err='" << Errno::str() << "']";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 

@@ -35,25 +35,25 @@ Status RunLengthByteWriter::_write_values() {
         if (_repeat) {
             res = _output->write(_num_literals - MIN_REPEAT_SIZE);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to write control byte.");
+                LOG(WARNING) << "fail to write control byte.";
                 return res;
             }
 
             res = _output->write(_literals[0]);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to write repeat byte");
+                LOG(WARNING) << "fail to write repeat byte";
                 return res;
             }
         } else {
             res = _output->write(-_num_literals);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to write control byte.");
+                LOG(WARNING) << "fail to write control byte.";
                 return res;
             }
 
             res = _output->write(_literals, _num_literals);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to write literals bytes.");
+                LOG(WARNING) << "fail to write literals bytes.";
                 return res;
             }
         }

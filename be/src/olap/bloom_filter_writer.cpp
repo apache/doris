@@ -32,7 +32,7 @@ Status BloomFilterIndexWriter::add_bloom_filter(BloomFilter* bf) {
     try {
         _bloom_filters.push_back(bf);
     } catch (...) {
-        OLAP_LOG_WARNING("add bloom filter to vector fail");
+        LOG(WARNING) << "add bloom filter to vector fail";
         return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
@@ -51,7 +51,7 @@ uint64_t BloomFilterIndexWriter::estimate_buffered_memory() {
 Status BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
     Status res = Status::OK();
     if (nullptr == out_stream) {
-        OLAP_LOG_WARNING("out stream is null");
+        LOG(WARNING) << "out stream is null";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -59,7 +59,7 @@ Status BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
     _header.block_count = _bloom_filters.size();
     res = out_stream->write(reinterpret_cast<char*>(&_header), sizeof(_header));
     if (!res.ok()) {
-        OLAP_LOG_WARNING("write bloom filter index header fail");
+        LOG(WARNING) << "write bloom filter index header fail";
         return res;
     }
 
@@ -69,7 +69,7 @@ Status BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
         uint32_t data_len = _bloom_filters[i]->bit_set_data_len();
         res = out_stream->write(reinterpret_cast<char*>(data), sizeof(uint64_t) * data_len);
         if (!res.ok()) {
-            OLAP_LOG_WARNING("write bloom filter index fail, i=%u", i);
+            LOG(WARNING) << "write bloom filter index fail, i=" << i;
             return res;
         }
     }
@@ -80,13 +80,13 @@ Status BloomFilterIndexWriter::write_to_buffer(OutStream* out_stream) {
 Status BloomFilterIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
     Status res = Status::OK();
     if (nullptr == buffer) {
-        OLAP_LOG_WARNING("out stream is nullptr.");
+        LOG(WARNING) << "out stream is nullptr.";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     if (estimate_buffered_memory() > buffer_size) {
-        OLAP_LOG_WARNING("need more buffer. [scr_size=%lu buffer_size=%lu]",
-                         estimate_buffered_memory(), buffer_size);
+        LOG(WARNING) << "need more buffer. [scr_size=" << estimate_buffered_memory()
+                     << " buffer_size=" << buffer_size << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 

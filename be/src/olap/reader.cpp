@@ -331,8 +331,8 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else {
-        OLAP_LOG_WARNING("fail to init return columns. [reader_type=%d return_columns_size=%u]",
-                         read_params.reader_type, read_params.return_columns.size());
+        LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
+                     << " return_columns_size=" << read_params.return_columns.size() << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -390,8 +390,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
-            OLAP_LOG_WARNING("The start_key.at(%ld).size == %ld, not equals the %ld", i,
-                             read_params.start_key[i].size(), scan_key_size);
+            LOG(WARNING) << "The start_key.at(" << i
+                         << ").size == " << read_params.start_key[i].size() << ", not equals the "
+                         << scan_key_size;
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
@@ -414,8 +415,8 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
         if (read_params.end_key[i].size() != scan_key_size) {
-            OLAP_LOG_WARNING("The end_key.at(%ld).size == %ld, not equals the %ld", i,
-                             read_params.end_key[i].size(), scan_key_size);
+            LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
+                         << ", not equals the " << scan_key_size;
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 

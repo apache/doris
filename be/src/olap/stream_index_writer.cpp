@@ -97,7 +97,7 @@ Status StreamIndexWriter::add_index_entry(const PositionEntryWriter& entry) {
     try {
         _index_to_write.push_back(entry);
     } catch (...) {
-        OLAP_LOG_WARNING("add entry to index vector fail");
+        LOG(WARNING) << "add entry to index vector fail";
         return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
@@ -120,7 +120,7 @@ Status StreamIndexWriter::reset() {
     try {
         _index_to_write.clear();
     } catch (...) {
-        OLAP_LOG_WARNING("add entry to index vector fail");
+        LOG(WARNING) << "add entry to index vector fail";
         return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
@@ -137,12 +137,12 @@ size_t StreamIndexWriter::output_size() {
 
 Status StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
     if (nullptr == buffer) {
-        OLAP_LOG_WARNING("given buffer is null");
+        LOG(WARNING) << "given buffer is null";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     if (output_size() > buffer_size) {
-        OLAP_LOG_WARNING("need more buffer, size=%lu, given=%lu", output_size(), buffer_size);
+        LOG(WARNING) << "need more buffer, size=" << output_size() << ", given=" << buffer_size;
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
