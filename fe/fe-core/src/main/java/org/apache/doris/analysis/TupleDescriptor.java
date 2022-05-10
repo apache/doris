@@ -107,7 +107,8 @@ public class TupleDescriptor {
     }
 
     /**
-     * @param slotId
+     * get slot desc by slot id
+     * @param slotId slot id
      * @return this slot's desc
      */
     public SlotDescriptor getSlot(int slotId) {

@@ -1209,6 +1209,10 @@ public class Load {
     }
 
     /**
+     * columns that only exist in mapping expr args, replace type with inferred from exprs,
+     * if there are more than one, choose the last except varchar type
+     * for example:
+     * k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME
      * @param excludedColumns columns that the type should not be inferred from expr.
      *                         1. column exists in both schema and expr args.
      */

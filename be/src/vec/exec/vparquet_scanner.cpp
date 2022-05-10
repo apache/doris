@@ -89,7 +89,7 @@ Status VParquetScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
     Status status;
-    if (_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
+    if (!_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
         while (!_scanner_eof) {
             status = _next_arrow_batch();
             if (_scanner_eof) {
@@ -107,6 +107,7 @@ Status VParquetScanner::_init_arrow_batch_if_necessary() {
 
 Status VParquetScanner::_init_src_block(Block* block) {
     size_t batch_pos = 0;
+    block->clear();
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
@@ -114,6 +115,7 @@ Status VParquetScanner::_init_src_block(Block* block) {
         }
         auto* array = _batch->column(batch_pos++).get();
         // let src column be nullable for simplify converting
+        // TODO, support not nullable for exec efficiently
         auto is_nullable = true;
         DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(array->type()->id(), is_nullable);
@@ -132,6 +134,16 @@ Status VParquetScanner::get_next(vectorized::Block* block, bool* eof) {
     // overall of type converting:
     // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
     // primitive type(PT1) ==materialize_block==> dest primitive type
+
+    // first, we need to convert the arrow type to the corresponding internal type,
+    // such as arrow::INT16 to TYPE_SMALLINT(PT0).
+    // why need first step? we cannot convert the arrow type to type in src desc directly,
+    // it's too hard to achieve.
+
+    // second, convert PT0 to the type in src desc, such as TYPE_SMALLINT to TYPE_VARCHAR.(PT1)
+    // why need second step? the materialize step only accepts types specified in src desc.
+
+    // finally, through the materialized, convert to the type in dest desc, such as TYPE_DATETIME.
     SCOPED_TIMER(_read_timer);
     // init arrow batch
     {
@@ -200,9 +212,9 @@ Status VParquetScanner::_eval_conjunts(Block* block) {
 void VParquetScanner::_fill_columns_from_path(Block* block) {
     const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.num_of_columns_from_file) {
-        int start = range.num_of_columns_from_file;
-        int rows = block->rows();
-        for (int i = 0; i < range.columns_from_path.size(); ++i) {
+        size_t start = range.num_of_columns_from_file;
+        size_t rows = block->rows();
+        for (size_t i = 0; i < range.columns_from_path.size(); ++i) {
             auto slot_desc = _src_slot_descs.at(i + start);
             if (slot_desc == nullptr) continue;
             auto is_nullable = slot_desc->is_nullable();
