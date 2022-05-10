@@ -293,6 +293,7 @@ private:
     // When the proportion of empty edges in the adjacency matrix used to represent the version graph
     // in the version tracker is greater than the threshold, rebuild the version tracker
     bool _reconstruct_version_tracker_if_necessary();
+    void _init_context_common_fields(RowsetWriterContext& context);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

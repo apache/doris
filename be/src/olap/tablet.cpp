@@ -1481,24 +1481,10 @@ Status Tablet::create_rowset_writer(const Version& version, const RowsetStatePB&
                                     const SegmentsOverlapPB& overlap,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    context.tablet_uid = tablet_uid();
-    context.tablet_id = tablet_id();
-    context.partition_id = partition_id();
-    context.tablet_schema_hash = schema_hash();
-    context.data_dir = data_dir();
-    context.rowset_type = tablet_meta()->preferred_rowset_type();
-    // Alpha Rowset will be removed in the future, so that if the tablet's default rowset type is
-    // alpah rowset, then set the newly created rowset to storage engine's default rowset.
-    if (context.rowset_type == ALPHA_ROWSET) {
-        context.rowset_type = StorageEngine::instance()->default_rowset_type();
-    }
-    context.path_desc = tablet_path_desc();
-    context.tablet_schema = &(tablet_schema());
-    context.rowset_state = rowset_state;
     context.version = version;
+    context.rowset_state = rowset_state;
     context.segments_overlap = overlap;
-    // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
+    _init_context_common_fields(context);
     return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }
 
@@ -1507,6 +1493,15 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
                                     const SegmentsOverlapPB& overlap,
                                     std::unique_ptr<RowsetWriter>* rowset_writer) {
     RowsetWriterContext context;
+    context.txn_id = txn_id;
+    context.load_id = load_id;
+    context.rowset_state = rowset_state;
+    context.segments_overlap = overlap;
+    _init_context_common_fields(context);
+    return RowsetFactory::create_rowset_writer(context, rowset_writer);
+}
+
+void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = tablet_uid();
     context.tablet_id = tablet_id();
@@ -1520,12 +1515,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
     }
     context.path_desc = tablet_path_desc();
     context.tablet_schema = &(tablet_schema());
-    context.rowset_state = rowset_state;
-    context.txn_id = txn_id;
-    context.load_id = load_id;
-    context.segments_overlap = overlap;
     context.data_dir = data_dir();
-    return RowsetFactory::create_rowset_writer(context, rowset_writer);
 }
 
 Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset) {
