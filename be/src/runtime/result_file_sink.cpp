@@ -114,10 +114,6 @@ Status ResultFileSink::prepare(RuntimeState* state) {
         _local_bytes_send_counter = ADD_COUNTER(profile(), "LocalBytesSent", TUnit::BYTES);
         _uncompressed_bytes_counter =
                 ADD_COUNTER(profile(), "UncompressedRowBatchSize", TUnit::BYTES);
-        // TODO(zxy) used after
-        _mem_tracker = MemTracker::create_tracker(
-                -1, "ResultFileSink:" + print_id(state->fragment_instance_id()),
-                state->instance_mem_tracker(), MemTrackerLevel::VERBOSE, _profile);
         // create writer
         _output_batch = new RowBatch(_output_row_descriptor, 1024);
         _writer.reset(new (std::nothrow) FileResultWriter(

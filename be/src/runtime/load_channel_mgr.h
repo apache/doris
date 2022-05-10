@@ -58,6 +58,8 @@ public:
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
 
+    std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
+
 private:
     static LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit,
                                              int64_t timeout_s, bool is_high_priority,
@@ -116,7 +118,6 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;

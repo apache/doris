@@ -39,7 +39,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _data_page_builder(nullptr),
           _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
-          _pool("BinaryDictPageBuilder") {
+          _pool() {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
     _data_page_builder.reset(new BitshufflePageBuilder<OLAP_FIELD_TYPE_INT>(options));
