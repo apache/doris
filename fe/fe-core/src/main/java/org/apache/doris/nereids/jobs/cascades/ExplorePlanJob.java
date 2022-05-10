@@ -24,6 +24,7 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.PlanReference;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.Comparator;
 import java.util.List;
@@ -47,7 +48,7 @@ public class ExplorePlanJob extends Job {
 
     @Override
     public void execute() {
-        List<Rule> explorationRules = getRuleSet().getExplorationRules();
+        List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
         prunedInvalidRules(planReference, explorationRules);
         explorationRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
@@ -55,7 +56,7 @@ public class ExplorePlanJob extends Job {
             pushTask(new ApplyRuleJob(planReference, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (!childPattern.children().isEmpty()) {
+                if (childPattern.arity() > 0) {
                     Group childSet = planReference.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }

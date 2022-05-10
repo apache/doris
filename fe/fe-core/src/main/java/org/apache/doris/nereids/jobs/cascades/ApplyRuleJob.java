@@ -34,7 +34,7 @@ import java.util.List;
  */
 public class ApplyRuleJob extends Job {
     private final PlanReference planReference;
-    private final Rule rule;
+    private final Rule<Plan> rule;
     private final boolean exploredOnly;
 
     /**
@@ -44,7 +44,7 @@ public class ApplyRuleJob extends Job {
      * @param rule rule to be applied
      * @param context context of optimization
      */
-    public ApplyRuleJob(PlanReference planReference, Rule rule, PlannerContext context) {
+    public ApplyRuleJob(PlanReference planReference, Rule<Plan> rule, PlannerContext context) {
         super(JobType.APPLY_RULE, context);
         this.planReference = planReference;
         this.rule = rule;
@@ -63,8 +63,8 @@ public class ApplyRuleJob extends Job {
             if (!rule.check(plan, context)) {
                 continue;
             }
-            List<Plan<?>> newPlanList = rule.transform(plan, context);
-            for (Plan<?> newPlan : newPlanList) {
+            List<Plan> newPlanList = rule.transform(plan, context);
+            for (Plan newPlan : newPlanList) {
                 PlanReference newReference = context.getOptimizerContext().getMemo()
                         .newPlanReference(newPlan, planReference.getParent());
                 // TODO need to check return is a new Reference, other wise will be into a dead loop

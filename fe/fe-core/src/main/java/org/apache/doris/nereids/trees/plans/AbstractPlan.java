@@ -45,11 +45,6 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
     }
 
     @Override
-    public NodeType getType() {
-        return type;
-    }
-
-    @Override
     public abstract List<Slot> getOutput() throws UnboundException;
 
     @Override

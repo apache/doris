@@ -20,16 +20,12 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.analyzer.UnboundRelation;
-import org.apache.doris.nereids.pattern.Pattern;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -37,29 +33,27 @@ import java.util.List;
 /**
  * Rule to bind relations in query plan.
  */
-public class AnalysisUnboundRelationRule extends AnalysisRule {
-    public AnalysisUnboundRelationRule() {
-        super(RuleType.BINDING_UNBOUND_RELATION_RULE, new Pattern(NodeType.LOGICAL_UNBOUND_RELATION));
-    }
-
+public class AnalysisUnboundRelation extends OneAnalysisRuleFactory {
     @Override
-    public List<Plan<?>> transform(Plan<?> plan, PlannerContext context) throws AnalysisException {
-        UnboundRelation unboundRelation = (UnboundRelation) plan;
-        List<String> nameParts = unboundRelation.getNameParts();
-        switch (nameParts.size()) {
-            case 1: {
-                List<String> qualifier = Lists.newArrayList(
-                        context.getConnectContext().getDatabase(), nameParts.get(0));
-                Table table = getTable(qualifier, context.getConnectContext().getCatalog());
-                return ImmutableList.of(new LogicalRelation(table, qualifier));
+    public Rule<Plan> build() {
+        // fixme, just for example now
+        return unboundRelation().thenApply(ctx -> {
+            ConnectContext connectContext = ctx.plannerContext.getConnectContext();
+            List<String> nameParts = ctx.root.getNameParts();
+            switch (nameParts.size()) {
+                case 1: {
+                    List<String> qualifier = Lists.newArrayList(connectContext.getDatabase(), nameParts.get(0));
+                    Table table = getTable(qualifier, connectContext.getCatalog());
+                    return new LogicalRelation(table, qualifier);
+                }
+                case 2: {
+                    Table table = getTable(nameParts, connectContext.getCatalog());
+                    return new LogicalRelation(table, nameParts);
+                }
+                default:
+                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
             }
-            case 2: {
-                Table table = getTable(nameParts, context.getConnectContext().getCatalog());
-                return ImmutableList.of(new LogicalRelation(table, nameParts));
-            }
-            default:
-                throw new AnalysisException("Table name [" + unboundRelation.getTableName() + "] is invalid.");
-        }
+        }).toRule(RuleType.BINDING_UNBOUND_RELATION_RULE);
     }
 
     private Table getTable(List<String> qualifier, Catalog catalog) {
