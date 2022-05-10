@@ -1064,6 +1064,13 @@ public class Load {
                 // which is not nullable.
                 slotDesc.setIsNullable(true);
                 slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+
+                boolean isBitmapType = tbl.getColumn(columnName).getType().isBitmapType();
+                if(isBitmapType){
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.BITMAP));
+                }
+
                 params.addToSrcSlotIds(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
