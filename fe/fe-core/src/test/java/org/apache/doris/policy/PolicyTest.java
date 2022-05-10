@@ -77,6 +77,17 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
+    public void testExistPolicy() throws Exception {
+        createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
+        Assertions.assertTrue(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1 FOR test_policy");
+        Assertions.assertFalse(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+        createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
+        dropPolicy("DROP ROW POLICY test_row_policy ON test.table1");
+        Assertions.assertFalse(Catalog.getCurrentCatalog().getPolicyMgr().existPolicy("default_cluster:test_policy"));
+    }
+
+    @Test
     public void testNormalSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
         String queryStr = "EXPLAIN select * from test.table1";
