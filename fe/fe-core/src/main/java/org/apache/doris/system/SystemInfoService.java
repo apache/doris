@@ -72,28 +72,6 @@ public class SystemInfoService {
 
     public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
 
-    public static class BeAvailablePredicate {
-        private boolean scheduleAvailable;
-
-        private boolean queryAvailable;
-
-        private boolean loadAvailable;
-
-        public BeAvailablePredicate(boolean scheduleAvailable, boolean queryAvailable, boolean loadAvailable) {
-            this.scheduleAvailable = scheduleAvailable;
-            this.queryAvailable = queryAvailable;
-            this.loadAvailable = loadAvailable;
-        }
-
-        public boolean isMatch(Backend backend) {
-            if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
-                    loadAvailable && !backend.isLoadAvailable()) {
-                return false;
-            }
-            return true;
-        }
-    }
-
     private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
     private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
