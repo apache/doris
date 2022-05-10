@@ -35,9 +35,9 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
-#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;

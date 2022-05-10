@@ -23,7 +23,6 @@
 
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
-
 #include "vec/core/block.h"
 
 namespace doris {

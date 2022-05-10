@@ -23,8 +23,8 @@
 #include <sys/file.h>
 #include <sys/statfs.h>
 #include <utime.h>
-#include <atomic>
 
+#include <atomic>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -47,7 +47,6 @@
 #include "util/file_utils.h"
 #include "util/storage_backend.h"
 #include "util/storage_backend_mgr.h"
-
 #include "util/string_util.h"
 
 using strings::Substitute;

@@ -21,8 +21,8 @@
 #include "vec/data_types/data_type_date.h"
 
 #include "runtime/datetime_value.h"
-#include "vec/columns/columns_number.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/columns_number.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 bool DataTypeDate::equals(const IDataType& rhs) const {

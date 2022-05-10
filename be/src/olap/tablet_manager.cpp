@@ -28,9 +28,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
-#include "rapidjson/document.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
 
 #include "env/env.h"
 #include "env/env_util.h"
@@ -49,6 +46,9 @@
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"

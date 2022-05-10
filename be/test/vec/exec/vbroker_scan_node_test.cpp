@@ -23,16 +23,16 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "exprs/binary_predicate.h"
-#include "runtime/primitive_type.h"
-#include "exprs/slot_ref.h"
-#include "exprs/literal.h"
-#include "runtime/mem_tracker.h"
 #include "exec/local_file_reader.h"
+#include "exprs/binary_predicate.h"
 #include "exprs/cast_functions.h"
+#include "exprs/literal.h"
+#include "exprs/slot_ref.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 

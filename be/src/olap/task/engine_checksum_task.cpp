@@ -18,8 +18,8 @@
 #include "olap/task/engine_checksum_task.h"
 
 #include "olap/row.h"
-#include "runtime/thread_context.h"
 #include "olap/tuple_reader.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
