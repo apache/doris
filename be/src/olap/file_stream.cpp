@@ -63,12 +63,12 @@ Status ReadOnlyFileStream::_assure_data() {
         SCOPED_RAW_TIMER(&_stats->io_ns);
         res = _file_cursor.read(reinterpret_cast<char*>(&header), sizeof(header));
         if (OLAP_UNLIKELY(!res.ok())) {
-            OLAP_LOG_WARNING("read header fail");
+            LOG(WARNING) << "read header fail";
             return res;
         }
         res = _fill_compressed(header.length);
         if (OLAP_UNLIKELY(!res.ok())) {
-            OLAP_LOG_WARNING("read header fail");
+            LOG(WARNING) << "read header fail";
             return res;
         }
         _stats->compressed_bytes_read += sizeof(header) + header.length;
@@ -122,7 +122,7 @@ Status ReadOnlyFileStream::seek(PositionProvider* position) {
             VLOG_TRACE << "file stream eof.";
             return res;
         } else {
-            OLAP_LOG_WARNING("fail to assure data after seek");
+            LOG(WARNING) << "fail to assure data after seek";
             return res;
         }
     }
@@ -171,7 +171,7 @@ Status ReadOnlyFileStream::_fill_compressed(size_t length) {
 
     Status res = _file_cursor.read((*_shared_buffer)->array(), length);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to fill compressed buffer.");
+        LOG(WARNING) << "fail to fill compressed buffer.";
         return res;
     }
 

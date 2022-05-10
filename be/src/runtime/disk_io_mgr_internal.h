@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr-internal.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
-#define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H
+#pragma once
 
 #include <unistd.h>
 
@@ -457,5 +456,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_INTERNAL_H

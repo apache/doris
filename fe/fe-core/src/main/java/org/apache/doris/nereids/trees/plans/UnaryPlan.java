@@ -26,7 +26,7 @@ import java.util.List;
  */
 public interface UnaryPlan<
             PLAN_TYPE extends UnaryPlan<PLAN_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Plan<CHILD_TYPE>>
+            CHILD_TYPE extends Plan>
         extends Plan<PLAN_TYPE>, UnaryNode<PLAN_TYPE, CHILD_TYPE> {
 
     @Override

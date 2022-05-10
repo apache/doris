@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.UnaryPlan;
  */
 public abstract class LogicalUnary<
             PLAN_TYPE extends LogicalUnary<PLAN_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Plan<CHILD_TYPE>>
+            CHILD_TYPE extends Plan>
         extends AbstractLogicalPlan<PLAN_TYPE>
         implements UnaryPlan<PLAN_TYPE, CHILD_TYPE> {
 

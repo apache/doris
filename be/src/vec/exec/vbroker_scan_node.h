@@ -51,6 +51,7 @@ private:
     Status scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter);
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
+    std::unique_ptr<MutableBlock> _mutable_block;
 };
 } // namespace vectorized
 } // namespace doris

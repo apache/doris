@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_EXEC_ENV_H
-#define DORIS_BE_RUNTIME_EXEC_ENV_H
+#pragma once
 
 #include "common/status.h"
 #include "olap/options.h"
@@ -256,5 +255,3 @@ ExecEnv::get_client_cache<TExtDataSourceServiceClient>() {
 }
 
 } // namespace doris
-
-#endif

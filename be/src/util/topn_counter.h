@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTI_TOPN_COUNTER_H
-#define DORIS_BE_SRC_UTI_TOPN_COUNTER_H
+#pragma once
 
 #include <list>
 #include <unordered_map>
@@ -171,5 +170,3 @@ public:
     }
 };
 } // namespace doris
-
-#endif //DORIS_BE_SRC_UTI_TOPN_COUNTER_H

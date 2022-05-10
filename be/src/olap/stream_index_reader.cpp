@@ -85,7 +85,7 @@ StreamIndexReader::~StreamIndexReader() {
 Status StreamIndexReader::init(char* buffer, size_t buffer_size, FieldType type,
                                bool is_using_cache, bool null_supported) {
     if (nullptr == buffer) {
-        OLAP_LOG_WARNING("buffer given is invalid.");
+        LOG(WARNING) << "buffer given is invalid.";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -96,7 +96,7 @@ Status StreamIndexReader::init(char* buffer, size_t buffer_size, FieldType type,
     Status res = _parse_header(type);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to parse header");
+        LOG(WARNING) << "fail to parse header";
         return res;
     }
 
@@ -114,7 +114,7 @@ size_t StreamIndexReader::entry_count() {
 
 Status StreamIndexReader::_parse_header(FieldType type) {
     if (_buffer_size < sizeof(StreamIndexHeader)) {
-        OLAP_LOG_WARNING("invalid length");
+        LOG(WARNING) << "invalid length";
         return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
     }
 
@@ -124,7 +124,7 @@ Status StreamIndexReader::_parse_header(FieldType type) {
     res = _entry.init(header, type, _null_supported);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to init statistic reader");
+        LOG(WARNING) << "fail to init statistic reader";
         return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
     }
 

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Physical filter plan node.
  */
-public class PhysicalFilter<CHILD_TYPE extends Plan<CHILD_TYPE>>
+public class PhysicalFilter<CHILD_TYPE extends Plan>
         extends PhysicalUnary<PhysicalFilter<CHILD_TYPE>, CHILD_TYPE> {
 
     private final Expression predicates;

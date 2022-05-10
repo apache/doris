@@ -15,18 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.pattern;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.PlannerContext;
+import org.apache.doris.nereids.trees.TreeNode;
 
 /**
- * Abstract class for all rules used in analysis stage.
+ * Define a context when match a pattern pass through a MatchedAction.
  */
-public abstract class AnalysisRule extends Rule {
-    public AnalysisRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.ANALYSIS);
+public class MatchingContext<T extends TreeNode> {
+    public final T root;
+    public final Pattern<T> pattern;
+    public final PlannerContext plannerContext;
+
+    /**
+     * the MatchingContext is the param pass through the MatchedAction.
+     *
+     * @param root the matched tree node root
+     * @param pattern the defined pattern
+     * @param plannerContext the planner context
+     */
+    public MatchingContext(T root, Pattern<T> pattern, PlannerContext plannerContext) {
+        this.root = root;
+        this.pattern = pattern;
+        this.plannerContext = plannerContext;
     }
 }

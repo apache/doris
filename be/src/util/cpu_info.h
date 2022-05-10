@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/cpu-info.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_CPU_INFO_H
-#define DORIS_BE_SRC_UTIL_CPU_INFO_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -223,4 +222,3 @@ private:
     static std::vector<int> numa_node_core_idx_;
 };
 } // namespace doris
-#endif

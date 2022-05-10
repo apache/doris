@@ -59,7 +59,7 @@ Status InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) {
         return Status::OK();
     } else if (_current_range >= _inputs.size() - 1) {
         // 如果buffer用完了
-        OLAP_LOG_WARNING("EOF in InStream. [Need=%lu]", chunk_size);
+        LOG(WARNING) << "EOF in InStream. [Need=" << chunk_size << "]";
         return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
     }
 
@@ -112,7 +112,7 @@ Status InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) {
     // 到这里就意味着上边的循环里没有取到足够的buf
     // 回退到进来之前的状态
     _seek(old_offset);
-    OLAP_LOG_WARNING("EOF in InStream. [Need=%lu]", chunk_size);
+    LOG(WARNING) << "EOF in InStream. [Need=" << chunk_size << "]";
     return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
 }
 
@@ -146,8 +146,8 @@ Status InStream::_assure_data() {
         _compressed->get((char*)&head, sizeof(head));
 
         if (head.length > _compress_buffer_size) {
-            OLAP_LOG_WARNING("chunk size is larger than buffer size. [chunk=%u buffer_size=%u]",
-                             head.length, _compress_buffer_size);
+            LOG(WARNING) << "chunk size is larger than buffer size. [chunk=" << head.length
+                         << " buffer_size=" << _compress_buffer_size << "]";
             return Status::OLAPInternalError(OLAP_ERR_COLUMN_READ_STREAM);
         }
 
@@ -158,7 +158,7 @@ Status InStream::_assure_data() {
         // 根据head取一块buf，这里应该要调整_current_offset
         res = _slice(head.length, &slice);
         if (OLAP_LIKELY(!res.ok())) {
-            OLAP_LOG_WARNING("fail to slice data from stream.");
+            LOG(WARNING) << "fail to slice data from stream.";
             return Status::OLAPInternalError(OLAP_ERR_COLUMN_READ_STREAM);
         }
 
@@ -179,10 +179,10 @@ Status InStream::_assure_data() {
             SAFE_DELETE(slice);
         }
     } else {
-        OLAP_LOG_WARNING(
-                "compressed remaining size less than stream head size. "
-                "[compressed_remaining_size=%lu stream_head_size=%lu]",
-                _compressed->remaining(), sizeof(StreamHead));
+        LOG(WARNING) << "compressed remaining size less than stream head size. "
+                        "[compressed_remaining_size="
+                     << _compressed->remaining() << " stream_head_size=" << sizeof(StreamHead)
+                     << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_READ_STREAM);
     }
 

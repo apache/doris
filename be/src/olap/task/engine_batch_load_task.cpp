@@ -72,7 +72,7 @@ Status EngineBatchLoadTask::execute() {
                 status = _process();
                 // Internal error, need retry
                 if (!status.ok()) {
-                    OLAP_LOG_WARNING("push internal error, need retry.signature: %ld", _signature);
+                    LOG(WARNING) << "push internal error, need retry.signature: " << _signature;
                     retry_time += 1;
                 } else {
                     break;

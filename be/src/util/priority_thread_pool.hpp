@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
+#pragma once
 
 #include <mutex>
 #include <thread>
@@ -152,5 +151,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

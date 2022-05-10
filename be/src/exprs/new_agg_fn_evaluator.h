@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.h
 // and modified by Doris
 
-#ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
-#define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
+#pragma once
 
 #include <string>
 
@@ -318,5 +317,3 @@ inline void NewAggFnEvaluator::Finalize(const std::vector<NewAggFnEvaluator*>& e
 }
 
 } // namespace doris
-
-#endif

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef ORC_SCANNER_H
-#define ORC_SCANNER_H
+#pragma once
 
 #include <orc/OrcFile.hh>
 
@@ -73,4 +72,3 @@ private:
 };
 
 } // namespace doris
-#endif //ORC_SCANNER_H

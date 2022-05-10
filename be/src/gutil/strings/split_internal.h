@@ -14,8 +14,7 @@
 //
 // IWYU pragma: private, include "strings/split.h"
 
-#ifndef STRINGS_SPLIT_INTERNAL_H_
-#define STRINGS_SPLIT_INTERNAL_H_
+#pragma once
 
 #include <iterator>
 using std::back_insert_iterator;
@@ -389,5 +388,3 @@ private:
 } // namespace internal
 
 } // namespace strings
-
-#endif // STRINGS_SPLIT_INTERNAL_H_

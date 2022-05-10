@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_RESULT_FILE_SINK_H
-#define DORIS_BE_RUNTIME_RESULT_FILE_SINK_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -79,4 +78,3 @@ private:
 };
 
 } // namespace doris
-#endif
