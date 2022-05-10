@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/exec/vjson_scanner.h"
+
 #include <gtest/gtest.h>
 #include <time.h>
 
@@ -25,8 +27,6 @@
 #include "common/object_pool.h"
 #include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
-#include "vec/exec/vbroker_scan_node.h"
-#include "vec/exec/vjson_scanner.h"
 #include "exprs/cast_functions.h"
 #include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -37,6 +37,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
+#include "vec/exec/vbroker_scan_node.h"
 
 namespace doris {
 namespace vectorized {

@@ -21,8 +21,8 @@
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
-#include "vec/exprs/vexpr_context.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 

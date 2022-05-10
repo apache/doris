@@ -17,8 +17,9 @@
 
 #include "vec/exec/vjson_scanner.h"
 
-#include <algorithm>
 #include <fmt/format.h>
+
+#include <algorithm>
 
 #include "env/env.h"
 #include "exec/broker_reader.h"
@@ -80,9 +81,9 @@ Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {
             // Read empty row, just continue
             continue;
         }
-        COUNTER_UPDATE(_rows_read_counter, 1);
     }
 
+    COUNTER_UPDATE(_rows_read_counter, columns[0]->size());
     SCOPED_TIMER(_materialize_timer);
     RETURN_IF_ERROR(BaseScanner::fill_dest_block(output_block, columns));
 
