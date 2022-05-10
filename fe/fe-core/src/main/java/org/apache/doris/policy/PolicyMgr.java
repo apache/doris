@@ -255,7 +255,6 @@ public class PolicyMgr implements Writable {
     private boolean existUserPolicy(String user) {
         readLock();
         try {
-            boolean exist = false;
             for (Map<String, Policy> policies : dbIdToMergePolicyMap.values()) {
                 for (Policy policy : policies.values()) {
                     if (policy.getUser().getQualifiedUser().equals(user)) {
@@ -263,7 +262,7 @@ public class PolicyMgr implements Writable {
                     }
                 }
             }
-            return exist;
+            return false;
         } finally {
             readUnlock();
         }
