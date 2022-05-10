@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/exec-node.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_EXEC_NODE_H
+#pragma once
 
 #include <mutex>
 #include <sstream>
@@ -374,5 +373,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

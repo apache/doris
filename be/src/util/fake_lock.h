@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/fake-lock.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_FAKE_LOCK_H
-#define DORIS_BE_SRC_UTIL_FAKE_LOCK_H
+#pragma once
 
 #include "gutil/macros.h"
 
@@ -39,5 +38,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_FAKE_LOCK_H

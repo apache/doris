@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_DPP_WRITER_H
-#define DORIS_BE_RUNTIME_DPP_WRITER_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/olap_file.pb.h"
@@ -72,5 +71,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

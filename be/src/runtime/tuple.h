@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/tuple.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TUPLE_H
-#define DORIS_BE_RUNTIME_TUPLE_H
+#pragma once
 
 #include <cstring>
 
@@ -188,5 +187,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/operators.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_OPERATORS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_OPERATORS_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -250,5 +249,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

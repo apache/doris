@@ -3,8 +3,7 @@
 //
 // Convert strings to numbers or numbers to strings.
 
-#ifndef STRINGS_NUMBERS_H_
-#define STRINGS_NUMBERS_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -571,5 +570,3 @@ bool ParseDoubleRange(const char* text, int len, const char** end, double* from,
 // inline string UInt64ToString(uint64 ui64) {
 //   return StringPrintf("%7" PRIu64, ui64);
 // }
-
-#endif // STRINGS_NUMBERS_H_

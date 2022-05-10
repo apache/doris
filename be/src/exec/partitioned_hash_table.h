@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/partitioned-hash-table.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
-#define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -966,5 +965,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

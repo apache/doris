@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef IMPALA_RUNTIME_BUFFERPOOL_SUBALLOCATOR_H
-#define IMPALA_RUNTIME_BUFFERPOOL_SUBALLOCATOR_H
+#pragma once
 
 #include <cstdint>
 #include <memory>
@@ -220,5 +219,3 @@ private:
     bool in_use_;
 };
 } // namespace doris
-
-#endif

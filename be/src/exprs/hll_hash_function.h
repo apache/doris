@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HLL_HASH_FUNCTION_H
+#pragma once
 
 #include "exprs/anyval_util.h"
 #include "udf/udf.h"
@@ -36,5 +35,3 @@ public:
     static BigIntVal hll_cardinality(FunctionContext* ctx, const HllVal& dest_base);
 };
 } // namespace doris
-
-#endif

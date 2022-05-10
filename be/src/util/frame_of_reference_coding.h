@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_FRAME_OF_REFERENCE_CODING_H
-#define DORIS_FRAME_OF_REFERENCE_CODING_H
+#pragma once
 
 #include <cstdlib>
 #include <iostream>
@@ -188,5 +187,3 @@ private:
     std::vector<T> _out_buffer; // store values of decoded frame
 };
 } // namespace doris
-
-#endif //DORIS_FRAME_OF_REFERENCE_CODING_H

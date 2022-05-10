@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/like-predicate.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_LIKE_PREDICATE_H
+#pragma once
 
 #include <re2/re2.h>
 
@@ -162,5 +161,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

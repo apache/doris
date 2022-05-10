@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/literal.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_LITERAL_H
-#define DORIS_BE_SRC_QUERY_EXPRS_LITERAL_H
+#pragma once
 
 #include "binary_predicate.h"
 #include "common/object_pool.h"
@@ -61,5 +60,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

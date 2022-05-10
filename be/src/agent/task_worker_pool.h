@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_TASK_WORKER_POOL_H
-#define DORIS_BE_SRC_TASK_WORKER_POOL_H
+#pragma once
 
 #include <atomic>
 #include <deque>
@@ -250,4 +249,3 @@ private:
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
 } // namespace doris
-#endif // DORIS_BE_SRC_TASK_WORKER_POOL_H

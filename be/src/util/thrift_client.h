@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_CLIENT_H
-#define DORIS_BE_SRC_COMMON_UTIL_THRIFT_CLIENT_H
+#pragma once
 
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -129,4 +128,3 @@ ThriftClient<InterfaceType>::ThriftClient(const std::string& ipaddress, int port
 }
 
 } // namespace doris
-#endif

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_THREAD_RESOURCE_MGR_H
-#define DORIS_BE_RUNTIME_THREAD_RESOURCE_MGR_H
+#pragma once
 
 #include <stdlib.h>
 
@@ -246,5 +245,3 @@ inline void ThreadResourceMgr::ResourcePool::release_thread_token(bool required)
 }
 
 } // namespace doris
-
-#endif

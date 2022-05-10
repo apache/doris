@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-mgr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
-#define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
+#pragma once
 
 #include <condition_variable>
 #include <list>
@@ -136,5 +135,3 @@ private:
 };
 
 } // namespace doris
-
-#endif
