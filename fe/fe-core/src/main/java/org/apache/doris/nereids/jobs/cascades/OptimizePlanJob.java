@@ -24,9 +24,9 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.PlanReference;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.clearspring.analytics.util.Lists;
-
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -43,9 +43,9 @@ public class OptimizePlanJob extends Job {
 
     @Override
     public void execute() {
-        List<Rule> validRules = Lists.newArrayList();
-        List<Rule> explorationRules = getRuleSet().getExplorationRules();
-        List<Rule> implementationRules = getRuleSet().getImplementationRules();
+        List<Rule<Plan>> validRules = new ArrayList<>();
+        List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
+        List<Rule<Plan>> implementationRules = getRuleSet().getImplementationRules();
         prunedInvalidRules(planReference, explorationRules);
         prunedInvalidRules(planReference, implementationRules);
         validRules.addAll(explorationRules);
@@ -59,7 +59,7 @@ public class OptimizePlanJob extends Job {
             // child before applying the rule. (assumes task pool is effectively a stack)
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (!childPattern.children().isEmpty()) {
+                if (childPattern.arity() > 0) {
                     Group childSet = planReference.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }

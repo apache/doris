@@ -15,34 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.exploration;
 
-import org.apache.doris.nereids.trees.BinaryNode;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.OnePlanRuleFactory;
 
 /**
- * interface for all plan that have two children.
+ * abstract class for all rule factories build one rule used in exploration stage.
  */
-public interface BinaryPlan<
-            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    @Override
-    default LEFT_CHILD_TYPE left() {
-        return BinaryNode.super.left();
-    }
-
-    @Override
-    default RIGHT_CHILD_TYPE right() {
-        return BinaryNode.super.right();
-    }
+public abstract class OneExplorationRuleFactory
+        extends OnePlanRuleFactory implements ExplorationRuleFactory {
 }

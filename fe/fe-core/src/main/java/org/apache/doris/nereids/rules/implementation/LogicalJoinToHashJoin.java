@@ -17,16 +17,24 @@
 
 package org.apache.doris.nereids.rules.implementation;
 
-import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalBroadcastHashJoin;
+
 
 /**
- * Abstract class for all implementation rules.
+ * Implementation rule that convert logical join to physical hash join.
  */
-public abstract class ImplementationRule extends Rule {
-    public ImplementationRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.IMPLEMENT);
+public class LogicalJoinToHashJoin extends OneImplementationRuleFactory {
+    @Override
+    public Rule<Plan> build() {
+        // fixme, just for example now
+        return logicalJoin().then(join -> new PhysicalBroadcastHashJoin(
+            join.getJoinType(),
+            join.left(),
+            join.right(),
+            join.getOnClause()
+        )).toRule(RuleType.LOGICAL_JOIN_TO_HASH_JOIN_RULE);
     }
 }
