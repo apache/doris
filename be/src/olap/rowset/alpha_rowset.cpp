@@ -17,12 +17,13 @@
 
 #include "olap/rowset/alpha_rowset.h"
 
+#include <util/file_utils.h>
+
 #include "olap/row.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "util/hash_util.hpp"
-#include <util/file_utils.h>
 
 namespace doris {
 

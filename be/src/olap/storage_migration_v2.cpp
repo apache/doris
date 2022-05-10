@@ -22,9 +22,6 @@
 
 #include <algorithm>
 #include <vector>
-#include "rapidjson/document.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
@@ -38,6 +35,9 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/wrapper_field.h"
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"

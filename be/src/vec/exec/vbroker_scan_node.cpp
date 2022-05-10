@@ -18,11 +18,11 @@
 #include "vec/exec/vbroker_scan_node.h"
 
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
-#include "runtime/mem_tracker.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/types.h"

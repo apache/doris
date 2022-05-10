@@ -20,8 +20,8 @@
 
 #include <math.h>
 
-#include <string>
 #include <sstream>
+#include <string>
 
 #include "olap/olap_define.h"
 #include "olap/utils.h"

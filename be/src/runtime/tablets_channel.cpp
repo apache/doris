@@ -20,8 +20,8 @@
 #include "exec/tablet_info.h"
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "runtime/thread_context.h"
+#include "runtime/tuple_row.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
