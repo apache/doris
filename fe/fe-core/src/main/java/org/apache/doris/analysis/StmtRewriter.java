@@ -1164,9 +1164,12 @@ public class StmtRewriter {
         boolean reAnalyze = false;
         for (int i = 0; i < selectStmt.fromClause_.size(); i++) {
             TableRef tableRef = selectStmt.fromClause_.get(i);
+            // Recursively rewrite subquery
             if (tableRef instanceof InlineViewRef) {
                 InlineViewRef viewRef = (InlineViewRef) tableRef;
-                reAnalyze = rewriteByPolicy(viewRef.getQueryStmt(), analyzer);
+                if (rewriteByPolicy(viewRef.getQueryStmt(), analyzer)) {
+                    reAnalyze = true;
+                }
                 continue;
             }
             Table table = tableRef.getTable();

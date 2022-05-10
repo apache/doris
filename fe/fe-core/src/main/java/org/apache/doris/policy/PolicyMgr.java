@@ -176,7 +176,8 @@ public class PolicyMgr implements Writable {
         updateMergePolicyMap(dbId);
     }
 
-    private boolean matchPolicy(Policy policy, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
+    private boolean matchPolicy(Policy policy, long tableId, PolicyTypeEnum type,
+                                String policyName, UserIdentity user) {
         return policy.getTableId() == tableId
                 && policy.getType().equals(type)
                 && StringUtils.equals(policy.getPolicyName(), policyName)

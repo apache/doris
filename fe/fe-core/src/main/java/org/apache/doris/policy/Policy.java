@@ -35,7 +35,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,9 +45,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
-
-import lombok.AllArgsConstructor;
-import lombok.Data;
 
 /**
  * Save policy for filtering data.
