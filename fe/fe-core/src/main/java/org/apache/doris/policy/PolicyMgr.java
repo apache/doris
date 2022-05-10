@@ -49,6 +49,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -68,6 +69,8 @@ public class PolicyMgr implements Writable {
      * key：dbId:tableId-type-user
      **/
     private Map<Long, Map<String, Policy>> dbIdToMergePolicyMap = Maps.newConcurrentMap();
+
+    private Map<String, Boolean> userPolicyMap = Maps.newConcurrentMap();
 
     private void writeLock() {
         lock.writeLock().lock();
@@ -127,6 +130,10 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    public boolean existPolicy(String user) {
+        return userPolicyMap.containsKey(user);
+    }
+
     private boolean existPolicy(long dbId, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
         List<Policy> policies = getDbPolicies(dbId);
         return policies.stream().anyMatch(policy -> matchPolicy(policy, tableId, type, policyName, user));
@@ -161,6 +168,7 @@ public class PolicyMgr implements Writable {
         dbPolicies.add(policy);
         dbIdToPolicyMap.put(dbId, dbPolicies);
         updateMergePolicyMap(dbId);
+        updateUserPolicyMap(policy.getUser().getQualifiedUser(), true);
     }
 
     public void replayDrop(DropPolicyLog log) {
@@ -174,6 +182,12 @@ public class PolicyMgr implements Writable {
         policies.removeIf(p -> matchPolicy(p, log.getTableId(), log.getType(), log.getPolicyName(), log.getUser()));
         dbIdToPolicyMap.put(dbId, policies);
         updateMergePolicyMap(dbId);
+        if (log.getUser() == null) {
+            updateAllUserPolicyMap();
+        } else {
+            String user = log.getUser().getQualifiedUser();
+            updateUserPolicyMap(log.getUser().getQualifiedUser(), judgeExistUserPolicy(user));
+        }
     }
 
     private boolean matchPolicy(Policy policy, long tableId, PolicyTypeEnum type,
@@ -226,7 +240,36 @@ public class PolicyMgr implements Writable {
     }
 
     private void updateAllMergePolicyMap() {
-        dbIdToPolicyMap.forEach((dbId, policy) -> updateMergePolicyMap(dbId));
+        dbIdToPolicyMap.forEach((dbId, policies) -> updateMergePolicyMap(dbId));
+    }
+
+    private void updateAllUserPolicyMap() {
+        dbIdToPolicyMap.forEach((dbId, policies) -> policies.forEach(policy -> {
+            updateUserPolicyMap(policy.getUser().getQualifiedUser(), true);
+        }));
+    }
+
+    private void updateUserPolicyMap(String user, boolean exist) {
+        userPolicyMap.put(user, exist);
+    }
+
+    private boolean judgeExistUserPolicy(String user) {
+        readLock();
+        try {
+            AtomicBoolean exist = new AtomicBoolean(false);
+            for (Map<String, Policy> policies : dbIdToMergePolicyMap.values()) {
+                for (Policy policy : policies.values()) {
+                    if (policy.getUser().getQualifiedUser().equals(user)) {
+                        exist.set(true);
+                        break;
+                    }
+                }
+            }
+            return exist.get();
+        } finally {
+            readUnlock();
+        }
+
     }
 
     /**
@@ -305,7 +348,10 @@ public class PolicyMgr implements Writable {
     public static PolicyMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);
+        // update merge policy cache
         policyMgr.updateAllMergePolicyMap();
+        // update user policy cache
+        policyMgr.updateAllUserPolicyMap();
         return policyMgr;
     }
 }

@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.policy.Policy;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -1157,6 +1158,14 @@ public class StmtRewriter {
 
     public static boolean rewriteByPolicy(StatementBase statementBase, Analyzer analyzer) throws UserException {
         Catalog currentCatalog = Catalog.getCurrentCatalog();
+        UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
+        String user = analyzer.getQualifiedUser();
+        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
+            return false;
+        }
+        if (!currentCatalog.getPolicyMgr().existPolicy(user)) {
+            return false;
+        }
         if (!(statementBase instanceof SelectStmt)) {
             return false;
         }
@@ -1180,7 +1189,6 @@ public class StmtRewriter {
             Database db = currentCatalog.getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            String user = analyzer.getQualifiedUser();
             Policy matchPolicy = currentCatalog.getPolicyMgr().getMatchRowPolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;

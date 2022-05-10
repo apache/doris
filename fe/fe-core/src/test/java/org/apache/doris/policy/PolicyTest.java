@@ -68,6 +68,15 @@ public class PolicyTest extends TestWithFeService {
     }
 
     @Test
+    public void testNoPolicy() throws Exception {
+        useUser("root");
+        String queryStr = "EXPLAIN select * from test.table1";
+        String explainString = getSQLPlanOrErrorMsg(queryStr);
+        useUser("test_policy");
+        Assertions.assertFalse(explainString.contains("`k1` = 1"));
+    }
+
+    @Test
     public void testNormalSql() throws Exception {
         createPolicy("CREATE ROW POLICY test_row_policy ON test.table1 AS PERMISSIVE TO test_policy USING (k1 = 1)");
         String queryStr = "EXPLAIN select * from test.table1";
