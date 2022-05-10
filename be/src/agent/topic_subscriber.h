@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
-#define DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
+#pragma once
 
 #include <map>
 #include <mutex>
@@ -42,4 +41,3 @@ private:
     std::shared_mutex _listener_mtx;
 };
 } // namespace doris
-#endif

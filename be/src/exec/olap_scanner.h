@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_SCANNER_H
+#pragma once
 
 #include <list>
 #include <memory>
@@ -155,5 +154,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

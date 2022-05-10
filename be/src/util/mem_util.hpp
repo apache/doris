@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_MEM_UTIL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_MEM_UTIL_HPP
+#pragma once
 
 #include <string.h>
 
@@ -607,7 +606,3 @@ inline void memory_copy(void* dst, const void* src, size_t size) {
 }
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_SRC_UTIL_MEM_UTIL_H
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

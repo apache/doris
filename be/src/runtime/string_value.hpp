@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/string-value.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
-#define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
+#pragma once
 
 #include <cstring>
 
@@ -53,5 +52,3 @@ inline StringValue StringValue::trim() const {
 }
 
 } // namespace doris
-
-#endif

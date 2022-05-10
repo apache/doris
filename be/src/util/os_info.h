@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/os-info.h
 // and modified by Doris
 
-#ifndef DORIS_BE_UTIL_OS_INFO_H
-#define DORIS_BE_UTIL_OS_INFO_H
+#pragma once
 
 #include <time.h>
 
@@ -57,4 +56,3 @@ private:
 };
 
 } // namespace doris
-#endif

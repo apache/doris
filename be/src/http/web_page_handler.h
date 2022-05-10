@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_WEB_PAGE_HANDLER_H
-#define DORIS_BE_SRC_COMMON_UTIL_WEB_PAGE_HANDLER_H
+#pragma once
 
 #include <functional>
 #include <map>
@@ -121,5 +120,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
-#define DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -129,5 +128,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_MYSQL_MYSQL_ROW_BUFFER_H

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 

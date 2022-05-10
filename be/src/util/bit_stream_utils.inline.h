@@ -17,8 +17,8 @@
 // This file is copied from
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/bit-stream-utils.inline.h
 // and modified by Doris
-#ifndef IMPALA_UTIL_BIT_STREAM_UTILS_INLINE_H
-#define IMPALA_UTIL_BIT_STREAM_UTILS_INLINE_H
+
+#pragma once
 
 #include <algorithm>
 
@@ -209,5 +209,3 @@ inline bool BitReader::GetVlqInt(int32_t* v) {
 }
 
 } // namespace doris
-
-#endif

@@ -23,8 +23,7 @@
 // or various forms of equivalence and normalization), take a look at
 // files in i18n/utf8.
 
-#ifndef STRINGS_UTIL_H_
-#define STRINGS_UTIL_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdio.h>
@@ -482,5 +481,3 @@ int SafeSnprintf(char* str, size_t size, const char* format, ...) PRINTF_ATTRIBU
 // file, but doesn't copy it into *str. Returns true if read a delim-terminated
 // line, or false on end-of-file or error.
 bool GetlineFromStdioFile(FILE* file, string* str, char delim);
-
-#endif // STRINGS_UTIL_H_

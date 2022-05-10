@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/cast-expr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_EXPRS_CAST_EXPR_H
-#define DORIS_BE_SRC_EXPRS_CAST_EXPR_H
+#pragma once
 
 #include "common/object_pool.h"
 #include "exprs/expr.h"
@@ -61,5 +60,3 @@ CAST_EXPR_DEFINE(CastFloatExpr);
 CAST_EXPR_DEFINE(CastDoubleExpr);
 
 } // namespace doris
-
-#endif

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/expr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_H
-#define DORIS_BE_SRC_QUERY_EXPRS_EXPR_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -473,5 +472,3 @@ inline bool Expr::evaluate(VectorizedRowBatch* batch) {
 }
 
 } // namespace doris
-
-#endif

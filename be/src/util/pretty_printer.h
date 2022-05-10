@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/pretty-printer.h
 // and modified by Doris
 
-#ifndef IMPALA_UTIL_PRETTY_PRINTER_H
-#define IMPALA_UTIL_PRETTY_PRINTER_H
+#pragma once
 
 #include <boost/algorithm/string.hpp>
 #include <cmath>
@@ -284,5 +283,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

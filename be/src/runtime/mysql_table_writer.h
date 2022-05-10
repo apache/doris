@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
-#define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#pragma once
+
 #include <mysql/mysql.h>
 
 #include <string>
@@ -65,5 +65,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

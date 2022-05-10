@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_RESULT_SINK_H
-#define DORIS_BE_RUNTIME_RESULT_SINK_H
+#pragma once
 
 #include "common/status.h"
 #include "exec/data_sink.h"
@@ -74,4 +73,3 @@ private:
 };
 
 } // namespace doris
-#endif
