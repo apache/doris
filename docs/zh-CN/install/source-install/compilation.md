@@ -55,8 +55,7 @@ under the License.
 | apache/incubator-doris:build-env-1.2 | [4ef5a8c](https://github.com/apache/incubator-doris/commit/4ef5a8c8560351d7fff7ff8fd51c4c7a75e006a8) | 0.12.x - 0.14.0 |
 | apache/incubator-doris:build-env-1.3.1 | [ad67dd3](https://github.com/apache/incubator-doris/commit/ad67dd34a04c1ca960cff38e5b335b30fc7d559f) | 0.14.x |
 | apache/incubator-doris:build-env-for-0.15.0 | [a81f4da](https://github.com/apache/incubator-doris/commit/a81f4da4e461a54782a96433b746d07be89e6b54) or later | 0.15.0 |
-| apache/incubator-doris:build-env-latest | before [0efef1b](https://github.com/apache/incubator-doris/commit/0efef1b332300887ee0473f9df9bdd9d7297d824) | |
-| apache/incubator-doris:build-env-ldb-toolchain-latest | trunk | |
+| apache/incubator-doris:build-env-ldb-toolchain-latest | trunk | 1.0.0,trunk |
 
 **注意**：
 
@@ -198,8 +197,8 @@ under the License.
 
     ```
    $ cat /proc/cpuinfo | grep avx2
-    ```
-    
+   ```
+   
     支持则使用下面命令进行编译
 
    ```
