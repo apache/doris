@@ -168,8 +168,8 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
             //To simplify the add_row logic, postpone adding block into req until the time of sending req
-            _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
+            _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_num++;
         }
 
