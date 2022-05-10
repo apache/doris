@@ -46,7 +46,7 @@ struct decimal12_t {
             fraction += (sign ? -FRAC_RATIO : FRAC_RATIO);
         }
 
-        //OLAP_LOG_WARNING("agg: int=%ld, frac=%d", integer, fraction);
+        //LOG(WARNING) << "agg: int=" << integer << ", frac=" << fraction;
         //_set_flag();
         return *this;
     }
