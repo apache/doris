@@ -108,9 +108,20 @@ The result after the update is as follows
 
 After the user executes the UPDATE command, the system performs the following three steps.
 
-- Step 1: Read the rows that satisfy WHERE order id=1 (1, 100, 'pending payment')
-- Step 2: Change the order status of the row from 'Pending Payment' to 'Pending Shipping' (1, 100, 'Pending shipment')
-- Step 3: Insert the updated row back into the table to achieve the updated effect. | order id | order amount | order status | | ---| ---| ---| | 1 | 100| Pending Payment | | 1 | 100 | Pending shipments | Since the table order is a UNIQUE model, the rows with the same Key, after which the latter will take effect, so the final effect is as follows. | order id | order amount | order status | |--|--|--| | 1 | 100 | Pending shipments |
+ Step 1: Read the rows that satisfy WHERE order id=1 (1, 100, 'pending payment')
+ Step 2: Change the order status of the row from 'Pending Payment' to 'Pending Shipping' (1, 100, 'Pending shipment')
+ Step 3: Insert the updated row back into the table to achieve the updated effect. 
+
+  | order id | order amount | order status | 
+  | ---| ---| ---| 
+  | 1 | 100| Pending Payment | 
+  | 1 | 100 | Pending shipments | 
+
+Since the table order is a UNIQUE model, the rows with the same Key, after which the latter will take effect, so the final effect is as follows. 
+
+  | order id | order amount | order status | 
+  |---|---|---| 
+  | 1 | 100 | Pending shipments |
 
 ## More Help
 
