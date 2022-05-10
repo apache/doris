@@ -15,34 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.rules.exploration;
 
-import org.apache.doris.nereids.trees.BinaryNode;
-
-import java.util.List;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * interface for all plan that have two children.
+ * rule factory for exchange inner join's children.
  */
-public interface BinaryPlan<
-            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-
+public class JoinCommutative extends OneExplorationRuleFactory {
     @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    @Override
-    default LEFT_CHILD_TYPE left() {
-        return BinaryNode.super.left();
-    }
-
-    @Override
-    default RIGHT_CHILD_TYPE right() {
-        return BinaryNode.super.right();
+    public Rule<Plan> build() {
+        return innerLogicalJoin().then(join -> {
+            // fixme, just for example now
+            return new LogicalJoin(
+                JoinType.INNER_JOIN,
+                join.getOnClause(),
+                join.right(),
+                join.left()
+            );
+        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 }

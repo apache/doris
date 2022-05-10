@@ -22,6 +22,7 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.PlanReference;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
@@ -45,7 +46,7 @@ public abstract class Job {
         return context.getOptimizerContext().getRuleSet();
     }
 
-    public void prunedInvalidRules(PlanReference planReference, List<Rule> candidateRules) {
+    public void prunedInvalidRules(PlanReference planReference, List<Rule<Plan>> candidateRules) {
 
     }
 
