@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "factory_helpers.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/columns/column_vector.h"
@@ -28,7 +29,6 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/io/io_helper.h"
-#include "factory_helpers.h"
 
 namespace doris::vectorized {
 

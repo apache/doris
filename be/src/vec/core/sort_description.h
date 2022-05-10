@@ -20,11 +20,11 @@
 
 #pragma once
 
-#include "vector"
-#include "memory"
 #include "cstddef"
+#include "memory"
 #include "string"
 #include "vec/core/field.h"
+#include "vector"
 
 class Collator;
 

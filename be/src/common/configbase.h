@@ -18,12 +18,11 @@
 #pragma once
 
 #include <cstdint>
-
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <functional>
 
 namespace doris {
 class Status;

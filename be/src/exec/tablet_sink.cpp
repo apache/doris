@@ -40,7 +40,6 @@
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-
 #include "vec/core/block.h"
 #include "vec/sink/vtablet_sink.h"
 

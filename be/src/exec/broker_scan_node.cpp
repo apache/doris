@@ -21,7 +21,6 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "vec/exec/vbroker_scanner.h"
 #include "exec/json_scanner.h"
 #include "exec/orc_scanner.h"
 #include "exec/parquet_scanner.h"
@@ -32,6 +31,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
+#include "vec/exec/vbroker_scanner.h"
 
 namespace doris {
 

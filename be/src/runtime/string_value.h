@@ -23,8 +23,8 @@
 #include <string.h>
 
 #include "udf/udf.h"
-#include "util/hash_util.hpp"
 #include "util/cpu_info.h"
+#include "util/hash_util.hpp"
 #include "vec/common/string_ref.h"
 #ifdef __SSE4_2__
 #include "util/sse_util.hpp"

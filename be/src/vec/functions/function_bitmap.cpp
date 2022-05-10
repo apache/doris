@@ -21,12 +21,12 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/split.h"
 #include "util/string_parser.hpp"
+#include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/function_bitmap_min_or_max.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/functions/function_always_not_nullable.h"
 
 namespace doris::vectorized {
 

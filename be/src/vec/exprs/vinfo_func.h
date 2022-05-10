@@ -17,12 +17,12 @@
 
 #pragma once
 
+#include <iostream>
+#include <string>
+
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
-
-#include <iostream>
-#include <string>
 
 namespace doris {
 class TExprNode;
