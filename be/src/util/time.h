@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/time.h
 // and modified by Doris
 
-#ifndef DORIS_BE_UTIL_TIME_H
-#define DORIS_BE_UTIL_TIME_H
+#pragma once
 
 #include <stdint.h>
 #include <time.h>
@@ -129,4 +128,3 @@ std::string ToStringFromUnixMicros(int64_t us, TimePrecision p = TimePrecision::
 std::string ToUtcStringFromUnixMicros(int64_t us, TimePrecision p = TimePrecision::Microsecond);
 
 } // namespace doris
-#endif

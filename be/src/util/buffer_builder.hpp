@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/buffer-builder.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
+#pragma once
 
 #include <glog/loging.h>
 #include <stdlib.h>
@@ -58,5 +57,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
-#define DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -114,5 +113,3 @@ private:
     std::vector<BufferHandle> free_list_;
 };
 } // namespace doris
-
-#endif

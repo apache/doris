@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/disk-io-mgr.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
-#define DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H
+#pragma once
 
 #include <condition_variable>
 #include <list>
@@ -850,5 +849,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_RUNTIME_DISK_IO_MGR_H

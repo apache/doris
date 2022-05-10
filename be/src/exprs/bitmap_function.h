@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -156,4 +155,3 @@ public:
                                                                  const StringVal& src);
 };
 } // namespace doris
-#endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

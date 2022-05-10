@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
-#define DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
+#pragma once
 
 #include <parallel_hashmap/btree.h>
 
@@ -1838,5 +1837,3 @@ inline BitmapValueIterator BitmapValue::end() const {
 }
 
 } // namespace doris
-
-#endif //DORIS_BE_SRC_UTIL_BITMAP_VALUE_H

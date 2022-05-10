@@ -13,8 +13,7 @@
 //
 // This class is useful for non-character purposes as well.
 
-#ifndef UTIL_GTL_CHARMAP_H_
-#define UTIL_GTL_CHARMAP_H_
+#pragma once
 
 #include <string.h>
 
@@ -75,5 +74,3 @@ protected:
     }
 };
 DECLARE_POD(Charmap);
-
-#endif // UTIL_GTL_CHARMAP_H_

@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_UID_UTIL_H
-#define DORIS_BE_SRC_UTIL_UID_UTIL_H
+#pragma once
 
 #include <ostream>
 #include <string>
 
 #include "gen_cpp/Types_types.h" // for TUniqueId
 #include "gen_cpp/types.pb.h"    // for PUniqueId
-// #include "util/debug_util.h"
 #include "util/hash_util.hpp"
 #include "util/uuid_generator.h"
 
@@ -183,5 +181,3 @@ struct hash<doris::UniqueId> {
 };
 
 } // namespace std
-
-#endif // DORIS_BE_SRC_UTIL_UID_UTIL_H
