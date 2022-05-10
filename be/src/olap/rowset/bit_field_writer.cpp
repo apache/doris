@@ -34,7 +34,7 @@ Status BitFieldWriter::init() {
     _byte_writer = new (std::nothrow) RunLengthByteWriter(_output);
 
     if (nullptr == _byte_writer) {
-        OLAP_LOG_WARNING("fail to create RunLengthByteWriter");
+        LOG(WARNING) << "fail to create RunLengthByteWriter";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -45,7 +45,7 @@ Status BitFieldWriter::_write_byte() {
     Status res = Status::OK();
 
     if (!(res = _byte_writer->write(_current))) {
-        OLAP_LOG_WARNING("fail to write byte to byte writer");
+        LOG(WARNING) << "fail to write byte to byte writer";
         return res;
     }
 

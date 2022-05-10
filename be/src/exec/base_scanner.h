@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
@@ -132,5 +131,3 @@ private:
 };
 
 } /* namespace doris */
-
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

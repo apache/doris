@@ -33,8 +33,8 @@ import java.util.List;
  * Logical join plan node.
  */
 public class LogicalJoin<
-            LEFT_CHILD_TYPE extends Plan<LEFT_CHILD_TYPE>,
-            RIGHT_CHILD_TYPE extends Plan<RIGHT_CHILD_TYPE>>
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LogicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final JoinType joinType;

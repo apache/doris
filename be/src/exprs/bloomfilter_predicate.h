@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_BLOOM_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_BLOOM_PREDICATE_H
+#pragma once
+
 #include <algorithm>
 #include <cmath>
 #include <memory>
@@ -370,4 +370,3 @@ private:
     constexpr static double _expect_filter_rate = 0.2;
 };
 } // namespace doris
-#endif

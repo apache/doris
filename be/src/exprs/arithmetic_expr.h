@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
-#define DORIS_BE_SRC_EXPRS_ARITHMETIC_EXPR_H
+#pragma once
 
 #include <set>
 
@@ -180,5 +179,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

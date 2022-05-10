@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_UTIL_LRU_CACHE_HPP
-#define DORIS_BE_UTIL_LRU_CACHE_HPP
+#pragma once
 
 #include <list>
 #include <unordered_map>
@@ -107,5 +106,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

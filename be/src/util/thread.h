@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_THREAD_H
-#define DORIS_BE_SRC_UTIL_THREAD_H
+#pragma once
 
 #include <pthread.h>
 #include <syscall.h>
@@ -285,5 +284,3 @@ private:
 void register_thread_display_page(WebPageHandler* web_page_handler);
 
 } //namespace doris
-
-#endif //DORIS_BE_SRC_UTIL_THREAD_H

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/string-parser.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_H
-#define DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_H
+#pragma once
 
 #include <cmath>
 #include <cstdint>
@@ -812,5 +811,3 @@ inline __int128 StringParser::string_to_decimal(const char* s, int len, int type
 }
 
 } // end namespace doris
-
-#endif // end of DORIS_BE_SRC_COMMON_UTIL_STRING_PARSER_HPP

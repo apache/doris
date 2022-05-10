@@ -19,6 +19,7 @@
 // and modified by Doris
 
 #pragma once
+
 #include "common/status.h"
 #include "fmt/format.h"
 #include "gutil/macros.h"

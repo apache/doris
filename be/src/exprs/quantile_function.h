@@ -18,6 +18,7 @@
 #pragma once
 
 #include "udf/udf.h"
+
 namespace doris {
 class QuantileStateFunctions {
 public:

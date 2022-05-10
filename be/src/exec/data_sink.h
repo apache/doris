@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/data-sink.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
-#define DORIS_BE_SRC_QUERY_EXEC_DATA_SINK_H
+#pragma once
 
 #include <vector>
 
@@ -103,4 +102,3 @@ protected:
 };
 
 } // namespace doris
-#endif

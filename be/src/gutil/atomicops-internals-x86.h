@@ -24,8 +24,7 @@
 // be included directly.  Clients should instead include
 // "base/atomicops.h".
 
-#ifndef GUTIL_ATOMICOPS_INTERNALS_X86_H_
-#define GUTIL_ATOMICOPS_INTERNALS_X86_H_
+#pragma once
 
 #include <common/logging.h>
 #include <stdint.h>
@@ -460,5 +459,3 @@ inline Atomic64 Barrier_CompareAndSwap(volatile Atomic64* ptr, Atomic64 old_valu
 } // namespace base
 
 #undef ATOMICOPS_COMPILER_BARRIER
-
-#endif // GUTIL_ATOMICOPS_INTERNALS_X87_H_

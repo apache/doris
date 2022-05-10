@@ -26,8 +26,8 @@ import java.util.List;
  */
 public interface BinaryPlan<
             PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Plan<LEFT_CHILD_TYPE>,
-            RIGHT_CHILD_TYPE extends Plan<RIGHT_CHILD_TYPE>>
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
         extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     @Override
@@ -35,4 +35,14 @@ public interface BinaryPlan<
 
     @Override
     Plan child(int index);
+
+    @Override
+    default LEFT_CHILD_TYPE left() {
+        return BinaryNode.super.left();
+    }
+
+    @Override
+    default RIGHT_CHILD_TYPE right() {
+        return BinaryNode.super.right();
+    }
 }

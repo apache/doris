@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/blocking-queue.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_BLOCKING_QUEUE_HPP
+#pragma once
 
 #include <list>
 #include <unistd.h>
@@ -172,5 +171,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

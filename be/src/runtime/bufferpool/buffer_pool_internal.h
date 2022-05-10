@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFER_POOL_INTERNAL_H
-#define DORIS_BE_RUNTIME_BUFFER_POOL_INTERNAL_H
+#pragma once
 
 #include <memory>
 #include <mutex>
@@ -315,5 +314,3 @@ private:
     PageList in_flight_write_pages_;
 };
 } // namespace doris
-
-#endif

@@ -21,8 +21,7 @@
 //     ...
 //   }
 
-#ifndef BASE_ONCE_H_
-#define BASE_ONCE_H_
+#pragma once
 
 #include "gutil/atomicops.h"
 #include "gutil/dynamic_annotations.h"
@@ -115,5 +114,3 @@ private:
     Atomic32 state_;
     DISALLOW_COPY_AND_ASSIGN(GoogleOnceDynamic);
 };
-
-#endif // BASE_ONCE_H_

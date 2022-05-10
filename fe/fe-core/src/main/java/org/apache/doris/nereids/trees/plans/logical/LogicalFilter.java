@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Logical filter plan node.
  */
-public class LogicalFilter<CHILD_TYPE extends Plan<CHILD_TYPE>>
+public class LogicalFilter<CHILD_TYPE extends Plan>
          extends LogicalUnary<LogicalFilter<CHILD_TYPE>, CHILD_TYPE> {
 
     private final Expression predicates;

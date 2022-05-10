@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
+#pragma once
 
 #include <fstream>
 #include <string>
@@ -44,4 +43,3 @@ private:
 };
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H

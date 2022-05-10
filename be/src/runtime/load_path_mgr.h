@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_LOAD_PATH_MGR_H
-#define DORIS_BE_SRC_RUNTIME_LOAD_PATH_MGR_H
+#pragma once
 
 #include <pthread.h>
 
@@ -72,5 +71,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

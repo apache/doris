@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
-#define DORIS_BE_SRC_QUERY_NEW_EXPRS_AGG_FN_H
+#pragma once
 
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
@@ -186,5 +185,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

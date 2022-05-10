@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * Physical project plan node.
  */
-public class PhysicalProject<CHILD_TYPE extends Plan<CHILD_TYPE>>
+public class PhysicalProject<CHILD_TYPE extends Plan>
         extends PhysicalUnary<PhysicalProject<CHILD_TYPE>, CHILD_TYPE> {
 
     private final List<? extends NamedExpression> projects;

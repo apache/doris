@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef IMPALA_RUNTIME_SYSTEM_ALLOCATOR_H
-#define IMPALA_RUNTIME_SYSTEM_ALLOCATOR_H
+#pragma once
 
 #include "common/status.h"
 #include "runtime/bufferpool/buffer_pool.h"
@@ -48,5 +47,3 @@ private:
     const int64_t min_buffer_len_;
 };
 } // namespace doris
-
-#endif
