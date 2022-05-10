@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,7 +36,6 @@ import java.util.List;
 public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
         extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE> {
 
-    protected GroupExpression groupExpression;
     protected List<Slot> output;
 
     public AbstractPlan(NodeType type, Plan...children) {
@@ -46,11 +44,6 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
 
     @Override
     public abstract List<Slot> getOutput() throws UnboundException;
-
-    @Override
-    public void setGroupExpression(GroupExpression groupExpression) {
-        this.groupExpression = groupExpression;
-    }
 
     @Override
     public List<Plan> children() {

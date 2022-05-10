@@ -51,7 +51,6 @@ public class GroupExpression {
         this.children = children;
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
-        plan.setGroupExpression(this);
     }
 
     public void addChild(Group child) {

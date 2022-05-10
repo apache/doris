@@ -78,8 +78,4 @@ public class Memo {
         }
         return groupExpression;
     }
-
-    private void mergeGroup(Group group1, Group group2) {
-
-    }
 }
