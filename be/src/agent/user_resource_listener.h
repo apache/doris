@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
-#define DORIS_BE_SRC_AGENT_USER_RESOURCE_LISTENER_H
+#pragma once
 
 #include <string>
 
@@ -50,4 +49,3 @@ private:
     void update_users_resource(int64_t new_version);
 };
 } // namespace doris
-#endif

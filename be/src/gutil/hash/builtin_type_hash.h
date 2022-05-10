@@ -4,8 +4,7 @@
 // integral and floating point types in the language as well as pointers. This
 // library provides a minimal set of interfaces for hashing these values.
 
-#ifndef UTIL_HASH_BUILTIN_TYPE_HASH_H_
-#define UTIL_HASH_BUILTIN_TYPE_HASH_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdint.h>
@@ -91,5 +90,3 @@ inline uint64 Hash64DoubleWithSeed(double num, uint64 seed) {
     a *= kMul;
     return a;
 }
-
-#endif // UTIL_HASH_BUILTIN_TYPE_HASH_H_

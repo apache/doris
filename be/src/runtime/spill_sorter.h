@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H
-#define DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H
+#pragma once
 
 #include <deque>
 
@@ -218,5 +217,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SPILL_SORTER_H

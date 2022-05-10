@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
-#define DORIS_BE_RUNTIME_LARGE_INT_VALUE_H
+#pragma once
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,5 +58,3 @@ inline std::ostream& operator<<(std::ostream& os, __int128 const& value) {
 inline std::istream& operator>>(std::istream& is, __int128& value) {
     return doris::operator>>(is, value);
 }
-
-#endif

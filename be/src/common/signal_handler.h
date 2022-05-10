@@ -31,6 +31,8 @@
 //
 // Implementation of InstallFailureSignalHandler().
 
+#pragma once
+
 #include <boost/stacktrace.hpp>
 #include <glog/logging.h>
 #include <gutil/macros.h>
