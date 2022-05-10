@@ -28,6 +28,8 @@ void ThreadMemTrackerMgr::attach_task(const std::string& cancel_msg, const std::
                                       const TUniqueId& fragment_instance_id,
                                       const std::shared_ptr<MemTracker>& mem_tracker) {
     DCHECK(switch_count == 0) << print_debug_string();
+    clear_untracked_mems();
+    init();
     _task_id = task_id;
     _fragment_instance_id = fragment_instance_id;
     _consume_err_cb.cancel_msg = cancel_msg;
@@ -37,10 +39,10 @@ void ThreadMemTrackerMgr::attach_task(const std::string& cancel_msg, const std::
             return;
         }
 #endif
-        _temp_task_mem_tracker =
+        std::shared_ptr<MemTracker> tracker =
                 ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
                         task_id);
-        update_tracker<false>(_temp_task_mem_tracker);
+        update_tracker<false>(tracker);
     } else {
         update_tracker<false>(mem_tracker);
     }
@@ -48,9 +50,7 @@ void ThreadMemTrackerMgr::attach_task(const std::string& cancel_msg, const std::
 
 void ThreadMemTrackerMgr::detach_task() {
     DCHECK(switch_count == 0) << print_debug_string();
-    _task_id = "";
     _fragment_instance_id = TUniqueId();
-    _consume_err_cb.init();
     clear_untracked_mems();
     init();
 }

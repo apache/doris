@@ -60,18 +60,16 @@ MemTracker* MemTracker::get_raw_process_tracker() {
     return raw_process_tracker;
 }
 
-// Track memory for all brpc server responses.
-static std::shared_ptr<MemTracker> brpc_server_tracker;
-static GoogleOnceType brpc_server_tracker_once = GOOGLE_ONCE_INIT;
+static TrackersMap _temporary_mem_trackers;
 
-void MemTracker::create_brpc_server_tracker() {
-    brpc_server_tracker = MemTracker::create_tracker(-1, "Brpc", get_process_tracker(),
-                                                     MemTrackerLevel::OVERVIEW);
-}
-
-std::shared_ptr<MemTracker> MemTracker::get_brpc_server_tracker() {
-    GoogleOnceInit(&brpc_server_tracker_once, &MemTracker::create_brpc_server_tracker);
-    return brpc_server_tracker;
+std::shared_ptr<MemTracker> MemTracker::get_temporary_mem_tracker(const std::string& label) {
+    // First time this label registered, make a new object, otherwise do nothing.
+    // Avoid using locks to resolve erase conflicts.
+    _temporary_mem_trackers.try_emplace_l(
+            label, [](std::shared_ptr<MemTracker>) {},
+            MemTracker::create_tracker(-1, fmt::format("[Temporary]-{}", label), nullptr,
+                                       MemTrackerLevel::OVERVIEW));
+    return _temporary_mem_trackers[label];
 }
 
 void MemTracker::list_process_trackers(std::vector<std::shared_ptr<MemTracker>>* trackers) {
@@ -102,14 +100,8 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
                                                        const std::shared_ptr<MemTracker>& parent,
                                                        MemTrackerLevel level,
                                                        RuntimeProfile* profile) {
-    std::shared_ptr<MemTracker> reset_parent =
-            parent ? parent : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
-    DCHECK(reset_parent);
-
-    std::shared_ptr<MemTracker> tracker(
-            new MemTracker(byte_limit, label, reset_parent,
-                           level > reset_parent->_level ? level : reset_parent->_level, profile));
-    reset_parent->add_child_tracker(tracker);
+    std::shared_ptr<MemTracker> tracker =
+            MemTracker::create_tracker_impl(byte_limit, label, parent, level, profile);
     tracker->init();
     return tracker;
 }
@@ -117,14 +109,30 @@ std::shared_ptr<MemTracker> MemTracker::create_tracker(int64_t byte_limit, const
 std::shared_ptr<MemTracker> MemTracker::create_virtual_tracker(
         int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
         MemTrackerLevel level) {
+    std::shared_ptr<MemTracker> tracker = MemTracker::create_tracker_impl(
+            byte_limit, "[Virtual]-" + label, parent, level, nullptr);
+    tracker->init_virtual();
+    return tracker;
+}
+
+std::shared_ptr<MemTracker> MemTracker::create_tracker_impl(
+        int64_t byte_limit, const std::string& label, const std::shared_ptr<MemTracker>& parent,
+        MemTrackerLevel level, RuntimeProfile* profile) {
     std::shared_ptr<MemTracker> reset_parent =
             parent ? parent : tls_ctx()->_thread_mem_tracker_mgr->mem_tracker();
     DCHECK(reset_parent);
+    std::string reset_label;
+    MemTracker* task_parent_tracker = reset_parent->parent_task_mem_tracker();
+    if (task_parent_tracker) {
+        reset_label = fmt::format("{}:{}", label, split(task_parent_tracker->label(), ":")[1]);
+    } else {
+        reset_label = label;
+    }
 
     std::shared_ptr<MemTracker> tracker(
-            new MemTracker(byte_limit, "[Virtual]-" + label, reset_parent, level, nullptr));
+            new MemTracker(byte_limit, reset_label, reset_parent,
+                           level > reset_parent->_level ? level : reset_parent->_level, profile));
     reset_parent->add_child_tracker(tracker);
-    tracker->init_virtual();
     return tracker;
 }
 
@@ -318,7 +326,8 @@ bool MemTracker::gc_memory(int64_t max_consumption) {
     if (pre_gc_consumption < max_consumption) return false;
 
     int64_t curr_consumption = pre_gc_consumption;
-    const int64_t EXTRA_BYTES_TO_FREE = 4L * 1024L * 1024L * 1024L; // TODO(zxy) Consider as config
+    // Free some extra memory to avoid frequent GC, 4M is an empirical value, maybe it will be tested later.
+    const int64_t EXTRA_BYTES_TO_FREE = 4L * 1024L * 1024L * 1024L;
     // Try to free up some memory
     for (int i = 0; i < _gc_functions.size(); ++i) {
         // Try to free up the amount we are over plus some extra so that we don't have to

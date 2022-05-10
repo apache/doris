@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
-
 #include "runtime/mem_tracker.h"
 
 namespace doris {
@@ -50,13 +48,7 @@ private:
     // All per-task MemTracker objects.
     // The life cycle of task memtracker in the process is the same as task runtime state,
     // MemTrackers will be removed from this map after query finish or cancel.
-    using TaskTrackersMap = phmap::parallel_flat_hash_map<
-            std::string, std::shared_ptr<MemTracker>, phmap::priv::hash_default_hash<std::string>,
-            phmap::priv::hash_default_eq<std::string>,
-            std::allocator<std::pair<const std::string, std::shared_ptr<MemTracker>>>, 12,
-            std::mutex>;
-
-    TaskTrackersMap _task_mem_trackers;
+    TrackersMap _task_mem_trackers;
 };
 
 } // namespace doris
