@@ -29,11 +29,11 @@ import java.util.List;
  */
 public class Memo {
     private final List<Group> groups = Lists.newArrayList();
-    private final List<PlanReference> planReferences = Lists.newArrayList();
+    private final List<GroupExpression> groupExpressions = Lists.newArrayList();
     private Group rootSet;
 
     public void initialize(LogicalPlan plan) {
-        rootSet = newPlanReference(plan, null).getParent();
+        rootSet = newGroupExpression(plan, null).getParent();
     }
 
     public Group getRootSet() {
@@ -48,26 +48,30 @@ public class Memo {
      * @return Reference of plan in Memo
      */
     // TODO: need to merge PlanRefSet if new PlanRef is same with some one already in memo
-    public PlanReference newPlanReference(Plan<?> plan, Group target) {
-        if (plan.getPlanReference() != null) {
-            return plan.getPlanReference();
+    public GroupExpression newGroupExpression(Plan<?> plan, Group target) {
+        if (plan.getGroupExpression() != null) {
+            return plan.getGroupExpression();
         }
-        List<PlanReference> childReferences = Lists.newArrayList();
+        List<GroupExpression> childReferences = Lists.newArrayList();
         for (Plan<?> childrenPlan : plan.children()) {
-            childReferences.add(newPlanReference(childrenPlan, null));
+            childReferences.add(newGroupExpression(childrenPlan, null));
         }
-        PlanReference newPlanReference = new PlanReference(plan);
-        planReferences.add(newPlanReference);
-        for (PlanReference childReference : childReferences) {
-            newPlanReference.addChild(childReference.getParent());
+        GroupExpression newGroupExpression = new GroupExpression(plan);
+        groupExpressions.add(newGroupExpression);
+        for (GroupExpression childReference : childReferences) {
+            newGroupExpression.addChild(childReference.getParent());
         }
 
         if (target != null) {
-            target.addPlanReference(newPlanReference);
+            target.addGroupExpression(newGroupExpression);
         } else {
-            Group group = new Group(newPlanReference);
+            Group group = new Group(newGroupExpression);
             groups.add(group);
         }
-        return newPlanReference;
+        return newGroupExpression;
+    }
+
+    private void mergeGroup(Group group1, Group group2) {
+
     }
 }

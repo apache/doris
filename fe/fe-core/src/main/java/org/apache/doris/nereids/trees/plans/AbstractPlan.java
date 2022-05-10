@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -37,7 +37,7 @@ import java.util.List;
 public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
         extends AbstractTreeNode<PLAN_TYPE> implements Plan<PLAN_TYPE> {
 
-    protected PlanReference planReference;
+    protected GroupExpression groupExpression;
     protected List<Slot> output;
 
     public AbstractPlan(NodeType type, Plan...children) {
@@ -48,13 +48,13 @@ public abstract class AbstractPlan<PLAN_TYPE extends AbstractPlan<PLAN_TYPE>>
     public abstract List<Slot> getOutput() throws UnboundException;
 
     @Override
-    public PlanReference getPlanReference() {
-        return planReference;
+    public GroupExpression getGroupExpression() {
+        return groupExpression;
     }
 
     @Override
-    public void setPlanReference(PlanReference planReference) {
-        this.planReference = planReference;
+    public void setGroupExpression(GroupExpression groupExpression) {
+        this.groupExpression = groupExpression;
     }
 
     @Override
