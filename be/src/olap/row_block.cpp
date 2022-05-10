@@ -55,10 +55,9 @@ void RowBlock::init(const RowBlockInfo& block_info) {
 
 Status RowBlock::finalize(uint32_t row_num) {
     if (row_num > _capacity) {
-        OLAP_LOG_WARNING(
-                "Input row num is larger than internal row num."
-                "[row_num=%u; _info.row_num=%u]",
-                row_num, _info.row_num);
+        LOG(WARNING) << "Input row num is larger than internal row num."
+                        "[row_num="
+                     << row_num << "; _info.row_num=" << _info.row_num << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     _info.row_num = row_num;
