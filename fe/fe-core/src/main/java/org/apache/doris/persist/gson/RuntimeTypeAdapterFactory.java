@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Copyright (C) 2011 Google Inc.
+
 package org.apache.doris.persist.gson;
 
 import com.google.gson.Gson;
