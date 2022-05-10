@@ -391,8 +391,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
         VLOG_NOTICE << "show result offset. seg_off=" << offset.segment
                     << ", off=" << offset.offset;
     } catch (...) {
-        OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
-                         k.to_string().c_str(), find_last);
+        LOG(WARNING) << "fail to compare value in memindex. [cursor='" << k.to_string()
+                     << "' find_last=" << find_last << "]";
         return end();
     }
 
@@ -475,11 +475,11 @@ Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosi
     }
 
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
-        OLAP_LOG_WARNING(
-                "fail to get RowBlockPosition from OLAPIndexOffset. "
-                "[IndexOffset={segment=%u offset=%u} segment_count=%lu items_count=%lu]",
-                pos.segment, pos.offset, segment_count(),
-                pos.segment < segment_count() ? _meta[pos.segment].count() : 0);
+        LOG(WARNING) << "fail to get RowBlockPosition from OLAPIndexOffset. "
+                        "[IndexOffset={segment="
+                     << pos.segment << " offset=" << pos.offset
+                     << "} segment_count=" << segment_count() << " items_count="
+                     << (pos.segment < segment_count() ? _meta[pos.segment].count() : 0) << "]";
         return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 

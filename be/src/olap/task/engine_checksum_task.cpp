@@ -43,14 +43,14 @@ Status EngineChecksumTask::_compute_checksum() {
     Status res = Status::OK();
 
     if (_checksum == nullptr) {
-        OLAP_LOG_WARNING("invalid output parameter which is null pointer.");
+        LOG(WARNING) << "invalid output parameter which is null pointer.";
         return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_tablet_id);
     if (nullptr == tablet.get()) {
-        OLAP_LOG_WARNING("can't find tablet. [tablet_id=%ld schema_hash=%d]", _tablet_id,
-                         _schema_hash);
+        LOG(WARNING) << "can't find tablet. [tablet_id=" << _tablet_id
+                     << " schema_hash=" << _schema_hash << "]";
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 

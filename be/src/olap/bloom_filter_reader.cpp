@@ -41,10 +41,8 @@ Status BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool is_us
     _hash_function_num = hash_function_num;
     _start_offset = sizeof(BloomFilterIndexHeader);
     if (_step_size * _entry_count + _start_offset > _buffer_size) {
-        OLAP_LOG_WARNING(
-                "invalid param found. "
-                "[buffer_size=%lu bit_num=%u block_count=%lu header_size=%lu]",
-                buffer_size, bit_num, _entry_count, _start_offset);
+        LOG(WARNING) << "invalid param found.[buffer_size=" << buffer_size << " bit_num=" << bit_num
+                     << " block_count=" << _entry_count << " header_size=" << _start_offset << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 

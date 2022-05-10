@@ -136,7 +136,7 @@ Status ColumnData::_seek_to_block(const RowBlockPosition& block_pos, bool withou
                 file_name, segment_group(), block_pos.segment, _seek_columns, _load_bf_columns,
                 _conditions, _delete_handler, _delete_status, _lru_cache, _runtime_state, _stats);
         if (_segment_reader == nullptr) {
-            OLAP_LOG_WARNING("fail to malloc segment reader.");
+            LOG(WARNING) << "fail to malloc segment reader.";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
@@ -455,7 +455,7 @@ Status ColumnData::get_first_row_block(RowBlock** row_block) {
             _eof = true;
             return res;
         }
-        OLAP_LOG_WARNING("fail to find first row block with SegmentGroup.");
+        LOG(WARNING) << "fail to find first row block with SegmentGroup.";
         return res;
     }
 
@@ -564,7 +564,7 @@ Status ColumnData::schema_change_init() {
 
     auto res = _cursor.init(_segment_group->get_tablet_schema());
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to init row_cursor");
+        LOG(WARNING) << "fail to init row_cursor";
         return res;
     }
 

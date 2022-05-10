@@ -53,7 +53,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     _stream_factory = new (std::nothrow) OutStreamFactory(_compress_kind, _stream_buffer_size);
 
     if (nullptr == _stream_factory) {
-        OLAP_LOG_WARNING("fail to allocate out stream factory");
+        LOG(WARNING) << "fail to allocate out stream factory";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -64,7 +64,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
                 _segment_group->get_num_rows_per_row_block(), _bloom_filter_fpp);
 
         if (nullptr == writer) {
-            OLAP_LOG_WARNING("fail to create writer");
+            LOG(WARNING) << "fail to create writer";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         } else {
             _root_writers.push_back(writer);
@@ -244,13 +244,13 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
 
     res = file_header.prepare(&file_handle);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("write file header error. [err=%m]");
+        LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
         return res;
     }
 
     // 跳过FileHeader
     if (-1 == file_handle.seek(file_header.size(), SEEK_SET)) {
-        OLAP_LOG_WARNING("lseek header file error. [err=%m]");
+        LOG(WARNING) << "lseek header file error. [err=" << Errno::str() << "]";
         return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
@@ -282,13 +282,13 @@ Status SegmentWriter::finalize(uint32_t* segment_file_size) {
     // 写入更新之后的FileHeader
     res = file_header.serialize(&file_handle);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("write file header error. [err=%m]");
+        LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
         return res;
     }
 
     res = file_handle.close();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to close file. [err=%m]");
+        LOG(WARNING) << "fail to close file. [err=" << Errno::str() << "]";
         return res;
     }
 

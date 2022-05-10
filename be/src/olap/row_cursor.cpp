@@ -327,19 +327,19 @@ Status RowCursor::_alloc_buf() {
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
-        OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
+        LOG(WARNING) << "Fail to malloc _variable_buf.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {
-            OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
+            LOG(WARNING) << "Fail to malloc _long_text_buf.";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
         for (int i = 0; i < _string_field_count; ++i) {
             _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
             if (_long_text_buf[i] == nullptr) {
-                OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
+                LOG(WARNING) << "Fail to malloc _long_text_buf.";
                 return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             }
         }
