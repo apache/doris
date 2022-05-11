@@ -188,7 +188,7 @@ struct LeadAndLagData {
 public:
     bool has_init() const { return _is_init; }
 
-    static constexpr bool nullable = is_nullable;
+    static constexpr bool nullable = result_is_nullable;
 
     void set_null_if_need() {
         if (!_has_value) {
