@@ -211,7 +211,7 @@ public class MysqlTable extends Table {
     }
 
     public TTableDescriptor toThrift() {
-        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), 
+        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(),
                 mysqlDatabaseName, mysqlTableName, getCharset());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
                 fullSchema.size(), 0, getName(), "");

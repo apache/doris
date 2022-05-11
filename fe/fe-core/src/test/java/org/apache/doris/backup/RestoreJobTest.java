@@ -48,7 +48,6 @@ import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
