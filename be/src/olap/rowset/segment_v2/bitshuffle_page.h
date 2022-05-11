@@ -103,11 +103,11 @@ public:
     template <bool single>
     inline Status add_internal(const uint8_t* vals, size_t* count) {
         DCHECK(!_finished);
-        if (_remain_element_capacity <= 0) {
-            *count = 0;
-            return Status::RuntimeError("page is full.");
-        }
         int to_add = std::min<int>(_remain_element_capacity, *count);
+        if (to_add == 0) {
+            *count = 0;
+            return Status::OK();
+        }
         int to_add_size = to_add * SIZE_OF_TYPE;
         size_t orig_size = _data.size();
         _data.resize(orig_size + to_add_size);
