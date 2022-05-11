@@ -47,8 +47,8 @@ SHOW LOAD WARNINGS
 ```
 
 1) 如果不指定 db_name，使用当前默认db
-1) 如果使用 LABEL = ，则精确匹配指定的 label
-1) 如果指定了 LOAD_JOB_ID，则精确匹配指定的 JOB ID
+2) 如果使用 LABEL = ，则精确匹配指定的 label
+3) 如果指定了 LOAD_JOB_ID，则精确匹配指定的 JOB ID
 
 ### Example
 
