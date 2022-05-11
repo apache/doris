@@ -26,6 +26,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+/**
+ * Test Push down predicate on aggregate and window function.
+ */
 public class PushDownPredicateTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
