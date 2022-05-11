@@ -217,6 +217,7 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -459,6 +460,8 @@ public class Catalog {
 
     private RefreshManager refreshManager;
 
+    private PolicyMgr policyMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -630,6 +633,7 @@ public class Catalog {
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
+        this.policyMgr = new PolicyMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1945,6 +1949,17 @@ public class Catalog {
         return checksum;
     }
 
+    /**
+     * Load policy through file.
+     **/
+    public long loadPolicy(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
+            policyMgr = PolicyMgr.read(in);
+        }
+        LOG.info("finished replay policy from image");
+        return checksum;
+    }
+
     // Only called by checkpoint thread
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
@@ -2209,6 +2224,11 @@ public class Catalog {
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
+        return checksum;
+    }
+
+    public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getPolicyMgr().write(out);
         return checksum;
     }
 
@@ -5189,6 +5209,10 @@ public class Catalog {
 
     public EsRepository getEsRepository() {
         return this.esRepository;
+    }
+    
+    public PolicyMgr getPolicyMgr() {
+        return this.policyMgr;
     }
 
     public void setMaster(MasterInfo info) {

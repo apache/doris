@@ -35,6 +35,7 @@ import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.ShowStmt;
@@ -907,6 +908,25 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                 reAnalyze = true;
+            }
+            if (parsedStmt instanceof SelectStmt) {
+                if (StmtRewriter.rewriteByPolicy(parsedStmt, analyzer)) {
+                    reAnalyze = true;
+                }
+            }
+            if (parsedStmt instanceof SetOperationStmt) {
+                List<SetOperationStmt.SetOperand> operands = ((SetOperationStmt) parsedStmt).getOperands();
+                for (SetOperationStmt.SetOperand operand : operands) {
+                    if (StmtRewriter.rewriteByPolicy(operand.getQueryStmt(), analyzer)) {
+                        reAnalyze = true;
+                    }
+                }
+            }
+            if (parsedStmt instanceof InsertStmt) {
+                QueryStmt queryStmt = ((InsertStmt) parsedStmt).getQueryStmt();
+                if (queryStmt != null && StmtRewriter.rewriteByPolicy(queryStmt, analyzer)) {
+                    reAnalyze = true;
+                }
             }
             if (reAnalyze) {
                 // The rewrites should have no user-visible effect. Remember the original result
