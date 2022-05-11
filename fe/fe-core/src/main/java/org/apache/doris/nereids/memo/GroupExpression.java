@@ -29,29 +29,28 @@ import java.util.List;
 /**
  * Representation for group expression in cascades optimizer.
  */
-public class PlanReference {
+public class GroupExpression {
     private Group parent;
     private List<Group> children;
     private final Plan<?> plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
-    public PlanReference(Plan<?> plan) {
+    public GroupExpression(Plan<?> plan) {
         this(plan, Lists.newArrayList());
     }
 
     /**
-     * Constructor for PlanReference.
+     * Constructor for GroupExpression.
      *
      * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public PlanReference(Plan<?> plan, List<Group> children) {
+    public GroupExpression(Plan<?> plan, List<Group> children) {
         this.plan = plan;
         this.children = children;
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
         this.statDerived = false;
-        plan.setPlanReference(this);
     }
 
     public void addChild(Group child) {

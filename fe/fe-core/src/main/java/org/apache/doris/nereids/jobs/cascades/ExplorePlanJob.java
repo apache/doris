@@ -21,7 +21,7 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -30,34 +30,34 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Job to explore {@link PlanReference} in {@link org.apache.doris.nereids.memo.Memo}.
+ * Job to explore {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class ExplorePlanJob extends Job {
-    private final PlanReference planReference;
+    private final GroupExpression groupExpression;
 
     /**
      * Constructor for ExplorePlanJob.
      *
-     * @param planReference {@link PlanReference} to be explored
+     * @param groupExpression {@link GroupExpression} to be explored
      * @param context context of optimization
      */
-    public ExplorePlanJob(PlanReference planReference, PlannerContext context) {
+    public ExplorePlanJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.EXPLORE_PLAN, context);
-        this.planReference = planReference;
+        this.groupExpression = groupExpression;
     }
 
     @Override
     public void execute() {
         List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
-        prunedInvalidRules(planReference, explorationRules);
+        prunedInvalidRules(groupExpression, explorationRules);
         explorationRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
         for (Rule rule : explorationRules) {
-            pushTask(new ApplyRuleJob(planReference, rule, context));
+            pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
                 if (childPattern.arity() > 0) {
-                    Group childSet = planReference.getChildren().get(i);
+                    Group childSet = groupExpression.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }
             }
