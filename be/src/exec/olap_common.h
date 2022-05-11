@@ -18,12 +18,12 @@
 #pragma once
 
 #include <stdint.h>
-#include <variant>
 
 #include <boost/lexical_cast.hpp>
 #include <map>
 #include <sstream>
 #include <string>
+#include <variant>
 
 #include "common/logging.h"
 #include "exec/olap_utils.h"

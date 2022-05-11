@@ -37,12 +37,11 @@
 #include "runtime/result_file_sink.h"
 #include "runtime/result_sink.h"
 #include "runtime/runtime_state.h"
-
 #include "vec/sink/result_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
+#include "vec/sink/vmysql_table_sink.h"
 #include "vec/sink/vmysql_table_writer.h"
 #include "vec/sink/vtablet_sink.h"
-#include "vec/sink/vmysql_table_sink.h"
 
 namespace doris {
 

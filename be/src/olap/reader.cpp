@@ -106,7 +106,11 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
+#ifndef NDEBUG
     _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
+#else
+    _predicate_mem_pool.reset(new MemPool());
+#endif
 
     Status res = _init_params(read_params);
     if (!res.ok()) {

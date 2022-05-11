@@ -17,11 +17,12 @@
 
 #pragma once
 
-#include "util/simd/lower_upper_impl.h"
+#include <unistd.h>
 
 #include <cstdint>
-#include <unistd.h>
+
 #include "runtime/string_value.hpp"
+#include "util/simd/lower_upper_impl.h"
 
 namespace doris {
 

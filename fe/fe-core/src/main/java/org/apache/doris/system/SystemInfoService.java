@@ -40,7 +40,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -60,10 +59,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class SystemInfoService {
     private static final Logger LOG = LogManager.getLogger(SystemInfoService.class);
@@ -74,42 +71,16 @@ public class SystemInfoService {
 
     public static final String NO_SCAN_NODE_BACKEND_AVAILABLE_MSG = "There is no scanNode Backend available.";
 
-    public static class BeAvailablePredicate {
-        private boolean scheduleAvailable;
+    private volatile ImmutableMap<Long, Backend> idToBackendRef = ImmutableMap.of();
+    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef = ImmutableMap.of();
 
-        private boolean queryAvailable;
-
-        private boolean loadAvailable;
-
-        public BeAvailablePredicate(boolean scheduleAvailable, boolean queryAvailable, boolean loadAvailable) {
-            this.scheduleAvailable = scheduleAvailable;
-            this.queryAvailable = queryAvailable;
-            this.loadAvailable = loadAvailable;
-        }
-
-        public boolean isMatch(Backend backend) {
-            if (scheduleAvailable && !backend.isScheduleAvailable() || queryAvailable && !backend.isQueryAvailable() ||
-                    loadAvailable && !backend.isLoadAvailable()) {
-                return false;
-            }
-            return true;
-        }
-    }
-
-    private volatile ImmutableMap<Long, Backend> idToBackendRef;
-    private volatile ImmutableMap<Long, AtomicLong> idToReportVersionRef;
-
-    // last backend id used by round robin for sequential choosing backends for
-    // tablet creation
-    private ConcurrentHashMap<String, Long> lastBackendIdForCreationMap;
-    // last backend id used by round robin for sequential choosing backends in
-    // other jobs
-    private ConcurrentHashMap<String, Long> lastBackendIdForOtherMap;
+    // last backend id used by round robin for sequential selecting backends for replica creation
+    private Map<Tag, Long> lastBackendIdForReplicaCreation = Maps.newConcurrentMap();
 
     private long lastBackendIdForCreation = -1;
     private long lastBackendIdForOther = -1;
 
-    private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef;
+    private volatile ImmutableMap<Long, DiskInfo> pathHashToDishInfoRef = ImmutableMap.of();
 
     // sort host backends list by num of backends, descending
     private static final Comparator<List<Backend>> hostBackendsListComparator = new Comparator<List<Backend>>() {
@@ -122,15 +93,6 @@ public class SystemInfoService {
             }
         }
     };
-
-    public SystemInfoService() {
-        idToBackendRef = ImmutableMap.<Long, Backend>of();
-        idToReportVersionRef = ImmutableMap.<Long, AtomicLong>of();
-
-        lastBackendIdForCreationMap = new ConcurrentHashMap<String, Long>();
-        lastBackendIdForOtherMap = new ConcurrentHashMap<String, Long>();
-        pathHashToDishInfoRef = ImmutableMap.<Long, DiskInfo>of();
-    }
 
     // for deploy manager
     public void addBackends(List<Pair<String, Integer>> hostPortPairs, boolean isFree) throws UserException {
@@ -431,9 +393,6 @@ public class SystemInfoService {
             LOG.warn("not enough available backends. require :" + instanceNum + " get:" + chosenBackendIds.size());
             return null;
         }
-
-        lastBackendIdForCreationMap.put(clusterName, (long) -1);
-        lastBackendIdForOtherMap.put(clusterName, (long) -1);
         return chosenBackendIds;
     }
 
@@ -461,9 +420,6 @@ public class SystemInfoService {
                 }
             }
         }
-
-        lastBackendIdForCreationMap.remove(clusterName);
-        lastBackendIdForOtherMap.remove(clusterName);
     }
 
     /**
@@ -778,21 +734,35 @@ public class SystemInfoService {
     }
 
 
-    // Find enough backend to allocate replica of a tablet.
-    // filters include: tag, cluster, storage medium
-    public Map<Tag, List<Long>> chooseBackendIdByFilters(ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
+    /**
+     * Select a set of backends for replica creation.
+     * The following parameters need to be considered when selecting backends.
+     *
+     * @param replicaAlloc
+     * @param clusterName
+     * @param storageMedium
+     * @return return the selected backend ids group by tag.
+     * @throws DdlException
+     */
+    public Map<Tag, List<Long>> selectBackendIdsForReplicaCreation(
+            ReplicaAllocation replicaAlloc, String clusterName, TStorageMedium storageMedium)
             throws DdlException {
         Map<Tag, List<Long>> chosenBackendIds = Maps.newHashMap();
         Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
         short totalReplicaNum = 0;
-        BeAvailablePredicate beAvailablePredicate = new BeAvailablePredicate(true, false, false);
+
         for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
-            List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(entry.getValue(),
-                    beAvailablePredicate, true, clusterName, storageMedium, entry.getKey());
-            if (beIds == null) {
-                throw new DdlException("Failed to find enough host with storage medium and tag("
-                        + (storageMedium == null ? "NaN" : storageMedium) + "/" + entry.getKey()
-                        + ") in all backends. need: " + entry.getValue());
+            BeSelectionPolicy.Builder builder = new BeSelectionPolicy.Builder().setCluster(clusterName)
+                    .needScheduleAvailable().needCheckDiskUsage().addTags(Sets.newHashSet(entry.getKey()))
+                    .setStorageMedium(storageMedium);
+            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
+                builder.allowOnSameHost();
+            }
+
+            BeSelectionPolicy policy = builder.build();
+            List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
+            if (beIds.isEmpty()) {
+                throw new DdlException("Failed to find " + entry.getValue() + " backends for policy: " + policy);
             }
             chosenBackendIds.put(entry.getKey(), beIds);
             totalReplicaNum += beIds.size();
@@ -801,61 +771,34 @@ public class SystemInfoService {
         return chosenBackendIds;
     }
 
-    public List<Long> seqChooseBackendIdsByStorageMediumAndTag(int backendNum, BeAvailablePredicate beAvailablePredicate,
-                                                               boolean isCreate, String clusterName,
-                                                               TStorageMedium storageMedium, Tag tag) {
-        Stream<Backend> beStream = getClusterBackends(clusterName).stream();
-        if (storageMedium == null) {
-            beStream = beStream.filter(v -> !v.diskExceedLimit());
-        } else {
-            beStream = beStream.filter(v -> !v.diskExceedLimitByStorageMedium(storageMedium));
+    /**
+     * Select a set of backends by the given policy.
+     *
+     * @param policy
+     * @param number number of backends which need to be selected.
+     * @return return #number of backend ids,
+     * or empty set if no backends match the policy, or the number of matched backends is less than "number";
+     */
+    public List<Long> selectBackendIdsByPolicy(BeSelectionPolicy policy, int number) {
+        List<Backend> candidates =
+                idToBackendRef.values().stream().filter(policy::isMatch).collect(Collectors.toList());
+        if (candidates.size() < number) {
+            return Lists.newArrayList();
         }
-        if (tag != null) {
-            beStream = beStream.filter(v -> v.getTag().equals(tag));
-        }
-        final List<Backend> backends = beStream.collect(Collectors.toList());
-        return seqChooseBackendIds(backendNum, beAvailablePredicate, isCreate, clusterName, backends);
-    }
-
-    // choose backends by round robin
-    // return null if not enough backend
-    // use synchronized to run serially
-    public synchronized List<Long> seqChooseBackendIds(int backendNum, BeAvailablePredicate beAvailablePredicate,
-                                                       boolean isCreate, String clusterName,
-                                                       final List<Backend> srcBackends) {
-        long lastBackendId;
-
-        if (clusterName.equals(DEFAULT_CLUSTER)) {
-            if (isCreate) {
-                lastBackendId = lastBackendIdForCreation;
-            } else {
-                lastBackendId = lastBackendIdForOther;
-            }
-        } else {
-            if (isCreate) {
-                if (lastBackendIdForCreationMap.containsKey(clusterName)) {
-                    lastBackendId = lastBackendIdForCreationMap.get(clusterName);
-                } else {
-                    lastBackendId = -1;
-                    lastBackendIdForCreationMap.put(clusterName, lastBackendId);
-                }
-            } else {
-                if (lastBackendIdForOtherMap.containsKey(clusterName)) {
-                    lastBackendId = lastBackendIdForOtherMap.get(clusterName);
-                } else {
-                    lastBackendId = -1;
-                    lastBackendIdForOtherMap.put(clusterName, lastBackendId);
-                }
-            }
+        // If only need one Backend, just return a random one.
+        if (number == 1) {
+            Collections.shuffle(candidates);
+            return Lists.newArrayList(candidates.get(0).getId());
         }
 
-        // host -> BE list
-        List<Backend> sourceBackend = srcBackends;
-        if (sourceBackend == null) {
-            sourceBackend = getClusterBackends(clusterName);
+        if (policy.allowOnSameHost) {
+            Collections.shuffle(candidates);
+            return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
         }
+
+        // for each host, random select one backend.
         Map<String, List<Backend>> backendMaps = Maps.newHashMap();
-        for (Backend backend : sourceBackend) {
+        for (Backend backend : candidates) {
             if (backendMaps.containsKey(backend.getHost())) {
                 backendMaps.get(backend.getHost()).add(backend);
             } else {
@@ -864,94 +807,16 @@ public class SystemInfoService {
                 backendMaps.put(backend.getHost(), list);
             }
         }
-
-        // if more than one backend exists in same host, select a backend at random
-        List<Backend> backends = Lists.newArrayList();
+        candidates.clear();
         for (List<Backend> list : backendMaps.values()) {
-            if (FeConstants.runningUnitTest || Config.allow_replica_on_same_host) {
-                backends.addAll(list);
-            } else {
-                list = list.stream().filter(beAvailablePredicate::isMatch).collect(Collectors.toList());
-                if (list.isEmpty()) {
-                    continue;
-                }
-                Collections.shuffle(list);
-                backends.add(list.get(0));
-            }
+            Collections.shuffle(list);
+            candidates.add(list.get(0));
         }
-
-        Collections.shuffle(backends);
-
-        List<Long> backendIds = Lists.newArrayList();
-        // get last backend index
-        int lastBackendIndex = -1;
-        int index = -1;
-        for (Backend backend : backends) {
-            index++;
-            if (backend.getId() == lastBackendId) {
-                lastBackendIndex = index;
-                break;
-            }
+        if (candidates.size() < number) {
+            return Lists.newArrayList();
         }
-        Iterator<Backend> iterator = Iterators.cycle(backends);
-        index = -1;
-        boolean failed = false;
-        // 2 cycle at most
-        int maxIndex = 2 * backends.size();
-        while (iterator.hasNext() && backendIds.size() < backendNum) {
-            Backend backend = iterator.next();
-            index++;
-            if (index <= lastBackendIndex) {
-                continue;
-            }
-
-            if (index > maxIndex) {
-                failed = true;
-                break;
-            }
-
-            if (!beAvailablePredicate.isMatch(backend)) {
-                continue;
-            }
-
-            long backendId = backend.getId();
-            if (!backendIds.contains(backendId)) {
-                backendIds.add(backendId);
-                lastBackendId = backendId;
-            } else {
-                failed = true;
-                break;
-            }
-        }
-
-        if (clusterName.equals(DEFAULT_CLUSTER)) {
-            if (isCreate) {
-                lastBackendIdForCreation = lastBackendId;
-            } else {
-                lastBackendIdForOther = lastBackendId;
-            }
-        } else {
-            // update last backendId
-            if (isCreate) {
-                lastBackendIdForCreationMap.put(clusterName, lastBackendId);
-            } else {
-                lastBackendIdForOtherMap.put(clusterName, lastBackendId);
-            }
-        }
-        if (backendIds.size() != backendNum) {
-            failed = true;
-        }
-
-        if (!failed) {
-            return backendIds;
-        }
-
-        // debug
-        for (Backend backend : backends) {
-            LOG.debug("random select: {}", backend.toString());
-        }
-
-        return null;
+        Collections.shuffle(candidates);
+        return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
     }
 
     public ImmutableMap<Long, Backend> getIdToBackend() {

@@ -17,8 +17,9 @@
 
 #include "exec/json_scanner.h"
 
-#include <algorithm>
 #include <fmt/format.h>
+
+#include <algorithm>
 
 #include "env/env.h"
 #include "exec/broker_reader.h"

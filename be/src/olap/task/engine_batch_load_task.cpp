@@ -35,9 +35,9 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
-#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -54,7 +54,9 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _res_status(res_status) {
     _download_status = Status::OK();
     _mem_tracker = MemTracker::create_tracker(
-            -1, fmt::format("{}: {}", _push_req.push_type, std::to_string(_push_req.tablet_id)),
+            -1,
+            fmt::format("EngineBatchLoadTask:pushType={}:tabletId={}", _push_req.push_type,
+                        std::to_string(_push_req.tablet_id)),
             StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
 }
 
