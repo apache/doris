@@ -536,6 +536,9 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
             break;
         }
         case TYPE_DECIMALV2: {
+            if (config::enable_decimalv3) {
+                break;
+            }
             auto column_decimal = const_cast<vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                     assert_cast<const vectorized::ColumnDecimal<vectorized::Decimal128>*>(
                             real_column_ptr.get()));

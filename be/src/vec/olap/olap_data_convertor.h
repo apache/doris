@@ -188,6 +188,10 @@ private:
         Status convert_to_olap() override;
     };
 
+    // For compatibility with decimalv2.
+    // Convert the decimal32/decimal64/decimal128 of the computing
+    // layer to decimal12_t of the storage layer.
+    template <typename T>
     class OlapColumnDataConvertorDecimal
             : public OlapColumnDataConvertorPaddedPODArray<decimal12_t> {
     public:
