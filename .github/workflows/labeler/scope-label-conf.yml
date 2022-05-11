@@ -31,6 +31,9 @@ kind/test:
 area/vectorization:
   - be/src/vec/**/*
 
+area/nereids:
+  - fe/fe-core/src/main/java/org/apache/doris/nereids/**/*
+
 area/planner:
   - fe/fe-core/src/main/java/org/apache/doris/planner/**/*
   - fe/fe-core/src/main/java/org/apache/doris/analysis/**/*

@@ -21,19 +21,21 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Representation for memo in cascades optimizer.
  */
 public class Memo {
     private final List<Group> groups = Lists.newArrayList();
-    private final List<PlanReference> planReferences = Lists.newArrayList();
+    private final Set<GroupExpression> groupExpressions = Sets.newHashSet();
     private Group rootSet;
 
     public void initialize(LogicalPlan plan) {
-        rootSet = newPlanReference(plan, null).getParent();
+        rootSet = newGroupExpression(plan, null).getParent();
     }
 
     public Group getRootSet() {
@@ -43,31 +45,37 @@ public class Memo {
     /**
      * Add plan to Memo.
      *
-     * @param plan {@link Plan} to be added
+     * @param plan   {@link Plan} to be added
      * @param target target group to add plan. null to generate new Group
      * @return Reference of plan in Memo
      */
     // TODO: need to merge PlanRefSet if new PlanRef is same with some one already in memo
-    public PlanReference newPlanReference(Plan<?> plan, Group target) {
-        if (plan.getPlanReference() != null) {
-            return plan.getPlanReference();
-        }
-        List<PlanReference> childReferences = Lists.newArrayList();
+    public GroupExpression newGroupExpression(Plan<?> plan, Group target) {
+        List<GroupExpression> childGroupExpr = Lists.newArrayList();
         for (Plan<?> childrenPlan : plan.children()) {
-            childReferences.add(newPlanReference(childrenPlan, null));
+            childGroupExpr.add(newGroupExpression(childrenPlan, null));
         }
-        PlanReference newPlanReference = new PlanReference(plan);
-        planReferences.add(newPlanReference);
-        for (PlanReference childReference : childReferences) {
-            newPlanReference.addChild(childReference.getParent());
+        GroupExpression newGroupExpression = new GroupExpression(plan);
+        for (GroupExpression childReference : childGroupExpr) {
+            newGroupExpression.addChild(childReference.getParent());
         }
 
+        return insertGroupExpression(newGroupExpression, target);
+    }
+
+    private GroupExpression insertGroupExpression(GroupExpression groupExpression, Group target) {
+        if (groupExpressions.contains(groupExpression)) {
+            return groupExpression;
+        }
+
+        groupExpressions.add(groupExpression);
+
         if (target != null) {
-            target.addPlanReference(newPlanReference);
+            target.addGroupExpression(groupExpression);
         } else {
-            Group group = new Group(newPlanReference);
+            Group group = new Group(groupExpression);
             groups.add(group);
         }
-        return newPlanReference;
+        return groupExpression;
     }
 }
