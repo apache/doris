@@ -33,13 +33,9 @@ Doris 中 Java 部分代码的格式化工作通常有 IDE 来自动完成。这
 ```
 org.apache.doris
 <blank line>
-com
+third party package
 <blank line>
-org
-<blank line>
-java
-<blank line>
-javax
+standard java package
 <blank line>
 ```
 
