@@ -48,6 +48,7 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    "table" = "table_name"
    )
    ````
+   and there is an optional propertiy "charset" which can set character fom mysql connection, default value is "utf8". You can set another value "utf8mb4" instead of "utf8" when you need.
 
    Notice:
 
@@ -133,7 +134,8 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    "user" = "mysql_user",
    "password" = "mysql_passwd",
    "database" = "mysql_db_test",
-   "table" = "mysql_table_test"
+   "table" = "mysql_table_test",
+   "charset" = "utf8mb4"
    )
    ````
 
