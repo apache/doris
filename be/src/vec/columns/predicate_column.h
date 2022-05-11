@@ -230,9 +230,8 @@ public:
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
-            if (!_is_mem_pool_inited) {
+            if (_pool == nullptr) {
                 _pool.reset(new MemPool("PredicateStringColumn"));
-                _is_mem_pool_inited = true;
             }
 
             size_t total_mem_size = 0;
@@ -256,7 +255,7 @@ public:
 
     void clear() override { 
         data.clear(); 
-        if (_is_mem_pool_inited) {
+        if (_pool != nullptr) {
             _pool->clear();
         }
     }
@@ -431,7 +430,6 @@ private:
     Container data;
     // manages the memory for slice's data(For string type)
     std::unique_ptr<MemPool> _pool;
-    bool _is_mem_pool_inited = false;;
 };
 using ColumnStringValue = PredicateColumnType<StringValue>;
 
