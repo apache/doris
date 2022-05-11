@@ -28,7 +28,7 @@ public class ShowUserStmt extends ShowStmt {
 
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        builder.addColumn(new Column("User", ScalarType.createVarchar(30)));
+        builder.addColumn(new Column("UserIdentity", ScalarType.createVarchar(30)));
 
         META_DATA = builder.build();
     }
