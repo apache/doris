@@ -20,17 +20,17 @@ package org.apache.doris.nereids.jobs.cascades;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 
 /**
  * Job to compute cost and add enforcer.
  */
 public class CostAndEnforcerJob extends Job {
-    private final PlanReference planReference;
+    private final GroupExpression groupExpression;
 
-    public CostAndEnforcerJob(PlanReference planReference, PlannerContext context) {
+    public CostAndEnforcerJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.OPTIMIZE_CHILDREN, context);
-        this.planReference = planReference;
+        this.groupExpression = groupExpression;
     }
 
     @Override

@@ -21,7 +21,7 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,11 +34,11 @@ import java.util.List;
  * Job to optimize {@link org.apache.doris.nereids.trees.plans.Plan} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class OptimizePlanJob extends Job {
-    private final PlanReference planReference;
+    private final GroupExpression groupExpression;
 
-    public OptimizePlanJob(PlanReference planReference, PlannerContext context) {
+    public OptimizePlanJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.OPTIMIZE_PLAN, context);
-        this.planReference = planReference;
+        this.groupExpression = groupExpression;
     }
 
     @Override
@@ -46,21 +46,21 @@ public class OptimizePlanJob extends Job {
         List<Rule<Plan>> validRules = new ArrayList<>();
         List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
         List<Rule<Plan>> implementationRules = getRuleSet().getImplementationRules();
-        prunedInvalidRules(planReference, explorationRules);
-        prunedInvalidRules(planReference, implementationRules);
+        prunedInvalidRules(groupExpression, explorationRules);
+        prunedInvalidRules(groupExpression, implementationRules);
         validRules.addAll(explorationRules);
         validRules.addAll(implementationRules);
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
         for (Rule rule : validRules) {
-            pushTask(new ApplyRuleJob(planReference, rule, context));
+            pushTask(new ApplyRuleJob(groupExpression, rule, context));
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the
             // child before applying the rule. (assumes task pool is effectively a stack)
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
                 if (childPattern.arity() > 0) {
-                    Group childSet = planReference.getChildren().get(i);
+                    Group childSet = groupExpression.getChildren().get(i);
                     pushTask(new ExploreGroupJob(childSet, context));
                 }
             }
