@@ -218,13 +218,10 @@ private:
 };
 
 inline bool is_io_error(Status status) {
-    return (((Status::OLAPInternalError(OLAP_ERR_IO_ERROR) == status ||
-              Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH) == status) &&
-             errno == EIO) ||
-            Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_ROWBLOCK_READ_INFO_ERROR) == status);
+    auto code = status.precise_code();
+    return (((OLAP_ERR_IO_ERROR == code || OLAP_ERR_READ_UNENOUGH == code) && errno == EIO) ||
+            OLAP_ERR_CHECKSUM_ERROR == code || OLAP_ERR_FILE_DATA_ERROR == code ||
+            OLAP_ERR_TEST_FILE_ERROR == code || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == code);
 }
 
 #define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
