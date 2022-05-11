@@ -230,17 +230,36 @@ public:
     void insert_many_binary_data(char* data_array, uint32_t* len_array,
                                  uint32_t* start_offset_array, size_t num) override {
         if constexpr (std::is_same_v<T, StringValue>) {
+            if (!_is_mem_pool_inited) {
+                _pool.reset(new MemPool("PredicateStringColumn"));
+                _is_mem_pool_inited = true;
+            }
+
+            size_t total_mem_size = 0;
+            for (size_t i = 0; i < num; i++) {
+                total_mem_size += len_array[i];
+            }
+            
+            char* destination = (char*)_pool->allocate(total_mem_size);
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
                 uint32_t start_offset = start_offset_array[i];
-                insert_string_value(data_array + start_offset, len);
+                memcpy(destination, data_array + start_offset, len);
+                StringValue sv(destination, len);
+                data.push_back_without_reserve(sv);
+                destination += len;
             }
         }
     }
 
     void insert_default() override { data.push_back(T()); }
 
-    void clear() override { data.clear(); }
+    void clear() override { 
+        data.clear(); 
+        if (_is_mem_pool_inited) {
+            _pool->clear();
+        }
+    }
 
     size_t byte_size() const override { return data.size() * sizeof(T); }
 
@@ -410,6 +429,9 @@ public:
 
 private:
     Container data;
+    // manages the memory for slice's data(For string type)
+    std::unique_ptr<MemPool> _pool;
+    bool _is_mem_pool_inited = false;;
 };
 using ColumnStringValue = PredicateColumnType<StringValue>;
 
