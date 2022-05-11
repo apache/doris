@@ -55,7 +55,7 @@ SHOW SQL_BLOCK_RULE [FOR RULE_NAME];
     2 rows in set (0.01 sec)
     ```
     
-2. 制定规则名查询
+2. 指定规则名查询
 
     ```sql
     mysql> SHOW SQL_BLOCK_RULE FOR test_rule2;
