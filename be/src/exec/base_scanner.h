@@ -57,12 +57,15 @@ public:
                 const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
+    BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                const TExpr& vpre_filter_texpr, ScannerCounter* counter);
+
     virtual ~BaseScanner() {
         Expr::close(_dest_expr_ctx, _state);
         if (_state->enable_vectorized_exec()) {
             vectorized::VExpr::close(_dest_vexpr_ctx, _state);
         }
-    };
+    }
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
@@ -138,7 +141,8 @@ protected:
 
     // for vectorized load
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
+    TExpr _vpre_filter_texpr;
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     vectorized::Block _src_block;
     int _num_of_columns_from_file;
 

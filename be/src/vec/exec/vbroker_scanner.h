@@ -26,7 +26,7 @@ public:
                    const TBrokerScanRangeParams& params,
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
-                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+                   const TExpr& vpre_filter_texpr, ScannerCounter* counter);
     ~VBrokerScanner();
 
     virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,

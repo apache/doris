@@ -217,6 +217,11 @@ public abstract class LoadScanNode extends ScanNode {
                 brokerScanNode.addToPreFilterExprs(e.treeToThrift());
             }
         }
+
+        if (vpreFilterConjunct != null) {
+            brokerScanNode.setVpreFilterExpr(vpreFilterConjunct.treeToThrift());
+        }
+
         planNode.setBrokerScanNode(brokerScanNode);
     }
 }

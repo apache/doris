@@ -74,7 +74,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
-    std::vector<TExpr> _pre_filter;
+    const TExpr _pre_filter;
 };
 
 void VBrokerScannerTest::init_desc_table() {

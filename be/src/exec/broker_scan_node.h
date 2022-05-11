@@ -122,6 +122,8 @@ protected:
     // Because the row descriptor used for these exprs is `src_row_desc`,
     // which is initialized in XXXScanner.
     std::vector<TExpr> _pre_filter_texprs;
+    // for vectorized
+    TExpr _vpre_filter_texpr;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
 };

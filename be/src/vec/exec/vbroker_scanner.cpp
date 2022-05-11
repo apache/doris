@@ -38,8 +38,8 @@ VBrokerScanner::VBrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
-                               const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : BrokerScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
+                               const TExpr& vpre_filter_texpr, ScannerCounter* counter)
+        : BrokerScanner(state, profile, params, ranges, broker_addresses, vpre_filter_texpr,
                         counter) {
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 }
