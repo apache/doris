@@ -36,8 +36,10 @@ public final class FeMetaVersion {
     public static final int VERSION_107 = 107;
     // add storage_cold_medium and remote_storage_resource_name in DataProperty
     public static final int VERSION_108 = 108;
+    // add row policy
+    public static final int VERSION_109 = 109;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_108;
+    public static final int VERSION_CURRENT = VERSION_109;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ... 
