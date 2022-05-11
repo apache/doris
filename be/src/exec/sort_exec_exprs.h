@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/sort-exec-exprs.h
 // and modified by Doris
 
-#ifndef INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
-#define INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
+#pragma once
 
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
@@ -91,5 +90,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

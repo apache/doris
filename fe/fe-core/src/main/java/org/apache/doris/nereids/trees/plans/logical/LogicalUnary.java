@@ -18,22 +18,19 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.UnaryPlan;
 
 /**
- * Abstract class for all logical plan that have on child.
+ * Abstract class for all logical plan that have one child.
  */
-public abstract class LogicalUnary extends LogicalPlan {
-    public LogicalUnary(NodeType type, LogicalPlan child) {
-        super(type);
-        addChild(child);
-    }
+public abstract class LogicalUnary<
+            PLAN_TYPE extends LogicalUnary<PLAN_TYPE, CHILD_TYPE>,
+            CHILD_TYPE extends Plan>
+        extends AbstractLogicalPlan<PLAN_TYPE>
+        implements UnaryPlan<PLAN_TYPE, CHILD_TYPE> {
 
-    public LogicalPlan child() {
-        return getChild(0);
-    }
-
-    @Override
-    public int arity() {
-        return 1;
+    public LogicalUnary(NodeType type, CHILD_TYPE child) {
+        super(type, child);
     }
 }

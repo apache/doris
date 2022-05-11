@@ -18,27 +18,25 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.types.DataType;
+
+import java.util.List;
 
 /**
  * Abstract class for all Expression in Nereids.
  */
-public abstract class Expression extends TreeNode<Expression> {
-    public Expression(NodeType type) {
-        super(type);
-    }
+public interface Expression<EXPR_TYPE extends Expression<EXPR_TYPE>> extends TreeNode<EXPR_TYPE> {
 
-    public DataType getDataType() throws UnboundException {
-        throw new UnboundException("dataType");
-    }
+    DataType getDataType() throws UnboundException;
 
-    public String sql() throws UnboundException {
-        throw new UnboundException("sql");
-    }
+    String sql() throws UnboundException;
 
-    public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
-    }
+    boolean nullable() throws UnboundException;
+
+    @Override
+    List<Expression> children();
+
+    @Override
+    Expression child(int index);
 }

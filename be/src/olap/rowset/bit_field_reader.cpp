@@ -35,7 +35,7 @@ Status BitFieldReader::init() {
         _byte_reader = new (std::nothrow) RunLengthByteReader(_input);
 
         if (nullptr == _byte_reader) {
-            OLAP_LOG_WARNING("fail to create RunLengthByteReader");
+            LOG(WARNING) << "fail to create RunLengthByteReader";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
     }
@@ -85,7 +85,7 @@ Status BitFieldReader::seek(PositionProvider* position) {
     int64_t consumed = position->get_next();
 
     if (consumed > 8) {
-        OLAP_LOG_WARNING("read past end of bit field");
+        LOG(WARNING) << "read past end of bit field";
         return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
     } else if (consumed != 0) {
         if (!(res = _read_byte())) {

@@ -78,7 +78,7 @@ flush 间隔时间(毫秒)，超过该时间后异步线程将 缓存中数据�
 
 Stream load 的导入参数。例如:'doris.column_separator' = ', '等
 
-[更多 Stream Load 参数配置](../../data-operate/import/import-way/stream-load-manual.html)
+[更多 Stream Load 参数配置](../../data-operate/import/import-way/stream-load-manual.md)
 
 ### Examples
 Socket 数据写入 Doris

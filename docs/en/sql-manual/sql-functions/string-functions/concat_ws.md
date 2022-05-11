@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Concat_ws",
+    "title": "concat_ws",
     "language": "en"
 }
 ---
@@ -24,11 +24,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## Concat_ws
+## concat_ws
 ### Description
 #### Syntax
 
-`VARCHAR concat ws (VARCHAR sep., VARCHAR str,...)`
+`VARCHAR concat ws (VARCHAR sep, VARCHAR str,...)`
 
 
 Using the first parameter SEP as a connector, the second parameter and all subsequent parameters are spliced into a string.

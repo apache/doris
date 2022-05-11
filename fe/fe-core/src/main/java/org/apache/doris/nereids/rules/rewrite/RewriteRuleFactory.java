@@ -17,16 +17,15 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.PlanRuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
 
 /**
- * Abstract class for all rewrite rules.
+ * interface for all rewrite rule factories.
  */
-public abstract class RewriteRule extends Rule {
-    public RewriteRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.REWRITE);
+public interface RewriteRuleFactory extends PlanRuleFactory {
+    @Override
+    default RulePromise defaultPromise() {
+        return RulePromise.REWRITE;
     }
 }

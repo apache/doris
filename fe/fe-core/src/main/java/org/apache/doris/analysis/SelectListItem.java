@@ -97,6 +97,20 @@ public class SelectListItem {
         }
     }
 
+    public String toDigest() {
+        if (!isStar) {
+            Preconditions.checkNotNull(expr);
+            String aliasSql = null;
+            if (alias != null) {
+                aliasSql = "`" + alias + "`";
+            }
+            return expr.toDigest() + ((aliasSql == null) ? "" : " " + aliasSql);
+        } else if (tblName != null) {
+            return tblName.toString() + ".*";
+        } else {
+            return "*";
+        }
+    }
     /**
      * Return a column label for the select list item.
      */

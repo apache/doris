@@ -91,7 +91,7 @@ Initially, a database can be created through root or admin users:
 CREATE DATABASE example_db;
 ```
 
-> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`.You can also refer to the official website [SHOW CREATE DATABASE](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE.html) command manual.
+> All commands can use `HELP` command to see detailed grammar help. For example: `HELP CREATE DATABASE;'`.You can also refer to the official website [SHOW CREATE DATABASE](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE.md) command manual.
 >
 > If you don't know the full name of the command, you can use "help command a field" for fuzzy query. If you type `HELP CREATE`, you can match commands like `CREATE DATABASE', `CREATE TABLE', `CREATE USER', etc.
 
@@ -121,9 +121,9 @@ Query OK, 0 rows affected (0.01 sec)
 
 ### Formulation
 
-Create a table using the [CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) command. More detailed parameters can be seen:`HELP CREATE TABLE;`
+Create a table using the [CREATE TABLE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command. More detailed parameters can be seen:`HELP CREATE TABLE;`
 
-First, we need to switch databases using the [USE](../sql-manual/sql-reference/Utility-Statements/USE.html) command:
+First, we need to switch databases using the [USE](../sql-manual/sql-reference/Utility-Statements/USE.md) command:
 
 ```sql
 mysql> USE example_db;
@@ -247,7 +247,7 @@ MySQL> DESC table2;
 
 ### Import data
 
-Doris supports a variety of data import methods. Specifically, you can refer to the [data import](../data-operate/import/load-manual.html) document. Here we use streaming import and Broker import as examples.
+Doris supports a variety of data import methods. Specifically, you can refer to the [data import](../data-operate/import/load-manual.md) document. Here we use streaming import and Broker import as examples.
 
 #### Flow-in
 

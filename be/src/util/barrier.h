@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_BARRIER_H
-#define DORIS_BE_SRC_UTIL_BARRIER_H
+#pragma once
 
 #include <condition_variable>
 #include <mutex>
@@ -59,7 +58,5 @@ private:
     std::mutex _mutex;
     std::condition_variable _cond;
 };
-
-#endif //DORIS_BE_SRC_UTIL_BARRIER_H
 
 } // namespace doris

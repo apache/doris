@@ -57,7 +57,7 @@ public:
         if (_current->remaining() < 1) {
             res = _spill();
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to spill current buffer.");
+                LOG(WARNING) << "fail to spill current buffer.";
                 return res;
             }
             if (_current == nullptr) {

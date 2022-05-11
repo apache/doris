@@ -20,8 +20,8 @@
 #include "exec/tablet_info.h"
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "runtime/thread_context.h"
+#include "runtime/tuple_row.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -53,7 +53,7 @@ TabletsChannel::~TabletsChannel() {
 }
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -80,7 +80,8 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
 
 Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
                              const google::protobuf::RepeatedField<int64_t>& partition_ids,
-                             google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
+                             google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                             google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
@@ -128,15 +129,15 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close_wait(tablet_vec, (_broken_tablets.find(writer->tablet_id()) !=
-                                            _broken_tablets.end()));
+            writer->close_wait(
+                    tablet_vec, tablet_errors,
+                    (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
         }
     }
     return Status::OK();
 }
 
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         // TabletsChannel is closed without LoadChannel's lock,
@@ -147,10 +148,11 @@ Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     // Sort the DeltaWriters by mem consumption in descend order.
     std::vector<DeltaWriter*> writers;
     for (auto& it : _tablet_writers) {
+        it.second->save_mem_consumption_snapshot();
         writers.push_back(it.second);
     }
     std::sort(writers.begin(), writers.end(), [](const DeltaWriter* lhs, const DeltaWriter* rhs) {
-        return lhs->mem_consumption() > rhs->mem_consumption();
+        return lhs->get_mem_consumption_snapshot() > rhs->get_mem_consumption_snapshot();
     });
 
     // Decide which writes should be flushed to reduce mem consumption.
@@ -236,7 +238,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 }
 
 Status TabletsChannel::cancel() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;

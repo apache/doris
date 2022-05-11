@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
-#define DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
+#pragma once
 
 #include <mutex>
 
@@ -69,4 +68,3 @@ Status create_heartbeat_server(ExecEnv* exec_env, uint32_t heartbeat_server_port
                                ThriftServer** heart_beat_server, uint32_t worker_thread_num,
                                TMasterInfo* local_master_info);
 } // namespace doris
-#endif // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H

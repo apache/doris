@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
-#define DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H
+#pragma once
 
 #include "http/http_handler.h"
 
@@ -35,5 +34,3 @@ public:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_HTTP_ACTION_HEALTH_ACTION_H

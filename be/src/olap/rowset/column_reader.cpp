@@ -33,7 +33,7 @@ IntegerColumnReader::~IntegerColumnReader() {
 
 Status IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, bool is_sign) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("input streams is nullptr");
+        LOG(WARNING) << "input streams is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -42,14 +42,14 @@ Status IntegerColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* stre
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
     if (data_stream == nullptr) {
-        OLAP_LOG_WARNING("specified stream is nullptr");
+        LOG(WARNING) << "specified stream is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     _data_reader = new (std::nothrow) RunLengthIntegerReader(data_stream, is_sign);
 
     if (nullptr == _data_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -83,7 +83,7 @@ StringColumnDirectReader::~StringColumnDirectReader() {
 Status StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                       MemPool* mem_pool) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("input streams is nullptr");
+        LOG(WARNING) << "input streams is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -91,7 +91,7 @@ Status StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>*
     _data_stream = extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
     if (nullptr == _data_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
@@ -101,14 +101,14 @@ Status StringColumnDirectReader::init(std::map<StreamName, ReadOnlyFileStream*>*
             extract_stream(_column_unique_id, StreamInfoMessage::LENGTH, streams);
 
     if (nullptr == length_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     _length_reader = new (std::nothrow) RunLengthIntegerReader(length_stream, false);
 
     if (nullptr == _length_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -288,7 +288,8 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
             extract_stream(_column_unique_id, StreamInfoMessage::DICTIONARY_DATA, streams);
 
     if (nullptr == dictionary_data_stream) {
-        OLAP_LOG_WARNING("dictionary data stream not found. [unique id = %u]", _column_unique_id);
+        LOG(WARNING) << "dictionary data stream not found. [unique id = " << _column_unique_id
+                     << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
@@ -296,7 +297,8 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
             extract_stream(_column_unique_id, StreamInfoMessage::LENGTH, streams);
 
     if (nullptr == dictionary_length_stream) {
-        OLAP_LOG_WARNING("dictionary length stream not found. [unique id = %u]", _column_unique_id);
+        LOG(WARNING) << "dictionary length stream not found. [unique id = " << _column_unique_id
+                     << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
@@ -309,7 +311,7 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
     char* _read_buffer = new (std::nothrow) char[read_buffer_size];
 
     if (nullptr == _read_buffer) {
-        OLAP_LOG_WARNING("fail to malloc read buffer. [size = %lu]", read_buffer_size);
+        LOG(WARNING) << "fail to malloc read buffer. [size = " << read_buffer_size << "]";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -330,7 +332,7 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
             read_buffer_size = length;
 
             if (nullptr == (_read_buffer = new (std::nothrow) char[read_buffer_size])) {
-                OLAP_LOG_WARNING("fail to malloc read buffer. [size = %lu]", read_buffer_size);
+                LOG(WARNING) << "fail to malloc read buffer. [size = " << read_buffer_size << "]";
                 return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             }
         }
@@ -339,7 +341,7 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
         dictionary_data_stream->read(_read_buffer, &read_length);
 
         if (static_cast<int64_t>(read_length) != length) {
-            OLAP_LOG_WARNING("read stream fail.");
+            LOG(WARNING) << "read stream fail.";
             return Status::OLAPInternalError(OLAP_ERR_COLUMN_READ_STREAM);
         }
 
@@ -352,14 +354,14 @@ Status StringColumnDictionaryReader::init(std::map<StreamName, ReadOnlyFileStrea
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
     if (nullptr == data_stream) {
-        OLAP_LOG_WARNING("data stream not found. [unique id = %u]", _column_unique_id);
+        LOG(WARNING) << "data stream not found. [unique id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     _data_reader = new (std::nothrow) RunLengthIntegerReader(data_stream, false);
 
     if (nullptr == _data_reader) {
-        OLAP_LOG_WARNING("fail to malloc data reader");
+        LOG(WARNING) << "fail to malloc data reader";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -389,10 +391,9 @@ Status StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
     }
 
     if (value >= static_cast<int64_t>(_dictionary.size())) {
-        OLAP_LOG_WARNING(
-                "value may indicated an invalid dictionary entry. "
-                "[value = %lu, dictionary_size = %lu]",
-                value, _dictionary.size());
+        LOG(WARNING) << "value may indicated an invalid dictionary entry. "
+                        "[value = "
+                     << value << ", dictionary_size = " << _dictionary.size() << "]";
         return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
 
@@ -416,10 +417,9 @@ Status StringColumnDictionaryReader::next_vector(ColumnVector* column_vector, ui
                 return res;
             }
             if (index[i] >= static_cast<int64_t>(_dictionary.size())) {
-                OLAP_LOG_WARNING(
-                        "value may indicated an invalid dictionary entry. "
-                        "[index = %lu, dictionary_size = %lu]",
-                        index[i], _dictionary.size());
+                LOG(WARNING) << "value may indicated an invalid dictionary entry. "
+                                "[index = "
+                             << index[i] << ", dictionary_size = " << _dictionary.size() << "]";
                 return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
             }
             _values[i].size = _dictionary[index[i]].size();
@@ -441,10 +441,9 @@ Status StringColumnDictionaryReader::next_vector(ColumnVector* column_vector, ui
                     return res;
                 }
                 if (index[i] >= static_cast<int64_t>(_dictionary.size())) {
-                    OLAP_LOG_WARNING(
-                            "value may indicated an invalid dictionary entry. "
-                            "[index = %lu, dictionary_size = %lu]",
-                            index[i], _dictionary.size());
+                    LOG(WARNING) << "value may indicated an invalid dictionary entry. "
+                                    "[index = "
+                                 << index[i] << ", dictionary_size = " << _dictionary.size() << "]";
                     return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
                 }
                 _values[i].size = _dictionary[index[i]].size();
@@ -510,7 +509,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
         } else if (column.is_nullable()) {
             return new (std::nothrow) NullValueReader(column_id, column_unique_id);
         } else {
-            OLAP_LOG_WARNING("not null field has no default value");
+            LOG(WARNING) << "not null field has no default value";
             return nullptr;
         }
     }
@@ -591,9 +590,8 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
             reader = new (std::nothrow) FixLengthStringColumnReader<StringColumnDictionaryReader>(
                     column_id, column_unique_id, column.length(), dictionary_size);
         } else {
-            OLAP_LOG_WARNING(
-                    "known encoding format. data may be generated by higher version,"
-                    "try updating olap/ngine binary to solve this problem");
+            LOG(WARNING) << "known encoding format. data may be generated by higher version,try "
+                            "updating olap/ngine binary to solve this problem";
             // TODO. define a new return code
             return nullptr;
         }
@@ -662,7 +660,7 @@ ColumnReader::~ColumnReader() {
 Status ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                           MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("null parameters given.");
+        LOG(WARNING) << "null parameters given.";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     _stats = stats;
@@ -682,12 +680,12 @@ Status ColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, in
         _present_reader = new (std::nothrow) BitFieldReader(present_stream);
 
         if (nullptr == _present_reader) {
-            OLAP_LOG_WARNING("malloc present reader failed.");
+            LOG(WARNING) << "malloc present reader failed.";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         if (!_present_reader->init()) {
-            OLAP_LOG_WARNING("fail to init present reader.");
+            LOG(WARNING) << "fail to init present reader.";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
 
@@ -764,7 +762,7 @@ TinyColumnReader::~TinyColumnReader() {
 Status TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                               MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("input streams is nullptr");
+        LOG(WARNING) << "input streams is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -773,7 +771,7 @@ Status TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
     if (nullptr == data_stream) {
-        OLAP_LOG_WARNING("specified stream not exist");
+        LOG(WARNING) << "specified stream not exist";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
@@ -781,7 +779,7 @@ Status TinyColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams
     _data_reader = new (std::nothrow) RunLengthByteReader(data_stream);
 
     if (nullptr == _data_reader) {
-        OLAP_LOG_WARNING("malloc data reader failed");
+        LOG(WARNING) << "malloc data reader failed";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -868,7 +866,7 @@ DecimalColumnReader::~DecimalColumnReader() {
 Status DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                  MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("input streams is nullptr");
+        LOG(WARNING) << "input streams is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -882,7 +880,7 @@ Status DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* stre
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
 
     if (nullptr == int_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
@@ -890,21 +888,21 @@ Status DecimalColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* stre
             extract_stream(_column_unique_id, StreamInfoMessage::SECONDARY, streams);
 
     if (nullptr == frac_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     _int_reader = new (std::nothrow) RunLengthIntegerReader(int_stream, true);
 
     if (nullptr == _int_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     _frac_reader = new (std::nothrow) RunLengthIntegerReader(frac_stream, true);
 
     if (nullptr == _frac_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -950,14 +948,14 @@ Status DecimalColumnReader::skip(uint64_t row_count) {
     Status res = _int_reader->skip(row_count);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to create int part reader");
+        LOG(WARNING) << "fail to create int part reader";
         return res;
     }
 
     res = _frac_reader->skip(row_count);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to create frac part reader");
+        LOG(WARNING) << "fail to create frac part reader";
         return res;
     }
 
@@ -982,14 +980,14 @@ Status DecimalColumnReader::next_vector(ColumnVector* column_vector, uint32_t si
             int64_t value = 0;
             Status res = _int_reader->next(&value);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to read decimal int part");
+                LOG(WARNING) << "fail to read decimal int part";
                 break;
             }
             _values[i].integer = value;
 
             res = _frac_reader->next(&value);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to read decimal frac part");
+                LOG(WARNING) << "fail to read decimal frac part";
                 break;
             }
             _values[i].fraction = value;
@@ -1000,14 +998,14 @@ Status DecimalColumnReader::next_vector(ColumnVector* column_vector, uint32_t si
             if (!is_null[i]) {
                 Status res = _int_reader->next(&value);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to read decimal int part");
+                    LOG(WARNING) << "fail to read decimal int part";
                     break;
                 }
                 _values[i].integer = value;
 
                 res = _frac_reader->next(&value);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to read decimal frac part");
+                    LOG(WARNING) << "fail to read decimal frac part";
                     break;
                 }
                 _values[i].fraction = value;
@@ -1034,7 +1032,7 @@ LargeIntColumnReader::~LargeIntColumnReader() {
 Status LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* streams, int size,
                                   MemPool* mem_pool, OlapReaderStatistics* stats) {
     if (nullptr == streams) {
-        OLAP_LOG_WARNING("input streams is nullptr");
+        LOG(WARNING) << "input streams is nullptr";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -1048,26 +1046,26 @@ Status LargeIntColumnReader::init(std::map<StreamName, ReadOnlyFileStream*>* str
     ReadOnlyFileStream* high_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::DATA, streams);
     if (nullptr == high_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     ReadOnlyFileStream* low_stream =
             extract_stream(_column_unique_id, StreamInfoMessage::SECONDARY, streams);
     if (nullptr == low_stream) {
-        OLAP_LOG_WARNING("specified stream not found. [unique_id = %u]", _column_unique_id);
+        LOG(WARNING) << "specified stream not found. [unique_id = " << _column_unique_id << "]";
         return Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_NOT_EXIST);
     }
 
     _high_reader = new (std::nothrow) RunLengthIntegerReader(high_stream, true);
     if (nullptr == _high_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader.");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     _low_reader = new (std::nothrow) RunLengthIntegerReader(low_stream, true);
     if (nullptr == _low_reader) {
-        OLAP_LOG_WARNING("fail to malloc RunLengthIntegerReader.");
+        LOG(WARNING) << "fail to malloc RunLengthIntegerReader.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -1090,7 +1088,7 @@ Status LargeIntColumnReader::seek(PositionProvider* positions) {
         //all field in the segment can be nullptr, so the data stream is EOF
         res = ColumnReader::seek(positions);
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to seek null stream of largeint");
+            LOG(WARNING) << "fail to seek null stream of largeint";
             return res;
         }
 
@@ -1145,13 +1143,13 @@ Status LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32_t s
             value = (int64_t*)(_values + i);
             res = _high_reader->next(value);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to read decimal int part");
+                LOG(WARNING) << "fail to read decimal int part";
                 break;
             }
 
             res = _low_reader->next(++value);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to read decimal frac part");
+                LOG(WARNING) << "fail to read decimal frac part";
                 break;
             }
         }
@@ -1162,13 +1160,13 @@ Status LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32_t s
                 value = (int64_t*)(_values + i);
                 res = _high_reader->next(value);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to read decimal int part");
+                    LOG(WARNING) << "fail to read decimal int part";
                     break;
                 }
 
                 res = _low_reader->next(++value);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to read decimal frac part");
+                    LOG(WARNING) << "fail to read decimal frac part";
                     break;
                 }
             }

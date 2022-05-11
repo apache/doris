@@ -125,7 +125,7 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
   - snapshot/: 快照目录下的快照文件。
   - trash/：回收站中的文件。
 
-  **这种操作会对 [从 BE 回收站中恢复数据](./tablet-restore-tool.html) 产生影响。**
+  **这种操作会对 [从 BE 回收站中恢复数据](./tablet-restore-tool.md) 产生影响。**
 
   如果BE还能够启动，则可以使用`ADMIN CLEAN TRASH ON(BackendHost:BackendHeartBeatPort);`来主动清理临时文件，会清理 **所有** trash文件和过期snapshot文件，**这将影响从回收站恢复数据的操作** 。
 
@@ -156,6 +156,6 @@ capacity_min_left_bytes_flood_stage 默认 1GB。
 
     `rm -rf data/0/12345/`
 
-  - 删除 Tablet 元数据（具体参考 [Tablet 元数据管理工具](./tablet-meta-tool.html)）
+  - 删除 Tablet 元数据（具体参考 [Tablet 元数据管理工具](./tablet-meta-tool.md)）
 
     `./lib/meta_tool --operation=delete_header --root_path=/path/to/root_path --tablet_id=12345 --schema_hash= 352781111`

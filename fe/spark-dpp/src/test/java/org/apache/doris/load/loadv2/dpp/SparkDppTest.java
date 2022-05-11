@@ -18,7 +18,6 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.spark.sql.Row;
 import org.apache.spark.sql.RowFactory;
 import org.junit.Assert;
 import org.junit.Test;

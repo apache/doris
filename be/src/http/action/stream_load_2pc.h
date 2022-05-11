@@ -18,6 +18,7 @@
 #pragma once
 
 #include <string>
+
 #include "http/http_handler.h"
 
 namespace doris {

@@ -2,8 +2,7 @@
 // All Rights Reserved.
 //
 
-#ifndef BASE_INT128_H_
-#define BASE_INT128_H_
+#pragma once
 
 #include <iosfwd>
 using std::ostream;
@@ -327,5 +326,3 @@ inline uint128& uint128::operator--() {
     *this -= 1;
     return *this;
 }
-
-#endif // BASE_INT128_H_

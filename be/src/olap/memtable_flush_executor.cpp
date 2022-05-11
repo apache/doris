@@ -20,9 +20,9 @@
 #include <functional>
 
 #include "olap/memtable.h"
+#include "runtime/thread_context.h"
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
-#include "runtime/thread_context.h"
 
 namespace doris {
 

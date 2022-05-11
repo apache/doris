@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
+#pragma once
 
 #include <unordered_map>
 
@@ -59,5 +58,3 @@ private:
     ObjectPool _pool;
 };
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H

@@ -134,10 +134,8 @@ void StorageEngine::_fd_cache_clean_callback() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         interval = config::cache_clean_interval;
         if (interval <= 0) {
-            OLAP_LOG_WARNING(
-                    "config of file descriptor clean interval is illegal: [%d], "
-                    "force set to 3600",
-                    interval);
+            LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
+                         << "], force set to 3600 ";
             interval = 3600;
         }
 
@@ -153,8 +151,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
     if (!(max_interval >= min_interval && min_interval > 0)) {
-        OLAP_LOG_WARNING("garbage sweep interval config is illegal: [max=%d min=%d].", max_interval,
-                         min_interval);
+        LOG(WARNING) << "garbage sweep interval config is illegal: [max=" << max_interval
+                     << " min=" << min_interval << "].";
         min_interval = 1;
         max_interval = max_interval >= min_interval ? max_interval : min_interval;
         LOG(INFO) << "force reset garbage sweep interval. "

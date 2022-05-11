@@ -56,6 +56,11 @@ public class Subquery extends Expr {
     @Override
     public String toSqlImpl() { return "(" + stmt.toSql() + ")"; }
 
+    @Override
+    public String toDigestImpl() {
+        return "(" + stmt.toDigest() + ")";
+    }
+
     /**
      * C'tor that initializes a Subquery from a QueryStmt.
      */

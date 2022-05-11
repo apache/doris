@@ -18,23 +18,18 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
-import io.netty.handler.codec.dns.DefaultDnsPtrRecord;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DataTypes;
-import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 import org.junit.Assert;
 import org.junit.Test;
-import java.lang.Exception;
 
 public class DppUtilsTest {
 

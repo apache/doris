@@ -26,11 +26,11 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_dictionary.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
 #include "vec/utils/util.hpp"
-#include "vec/columns/column_dictionary.h"
 
 namespace doris {
 

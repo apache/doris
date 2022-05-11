@@ -23,12 +23,12 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "runtime/mem_tracker.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 
@@ -362,28 +362,25 @@ TEST_F(VBrokerScannerTest, normal) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    int slot_count = 3;
-    auto tuple_desc = _desc_tbl->get_tuple_descriptor(_dst_tuple_id);
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
-    st = scanner.get_next(columns, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
+    auto columns = block->get_columns();
+    ASSERT_EQ(columns.size(), 3);
 
-    ASSERT_EQ(columns[0]->get_int(0), 1);
-    ASSERT_EQ(columns[0]->get_int(1), 4);
-    ASSERT_EQ(columns[0]->get_int(2), 8);
+    ASSERT_EQ(columns[0]->get_data_at(0).to_string(), "1");
+    ASSERT_EQ(columns[0]->get_data_at(1).to_string(), "4");
+    ASSERT_EQ(columns[0]->get_data_at(2).to_string(), "8");
 
-    ASSERT_EQ(columns[1]->get_int(0), 2);
-    ASSERT_EQ(columns[1]->get_int(1), 5);
-    ASSERT_EQ(columns[1]->get_int(2), 9);
+    ASSERT_EQ(columns[1]->get_data_at(0).to_string(), "2");
+    ASSERT_EQ(columns[1]->get_data_at(1).to_string(), "5");
+    ASSERT_EQ(columns[1]->get_data_at(2).to_string(), "9");
 
-    ASSERT_EQ(columns[2]->get_int(0), 3);
-    ASSERT_EQ(columns[2]->get_int(1), 6);
-    ASSERT_EQ(columns[2]->get_int(2), 10);
+    ASSERT_EQ(columns[2]->get_data_at(0).to_string(), "3");
+    ASSERT_EQ(columns[2]->get_data_at(1).to_string(), "6");
+    ASSERT_EQ(columns[2]->get_data_at(2).to_string(), "10");
 }
 
 TEST_F(VBrokerScannerTest, normal2) {
@@ -408,26 +405,22 @@ TEST_F(VBrokerScannerTest, normal2) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    int slot_count = 3;
-    auto tuple_desc = _desc_tbl->get_tuple_descriptor(_dst_tuple_id);
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
-
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
-    st = scanner.get_next(columns, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
+    auto columns = block->get_columns();
+    ASSERT_EQ(columns.size(), 3);
 
-    ASSERT_EQ(columns[0]->get_int(0), 1);
-    ASSERT_EQ(columns[0]->get_int(1), 3);
+    ASSERT_EQ(columns[0]->get_data_at(0).to_string(), "1");
+    ASSERT_EQ(columns[0]->get_data_at(1).to_string(), "3");
 
-    ASSERT_EQ(columns[1]->get_int(0), 2);
-    ASSERT_EQ(columns[1]->get_int(1), 4);
+    ASSERT_EQ(columns[1]->get_data_at(0).to_string(), "2");
+    ASSERT_EQ(columns[1]->get_data_at(1).to_string(), "4");
 
-    ASSERT_EQ(columns[2]->get_int(0), 3);
-    ASSERT_EQ(columns[2]->get_int(1), 5);
+    ASSERT_EQ(columns[2]->get_data_at(0).to_string(), "3");
+    ASSERT_EQ(columns[2]->get_data_at(1).to_string(), "5");
 }
 
 TEST_F(VBrokerScannerTest, normal5) {
@@ -446,18 +439,15 @@ TEST_F(VBrokerScannerTest, normal5) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    int slot_count = 3;
-    auto tuple_desc = _desc_tbl->get_tuple_descriptor(_dst_tuple_id);
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
     // end of file
-    st = scanner.get_next(columns, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
-    ASSERT_EQ(columns[0]->size(), 0);
+    auto columns = block->get_columns();
+    ASSERT_EQ(columns.size(), 0);
 }
+
 } // namespace vectorized
 } // namespace doris

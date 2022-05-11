@@ -498,7 +498,7 @@ public class OlapScanNode extends ScanNode {
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
-            paloRange.setSchemaHash("");
+            paloRange.setSchemaHash("0");
             paloRange.setVersion(visibleVersionStr);
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);

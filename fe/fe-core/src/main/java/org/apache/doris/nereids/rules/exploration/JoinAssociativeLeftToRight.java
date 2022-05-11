@@ -17,16 +17,31 @@
 
 package org.apache.doris.nereids.rules.exploration;
 
-import org.apache.doris.nereids.pattern.Pattern;
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 /**
- * Abstract class for all exploration rules.
+ * Rule factory for change inner join left associative to right.
  */
-public abstract class ExplorationRule extends Rule {
-    public ExplorationRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.EXPLORE);
+public class JoinAssociativeLeftToRight extends OneExplorationRuleFactory {
+    @Override
+    public Rule<Plan> build() {
+        return innerLogicalJoin(innerLogicalJoin(), any()).then(root -> {
+            // fixme, just for example now
+            return new LogicalJoin(
+                    JoinType.INNER_JOIN,
+                    root.getOnClause(),
+                    root.left().left(),
+                    new LogicalJoin(
+                            JoinType.INNER_JOIN,
+                            root.getOnClause(),
+                            root.left().right(),
+                            root.right()
+                    )
+            );
+        }).toRule(RuleType.LOGICAL_JOIN_ASSOCIATIVE_LEFT_TO_RIGHT);
     }
 }

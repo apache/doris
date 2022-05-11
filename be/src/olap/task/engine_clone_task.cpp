@@ -58,7 +58,7 @@ EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, const TMasterInfo& 
           _signature(signature),
           _master_info(master_info) {
     _mem_tracker = MemTracker::create_tracker(
-            -1, "clone tablet: " + std::to_string(_clone_req.tablet_id),
+            -1, "EngineCloneTask:tabletId=" + std::to_string(_clone_req.tablet_id),
             StorageEngine::instance()->clone_mem_tracker(), MemTrackerLevel::TASK);
 }
 
@@ -76,8 +76,8 @@ Status EngineCloneTask::_do_clone() {
     string src_file_path;
     TBackend src_host;
     // Check local tablet exist or not
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            _clone_req.tablet_id, _clone_req.schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(_clone_req.tablet_id);
     bool is_new_tablet = tablet == nullptr;
     // try to repair a tablet with missing version
     if (tablet != nullptr) {

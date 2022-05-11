@@ -107,11 +107,20 @@ Query OK, 1 row affected (0.11 sec)
 
 - 第二步：变更该行的订单状态，从'待付款'改为'待发货' （1，100，'待发货'）
 
-- 第三步：将更新后的行再插入回表中，从而达到更新的效果。 
+-  第三步：将更新后的行再插入回表中，从而达到更新的效果。 
 
-  |订单id | 订单金额| 订单状态| |---|---|---| | 1 | 100| 待付款 | | 1 | 100 | 待发货 | 由于表 test_order 是 UNIQUE 模型，所以相同 Key 的行，之后后者才会生效，所以最终效果如下： |订单id | 订单金额| 订单状态| |---|---|---| | 1 | 100 | 待发货 |
+  |订单id | 订单金额| 订单状态| 
+  |---|---|---| 
+  | 1 | 100| 待付款 | 
+  | 1 | 100 | 待发货 | 
+  
+由于表 test_order 是 UNIQUE 模型，所以相同 Key 的行，之后后者才会生效，所以最终效果如下： 
+  
+  |订单id | 订单金额| 订单状态| 
+  |---|---|---| 
+  | 1 | 100 | 待发货 |
 
 ## 更多帮助
 
-关于 **数据更新** 使用的更多详细语法，请参阅 [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.html) 命令手册，也可以在Mysql客户端命令行下输入 `HELP UPDATE` 获取更多帮助信息。
+关于 **数据更新** 使用的更多详细语法，请参阅 [update](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/UPDATE.md) 命令手册，也可以在Mysql客户端命令行下输入 `HELP UPDATE` 获取更多帮助信息。
 

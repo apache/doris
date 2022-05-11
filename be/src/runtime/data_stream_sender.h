@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-sender.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
-#define DORIS_BE_RUNTIME_DATA_STREAM_SENDER_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -286,5 +285,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

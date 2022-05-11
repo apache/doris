@@ -82,7 +82,7 @@ FE 的配置项有两种方式进行配置：
 
 3. 通过 HTTP 协议动态配置
 
-   具体请参阅 [Set Config Action](http://doris.apache.org/master/zh-CN/administrator-guide/http-actions/fe/set-config-action.html)
+   具体请参阅 [Set Config Action](../http-actions/fe/set-config-action.md)
 
    该方式也可以持久化修改后的配置项。配置项将持久化在 `fe_custom.conf` 文件中，在 FE 重启后仍会生效。
 

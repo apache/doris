@@ -97,6 +97,11 @@ public class IsNullPredicate extends Predicate {
         return getChild(0).toSql() + (isNotNull ? " IS NOT NULL" : " IS NULL");
     }
 
+    @Override
+    public String toDigestImpl() {
+        return getChild(0).toDigest() + (isNotNull ? " IS NOT NULL" : " IS NULL");
+    }
+
     public boolean isSlotRefChildren() {
         return (children.get(0) instanceof SlotRef);
     }

@@ -32,7 +32,7 @@ CREATE EXTERNAL TABLE
 
 ### Description
 
-此语句用来创建外部表，具体语法参阅 [CREATE TABLE](./CREATE-TABLE.html)。
+此语句用来创建外部表，具体语法参阅 [CREATE TABLE](./CREATE-TABLE.md)。
 
 主要通过 ENGINE 类型来标识是哪种类型的外部表，目前可选 MYSQL、BROKER、HIVE、ICEBERG
 
@@ -48,6 +48,7 @@ CREATE EXTERNAL TABLE
    	"table" = "table_name"
    )
    ```
+   以及一个可选属性"charset"，可以用来设置mysql连接的字符集, 默认值是"utf8"。如有需要,你可以设置为另外一个字符集"utf8mb4"。
 
    注意：
 
@@ -133,7 +134,8 @@ CREATE EXTERNAL TABLE
    	"user" = "mysql_user",
    	"password" = "mysql_passwd",
    	"database" = "mysql_db_test",
-   	"table" = "mysql_table_test"
+	"table" = "mysql_table_test",
+	"charset" = "utf8mb4"
    )
    ```
 

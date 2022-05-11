@@ -2,14 +2,13 @@
 //
 // A collection of useful (static) bit-twiddling functions.
 
+#pragma once
+
 #include <common/logging.h>
 
 #include "gutil/basictypes.h"
 #include "gutil/integral_types.h"
 #include "gutil/macros.h"
-
-#ifndef _BITS_H_
-#define _BITS_H_
 
 class Bits {
 public:
@@ -260,5 +259,3 @@ inline bool Bits::BytesAllInRange(T bytes, uint8 lo, uint8 hi) {
     }
     return !Bits::BytesContainByteLessThan(bytes + (255 - hi) * l, lo + (255 - hi));
 }
-
-#endif // _BITS_H_

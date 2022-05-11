@@ -15,18 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.analysis;
+package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
-import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.BinaryNode;
+
+import java.util.List;
 
 /**
- * Abstract class for all rules used in analysis stage.
+ * interface for all plan that have two children.
  */
-public abstract class AnalysisRule extends Rule {
-    public AnalysisRule(RuleType ruleType, Pattern pattern) {
-        super(ruleType, pattern, RulePromise.ANALYSIS);
+public interface BinaryPlan<
+            PLAN_TYPE extends BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
+        extends Plan<PLAN_TYPE>, BinaryNode<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
+    @Override
+    List<Plan> children();
+
+    @Override
+    Plan child(int index);
+
+    @Override
+    default LEFT_CHILD_TYPE left() {
+        return BinaryNode.super.left();
+    }
+
+    @Override
+    default RIGHT_CHILD_TYPE right() {
+        return BinaryNode.super.right();
     }
 }

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/network-util.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_NETWORK_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_NETWORK_UTIL_H
+#pragma once
 
 #include <vector>
 
@@ -61,5 +60,3 @@ TNetworkAddress make_network_address(const std::string& hostname, int port);
 Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ipv6 = false);
 
 } // namespace doris
-
-#endif

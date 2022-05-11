@@ -20,8 +20,6 @@ package org.apache.doris.analysis;
 import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Mocked;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;

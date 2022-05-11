@@ -27,6 +27,7 @@
 #include "http/http_method.h"
 #include "http/http_response.h"
 #include "http/utils.h"
+
 namespace doris {
 
 // Helper class to access HTTP resource

@@ -15,17 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <errno.h>
 #include <gperftools/malloc_extension.h>
+#include <setjmp.h>
 #include <sys/file.h>
 #include <unistd.h>
 
 #include <condition_variable>
 #include <cstring>
-#include <errno.h>
 #include <mutex>
-#include <setjmp.h>
 #include <thread>
-#include <unistd.h>
 #include <unordered_map>
 
 #include "util/jni-util.h"
@@ -484,6 +483,7 @@ int main(int argc, char** argv) {
         doris::MemInfo::refresh_current_mem();
 #endif
         // TODO(zxy) 10s is too long to clear the expired task mem tracker.
+        // A query mem tracker is about 57 bytes, assuming 10000 qps, which wastes about 55M of memory.
         // It should be actively triggered at the end of query/load.
         doris::ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->logout_task_mem_tracker();
         sleep(10);

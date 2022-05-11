@@ -47,7 +47,7 @@ This document mainly introduces the implementation principle and usage of this O
 
 ### Create ODBC External Table 
 
-Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
+Refer to the specific table syntax:[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
 #### 1. Creating ODBC external table without resource
 
@@ -332,7 +332,7 @@ There are different data types among different databases. Here, the types in eac
 
 Sync for small amounts of data
 
-For example, a table in Mysql has 1 million data. If you want to synchronize to doris, you can use ODBC to map the data. When using[insert into](../../data-operate/import/import-way/insert-into-manual.html)way to synchronize data to Doris, if you want to synchronize large batches of data,Can be used in batches[insert into](../../data-operate/import/import-way/insert-into-manual.html)Sync (deprecated)
+For example, a table in Mysql has 1 million data. If you want to synchronize to doris, you can use ODBC to map the data. When using[insert into](../../data-operate/import/import-way/insert-into-manual.md)way to synchronize data to Doris, if you want to synchronize large batches of data,Can be used in batches[insert into](../../data-operate/import/import-way/insert-into-manual.md)Sync (deprecated)
 
 ## Q&A
 

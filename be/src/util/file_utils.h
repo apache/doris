@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_UTIL_FILE_UTILS_H
-#define DORIS_BE_UTIL_FILE_UTILS_H
+#pragma once
 
 #include <functional>
 #include <string>
@@ -110,5 +109,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

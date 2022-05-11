@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIG_H
-#define DORIS_BE_SRC_COMMON_CONFIG_H
+#pragma once
 
 #include "configbase.h"
 
@@ -737,9 +736,6 @@ CONF_Validator(string_type_length_soft_limit_bytes,
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 CONF_Int32(object_pool_buffer_size, "100");
-
 } // namespace config
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIG_H

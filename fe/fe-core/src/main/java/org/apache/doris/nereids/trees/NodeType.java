@@ -48,6 +48,6 @@ public enum NodeType {
 
     // pattern
     PATTERN,
-    PATTERN_LEAF,
-    PATTERN_MULTI_LEAF,
+    ANY,
+    MULTI,
 }

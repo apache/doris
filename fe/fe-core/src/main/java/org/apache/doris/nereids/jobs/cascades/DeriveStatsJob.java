@@ -21,24 +21,24 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 
 /**
- * Job to derive stats for {@link PlanReference} in {@link org.apache.doris.nereids.memo.Memo}.
+ * Job to derive stats for {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
 public class DeriveStatsJob extends Job {
-    private final PlanReference planReference;
+    private final GroupExpression groupExpression;
     private boolean deriveChildren;
 
     /**
      * Constructor for DeriveStatsJob.
      *
-     * @param planReference Derive stats on this {@link PlanReference}
+     * @param groupExpression Derive stats on this {@link GroupExpression}
      * @param context context of optimization
      */
-    public DeriveStatsJob(PlanReference planReference, PlannerContext context) {
+    public DeriveStatsJob(GroupExpression groupExpression, PlannerContext context) {
         super(JobType.DERIVE_STATS, context);
-        this.planReference = planReference;
+        this.groupExpression = groupExpression;
         this.deriveChildren = false;
     }
 
@@ -49,7 +49,7 @@ public class DeriveStatsJob extends Job {
      */
     public DeriveStatsJob(DeriveStatsJob other) {
         super(JobType.DERIVE_STATS, other.context);
-        this.planReference = other.planReference;
+        this.groupExpression = other.groupExpression;
         this.deriveChildren = other.deriveChildren;
     }
 
@@ -58,14 +58,14 @@ public class DeriveStatsJob extends Job {
         if (!deriveChildren) {
             deriveChildren = true;
             pushTask(new DeriveStatsJob(this));
-            for (Group childSet : planReference.getChildren()) {
+            for (Group childSet : groupExpression.getChildren()) {
                 if (!childSet.getLogicalPlanList().isEmpty()) {
                     pushTask(new DeriveStatsJob(childSet.getLogicalPlanList().get(0), context));
                 }
             }
         } else {
             // TODO: derive stat here
-            planReference.setStatDerived(true);
+            groupExpression.setStatDerived(true);
         }
 
     }
