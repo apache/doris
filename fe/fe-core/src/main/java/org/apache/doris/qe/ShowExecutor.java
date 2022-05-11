@@ -343,13 +343,10 @@ public class ShowExecutor {
             handleAdminShowTabletStorageFormat();
         } else if (stmt instanceof AdminDiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
-<<<<<<< HEAD
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
-=======
         } else if (stmt instanceof ShowPolicyStmt) {
             handleShowPolicy();
->>>>>>> 8c41838f8 (ADD: support show policy)
         } else {
             handleEmtpy();
         }
