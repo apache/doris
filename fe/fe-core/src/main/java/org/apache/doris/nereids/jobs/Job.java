@@ -19,7 +19,7 @@ package org.apache.doris.nereids.jobs;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,7 +46,7 @@ public abstract class Job {
         return context.getOptimizerContext().getRuleSet();
     }
 
-    public void prunedInvalidRules(PlanReference planReference, List<Rule<Plan>> candidateRules) {
+    public void prunedInvalidRules(GroupExpression groupExpression, List<Rule<Plan>> candidateRules) {
 
     }
 
