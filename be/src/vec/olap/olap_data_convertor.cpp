@@ -317,8 +317,6 @@ void OlapBlockDataConvertor::OlapColumnDataConvertorChar::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
-    _raw_data.resize(_length * num_rows);
-    memset(_raw_data.data(), 0, _length * num_rows);
     _slice.resize(num_rows);
 }
 
@@ -352,7 +350,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     const ColumnString::Char* char_data = column_string->get_chars().data();
     const ColumnString::Offset* offset_cur = column_string->get_offsets().data() + _row_pos;
     const ColumnString::Offset* offset_end = offset_cur + _num_rows;
-    char* raw_data = _raw_data.data();
     Slice* slice = _slice.data();
     size_t string_length;
     size_t string_offset = *(offset_cur - 1);
@@ -363,10 +360,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
             if (!*nullmap_cur) {
                 string_length = *offset_cur - string_offset - 1;
                 assert(string_length <= slice_size);
-                memcpy(raw_data, char_data + string_offset, string_length);
-
-                slice->data = raw_data;
-                slice->size = slice_size;
+                slice->data = (char*)char_data + string_offset;
+                slice->size = string_length;
             } else {
                 // TODO: this may not be neccessary, check and remove later
                 slice->data = nullptr;
@@ -377,22 +372,19 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
             ++nullmap_cur;
             ++slice;
             ++offset_cur;
-            raw_data += slice_size;
         }
         assert(nullmap_cur == _nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (offset_cur != offset_end) {
             string_length = *offset_cur - string_offset - 1;
             assert(string_length <= slice_size);
-            memcpy(raw_data, char_data + string_offset, string_length);
 
-            slice->data = raw_data;
-            slice->size = slice_size;
+            slice->data = (char*)char_data + string_offset;
+            slice->size = string_length;
 
             string_offset = *offset_cur;
             ++slice;
             ++offset_cur;
-            raw_data += slice_size;
         }
         assert(slice == _slice.get_end_ptr());
     }
