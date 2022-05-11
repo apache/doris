@@ -31,9 +31,19 @@ under the License.
 SHOW USER
 
 ### Description
+该语句用于展示当前登录用户的用户名
 
+语法：
+
+```sql
+ SHOW USER
+```
 ### Example
-
+1. 展示当前登录用户
+    
+    ```sql
+    SHOW USER;
+    ```
 ### Keywords
 
     SHOW, USER

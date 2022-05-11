@@ -86,6 +86,7 @@ import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
+import org.apache.doris.analysis.ShowUserStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
 import org.apache.doris.backup.AbstractJob;
@@ -344,6 +345,8 @@ public class ShowExecutor {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
+        } else if (stmt instanceof ShowUserStmt) {
+            handleShowUser();
         } else {
             handleEmtpy();
         }
@@ -2203,6 +2206,14 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
+    }
+
+    private void handleShowUser() {
+        ShowUserStmt showStmt = (ShowUserStmt) stmt;
+        List<List<String>> resultRowSet = Lists.newArrayList();
+        ShowResultSetMetaData showMetaData = showStmt.getMetaData();
+        resultRowSet.add(Collections.singletonList(showStmt.getUser()));
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
 }

@@ -1874,7 +1874,7 @@ public class Analyzer {
     }
 
     public String getQualifiedUser() {
-        return globalState.context.getQualifiedUser();
+        return globalState.context.getCurrentUserIdentity().toString();
     }
 
     public String getUserIdentity(boolean currentUser) {

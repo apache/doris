@@ -28,9 +28,8 @@ public class ShowUserStmt extends ShowStmt {
 
     static {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : AuthProcDir.TITLE_NAMES) {
-            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
-        }
+        builder.addColumn(new Column("User", ScalarType.createVarchar(30)));
+
         META_DATA = builder.build();
     }
 

@@ -25,11 +25,22 @@ under the License.
 -->
 
 ## SHOW-USER
-
+### Name
+SHOW USER
 ### Description
+This statement is used to display the current login user name.
 
+grammar:
+
+```sql
+ SHOW USER
+```
 ### Example
-
+1. Display the current login user name
+    
+    ```sql
+    SHOW USER;
+    ```
 ### Keywords
 
     SHOW, USER
