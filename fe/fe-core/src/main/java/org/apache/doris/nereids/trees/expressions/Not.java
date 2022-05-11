@@ -20,25 +20,19 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
-public class NotEqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
-    /**
-     * Constructor of NotEqualTo comparison predicate.
-     *
-     * @param left  left child of NotEqualTo
-     * @param right right child of NotEqualTo
-     */
-    public NotEqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.NE_COMPARISON_PREDICATE, left, right);
+public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYPE>>
+    implements UnaryExpression<Not<CHILD_TYPE>, CHILD_TYPE> {
+    public Not(CHILD_TYPE child) {
+        super(NodeType.NOT_EXPRESSION, child);
     }
 
     @Override
     public boolean nullable() throws UnboundException {
-        return left().nullable() || right().nullable();
+        return child().nullable();
     }
 
     @Override
     public String toString() {
-        return "(" + left() + " != " + right() + ")";
+        return "( not " + child() + ")";
     }
 }

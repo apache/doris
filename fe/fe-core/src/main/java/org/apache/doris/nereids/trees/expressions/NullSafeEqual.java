@@ -29,7 +29,7 @@ public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE 
      * @param right right child of Null Safe Equal
      */
     public NullSafeEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.NSEQ_COMPARISON_PREDICATE, left, right);
+        super(NodeType.NULL_SAFE_EQUAL, left, right);
     }
 
     @Override

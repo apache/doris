@@ -29,7 +29,7 @@ public class LessThan<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE exten
      * @param right right child of Less Than
      */
     public LessThan(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.LT_COMPARISON_PREDICATE, left, right);
+        super(NodeType.LESS_THAN, left, right);
     }
 
     @Override

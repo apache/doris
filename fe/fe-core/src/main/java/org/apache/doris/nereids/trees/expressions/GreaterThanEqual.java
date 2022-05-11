@@ -29,7 +29,7 @@ public class GreaterThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TY
      * @param right right child of Greater Than And Equal
      */
     public GreaterThanEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.GTE_COMPARISON_PREDICATE, left, right);
+        super(NodeType.GREATER_THAN_EQUAL, left, right);
     }
 
     @Override

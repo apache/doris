@@ -338,9 +338,9 @@ public interface Patterns {
     /**
      * create a equal to predicate pattern.
      */
-    default PatternDescriptor<EqualTo<Expression, Expression>, Expression> eqcomparisonPredicate() {
+    default PatternDescriptor<EqualTo<Expression, Expression>, Expression> equalTo() {
         return new PatternDescriptor<>(
-                new Pattern<>(NodeType.EQ_COMPARISON_PREDICATE),
+                new Pattern<>(NodeType.EQUAL_TO),
                 defaultPromise()
         );
     }
@@ -349,10 +349,10 @@ public interface Patterns {
      * create a equal to predicate pattern with children patterns.
      */
     default <C1 extends Expression, C2 extends Expression> PatternDescriptor<EqualTo<C1, C2>, Expression>
-    eqcomparisonPredicate(PatternDescriptor<C1, Expression> leftChildPattern,
+    equalTo(PatternDescriptor<C1, Expression> leftChildPattern,
                 PatternDescriptor<C2, Expression> rightChildPattern) {
         return new PatternDescriptor<>(
-                new Pattern<>(NodeType.EQ_COMPARISON_PREDICATE,
+                new Pattern<>(NodeType.EQUAL_TO,
                         leftChildPattern.pattern,
                         rightChildPattern.pattern
                 ),

@@ -58,13 +58,15 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.NotEqualTo;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+
+import com.google.common.collect.Lists;
 
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
@@ -78,10 +80,8 @@ import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-import com.clearspring.analytics.util.Lists;
-
 /**
- * Build an AST that consisting of logical plans.
+ * Build an logical plan tree with unbounded nodes.
  */
 public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
@@ -365,7 +365,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             case DorisParser.EQ:
                 return new EqualTo(left, right);
             case DorisParser.NEQ:
-                return new NotEqualTo(left, right);
+                return new Not(new EqualTo(left, right));
             case DorisParser.LT:
                 return new LessThan(left, right);
             case DorisParser.GT:

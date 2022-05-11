@@ -51,6 +51,6 @@ public class ComparisonPredicate<
 
     @Override
     public String sql() {
-        return null;
+        return toString();
     }
 }

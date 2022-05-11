@@ -24,7 +24,7 @@ public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extend
     extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.EQ_COMPARISON_PREDICATE, left, right);
+        super(NodeType.EQUAL_TO, left, right);
     }
 
     @Override
