@@ -130,13 +130,13 @@ public class CanalSyncChannel extends SyncChannel {
                 TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
                 TStreamLoadPutRequest request = null;
                 try {
-                    long txnId = globalTransactionMgr.beginTransaction(db.getId (),
+                    long txnId = globalTransactionMgr.beginTransaction(db.getId(),
                         Lists.newArrayList(tbl.getId()), label,
                         new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
                             FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
                     String authCodeUuid = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(
                         db.getId(), txnId).getAuthCode();
-                    request = new TStreamLoadPutRequest ()
+                    request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
                         .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                         .setThriftRpcTimeoutMs(5000).setLoadId(txnExecutor.getLoadId())
@@ -145,12 +145,13 @@ public class CanalSyncChannel extends SyncChannel {
                     txnConf.setTxnId(txnId).setAuthCodeUuid(authCodeUuid);
                     txnEntry.setLabel(label);
                     txnExecutor.setTxnId (txnId);
-                } catch (DuplicatedRequestException e ) {
+                } catch (DuplicatedRequestException e) {
                     LOG.warn ("duplicate request for sync channel. channel: {}, request id: {}, txn: {}, table: {}",
                         id, e.getDuplicatedRequestId(), e.getTxnId(), targetTable);
                     txnExecutor.setTxnId(e.getTxnId());
-                } catch (LabelAlreadyUsedException e ) {
-                    // this happens when channel re-consume same batch, we should just pass through it without begin a new txn
+                } catch (LabelAlreadyUsedException e) {
+                    // this happens when channel re-consume same batch,
+                    // we should just pass through it without begin a new txn
                     LOG.warn ("Label already used in channel {}, label: {}, table: {}, batch: {}",
                         id, label, targetTable, batchId);
                     return;
@@ -158,7 +159,7 @@ public class CanalSyncChannel extends SyncChannel {
                     LOG.warn ("encounter an error when beginning txn in channel {}, table: {}",
                         id, targetTable);
                     throw e;
-                } catch (UserException e ) {
+                } catch (UserException e) {
                     LOG.warn ("encounter an error when creating plan in channel {}, table: {}",
                         id, targetTable);
                     throw e;
@@ -169,20 +170,20 @@ public class CanalSyncChannel extends SyncChannel {
                     if ( txnId != - 1L ) {
                         this.txnExecutor.beginTransaction (request);
                         LOG.info ("begin txn in channel {}, table: {}, label:{}, txn id: {}",
-                            id, targetTable, label, txnExecutor.getTxnId ());
+                            id, targetTable, label, txnExecutor.getTxnId());
                     }
-                } catch ( TException e ) {
+                } catch ( TException e) {
                     LOG.warn ("Failed to begin txn in channel {}, table: {}, txn: {}, msg:{}",
-                        id, targetTable, txnExecutor.getTxnId (), e.getMessage ());
+                        id, targetTable, txnExecutor.getTxnId(), e.getMessage());
                     throw e;
-                } catch ( TimeoutException | InterruptedException | ExecutionException e ) {
+                } catch ( TimeoutException | InterruptedException | ExecutionException e) {
                     LOG.warn ("Error occur while waiting begin txn response in channel {}, table: {}, txn: {}, msg:{}",
-                        id, targetTable, txnExecutor.getTxnId (), e.getMessage ());
+                        id, targetTable, txnExecutor.getTxnId(), e.getMessage());
                     throw e;
                 }
             } else {
                 String failMsg = "current running txns on db " + db.getId() + " is "
-                    + databaseTransactionMgr.getRunningTxnNums () + ", larger than limit " + Config.max_running_txn_num_per_db;
+                    + databaseTransactionMgr.getRunningTxnNums() + ", larger than limit " + Config.max_running_txn_num_per_db;
                 LOG.warn(failMsg);
                 throw new BeginTransactionException(failMsg);
             }
