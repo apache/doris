@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/bit-util.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_BIT_UTIL_H
+#pragma once
 
 #include <endian.h>
 
@@ -449,5 +448,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

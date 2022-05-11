@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_TUPLE_ROW_ZORDER_COMPARE_H
-#define DORIS_TUPLE_ROW_ZORDER_COMPARE_H
+#pragma once
 
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
@@ -67,5 +66,3 @@ public:
     int get_type_byte_size(FieldType type) const;
 };
 } // namespace doris
-
-#endif //DORIS_TUPLE_ROW_ZORDER_COMPARE_H

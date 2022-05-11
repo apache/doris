@@ -38,7 +38,7 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
         : _schema(schema),
           _capacity(capacity),
           _column_vector_batches(_schema.num_columns()),
-          _pool(new MemPool("RowBlockV2")),
+          _pool(new MemPool()),
           _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {
         Status status = ColumnVectorBatch::create(

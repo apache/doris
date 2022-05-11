@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/buffered-block-mgr2.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
-#define DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H
+#pragma once
 
 #include <unordered_map>
 
@@ -628,5 +627,3 @@ private:
 }; // class BufferedBlockMgr2
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR2_H

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/scalar-fn-call.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
-#define DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
+#pragma once
 
 #include <string>
 
@@ -133,5 +132,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

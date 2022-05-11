@@ -24,8 +24,8 @@
 #include <limits>
 #include <sstream>
 
-#include "util/timezone_utils.h"
 #include "runtime/datetime_value.h"
+#include "util/timezone_utils.h"
 
 namespace doris::vectorized {
 

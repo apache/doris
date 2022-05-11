@@ -146,7 +146,11 @@ MySQL [test]> desc mv_test all;
 
 具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md) 
 
+### 查看已创建的物化视图
 
+用户可以通过命令查看已创建的物化视图的
+
+具体的语法可查看[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
 
 ## 最佳实践1
 

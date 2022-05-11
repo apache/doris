@@ -136,7 +136,7 @@ public:
 
             Status res = ColumnWriter::write(cursor);
             if (OLAP_UNLIKELY(!res.ok())) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                LOG(WARNING) << "fail to write ColumnWriter.";
                 return res;
             }
 
@@ -381,7 +381,7 @@ public:
             block->get_row(i, cursor);
             Status res = ColumnWriter::write(cursor);
             if (OLAP_UNLIKELY(!res.ok())) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                LOG(WARNING) << "fail to write ColumnWriter.";
                 return res;
             }
             bool is_null = cursor->is_null(column_id());
@@ -455,7 +455,7 @@ public:
 
             Status res = ColumnWriter::write(cursor);
             if (OLAP_UNLIKELY(!res.ok())) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                LOG(WARNING) << "fail to write ColumnWriter.";
                 return res;
             }
 
@@ -501,7 +501,7 @@ public:
             block->get_row(i, cursor);
             Status res = ColumnWriter::write(cursor);
             if (OLAP_UNLIKELY(!res.ok())) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                LOG(WARNING) << "fail to write ColumnWriter.";
                 return res;
             }
 
@@ -511,12 +511,12 @@ public:
                 decimal12_t value = *reinterpret_cast<const decimal12_t*>(cell.cell_ptr());
                 res = _int_writer->write(value.integer);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to write integer of Decimal.");
+                    LOG(WARNING) << "fail to write integer of Decimal.";
                     return res;
                 }
                 res = _frac_writer->write(value.fraction);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to write fraction of Decimal.");
+                    LOG(WARNING) << "fail to write fraction of Decimal.";
                     return res;
                 }
             }
@@ -547,7 +547,7 @@ public:
             block->get_row(i, cursor);
             Status res = ColumnWriter::write(cursor);
             if (OLAP_UNLIKELY(!res.ok())) {
-                OLAP_LOG_WARNING("fail to write ColumnWriter.");
+                LOG(WARNING) << "fail to write ColumnWriter.";
                 return res;
             }
             auto cell = cursor->cell(column_id());
@@ -556,12 +556,12 @@ public:
                 const int64_t* value = reinterpret_cast<const int64_t*>(cell.cell_ptr());
                 res = _high_writer->write(*value);
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to write integer of LargeInt.");
+                    LOG(WARNING) << "fail to write integer of LargeInt.";
                     return res;
                 }
                 res = _low_writer->write(*(++value));
                 if (!res.ok()) {
-                    OLAP_LOG_WARNING("fail to write fraction of LargeInt.");
+                    LOG(WARNING) << "fail to write fraction of LargeInt.";
                     return res;
                 }
             }

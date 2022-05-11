@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCANNER_H
+#pragma once
 
 #include <stdlib.h>
 
@@ -41,6 +40,7 @@ struct MysqlScannerParam {
     std::string user;
     std::string passwd;
     std::string db;
+    std::string charset;
     unsigned long client_flag;
     MysqlScannerParam() : client_flag(0) {}
 };
@@ -73,5 +73,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

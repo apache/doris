@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_NODE_H
+#pragma once
 
 #include <sys/time.h>
 
@@ -190,4 +189,3 @@ private:
 };
 
 } // namespace doris
-#endif

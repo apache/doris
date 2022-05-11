@@ -33,6 +33,7 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
+#include "vec/exec/vbroker_scanner.h"
 
 namespace doris {
 

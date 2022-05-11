@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/compound-predicate.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
+#pragma once
 
 #include <string>
 
@@ -114,5 +113,3 @@ private:
     friend class OpcodeRegistry;
 };
 } // namespace doris
-
-#endif

@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
-#include "vec/exprs/vexpr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -133,5 +132,3 @@ private:
 };
 
 } /* namespace doris */
-
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

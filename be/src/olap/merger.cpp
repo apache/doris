@@ -21,11 +21,11 @@
 #include <vector>
 
 #include "olap/olap_define.h"
-#include "olap/tuple_reader.h"
-#include "vec/olap/block_reader.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet.h"
+#include "olap/tuple_reader.h"
 #include "util/trace.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 

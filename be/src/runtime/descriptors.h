@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/descriptors.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
-#define DORIS_BE_RUNTIME_DESCRIPTORS_H
+#pragma once
 
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
@@ -234,6 +233,7 @@ public:
     const std::string port() const { return _port; }
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
+    const std::string charset() const { return _charset; }
 
 private:
     std::string _mysql_db;
@@ -242,6 +242,7 @@ private:
     std::string _port;
     std::string _user;
     std::string _passwd;
+    std::string _charset;
 };
 
 class ODBCTableDescriptor : public TableDescriptor {
@@ -476,5 +477,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

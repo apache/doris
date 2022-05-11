@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/anyval-util.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
-#define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
@@ -481,4 +480,3 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
                         const std::string& mem_limit_exceeded_msg, AnyVal** result);
 
 } // namespace doris
-#endif

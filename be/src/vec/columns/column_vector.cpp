@@ -27,6 +27,7 @@
 #include <cstring>
 
 #include "runtime/datetime_value.h"
+#include "util/simd/bits.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
@@ -34,7 +35,6 @@
 #include "vec/common/nan_utils.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
-#include "util/simd/bits.h"
 
 namespace doris::vectorized {
 

@@ -29,7 +29,7 @@ import java.util.List;
 /**
  * Expression for unbound alias.
  */
-public class UnboundAlias<CHILD_TYPE extends Expression<CHILD_TYPE>>
+public class UnboundAlias<CHILD_TYPE extends Expression>
         extends UnaryExpression<UnboundAlias<CHILD_TYPE>, CHILD_TYPE>
         implements NamedExpression<UnboundAlias<CHILD_TYPE>> {
 

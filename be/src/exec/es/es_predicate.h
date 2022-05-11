@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_PREDICATE_H
-#define BE_EXEC_ES_PREDICATE_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -165,5 +164,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

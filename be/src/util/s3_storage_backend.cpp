@@ -24,8 +24,8 @@
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
 #include <aws/s3/model/PutObjectRequest.h>
-#include <boost/algorithm/string.hpp>
 
+#include <boost/algorithm/string.hpp>
 #include <filesystem>
 #include <fstream>
 #include <iostream>

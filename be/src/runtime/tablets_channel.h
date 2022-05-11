@@ -25,16 +25,15 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "gutil/strings/substitute.h"
+#include "olap/delta_writer.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
-#include "gutil/strings/substitute.h"
-
 #include "vec/core/block.h"
-#include "olap/delta_writer.h"
 
 namespace doris {
 
@@ -168,7 +167,7 @@ Status TabletsChannel::_get_current_seq(int64_t& cur_seq, const Request& request
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t cur_seq = 0;
 
     auto status = _get_current_seq(cur_seq, request);

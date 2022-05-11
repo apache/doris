@@ -104,7 +104,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
+            LOG(WARNING) << "invalid cluster id: " << master_info.cluster_id << ". ignore.";
             return Status::InternalError("invalid cluster id. ignore.");
         }
     }

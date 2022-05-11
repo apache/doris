@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/internal-queue.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_INTERNAL_QUEUE_H
-#define DORIS_BE_SRC_UTIL_INTERNAL_QUEUE_H
+#pragma once
 
 #include <functional>
 #include <mutex>
@@ -281,4 +280,3 @@ class InternalQueue : public InternalQueueBase<SpinLock, T> {};
 template <typename T>
 class InternalList : public InternalQueueBase<FakeLock, T> {};
 } // namespace doris
-#endif

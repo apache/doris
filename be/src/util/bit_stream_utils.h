@@ -17,6 +17,7 @@
 // This file is copied from
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/bit-stream-utils.h
 // and modified by Doris
+
 #pragma once
 
 #include "gutil/port.h"

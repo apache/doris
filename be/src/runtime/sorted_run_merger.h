@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/sorted-run-merger.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
-#define DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H
+#pragma once
 
 #include <mutex>
 
@@ -127,5 +126,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SORTED_RUN_MERGER_H

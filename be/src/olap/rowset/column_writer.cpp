@@ -157,19 +157,19 @@ Status ColumnWriter::init() {
                 _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::PRESENT);
 
         if (nullptr == _is_present_stream) {
-            OLAP_LOG_WARNING("fail to allocate IS PRESENT STREAM");
+            LOG(WARNING) << "fail to allocate IS PRESENT STREAM";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         _is_present = new (std::nothrow) BitFieldWriter(_is_present_stream);
 
         if (nullptr == _is_present) {
-            OLAP_LOG_WARNING("fail to allocate IS PRESENT Writer");
+            LOG(WARNING) << "fail to allocate IS PRESENT Writer";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         if (!_is_present->init()) {
-            OLAP_LOG_WARNING("fail to init IS PRESENT Writer");
+            LOG(WARNING) << "fail to init IS PRESENT Writer";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
     }
@@ -177,14 +177,14 @@ Status ColumnWriter::init() {
     Status res = _block_statistics.init(_column.type(), true);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("init block statistic failed");
+        LOG(WARNING) << "init block statistic failed";
         return res;
     }
 
     res = _segment_statistics.init(_column.type(), true);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("init segment statistic failed");
+        LOG(WARNING) << "init segment statistic failed";
         return res;
     }
 
@@ -192,7 +192,7 @@ Status ColumnWriter::init() {
             _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::ROW_INDEX);
 
     if (nullptr == _index_stream) {
-        OLAP_LOG_WARNING("fail to allocate Index STREAM");
+        LOG(WARNING) << "fail to allocate Index STREAM";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -201,19 +201,19 @@ Status ColumnWriter::init() {
         _bf_index_stream =
                 _stream_factory->create_stream(unique_column_id(), StreamInfoMessage::BLOOM_FILTER);
         if (nullptr == _bf_index_stream) {
-            OLAP_LOG_WARNING("fail to allocate bloom filter index stream");
+            LOG(WARNING) << "fail to allocate bloom filter index stream";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         _bf = new (std::nothrow) BloomFilter();
         if (nullptr == _bf) {
-            OLAP_LOG_WARNING("fail to allocate bloom filter");
+            LOG(WARNING) << "fail to allocate bloom filter";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         if (!_bf->init(_num_rows_per_row_block, _bf_fpp)) {
-            OLAP_LOG_WARNING("fail to init bloom filter. num rows: %u, fpp: %g",
-                             _num_rows_per_row_block, _bf_fpp);
+            LOG(WARNING) << "fail to init bloom filter. num rows: " << _num_rows_per_row_block
+                         << ", fpp: " << _bf_fpp;
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
     }
@@ -270,13 +270,13 @@ Status ColumnWriter::create_row_index_entry() {
 
         _bf = new (std::nothrow) BloomFilter();
         if (nullptr == _bf) {
-            OLAP_LOG_WARNING("fail to allocate bloom filter");
+            LOG(WARNING) << "fail to allocate bloom filter";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         if (!_bf->init(_num_rows_per_row_block, _bf_fpp)) {
-            OLAP_LOG_WARNING("fail to init bloom filter. num rows: %u, fpp: %g",
-                             _num_rows_per_row_block, _bf_fpp);
+            LOG(WARNING) << "fail to init bloom filter. num rows: " << _num_rows_per_row_block
+                         << ", fpp: " << _bf_fpp;
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
     }
@@ -284,7 +284,7 @@ Status ColumnWriter::create_row_index_entry() {
     for (std::vector<ColumnWriter*>::iterator it = _sub_writers.begin(); it != _sub_writers.end();
          ++it) {
         if (!(res = (*it)->create_row_index_entry())) {
-            OLAP_LOG_WARNING("fail to create sub column's index.");
+            LOG(WARNING) << "fail to create sub column's index.";
             return res;
         }
     }
@@ -342,7 +342,7 @@ Status ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     ColumnMessage* column = nullptr;
 
     if (!_index.write_to_buffer(index_buf, pb_size)) {
-        OLAP_LOG_WARNING("fail to serialize index");
+        LOG(WARNING) << "fail to serialize index";
         res = Status::OLAPInternalError(OLAP_ERR_SERIALIZE_PROTOBUF_ERROR);
         goto FINALIZE_EXIT;
     }
@@ -350,14 +350,14 @@ Status ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     res = _index_stream->write(index_buf, pb_size);
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to write index to stream");
+        LOG(WARNING) << "fail to write index to stream";
         goto FINALIZE_EXIT;
     }
 
     res = _index_stream->flush();
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to flush index stream");
+        LOG(WARNING) << "fail to flush index stream";
         goto FINALIZE_EXIT;
     }
 
@@ -365,13 +365,13 @@ Status ColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     if (is_bf_column()) {
         res = _bf_index.write_to_buffer(_bf_index_stream);
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to write bloom filter stream");
+            LOG(WARNING) << "fail to write bloom filter stream";
             OLAP_GOTO(FINALIZE_EXIT);
         }
 
         res = _bf_index_stream->flush();
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to flush bloom filter stream");
+            LOG(WARNING) << "fail to flush bloom filter stream";
             OLAP_GOTO(FINALIZE_EXIT);
         }
     }
@@ -448,14 +448,14 @@ Status ByteColumnWriter::init() {
     OutStream* stream = factory->create_stream(unique_column_id(), StreamInfoMessage::DATA);
 
     if (nullptr == stream) {
-        OLAP_LOG_WARNING("fail to allocate DATA STREAM");
+        LOG(WARNING) << "fail to allocate DATA STREAM";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     _writer = new (std::nothrow) RunLengthByteWriter(stream);
 
     if (nullptr == _writer) {
-        OLAP_LOG_WARNING("fail to allocate RunLengthByteWriter");
+        LOG(WARNING) << "fail to allocate RunLengthByteWriter";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -467,12 +467,12 @@ Status ByteColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     Status res = Status::OK();
 
     if (!(res = ColumnWriter::finalize(header))) {
-        OLAP_LOG_WARNING("fail to finalize ColumnWriter.");
+        LOG(WARNING) << "fail to finalize ColumnWriter.";
         return res;
     }
 
     if (!(res = _writer->flush())) {
-        OLAP_LOG_WARNING("fail to flush.");
+        LOG(WARNING) << "fail to flush.";
         return res;
     }
 
@@ -501,14 +501,14 @@ Status IntegerColumnWriter::init() {
     OutStream* stream = _stream_factory->create_stream(_unique_column_id, StreamInfoMessage::DATA);
 
     if (nullptr == stream) {
-        OLAP_LOG_WARNING("fail to allocate DATA STREAM");
+        LOG(WARNING) << "fail to allocate DATA STREAM";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     _writer = new (std::nothrow) RunLengthIntegerWriter(stream, _is_signed);
 
     if (nullptr == _writer) {
-        OLAP_LOG_WARNING("fail to allocate RunLengthIntegerWriter");
+        LOG(WARNING) << "fail to allocate RunLengthIntegerWriter";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -547,7 +547,7 @@ Status VarStringColumnWriter::init() {
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::LENGTH);
 
     if (nullptr == _dict_stream || nullptr == length_stream || nullptr == _data_stream) {
-        OLAP_LOG_WARNING("fail to create stream.");
+        LOG(WARNING) << "fail to create stream.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -555,7 +555,7 @@ Status VarStringColumnWriter::init() {
     _id_writer = new (std::nothrow) RunLengthIntegerWriter(_data_stream, false);
 
     if (nullptr == _length_writer || nullptr == _id_writer) {
-        OLAP_LOG_WARNING("fail to create writer.");
+        LOG(WARNING) << "fail to create writer.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -569,12 +569,12 @@ Status VarStringColumnWriter::write(const char* str, uint32_t len) {
     //std::string key(str, len);
 
     if (!(res = _data_stream->write(str, len))) {
-        OLAP_LOG_WARNING("fail to write string content.");
+        LOG(WARNING) << "fail to write string content.";
         return res;
     }
 
     if (!(res = _length_writer->write(len))) {
-        OLAP_LOG_WARNING("fail to write string length.");
+        LOG(WARNING) << "fail to write string length.";
         return res;
     }
 
@@ -600,12 +600,12 @@ Status VarStringColumnWriter::_finalize_dict_encoding() {
         res = _dict_stream->write(key.c_str(), key.length());
 
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to write string dict to stream.");
+            LOG(WARNING) << "fail to write string dict to stream.";
             return res;
         }
 
         if (!(res = _length_writer->write(key.length()))) {
-            OLAP_LOG_WARNING("fail to write string length to stream.");
+            LOG(WARNING) << "fail to write string length to stream.";
             return res;
         }
     }
@@ -623,7 +623,7 @@ Status VarStringColumnWriter::_finalize_dict_encoding() {
             res = _id_writer->write(dump_order[_string_id[i]]);
 
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to write string id to stream.");
+                LOG(WARNING) << "fail to write string id to stream.";
                 return res;
             }
         }
@@ -652,13 +652,13 @@ Status VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     if (_use_dictionary_encoding) {
         res = _finalize_dict_encoding();
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to finalize dict encoding.");
+            LOG(WARNING) << "fail to finalize dict encoding.";
             return res;
         }
     } else {
         res = _finalize_direct_encoding();
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to finalize direct encoding.");
+            LOG(WARNING) << "fail to finalize direct encoding.";
             return res;
         }
     }
@@ -666,14 +666,14 @@ Status VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     // The index's supplementary writing has been completed, ColumnWriter::finalize will write the header
     res = ColumnWriter::finalize(header);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to finalize ColumnWriter.");
+        LOG(WARNING) << "fail to finalize ColumnWriter.";
         return res;
     }
 
     // id_writer is practical to data_stream, it doesn't matter if you repeat flush
     if (!_length_writer->flush() || !_id_writer->flush() || !_dict_stream->flush() ||
         !_data_stream->flush()) {
-        OLAP_LOG_WARNING("fail to flush stream.");
+        LOG(WARNING) << "fail to flush stream.";
         return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
     }
 
@@ -745,7 +745,7 @@ Status DecimalColumnWriter::init() {
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::SECONDARY);
 
     if (nullptr == int_stream || nullptr == frac_stream) {
-        OLAP_LOG_WARNING("fail to create stream.");
+        LOG(WARNING) << "fail to create stream.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -753,7 +753,7 @@ Status DecimalColumnWriter::init() {
     _frac_writer = new (std::nothrow) RunLengthIntegerWriter(frac_stream, true);
 
     if (nullptr == _int_writer || nullptr == _frac_writer) {
-        OLAP_LOG_WARNING("fail to create writer.");
+        LOG(WARNING) << "fail to create writer.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -766,19 +766,19 @@ Status DecimalColumnWriter::finalize(ColumnDataHeaderMessage* header) {
 
     res = ColumnWriter::finalize(header);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to finalize ColumnWriter.");
+        LOG(WARNING) << "fail to finalize ColumnWriter.";
         return res;
     }
 
     res = _int_writer->flush();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to flush integer writer.");
+        LOG(WARNING) << "fail to flush integer writer.";
         return res;
     }
 
     res = _frac_writer->flush();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to flush fraction writer.");
+        LOG(WARNING) << "fail to flush fraction writer.";
         return res;
     }
 
@@ -819,7 +819,7 @@ Status LargeIntColumnWriter::init() {
             stream_factory()->create_stream(unique_column_id(), StreamInfoMessage::SECONDARY);
 
     if (nullptr == high_stream || nullptr == low_stream) {
-        OLAP_LOG_WARNING("fail to create stream.");
+        LOG(WARNING) << "fail to create stream.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -827,7 +827,7 @@ Status LargeIntColumnWriter::init() {
     _low_writer = new (std::nothrow) RunLengthIntegerWriter(low_stream, true);
 
     if (nullptr == _high_writer || nullptr == _low_writer) {
-        OLAP_LOG_WARNING("fail to create writer.");
+        LOG(WARNING) << "fail to create writer.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -840,19 +840,19 @@ Status LargeIntColumnWriter::finalize(ColumnDataHeaderMessage* header) {
 
     res = ColumnWriter::finalize(header);
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to finalize ColumnWriter.");
+        LOG(WARNING) << "fail to finalize ColumnWriter.";
         return res;
     }
 
     res = _high_writer->flush();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to flush integer writer.");
+        LOG(WARNING) << "fail to flush integer writer.";
         return res;
     }
 
     res = _low_writer->flush();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to flush fraction writer.");
+        LOG(WARNING) << "fail to flush fraction writer.";
         return res;
     }
 

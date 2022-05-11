@@ -18,7 +18,6 @@
 #pragma once
 
 #include "exec/olap_scanner.h"
-
 #include "vec/olap/block_reader.h"
 
 namespace doris {

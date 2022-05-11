@@ -18,8 +18,6 @@
 package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.memo.PlanReference;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
@@ -29,13 +27,8 @@ import java.util.List;
  * Abstract class for all plan node.
  */
 public interface Plan<PLAN_TYPE extends Plan<PLAN_TYPE>> extends TreeNode<PLAN_TYPE> {
-    NodeType getType();
 
     List<Slot> getOutput() throws UnboundException;
-
-    PlanReference getPlanReference();
-
-    void setPlanReference(PlanReference planReference);
 
     String treeString();
 

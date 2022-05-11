@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
-import org.apache.doris.nereids.memo.PlanReference;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.pattern.PatternMatching;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -30,30 +30,30 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import java.util.List;
 
 /**
- * Job to apply rule on {@link PlanReference}.
+ * Job to apply rule on {@link GroupExpression}.
  */
 public class ApplyRuleJob extends Job {
-    private final PlanReference planReference;
-    private final Rule rule;
+    private final GroupExpression groupExpression;
+    private final Rule<Plan> rule;
     private final boolean exploredOnly;
 
     /**
      * Constructor of ApplyRuleJob.
      *
-     * @param planReference apply rule on this {@link PlanReference}
+     * @param groupExpression apply rule on this {@link GroupExpression}
      * @param rule rule to be applied
      * @param context context of optimization
      */
-    public ApplyRuleJob(PlanReference planReference, Rule rule, PlannerContext context) {
+    public ApplyRuleJob(GroupExpression groupExpression, Rule<Plan> rule, PlannerContext context) {
         super(JobType.APPLY_RULE, context);
-        this.planReference = planReference;
+        this.groupExpression = groupExpression;
         this.rule = rule;
         this.exploredOnly = false;
     }
 
     @Override
     public void execute() throws AnalysisException {
-        if (planReference.hasExplored(rule)) {
+        if (groupExpression.hasExplored(rule)) {
             return;
         }
 
@@ -63,22 +63,22 @@ public class ApplyRuleJob extends Job {
             if (!rule.check(plan, context)) {
                 continue;
             }
-            List<Plan<?>> newPlanList = rule.transform(plan, context);
-            for (Plan<?> newPlan : newPlanList) {
-                PlanReference newReference = context.getOptimizerContext().getMemo()
-                        .newPlanReference(newPlan, planReference.getParent());
+            List<Plan> newPlanList = rule.transform(plan, context);
+            for (Plan newPlan : newPlanList) {
+                GroupExpression newGroupExpression = context.getOptimizerContext().getMemo()
+                        .newGroupExpression(newPlan, groupExpression.getParent());
                 // TODO need to check return is a new Reference, other wise will be into a dead loop
                 if (newPlan instanceof LogicalPlan) {
-                    pushTask(new DeriveStatsJob(newReference, context));
+                    pushTask(new DeriveStatsJob(newGroupExpression, context));
                     if (exploredOnly) {
-                        pushTask(new ExplorePlanJob(newReference, context));
+                        pushTask(new ExplorePlanJob(newGroupExpression, context));
                     }
-                    pushTask(new OptimizePlanJob(newReference, context));
+                    pushTask(new OptimizePlanJob(newGroupExpression, context));
                 } else {
-                    pushTask(new CostAndEnforcerJob(newReference, context));
+                    pushTask(new CostAndEnforcerJob(newGroupExpression, context));
                 }
             }
         }
-        planReference.setExplored(rule);
+        groupExpression.setExplored(rule);
     }
 }

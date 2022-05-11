@@ -25,12 +25,22 @@ import org.apache.doris.nereids.trees.NodeType;
  */
 public abstract class BinaryExpression<
             EXPR_TYPE extends BinaryExpression<EXPR_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE extends Expression<LEFT_CHILD_TYPE>,
-            RIGHT_CHILD_TYPE extends Expression<RIGHT_CHILD_TYPE>>
+            LEFT_CHILD_TYPE extends Expression,
+            RIGHT_CHILD_TYPE extends Expression>
         extends AbstractExpression<EXPR_TYPE>
         implements BinaryNode<EXPR_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public BinaryExpression(NodeType type, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
         super(type, left, right);
+    }
+
+    @Override
+    public LEFT_CHILD_TYPE left() {
+        return BinaryNode.super.left();
+    }
+
+    @Override
+    public RIGHT_CHILD_TYPE right() {
+        return BinaryNode.super.right();
     }
 }
