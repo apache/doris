@@ -735,6 +735,7 @@ module.exports = [
               "SHOW-CREATE-FUNCTION",
               "SHOW-CREATE-ROUTINE-LOAD",
               "SHOW-CREATE-TABLE",
+              "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",

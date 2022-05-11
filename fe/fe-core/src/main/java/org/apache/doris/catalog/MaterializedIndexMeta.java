@@ -136,6 +136,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return null;
     }
 
+    public OriginStatement getDefineStmt() {
+        return defineStmt;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof MaterializedIndexMeta)) {
