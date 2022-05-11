@@ -90,17 +90,7 @@ Status VParquetScanner::_init_arrow_batch_if_necessary() {
     // 2. reset reader if end of file
     Status status;
     if (!_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
-        while (!_scanner_eof) {
-            status = _next_arrow_batch();
-            if (_scanner_eof) {
-                return status;
-            }
-            if (status.is_end_of_file()) {
-                // try next file
-                continue;
-            }
-            return status;
-        }
+        return _next_arrow_batch();
     }
     return status;
 }
@@ -176,14 +166,8 @@ Status VParquetScanner::get_next(vectorized::Block* block, bool* eof) {
         if (!status.is_end_of_file()) {
             return status;
         }
-        // if src block is not empty, then finalize the block
-        if (src_block.rows() > 0) {
-            break;
-        }
         _cur_file_eof = true;
-        RETURN_IF_ERROR(_next_arrow_batch());
-        // there may be different arrow file, so reinit block here
-        RETURN_IF_ERROR(_init_src_block(&src_block));
+        break;
     }
     COUNTER_UPDATE(_rows_read_counter, src_block.rows());
     SCOPED_TIMER(_materialize_timer);
