@@ -778,10 +778,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
                                                : StringRef();
-                if (!item_type_desc.is_date_type() && !item_type_desc.is_decimal_type()) {
-                    deep_copy_slot(iterator.get(), pool, item_type_desc, data_ref, item_column,
-                                   item_offset, padding_char);
-                } else if (item_type_desc.is_date_type()) {
+                if (item_type_desc.is_date_type()) {
                     // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
                     DateTimeValue datetime_value;
                     deep_copy_slot(&datetime_value, pool, item_type_desc, data_ref, item_column,
@@ -789,7 +786,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                     DateTimeVal datetime_val;
                     datetime_value.to_datetime_val(&datetime_val);
                     iterator.set(&datetime_val);
-                } else {
+                } else if (item_type_desc.is_decimal_type()) {
                     // In CollectionValue, decimal type data is stored as decimal12_t.
                     DecimalV2Value decimal_value;
                     deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,
@@ -797,6 +794,9 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                     DecimalV2Val decimal_val;
                     decimal_value.to_decimal_val(&decimal_val);
                     iterator.set(&decimal_val);
+                } else {
+                    deep_copy_slot(iterator.get(), pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
                 }
             }
             iterator.next();

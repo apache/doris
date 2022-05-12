@@ -354,6 +354,7 @@ ArrayIterator CollectionValue::internal_iterator(PrimitiveType child_type) const
                              static_cast<ArrayIteratorFunctions<TYPE_DECIMALV2>*>(nullptr));
     default:
         DCHECK(false) << "Invalid child type: " << child_type;
+        __builtin_unreachable();
     }
 }
 
