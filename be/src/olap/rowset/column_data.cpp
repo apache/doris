@@ -70,7 +70,7 @@ Status ColumnData::get_next_block(RowBlock** row_block) {
     _is_normal_read = true;
     auto res = _get_block(false);
     if (!res.ok()) {
-        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "Get next block failed.";
         }
         *row_block = nullptr;
@@ -165,7 +165,7 @@ Status ColumnData::_find_position_by_short_key(const RowCursor& key, bool find_l
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, find_last_key, &tmp_pos);
     if (!res.ok()) {
-        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+        if (res.precise_code() == OLAP_ERR_INDEX_EOF) {
             res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
             LOG(WARNING) << "find row block failed. res = " << res;
@@ -185,7 +185,7 @@ Status ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_la
     RowBlockPosition tmp_pos;
     auto res = _segment_group->find_short_key(key, &_short_key_cursor, false, &tmp_pos);
     if (!res.ok()) {
-        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+        if (res.precise_code() == OLAP_ERR_INDEX_EOF) {
             res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
             LOG(WARNING) << "find row block failed. res = " << res;
@@ -202,7 +202,7 @@ Status ColumnData::_find_position_by_full_key(const RowCursor& key, bool find_la
     RowBlockPosition end_position;
     res = _segment_group->find_short_key(key, &_short_key_cursor, true, &end_position);
     if (!res.ok()) {
-        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+        if (res.precise_code() == OLAP_ERR_INDEX_EOF) {
             res = Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
         } else {
             LOG(WARNING) << "find row block failed. res = " << res;
@@ -282,7 +282,7 @@ Status ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool i
         res = _find_position_by_short_key(key, find_last_key, &position);
     }
     if (!res.ok()) {
-        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "Fail to find the key.[res=" << res << " key=" << key.to_string()
                          << " find_last_key=" << find_last_key << "]";
         }
@@ -299,7 +299,7 @@ Status ColumnData::_seek_to_row(const RowCursor& key, bool find_last_key, bool i
     }
     res = _get_block(without_filter);
     if (!res.ok()) {
-        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "Fail to find the key.[res=" << res << " key=" << key.to_string()
                          << " find_last_key=" << find_last_key << "]";
         }
@@ -359,11 +359,11 @@ Status ColumnData::prepare_block_read(const RowCursor* start_key, bool find_star
             _end_block = _current_block;
             _end_row_index = _read_block->pos();
             _end_key_is_set = true;
-        } else if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        } else if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "Find end key failed.key=" << end_key->to_string();
             return res;
         }
-        // res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF) means there is no end key, then we read to
+        // res.precise_code() == OLAP_ERR_DATA_EOF means there is no end key, then we read to
         // the end of this ColumnData
     }
     set_eof(false);
@@ -371,7 +371,7 @@ Status ColumnData::prepare_block_read(const RowCursor* start_key, bool find_star
         auto res = _seek_to_row(*start_key, !find_start_key, false);
         if (res.ok()) {
             *first_block = _read_block.get();
-        } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
             _eof = true;
             *first_block = nullptr;
             return res;
@@ -450,7 +450,7 @@ Status ColumnData::get_first_row_block(RowBlock** row_block) {
     RowBlockPosition block_pos;
     Status res = segment_group()->find_first_row_block(&block_pos);
     if (!res.ok()) {
-        if (res == Status::OLAPInternalError(OLAP_ERR_INDEX_EOF)) {
+        if (res.precise_code() == OLAP_ERR_INDEX_EOF) {
             *row_block = nullptr;
             _eof = true;
             return res;
@@ -461,7 +461,7 @@ Status ColumnData::get_first_row_block(RowBlock** row_block) {
 
     res = _seek_to_block(block_pos, false);
     if (!res.ok()) {
-        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "seek to block fail. res = " << res;
         }
         *row_block = nullptr;
@@ -470,7 +470,7 @@ Status ColumnData::get_first_row_block(RowBlock** row_block) {
 
     res = _get_block(false);
     if (!res.ok()) {
-        if (res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "fail to load data to row block. res=" << res
                          << ", version=" << version().first << "-" << version().second;
         }
