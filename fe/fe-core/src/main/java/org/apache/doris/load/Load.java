@@ -1064,8 +1064,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
-            Column tblColumn = tbl.getColumn(columnName);
-            String realColName =  tblColumn == null ? columnName : tblColumn.getName();
+            String realColName;
+            if (tblColumn == null || importColumnDesc.getExpr() == null) {
+                realColName = columnName;
+            } else {
+                realColName = tblColumn.getName();
+            }
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);
