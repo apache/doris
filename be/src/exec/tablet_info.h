@@ -30,7 +30,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
-
 #include "vec/core/block.h"
 
 namespace doris {

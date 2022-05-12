@@ -18,9 +18,11 @@
 #include "exec/broker_scanner.h"
 
 #include <fmt/format.h>
+
 #include <iostream>
 #include <sstream>
 
+#include "common/consts.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
@@ -38,7 +40,6 @@
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
 #include "util/utf8_check.h"
-#include "common/consts.h"
 
 namespace doris {
 
@@ -468,8 +469,7 @@ Status BrokerScanner::_convert_one_row(const Slice& line, Tuple* tuple, MemPool*
     return fill_dest_tuple(tuple, tuple_pool, fill_tuple);
 }
 
-// Convert one row to this tuple
-Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
+Status BrokerScanner::_line_split_to_values(const Slice& line) {
     bool is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     if (!is_proto_format && !validate_utf8(line.data, line.size)) {
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -546,6 +546,17 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
         }
     }
 
+    _success = true;
+    return Status::OK();
+}
+
+// Convert one row to this tuple
+Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
+    RETURN_IF_ERROR(_line_split_to_values(line));
+    if (!_success) {
+        return Status::OK();
+    }
+
     for (int i = 0; i < _split_values.size(); ++i) {
         auto slot_desc = _src_slot_descs[i];
         const Slice& value = _split_values[i];
@@ -560,11 +571,11 @@ Status BrokerScanner::_line_to_src_tuple(const Slice& line) {
         str_slot->len = value.size;
     }
 
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
     if (range.__isset.num_of_columns_from_file) {
-        fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
+        fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
     }
 
-    _success = true;
     return Status::OK();
 }
 

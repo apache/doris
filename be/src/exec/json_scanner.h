@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_JSON_SCANNER_H_
-#define BE_SRC_JSON_SCANNER_H_
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -188,4 +187,3 @@ private:
 };
 
 } // namespace doris
-#endif

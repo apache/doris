@@ -23,8 +23,7 @@
  *
  */
 
-#ifndef RADIXSORT_H_
-#define RADIXSORT_H_
+#pragma once
 
 #include <malloc.h>
 #include <string.h>
@@ -303,5 +302,3 @@ void radixSortLSD(T* arr, size_t size) {
 }
 
 } // namespace doris
-
-#endif // RADIXSORT_H_

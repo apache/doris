@@ -55,7 +55,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     for (auto& rs_reader : rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         Status res = _vcollect_iter.add_child(rs_reader);
-        if (!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+        if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
             return res;
         }
@@ -67,7 +67,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _vcollect_iter.build_heap(*valid_rs_readers);
     if (_vcollect_iter.is_merge()) {
         auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        _eof = status.precise_code() == OLAP_ERR_DATA_EOF;
     }
 
     return Status::OK();
@@ -172,10 +172,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
 Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                        bool* eof) {
     auto res = _vcollect_iter.next(block);
-    if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+    if (UNLIKELY(!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF)) {
         return res;
     }
-    *eof = res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+    *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
     return Status::OK();
 }
 
@@ -192,6 +192,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     }
 
     auto target_block_row = 0;
+    auto merged_row = 0;
     auto target_columns = block->mutate_columns();
 
     _insert_data_normal(target_columns);
@@ -200,7 +201,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
 
     while (true) {
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+        if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             *eof = true;
             break;
         }
@@ -218,6 +219,8 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
 
             _insert_data_normal(target_columns);
             target_block_row++;
+        } else {
+            merged_row++;
         }
 
         _append_agg_data(target_columns);
@@ -227,7 +230,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
 
-    _merged_rows += target_block_row;
+    _merged_rows += merged_row;
     return Status::OK();
 }
 
@@ -249,7 +252,7 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         // in UNIQUE_KEY highest version is the final result, there is no need to
         // merge the lower versions
         auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+        if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             *eof = true;
             break;
         }
@@ -260,7 +263,6 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
         }
     } while (target_block_row < _batch_size);
 
-    _merged_rows += target_block_row;
     return Status::OK();
 }
 

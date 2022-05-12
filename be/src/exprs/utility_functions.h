@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/utility-functions.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_UTILITY_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_UTILITY_FUNCTIONS_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -41,5 +40,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

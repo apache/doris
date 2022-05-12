@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -73,7 +72,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             LOG.error("db[{}] already in recycle bin.", db.getId());
             return false;
         }
-        
+
         // db should be empty. all tables are recycled before
         Preconditions.checkState(db.getTables().isEmpty());
 
@@ -294,7 +293,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 break;
             }
         }
-        
+
         if (dbInfo == null) {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
@@ -439,7 +438,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         if (partitionInfo.getType() == PartitionType.RANGE) {
             recoverItem = new RangePartitionItem(recoverRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
-            recoverItem = recoverPartitionInfo.getListPartitionItem();;
+            recoverItem = recoverPartitionInfo.getListPartitionItem();
         }
         // check if partition item is invalid
         if (partitionInfo.getAnyIntersectItem(recoverItem, false) != null) {
@@ -597,7 +596,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         eraseTable(currentTimeMs);
         eraseDatabase(currentTimeMs);
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         int count = idToDatabase.size();
@@ -696,7 +695,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
-            
+
             int count  = in.readInt();
             for (int i = 0; i < count; i++) {
                 String tableName = Text.readString(in);
@@ -712,7 +711,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         public RecycleTableInfo() {
             // for persist
         }
-        
+
         public RecycleTableInfo(long dbId, Table table) {
             this.dbId = dbId;
             this.table = table;
@@ -826,7 +825,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             isInMemory = in.readBoolean();
         }
     }
-    
+
     // currently only used when loading image. So no synchronized protected.
     public List<Long> getAllDbIds() {
         return Lists.newArrayList(idToDatabase.keySet());

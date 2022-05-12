@@ -7,8 +7,7 @@
 // any changes here, make sure that you're not breaking any platforms.
 //
 
-#ifndef BASE_MACROS_H_
-#define BASE_MACROS_H_
+#pragma once
 
 #include <stddef.h> // For size_t
 
@@ -283,5 +282,3 @@ enum LinkerInitialized { LINKER_INITIALIZED };
         static_assert(std::is_pointer<decltype(ptr)>::value == true, #ptr " must be a pointer"); \
         (ptr) = (expr);                                                                          \
     } while ((ptr) == nullptr && errno == EINTR)
-
-#endif // BASE_MACROS_H_

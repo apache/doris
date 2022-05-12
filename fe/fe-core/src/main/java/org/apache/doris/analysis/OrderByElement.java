@@ -37,18 +37,18 @@ public class OrderByElement {
     // Represents the NULLs ordering specified: true when "NULLS FIRST", false when
     // "NULLS LAST", and null if not specified.
     private final Boolean nullsFirstParam;
-    
+
     public OrderByElement(Expr expr, boolean isAsc, Boolean nullsFirstParam) {
         super();
         this.expr = expr;
         this.isAsc = isAsc;
         this.nullsFirstParam = nullsFirstParam;
     }
-    
+
     public void setExpr(Expr e) {
         this.expr = e;
     }
-    
+
     public Expr getExpr() {
         return expr;
     }
@@ -56,7 +56,7 @@ public class OrderByElement {
     public boolean getIsAsc() {
         return isAsc;
     }
-    
+
     public Boolean getNullsFirstParam() {
         return nullsFirstParam;
     }
@@ -130,6 +130,22 @@ public class OrderByElement {
             }
         }
 
+        return strBuilder.toString();
+    }
+
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        strBuilder.append(expr.toDigest());
+        strBuilder.append(isAsc ? " ASC" : " DESC");
+        if (nullsFirstParam != null) {
+            if (isAsc && nullsFirstParam) {
+                // If ascending, nulls are last by default, so only add if nulls first.
+                strBuilder.append(" NULLS FIRST");
+            } else if (!isAsc && !nullsFirstParam) {
+                // If descending, nulls are first by default, so only add if nulls last.
+                strBuilder.append(" NULLS LAST");
+            }
+        }
         return strBuilder.toString();
     }
 

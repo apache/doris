@@ -46,11 +46,11 @@ public class DeleteStmt extends DdlStmt {
         this.wherePredicate = wherePredicate;
         this.deleteConditions = new LinkedList<Predicate>();
     }
-    
+
     public String getTableName() {
         return tbl.getTbl();
     }
-    
+
     public String getDbName() {
         return tbl.getDb();
     }
@@ -66,7 +66,7 @@ public class DeleteStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        
+
         if (tbl == null) {
             throw new AnalysisException("Table is not set");
         }

@@ -22,7 +22,6 @@ import org.apache.doris.qe.HelpModule;
 import org.apache.doris.qe.HelpTopic;
 
 import com.google.common.base.Strings;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,7 +30,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 
 @RestController

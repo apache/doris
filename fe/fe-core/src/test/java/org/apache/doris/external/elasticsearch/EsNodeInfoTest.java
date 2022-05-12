@@ -19,12 +19,11 @@ package org.apache.doris.external.elasticsearch;
 
 import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.ObjectMapper;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import static org.junit.Assert.assertEquals;
 
 public class EsNodeInfoTest  extends EsTestCase{
 
@@ -37,12 +36,12 @@ public class EsNodeInfoTest  extends EsTestCase{
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue(), false);
             if ("node-A".equals(node.getName())) {
-                assertEquals("10.0.0.1", node.getPublishAddress().hostname);
-                assertEquals(8200, node.getPublishAddress().port);
+                Assert.assertEquals("10.0.0.1", node.getPublishAddress().hostname);
+                Assert.assertEquals(8200, node.getPublishAddress().port);
             }
             if ("node-B".equals(node.getName())) {
-                assertEquals("10.0.0.2", node.getPublishAddress().hostname);
-                assertEquals(8200, node.getPublishAddress().port);
+                Assert.assertEquals("10.0.0.2", node.getPublishAddress().hostname);
+                Assert.assertEquals(8200, node.getPublishAddress().port);
             }
         }
     }

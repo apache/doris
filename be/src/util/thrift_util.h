@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_THRIFT_UTIL_H
+#pragma once
 
 #include <thrift/TApplicationException.h>
 #include <thrift/protocol/TBinaryProtocol.h>
@@ -170,5 +169,3 @@ void t_network_address_to_string(const TNetworkAddress& address, std::string* ou
 bool t_network_address_comparator(const TNetworkAddress& a, const TNetworkAddress& b);
 
 } // namespace doris
-
-#endif

@@ -36,7 +36,7 @@ under the License.
 
 ### 开始导入
 
-Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.html) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 
 ```
   LOAD LABEL db_name.label_name 
@@ -49,7 +49,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 
 1. 创建一张表
 
-   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html) 命令手册。示例如下：
+   通过 `CREATE TABLE` 命令在`demo`创建一张表用于存储待导入的数据。具体的导入方式请查阅 [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) 命令手册。示例如下：
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_hdfs_file_test
@@ -82,7 +82,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
        "max_filter_ratio"="0.1"
        );
    ```
-    关于参数介绍，请参阅[Broker Load](../../../data-operate/import/import-way/broker-load-manual.html)，HA集群的创建语法，通过`HELP BROKER LOAD`查看
+    关于参数介绍，请参阅[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md)，HA集群的创建语法，通过`HELP BROKER LOAD`查看
   
 3. 查看导入状态
    
@@ -134,7 +134,7 @@ Hdfs load 创建导入语句，导入方式和[Broker Load](../../../data-operat
 其他云存储系统可以相应的文档找到与S3兼容的相关信息
 
 ### 开始导入
-导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.html) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
+导入方式和[Broker Load](../../../data-operate/import/import-way/broker-load-manual.md) 基本相同，只需要将 `WITH BROKER broker_name ()` 语句替换成如下部分
 ```
     WITH S3
     (

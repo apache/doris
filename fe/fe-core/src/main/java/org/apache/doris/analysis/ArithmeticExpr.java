@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -218,6 +217,15 @@ public class ArithmeticExpr extends Expr {
             return op.toString() + " " + getChild(0).toSql();
         } else {
             return getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql();
+        }
+    }
+
+    @Override
+    public String toDigestImpl() {
+        if (children.size() == 1) {
+            return op.toString() + " " + getChild(0).toDigest();
+        } else {
+            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
         }
     }
 

@@ -32,7 +32,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -458,6 +457,26 @@ public class InlineViewRef extends TableRef {
         StringBuilder sb = new StringBuilder();
         sb.append("(")
                 .append(queryStmt.toSql())
+                .append(") ")
+                .append(aliasSql);
+
+        return sb.toString();
+    }
+
+    @Override
+    public String tableRefToDigest() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) {
+            aliasSql = ToSqlUtils.getIdentSql(alias);
+        }
+        if (view != null) {
+            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
+        }
+
+        StringBuilder sb = new StringBuilder()
+                .append("(")
+                .append(queryStmt.toDigest())
                 .append(") ")
                 .append(aliasSql);
 

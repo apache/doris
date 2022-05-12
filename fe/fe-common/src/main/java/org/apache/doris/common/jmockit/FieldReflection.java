@@ -244,7 +244,7 @@ public final class FieldReflection {
         } catch (NoSuchFieldException e) {
             throw new RuntimeException(e);
         }
-    
+
         modifiersField.setAccessible(true);
         int nonFinalModifiers = modifiersField.getInt(field) - 16;
         modifiersField.setInt(field, nonFinalModifiers);

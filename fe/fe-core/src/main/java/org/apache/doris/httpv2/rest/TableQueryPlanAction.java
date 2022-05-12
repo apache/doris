@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TTabletVersionInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -69,8 +69,6 @@ import java.util.Map;
 import java.util.UUID;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}
@@ -225,7 +223,7 @@ public class TableQueryPlanAction extends RestBaseController {
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0l /*version hash*/, node.schemaHash));
+            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
         });
         tQueryPlanInfo.tablet_info = tablet_info;
 

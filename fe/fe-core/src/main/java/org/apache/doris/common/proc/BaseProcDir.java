@@ -19,12 +19,12 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 
 // 通用PROC DIR类，可以进行注册，返回底层节点内容。

@@ -39,11 +39,11 @@ public class MetaHelper {
         String metaDir = Catalog.getCurrentCatalog().getImageDir();
         return new File(metaDir);
     }
-    
+
     public static int getLimit() {
         return CHECKPOINT_LIMIT_BYTES;
     }
-    
+
     // rename the .PART_SUFFIX file to filename
     public static File complete(String filename, File dir) throws IOException {
         File file = new File(dir, filename + MetaHelper.PART_SUFFIX);

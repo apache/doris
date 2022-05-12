@@ -57,7 +57,7 @@ public class ResourceGroup implements Writable {
         }
         if (type == ResourceType.CPU_SHARE || type == ResourceType.IO_SHARE) {
             if (value < 100 || value > 1000) {
-                throw new DdlException("Value for resource type(" 
+                throw new DdlException("Value for resource type("
                                        + desc + ") has to be in [100, 1000]");
             }
         }

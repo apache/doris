@@ -33,6 +33,11 @@ public:
     VBrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VBrokerScanNode() override = default;
 
+    // Fill the next row batch by calling next() on the scanner,
+    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
+        return Status::NotSupported("Not Implemented VBrokerScanNode::get_next.");
+    }
+
     Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Close the scanner, and report errors.
@@ -46,6 +51,7 @@ private:
     Status scanner_scan(const TBrokerScanRange& scan_range, ScannerCounter* counter);
 
     std::deque<std::shared_ptr<vectorized::Block>> _block_queue;
+    std::unique_ptr<MutableBlock> _mutable_block;
 };
 } // namespace vectorized
 } // namespace doris

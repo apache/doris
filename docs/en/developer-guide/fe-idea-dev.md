@@ -53,7 +53,10 @@ under the License.
       1. Download：`brew install thrift@0.13.0`
       2. Establish soft connection： 
         `mkdir -p ./thirdparty/installed/bin`
+        # For ARM macOS
         `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+        # For Intel macOS
+        `ln -s /usr/local/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
       
    Note：The error that the version cannot be found may be reported when MacOS execute `brew install thrift@0.13.0`. The solution is execute at the terminal as follows:
       1. `brew tap-new $USER/local-tap`

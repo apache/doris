@@ -49,27 +49,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.HashMap;
-import java.util.Map;
 
 public class SqlBlockRuleMgrTest {
 
     private static String runningDir = "fe/mocked/SqlBlockRuleMgrTest/" + UUID.randomUUID().toString() + "/";
-    
+
     private static ConnectContext connectContext;
-    
+
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
-        
+
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
-        
+
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        
+
         MetricRepo.init();
         createTable("create table test.table1\n" +
                 "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
@@ -90,20 +88,20 @@ public class SqlBlockRuleMgrTest {
                 "PROPERTIES (\n" +
                 "\"replication_num\" = \"1\"\n" +
                 ");");
-        
+
     }
-    
+
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
         file.delete();
     }
-    
+
     private static void createTable(String sql) throws Exception {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
-    
+
     @Test
     public void testUserMatchSql() throws Exception {
         String sql = "select * from table1 limit 10";
@@ -118,7 +116,7 @@ public class SqlBlockRuleMgrTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: " + sqlRule.getName(),
                 () -> mgr.matchSql(sql, sqlHash, "root"));
     }
-    
+
     @Test
     public void testGlobalMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 limit 10";
@@ -129,7 +127,7 @@ public class SqlBlockRuleMgrTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match hash sql block rule: " + sqlRule.getName(),
                 () -> mgr.matchSql(sql, sqlHash, "test"));
     }
-    
+
     @Test
     public void testRegexMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";
@@ -140,7 +138,7 @@ public class SqlBlockRuleMgrTest {
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "sql match regex sql block rule: " + sqlRule.getName(),
                 () -> mgr.matchSql(sqlRule, sql, sqlHash));
     }
-    
+
     @Test
     public void testHashMatchSql() throws AnalysisException {
         String sql = "select * from test_table1 tt1 join test_table2 tt2 on tt1.testId=tt2.testId limit 5";

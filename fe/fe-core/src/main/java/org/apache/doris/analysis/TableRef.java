@@ -35,7 +35,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -649,6 +648,10 @@ public class TableRef implements ParseNode, Writable {
         return tblName;
     }
 
+    public String tableRefToDigest() {
+        return tableRefToSql();
+    }
+
     @Override
     public String toSql() {
         if (joinOp == null) {
@@ -666,6 +669,26 @@ public class TableRef implements ParseNode, Writable {
             output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
         } else if (onClause != null) {
             output.append("ON ").append(onClause.toSql());
+        }
+        return output.toString();
+    }
+
+    public String toDigest() {
+        if (joinOp == null) {
+            // prepend "," if we're part of a sequence of table refs w/o an
+            // explicit JOIN clause
+            return (leftTblRef != null ? ", " : "") + tableRefToDigest();
+        }
+
+        StringBuilder output = new StringBuilder(" " + joinOpToSql() + " ");
+        if (joinHints != null && !joinHints.isEmpty()) {
+            output.append("[").append(Joiner.on(", ").join(joinHints)).append("] ");
+        }
+        output.append(tableRefToDigest()).append(" ");
+        if (usingColNames != null) {
+            output.append("USING (").append(Joiner.on(", ").join(usingColNames)).append(")");
+        } else if (onClause != null) {
+            output.append("ON ").append(onClause.toDigest());
         }
         return output.toString();
     }
@@ -826,4 +849,3 @@ public class TableRef implements ParseNode, Writable {
         }
     }
 }
-

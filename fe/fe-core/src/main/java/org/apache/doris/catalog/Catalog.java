@@ -217,6 +217,7 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -263,8 +264,8 @@ import com.google.common.collect.Sets;
 import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
-
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -458,6 +459,8 @@ public class Catalog {
 
     private RefreshManager refreshManager;
 
+    private PolicyMgr policyMgr;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -629,6 +632,7 @@ public class Catalog {
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
+        this.policyMgr = new PolicyMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1815,8 +1819,6 @@ public class Catalog {
     }
 
     public long loadAlterJob(DataInputStream dis, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
-
         // alter jobs
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
@@ -1825,13 +1827,11 @@ public class Catalog {
             throw new IOException("There are [" + size + "] old alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= 2) {
-            // finished or cancelled jobs
-            size = dis.readInt();
-            newChecksum ^= size;
-            if (size > 0) {
-                throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
-            }
+        // finished or cancelled jobs
+        size = dis.readInt();
+        newChecksum ^= size;
+        if (size > 0) {
+            throw new IOException("There are [" + size + "] old finished or cancelled alter jobs. Please downgrade FE to an older version and handle residual jobs");
         }
 
         // alter job v2
@@ -1841,9 +1841,9 @@ public class Catalog {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
-                    this.getRollupHandler().addAlterJobV2(alterJobV2);
+                    this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
                 } else {
-                    alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                    this.getSchemaChangeHandler().addAlterJobV2(alterJobV2);
                 }
                 // ATTN : we just want to add tablet into TabletInvertedIndex when only PendingJob is checkpointed
                 // to prevent TabletInvertedIndex data loss,
@@ -1853,7 +1853,7 @@ public class Catalog {
                     LOG.info("replay pending alter job when load alter job {} ", alterJobV2.getJobId());
                 }
             } else {
-                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                throw new IOException("Invalid alter job type: " + type.name());
             }
         }
 
@@ -1945,6 +1945,17 @@ public class Catalog {
             sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
         }
         LOG.info("finished replay sqlBlockRule from image");
+        return checksum;
+    }
+
+    /**
+     * Load policy through file.
+     **/
+    public long loadPolicy(DataInputStream in, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
+            policyMgr = PolicyMgr.read(in);
+        }
+        LOG.info("finished replay policy from image");
         return checksum;
     }
 
@@ -2112,7 +2123,17 @@ public class Catalog {
     }
 
     public long saveAlterJob(CountingDataOutputStream dos, long checksum, JobType type) throws IOException {
-        Map<Long, AlterJobV2> alterJobsV2 = Maps.newHashMap();
+        Map<Long, AlterJobV2> alterJobsV2;
+        if (type == JobType.ROLLUP) {
+            alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
+        } else if (type == JobType.SCHEMA_CHANGE) {
+            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
+        } else if (type == JobType.DECOMMISSION_BACKEND) {
+            // Load alter job need decommission backend type to load image
+            alterJobsV2 = Maps.newHashMap();
+        } else {
+            throw new IOException("Invalid alter job type: " + type.name());
+        }
 
         // alter jobs == 0
         // If the FE version upgrade from old version, if it have alter jobs, the FE will failed during start process
@@ -2202,6 +2223,11 @@ public class Catalog {
 
     public long saveSqlBlockRule(CountingDataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getSqlBlockRuleMgr().write(out);
+        return checksum;
+    }
+
+    public long savePolicy(CountingDataOutputStream out, long checksum) throws IOException {
+        Catalog.getCurrentCatalog().getPolicyMgr().write(out);
         return checksum;
     }
 
@@ -3127,10 +3153,17 @@ public class Catalog {
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }
-                createTableStmt.addColumnDef(new ColumnDef(name, typeDef, false,
-                        null, true,
-                        new DefaultValue(false, null),
-                        ""));
+                ColumnDef columnDef;
+                if (resultExpr.getSrcSlotRef() == null) {
+                    columnDef = new ColumnDef(name, typeDef, false, null, true, new DefaultValue(false, null), "");
+                } else {
+                    Column column = resultExpr.getSrcSlotRef().getDesc().getColumn();
+                    boolean setDefault = StringUtils.isNotBlank(column.getDefaultValue());
+                    columnDef = new ColumnDef(name, typeDef, column.isKey(),
+                            column.getAggregationType(), column.isAllowNull(),
+                            new DefaultValue(setDefault, column.getDefaultValue()), column.getComment());
+                }
+                createTableStmt.addColumnDef(columnDef);
                 // set first column as default distribution
                 if (createTableStmt.getDistributionDesc() == null && i == 0) {
                     createTableStmt.setDistributionDesc(new HashDistributionDesc(10, Lists.newArrayList(name)));
@@ -3140,7 +3173,7 @@ public class Catalog {
             createTableStmt.analyze(dummyRootAnalyzer);
             createTable(createTableStmt);
         } catch (UserException e) {
-            throw new DdlException("Failed to execute CREATE TABLE AS SELECT Reason: " + e.getMessage());
+            throw new DdlException("Failed to execute CTAS Reason: " + e.getMessage());
         }
     }
 
@@ -3814,7 +3847,7 @@ public class Catalog {
             }
             Preconditions.checkNotNull(rollupIndexStorageType);
             // set rollup index meta to olap table
-            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause,
+            List<Column> rollupColumns = getMaterializedViewHandler().checkAndPrepareMaterializedView(addRollupClause,
                     olapTable, baseRollupIndex, false);
             short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
             int rollupSchemaHash = Util.generateSchemaHash();
@@ -4276,6 +4309,7 @@ public class Catalog {
                 sb.append("\"port\" = \"").append(mysqlTable.getPort()).append("\",\n");
                 sb.append("\"user\" = \"").append(mysqlTable.getUserName()).append("\",\n");
                 sb.append("\"password\" = \"").append(hidePassword ? "" : mysqlTable.getPasswd()).append("\",\n");
+                sb.append("\"charset\" = \"").append(mysqlTable.getCharset()).append("\",\n");
             } else {
                 sb.append("\"odbc_catalog_resource\" = \"").append(mysqlTable.getOdbcCatalogResourceName()).append("\",\n");
             }
@@ -4528,10 +4562,12 @@ public class Catalog {
                 // This is the first colocate table in the group, or just a normal table,
                 // randomly choose backends
                 if (!Config.disable_storage_medium_check) {
-                    chosenBackendIds = getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName,
+                    chosenBackendIds =
+                            getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, clusterName,
                             tabletMeta.getStorageMedium());
                 } else {
-                    chosenBackendIds = getCurrentSystemInfo().chooseBackendIdByFilters(replicaAlloc, clusterName, null);
+                    chosenBackendIds =
+                            getCurrentSystemInfo().selectBackendIdsForReplicaCreation(replicaAlloc, clusterName, null);
                 }
 
                 for (Map.Entry<Tag, List<Long>> entry : chosenBackendIds.entrySet()) {
@@ -5032,7 +5068,7 @@ public class Catalog {
         return (SchemaChangeHandler) this.alter.getSchemaChangeHandler();
     }
 
-    public MaterializedViewHandler getRollupHandler() {
+    public MaterializedViewHandler getMaterializedViewHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
@@ -5173,6 +5209,10 @@ public class Catalog {
     public EsRepository getEsRepository() {
         return this.esRepository;
     }
+    
+    public PolicyMgr getPolicyMgr() {
+        return this.policyMgr;
+    }
 
     public void setMaster(MasterInfo info) {
         this.masterIp = info.getIp();
@@ -5310,7 +5350,7 @@ public class Catalog {
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getRollupHandler().cancel(stmt);
+            this.getMaterializedViewHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN) {
             this.getSchemaChangeHandler().cancel(stmt);
         } else {
@@ -6523,7 +6563,7 @@ public class Catalog {
                         + cluster.getBackendIdList().size());
             }
             // The number of BE in cluster is not same as in SystemInfoService, when perform 'ALTER
-            // SYSTEM ADD BACKEND TO ...' or 'ALTER SYSTEM ADD BACKEND ...', because both of them are 
+            // SYSTEM ADD BACKEND TO ...' or 'ALTER SYSTEM ADD BACKEND ...', because both of them are
             // for adding BE to some Cluster, but loadCluster is after loadBackend.
             cluster.setBackendIdList(latestBackendIds);
 
@@ -6975,10 +7015,7 @@ public class Catalog {
                     replica.setBad(true);
                     break;
                 case MISSING_VERSION:
-                    // The absolute value is meaningless, as long as it is greater than 0.
-                    // This way, in other checking logic, if lastFailedVersion is found to be greater than 0,
-                    // it will be considered a version missing replica and will be handled accordingly.
-                    replica.setLastFailedVersion(1L);
+                    replica.updateLastFailedVersion(info.lastFailedVersion);
                     break;
                 default:
                     break;

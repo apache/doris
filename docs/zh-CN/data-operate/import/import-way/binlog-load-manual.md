@@ -337,28 +337,63 @@ canal client调用get命令时，canal server会产生数据batch发送给client
 
 Binlog Load只能支持Unique类型的目标表，且必须激活目标表的Batch Delete功能。
 
-开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html)中的批量删除功能。
+开启Batch Delete的方法可以参考[ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.md)中的批量删除功能。
 
 示例：
 
 ```text
--- create target table
-CREATE TABLE `test1` (
-  `a` int(11) NOT NULL COMMENT "",
-  `b` int(11) NOT NULL COMMENT ""
+--create Mysql table
+CREATE TABLE `demo.source_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- create Doris table
+CREATE TABLE `target_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
 ) ENGINE=OLAP
-UNIQUE KEY(`a`)
+UNIQUE KEY(`id`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`a`) BUCKETS 8;
+DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
 ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 ```
+**！！Doris表结构和Mysql表结构字段顺序必须保持一致！！**
 
 ### 创建同步作业
 
-创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+```text
+CREATE SYNC `demo`.`job`
+(
+FROM `demo`.`source_test1` INTO `target_test`
+(id,name)
+)
+FROM BINLOG
+(
+"type" = "canal",
+"canal.server.ip" = "127.0.0.1",
+"canal.server.port" = "11111",
+"canal.destination" = "xxx",
+"canal.username" = "canal",
+"canal.password" = "canal"
+);
+```
 
+创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+
+语法：
+```
+CREATE SYNC [db.]job_name
+ (
+        channel_desc, 
+        channel_desc
+        ...
+ )
+binlog_desc
+```
 - job_name
 
   `job_name`是数据同步作业在当前数据库内的唯一标识，相同`job_name`的作业只能有一个在运行。
@@ -385,7 +420,7 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ### 查看作业状态
 
-查看作业状态的具体命令和示例可以通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.html) 命令查看。
+查看作业状态的具体命令和示例可以通过 [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.md) 命令查看。
 
 返回结果集的参数意义如下：
 
@@ -427,11 +462,11 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ### 控制作业
 
-用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); 
+用户可以通过 STOP/PAUSE/RESUME 三个命令来控制作业的停止，暂停和恢复。可以通过 [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.md) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.md); 以及 [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.md); 
 
 ## 案例实战
 
-[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
+[Apache Doris Binlog Load使用方法及示例](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.md)
 
 ## 相关参数
 
@@ -505,5 +540,5 @@ ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 
 ## 更多帮助
 
-关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
+关于 Binlog Load 使用的更多详细语法及最佳实践，请参阅 [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP BINLOG` 获取更多帮助信息。
 

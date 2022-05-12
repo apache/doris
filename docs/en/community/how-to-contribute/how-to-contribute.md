@@ -55,9 +55,9 @@ As you can see from [GitHub](https://github.com/apache/incubator-doris), Apache 
 | [Backend daemon (BE)](https://github.com/apache/incubator-doris) | Responsible for storing data and executing query fragments | C++|
 | [Broker](https://github.com/apache/incubator-doris) | Read HDFS data to Doris | Java|
 | [Website](https://github.com/apache/incubator-doris-website) | Doris Website | Markdown |
-| [Manager](https://github.com/apache/incubator-doris-website) | Doris Manager | Markdown |
-| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Markdown |
-| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Markdown |
+| [Manager](https://github.com/apache/incubator-doris-manager) | Doris Manager | Java |
+| [Flink-Connector](https://github.com/apache/incubator-doris-flink-connector) | Doris Flink Connector | Java |
+| [Spark-Connector](https://github.com/apache/incubator-doris-spark-connector) | Doris Spark Connector | Java |
 | Doris Runtime Help Document | Online Help Manual at Doris Runtime | Markdown|
 
 ## Improving documentation
@@ -78,7 +78,7 @@ You can also fix it yourself by reading the analysis code (of course, it's bette
 
 ## Modify the code and submit PR (Pull Request)
 
-You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document](../installing/compilation.md)) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
+You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document](../../install/source-install/compilation.md)) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
 
 Whether it's fixing Bugs or adding Features, we're all very welcome. If you want to submit code to Doris, you need to create a new branch for your submitted code from the fork code library on GitHub to your project space, add the source project upstream, and submit PR.
 

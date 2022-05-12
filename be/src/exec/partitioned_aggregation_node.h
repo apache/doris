@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/partitioned-aggregation-node.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
-#define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
+#pragma once
 
 #include <deque>
 
@@ -720,5 +719,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

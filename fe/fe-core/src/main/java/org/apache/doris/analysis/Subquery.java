@@ -20,23 +20,21 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.catalog.MultiRowType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-
-
 import org.apache.doris.thrift.TExprNode;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Class representing a subquery. A Subquery consists of a QueryStmt and has
@@ -55,6 +53,11 @@ public class Subquery extends Expr {
 
     @Override
     public String toSqlImpl() { return "(" + stmt.toSql() + ")"; }
+
+    @Override
+    public String toDigestImpl() {
+        return "(" + stmt.toDigest() + ")";
+    }
 
     /**
      * C'tor that initializes a Subquery from a QueryStmt.
@@ -195,4 +198,3 @@ public class Subquery extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {}
 }
-

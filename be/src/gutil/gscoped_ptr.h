@@ -91,12 +91,11 @@
 // some of the older compilers we have to support.
 // -------------------------------------------------------------------------
 
-#ifndef GUTIL_GSCOPED_PTR_H_
-#define GUTIL_GSCOPED_PTR_H_
-
 // This is an implementation designed to match the anticipated future TR2
 // implementation of the scoped_ptr class, and its closely-related brethren,
 // scoped_array, scoped_ptr_malloc.
+
+#pragma once
 
 #include <assert.h>
 #include <stddef.h>
@@ -808,5 +807,3 @@ template <typename T>
 gscoped_ptr<T> make_gscoped_ptr(T* ptr) {
     return gscoped_ptr<T>(ptr);
 }
-
-#endif // GUTIL_GSCOPED_PTR_H_

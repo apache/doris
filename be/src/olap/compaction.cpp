@@ -86,10 +86,18 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    auto res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
-                                      _output_rs_writer.get(), &stats);
+    Status res;
+    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    if (use_vectorized_compaction) {
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                     _output_rs_writer.get(), &stats);
+    } else {
+        res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                    _output_rs_writer.get(), &stats);
+    }
+    string merge_type = use_vectorized_compaction ? "v" : "";
     if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
                      << ", output_version=" << _output_version;
         return res;
@@ -129,11 +137,16 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     int64_t current_max_version;
     {
         std::shared_lock rdlock(_tablet->get_header_lock());
-        current_max_version = _tablet->rowset_with_max_version()->end_version();
+        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
+        if (max_rowset == nullptr) {
+            current_max_version = -1;
+        } else {
+            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        }
     }
 
-    LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version
+    LOG(INFO) << "succeed to do " << merge_type << compaction_name()
+              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
               << ". elapsed time=" << watch.get_elapse_second()
@@ -277,6 +290,16 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
         }
     }
     return num_rows;
+}
+
+bool Compaction::_should_use_vectorized_compaction() {
+    auto cols = _tablet->tablet_schema().columns();
+    for (auto it = cols.begin(); it != cols.end(); it++) {
+        if ((*it).type() == FieldType::OLAP_FIELD_TYPE_STRING) {
+            return false;
+        }
+    }
+    return config::enable_vectorized_compaction;
 }
 
 int64_t Compaction::get_compaction_permits() {

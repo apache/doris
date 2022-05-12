@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
@@ -29,7 +28,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,9 +43,6 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class DatabaseTest {
 
@@ -167,7 +164,7 @@ public class DatabaseTest {
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "baseTable", baseIndex, new RandomDistributionInfo(10));
         List<Column> baseSchema = new LinkedList<Column>();
-        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS, 
+        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
         table.addPartition(partition);
 
@@ -203,11 +200,11 @@ public class DatabaseTest {
         File file = new File("./database");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         // db1
         Database db1 = new Database();
         db1.write(dos);
-        
+
         // db2
         Database db2 = new Database(2, "db2");
         List<Column> columns = new ArrayList<Column>();
@@ -216,13 +213,13 @@ public class DatabaseTest {
         columns.add(column2);
         columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
+        columns.add(new Column("column4",
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
+        columns.add(new Column("column5",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6", 
+        columns.add(new Column("column6",
                         ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7", 
+        columns.add(new Column("column7",
                         ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
@@ -245,21 +242,21 @@ public class DatabaseTest {
         table.addPartition(partition);
         db2.createTable(table);
         db2.write(dos);
-        
+
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         Database rDb1 = new Database();
         rDb1.readFields(dis);
         Assert.assertTrue(rDb1.equals(db1));
-        
+
         Database rDb2 = new Database();
         rDb2.readFields(dis);
         Assert.assertTrue(rDb2.equals(db2));
-        
+
         // 3. delete files
         dis.close();
         file.delete();

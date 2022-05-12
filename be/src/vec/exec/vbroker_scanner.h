@@ -27,12 +27,26 @@ public:
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    ~VBrokerScanner() override = default;
+    ~VBrokerScanner();
 
-    Status get_next(std::vector<MutableColumnPtr>& columns, bool* eof) override;
+    virtual Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                            bool* fill_tuple) override {
+        return Status::NotSupported("Not Implemented get next");
+    }
+
+    Status get_next(Block* block, bool* eof) override;
 
 private:
-    Status _convert_one_row(const Slice& line, std::vector<MutableColumnPtr>& columns);
-    Status _fill_dest_columns(std::vector<MutableColumnPtr>& columns);
+    std::unique_ptr<TextConverter> _text_converter;
+
+    Status _write_text_column(char* value, int length, SlotDescriptor* slot,
+                              MutableColumnPtr* column_ptr, RuntimeState* state);
+
+    Status _fill_dest_block(Block* block, std::vector<MutableColumnPtr>& columns);
+
+    Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
+
+    Status _fill_columns_from_path(int start, const std::vector<std::string>& columns_from_path,
+                                   std::vector<MutableColumnPtr>& columns);
 };
 } // namespace doris::vectorized

@@ -88,4 +88,3 @@ public class InstallPluginStmt extends DdlStmt {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }
 }
-

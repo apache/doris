@@ -119,7 +119,7 @@ public class ShowSnapshotStmt extends ShowStmt {
         }
 
         return false;
-       
+
     }
 
     public String getRepoName() {
@@ -150,4 +150,3 @@ public class ShowSnapshotStmt extends ShowStmt {
     }
 
 }
-

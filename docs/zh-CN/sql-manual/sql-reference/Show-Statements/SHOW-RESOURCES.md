@@ -64,13 +64,13 @@ SHOW RESOURCES
     SHOW RESOURCES;
     ```
 
-1. 展示指定 Resource ，NAME 中包含字符串 "20140102"，展示10个属性
+2. 展示指定 Resource ，NAME 中包含字符串 "20140102"，展示10个属性
     
     ```sql
     SHOW RESOURCES WHERE NAME LIKE "2014_01_02" LIMIT 10;
     ```
 
-1. 展示指定 Resource ，指定 NAME 为 "20140102" 并按 KEY 降序排序
+3. 展示指定 Resource ，指定 NAME 为 "20140102" 并按 KEY 降序排序
     
     ```sql
     SHOW RESOURCES WHERE NAME = "20140102" ORDER BY `KEY` DESC;

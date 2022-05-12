@@ -335,10 +335,10 @@ public class Config extends ConfigBase {
      * and one thread can handle the read and write of many sockets, so the number of thread pools is small.
      *
      * For most projects, only 1-2 acceptors threads are needed, and 2 to 4 selectors threads are sufficient.
-     * Workers are obstructive business logic, often have more database operations, and require a large number of threads. T
-     * he specific number depends on the proportion of QPS and IO events of the application. The higher the QPS,
-     * the more threads are required, the higher the proportion of IO,
-     * the more threads waiting, and the more total threads required.
+     * Workers are obstructive business logic, often have more database operations, and require a large number of
+     * threads. The specific number depends on the proportion of QPS and IO events of the application. The higher the
+     * QPS, the more threads are required, the higher the proportion of IO, the more threads waiting, and the more
+     * total threads required.
      */
     @ConfField public static int jetty_server_acceptors = 2;
     @ConfField public static int jetty_server_selectors = 4;
@@ -354,9 +354,14 @@ public class Config extends ConfigBase {
     @ConfField public static int jetty_threadPool_maxThreads = 400;
 
     /**
-     * jetty Maximum number of bytes in put or post method,default:100MB
+     * Jetty maximum number of bytes in put or post method,default:100MB
      */
     @ConfField public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
+
+    /**
+     * http header size configuration parameter, the default value is 10K
+     */
+    @ConfField public static int jetty_server_max_http_header_size = 10240;
 
     /**
      * Mini load disabled by default
@@ -1445,14 +1450,6 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static String http_api_extra_base_path = "";
-
-    /**
-     * Whether to support the creation of alpha rowset tables.
-     * The default is false and should only be used in emergency situations,
-     * this config should be remove in some future version
-     */
-    @ConfField
-    public static boolean enable_alpha_rowset = false;
 
     /**
      * If set to true, FE will be started in BDBJE debug mode

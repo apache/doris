@@ -24,7 +24,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,7 +38,7 @@ public class DiskInfo implements Writable {
         ONLINE,
         OFFLINE
     }
-    
+
     private static final long DEFAULT_CAPACITY_B = 1024 * 1024 * 1024 * 1024L; // 1T
 
     @SerializedName("rootPath")

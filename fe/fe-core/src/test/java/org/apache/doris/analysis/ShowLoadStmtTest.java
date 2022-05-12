@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
@@ -27,11 +25,10 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Expectations;
 
 public class ShowLoadStmtTest {
     private Analyzer analyzer;

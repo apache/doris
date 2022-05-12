@@ -33,7 +33,7 @@ This document focuses on how to create an index job, as well as some considerati
 
 ## Basic Principles
 Creating and dropping index is essentially a schema change job. For details, please refer to
-[Schema Change](../../advanced/alter-table/schema-change.html).
+[Schema Change](../../advanced/alter-table/schema-change.md).
 
 ## Syntax
 ### Create index
@@ -81,4 +81,4 @@ DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;
 
 ### More Help
 
-For more detailed syntax and best practices for using bitmap indexes, please refer to the  [CREARE INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX.md) / [SHOW INDEX](../../sql-manual/sql-reference/Show-Statements/SHOW-INDEX.html) / [DROP INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX.html)  command manual. You can also enter HELP CREATE INDEX / HELP SHOW INDEX / HELP DROP INDEX on the MySql client command line.
+For more detailed syntax and best practices for using bitmap indexes, please refer to the  [CREARE INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX.md) / [SHOW INDEX](../../sql-manual/sql-reference/Show-Statements/SHOW-INDEX.md) / [DROP INDEX](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-INDEX.md)  command manual. You can also enter HELP CREATE INDEX / HELP SHOW INDEX / HELP DROP INDEX on the MySql client command line.

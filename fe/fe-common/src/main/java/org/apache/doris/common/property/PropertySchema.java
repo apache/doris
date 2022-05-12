@@ -17,9 +17,10 @@
 
 package org.apache.doris.common.property;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TPropertyVal;
+
+import com.google.common.collect.ImmutableMap;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -396,4 +397,3 @@ public abstract class PropertySchema<T> {
 
     public abstract void write(T val, DataOutput out) throws IOException;
 }
-

@@ -47,7 +47,12 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import mockit.Verifications;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,13 +65,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import mockit.Verifications;
 
 public class KafkaRoutineLoadJobTest {
     private static final Logger LOG = LogManager.getLogger(KafkaRoutineLoadJobTest.class);
@@ -252,7 +250,7 @@ public class KafkaRoutineLoadJobTest {
         List<Pair<Integer, Long>> partitionIdToOffset = Lists.newArrayList();
         List<PartitionInfo> kafkaPartitionInfoList = Lists.newArrayList();
         for (String s : kafkaPartitionString.split(",")) {
-            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0l));
+            partitionIdToOffset.add(new Pair<>(Integer.valueOf(s), 0L));
             PartitionInfo partitionInfo = new PartitionInfo(topicName, Integer.valueOf(s), null, null, null);
             kafkaPartitionInfoList.add(partitionInfo);
         }
@@ -262,7 +260,7 @@ public class KafkaRoutineLoadJobTest {
         Deencapsulation.setField(dsProperties, "kafkaTopic", topicName);
         Deencapsulation.setField(createRoutineLoadStmt, "dataSourceProperties", dsProperties);
 
-        long dbId = 1l;
+        long dbId = 1L;
         long tableId = 2L;
 
         new Expectations() {

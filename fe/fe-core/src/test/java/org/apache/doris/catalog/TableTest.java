@@ -26,8 +26,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -39,7 +37,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 public class TableTest {
@@ -116,15 +113,15 @@ public class TableTest {
         Column column2 = new Column("column2",
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
-        columns.add(new Column("column3", 
+        columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
+        columns.add(new Column("column4",
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
+        columns.add(new Column("column5",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6", 
+        columns.add(new Column("column6",
                         ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7", 
+        columns.add(new Column("column7",
                         ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
@@ -143,7 +140,7 @@ public class TableTest {
         table1.write(dos);
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
 
@@ -151,7 +148,7 @@ public class TableTest {
         Assert.assertTrue(table1.equals(rFamily1));
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
         Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
-        
+
         // 3. delete files
         dis.close();
         file.delete();

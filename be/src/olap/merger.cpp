@@ -21,11 +21,11 @@
 #include <vector>
 
 #include "olap/olap_define.h"
-#include "olap/tuple_reader.h"
-#include "vec/olap/block_reader.h"
 #include "olap/row_cursor.h"
 #include "olap/tablet.h"
+#include "olap/tuple_reader.h"
 #include "util/trace.h"
+#include "vec/olap/block_reader.h"
 
 namespace doris {
 
@@ -107,15 +107,12 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
 
     vectorized::Block block = schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
-    while (true) {
-        bool eof = false;
+    bool eof = false;
+    while (!eof) {
         // Read one block from block reader
         RETURN_NOT_OK_LOG(
                 reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
-        if (eof) {
-            break;
-        }
         RETURN_NOT_OK_LOG(
                 dst_rowset_writer->add_block(&block),
                 "failed to write block when merging rowsets of tablet " + tablet->full_name());

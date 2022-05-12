@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -33,7 +33,7 @@ public class DecimalLiteralTest {
     public void testHashValue() throws AnalysisException {
         BigDecimal decimal = new BigDecimal("-123456789123456789.123456789");
         DecimalLiteral literal = new DecimalLiteral(decimal);
-        
+
         ByteBuffer buffer = literal.getHashValue(PrimitiveType.DECIMALV2);
         long longValue = buffer.getLong();
         int fracValue = buffer.getInt();

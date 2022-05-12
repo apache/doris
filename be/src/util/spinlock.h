@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/spinlock.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_SPINLOCK_H
-#define DORIS_BE_SRC_UTIL_SPINLOCK_H
+#pragma once
 
 #include <atomic>
 
@@ -61,5 +60,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_SPINLOCK_H

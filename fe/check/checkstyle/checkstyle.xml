@@ -32,8 +32,14 @@ under the License.
         <property name="fileNamePattern" value="module\-info\.java$"/>
     </module>
 
+    <module name="SuppressionFilter">
+        <property name="file" value="fe/check/checkstyle/suppressions.xml"/>
+        <property name="optional" value="true"/>
+    </module>
+
     <module name="FileTabCharacter">
         <property name="eachLine" value="true"/>
+        <property name="severity" value="error"/>
     </module>
     <module name="LineLength">
         <property name="fileExtensions" value="java"/>
@@ -42,20 +48,24 @@ under the License.
     </module>
     <module name="NewlineAtEndOfFile">
         <property name="lineSeparator" value="lf"/>
+        <property name="severity" value="error"/>
     </module>
 
     <module name="RegexpSingleline">
         <property name="format" value="&gt;&gt;&gt;&gt;&gt;&gt;&gt;"/>
         <property name="message" value="Merge conflicts unresolved."/>
+        <property name="severity" value="error"/>
     </module>
     <module name="RegexpSingleline">
         <property name="format" value="&lt;&lt;&lt;&lt;&lt;&lt;&lt;"/>
         <property name="message" value="Merge conflicts unresolved."/>
+        <property name="severity" value="error"/>
     </module>
     <module name="RegexpSingleline">
         <property name="format" value="\s+$"/>
         <property name="message" value="Trailing whitespace found."/>
         <property name="fileExtensions" value=".java"/>
+        <property name="severity" value="error"/>
     </module>
 
     <module name="TreeWalker">
@@ -65,13 +75,17 @@ under the License.
             <property name="tokens"
                       value="CLASS_DEF, INTERFACE_DEF, ENUM_DEF, METHOD_DEF, CTOR_DEF,
                       RECORD_DEF, COMPACT_CTOR_DEF"/>
+            <property name="severity" value="error"/>
         </module>
         <module name="AnnotationLocation">
             <property name="id" value="AnnotationLocationVariables"/>
             <property name="tokens" value="VARIABLE_DEF"/>
             <property name="allowSamelineMultipleAnnotations" value="true"/>
+            <property name="severity" value="error"/>
         </module>
-        <module name="MissingOverride"/>
+        <module name="MissingOverride">
+            <property name="severity" value="error"/>
+        </module>
         <module name="MissingDeprecated"/>
 
         <!-- Block Checks -->
@@ -140,16 +154,28 @@ under the License.
 
         <!-- Headers -->
         <!-- Imports -->
-        <module name="AvoidStarImport"/>
-        <module name="AvoidStaticImport"/>
+        <module name="AvoidStarImport">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="AvoidStaticImport">
+            <property name="severity" value="error"/>
+        </module>
         <module name="CustomImportOrder">
             <property name="sortImportsInGroupAlphabetically" value="true"/>
             <property name="separateLineBetweenGroups" value="true"/>
             <property name="customImportOrderRules" value="SAME_PACKAGE(3)###THIRD_PARTY_PACKAGE###STANDARD_JAVA_PACKAGE"/>
             <property name="tokens" value="IMPORT, STATIC_IMPORT, PACKAGE_DEF"/>
+            <property name="severity" value="error"/>
         </module>
-        <module name="RedundantImport"/>
-        <module name="UnusedImports"/>
+        <module name="RedundantImport">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="UnusedImports">
+            <property name="severity" value="error"/>
+        </module>
+        <module name="EmptyStatement">
+            <property name="severity" value="error"/>
+        </module>
 
         <!-- Javadoc Comments -->
         <module name="AtclauseOrder">
@@ -159,6 +185,7 @@ under the License.
         </module>
         <module name="InvalidJavadocPosition"/>
         <module name="JavadocMethod">
+            <property name="id" value="ProductionScope"/>
             <property name="accessModifiers" value="public"/>
             <property name="allowMissingParamTags" value="true"/>
             <property name="allowMissingReturnTag" value="true"/>
@@ -167,6 +194,7 @@ under the License.
         </module>
 
         <module name="JavadocParagraph"/>
+        <module name="JavadocStyle"/>
         <module name="JavadocTagContinuationIndentation"/>
         <module name="MissingJavadocMethod">
             <property name="scope" value="public"/>
@@ -197,6 +225,7 @@ under the License.
             <property name="allowEscapesForControlCharacters" value="true"/>
             <property name="allowByTailComment" value="true"/>
             <property name="allowNonPrintableEscapes" value="true"/>
+            <property name="severity" value="error"/>
         </module>
         <module name="CommentsIndentation">
             <property name="tokens" value="SINGLE_LINE_COMMENT, BLOCK_COMMENT_BEGIN"/>
@@ -210,7 +239,9 @@ under the License.
             <property name="arrayInitIndent" value="4"/>
         </module>
         <module name="OuterTypeFilename"/>
-        <module name="UpperEll"/>
+        <module name="UpperEll">
+            <property name="severity" value="error"/>
+        </module>
 
         <!-- Modifiers -->
         <module name="ModifierOrder"/>
@@ -226,6 +257,7 @@ under the License.
         </module>
         <module name="CatchParameterName">
             <property name="format" value="^[a-z]([a-z0-9][a-zA-Z0-9]*)?$"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Catch parameter name ''{0}'' must match pattern ''{1}''."/>
         </module>
@@ -236,6 +268,7 @@ under the License.
         </module>
         <module name="InterfaceTypeParameterName">
             <property name="format" value="(^[A-Z][0-9]?)$|([A-Z][a-zA-Z0-9]*$)"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Interface type name ''{0}'' must match pattern ''{1}''."/>
         </module>
@@ -261,11 +294,13 @@ under the License.
         </module>
         <module name="MethodTypeParameterName">
             <property name="format" value="(^[A-Z][0-9]?)$|([A-Z][a-zA-Z0-9]*$)"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Method type name ''{0}'' must match pattern ''{1}''."/>
         </module>
         <module name="PackageName">
             <property name="format" value="^[a-z]+(\.[a-z][a-z0-9]*)*$"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Package name ''{0}'' must match pattern ''{1}''."/>
         </module>
@@ -276,22 +311,26 @@ under the License.
         </module>
         <module name="PatternVariableName">
             <property name="format" value="^[a-z]([a-z0-9][a-zA-Z0-9]*)?$"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Pattern variable name ''{0}'' must match pattern ''{1}''."/>
         </module>
         <module name="RecordComponentName">
             <property name="format" value="^[a-z]([a-z0-9][a-zA-Z0-9]*)?$"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Record component name ''{0}'' must match pattern ''{1}''."/>
         </module>
         <module name="RecordTypeParameterName">
             <property name="format" value="(^[A-Z][0-9]?)$|([A-Z][a-zA-Z0-9]*$)"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Record type name ''{0}'' must match pattern ''{1}''."/>
         </module>
         <module name="TypeName">
             <property name="tokens" value="CLASS_DEF, INTERFACE_DEF, ENUM_DEF,
                     ANNOTATION_DEF, RECORD_DEF"/>
+            <property name="severity" value="error"/>
             <message key="name.invalidPattern"
                      value="Type name ''{0}'' must match pattern ''{1}''."/>
         </module>
@@ -323,6 +362,7 @@ under the License.
         </module>
         <module name="NoLineWrap">
             <property name="tokens" value="PACKAGE_DEF, IMPORT, STATIC_IMPORT"/>
+            <property name="severity" value="error"/>
         </module>
         <module name="NoWhitespaceBefore">
             <property name="tokens"

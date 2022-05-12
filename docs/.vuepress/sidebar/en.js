@@ -195,6 +195,7 @@ module.exports = [
       "broker",
       "resource",
       "orthogonal-bitmap-manual",
+      "using-hll",
       "variables",
       "time-zone",
       "small-file-mgr",
@@ -260,7 +261,8 @@ module.exports = [
         children: [
           "native-user-defined-function",
           "remote-user-defined-function",
-          "contribute-udf"
+          "contribute-udf",
+          "java-user-defined-function"
         ],
       },
     ],
@@ -524,6 +526,26 @@ module.exports = [
               "outer-combinator"
             ],
           },
+          {
+            title: "Analytic(Window) Functions",
+            directoryPath: "window-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "WINDOW-FUNCTION",
+              "WINDOW-FUNCTION-SUM",
+              "WINDOW-FUNCTION-AVG",
+              "WINDOW-FUNCTION-COUNT",
+              "WINDOW-FUNCTION-MIN",
+              "WINDOW-FUNCTION-MAX",
+              "WINDOW-FUNCTION-LEAD",
+              "WINDOW-FUNCTION-LAG",
+              "WINDOW-FUNCTION-RANK",
+              "WINDOW-FUNCTION-DENSE-RANK",
+              "WINDOW-FUNCTION-FIRST-VALUE",
+              "WINDOW-FUNCTION-LAST-VALUE",
+              "WINDOW-FUNCTION-ROW-NUMBER",
+            ],
+          },
           "cast",
           "digital-masking",
         ],
@@ -611,9 +633,11 @@ module.exports = [
                   "CREATE-FUNCTION",
                   "CREATE-INDEX",
                   "CREATE-MATERIALIZED-VIEW",
+                  "CREATE-POLICY",
                   "CREATE-RESOURCE",
                   "CREATE-SQL-BLOCK-RULE",
                   "CREATE-TABLE-LIKE",
+                  "CREATE-TABLE-AS-SELECT",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
                   "CREATE-EXTERNAL-TABLE",
@@ -712,6 +736,7 @@ module.exports = [
               "SHOW-CREATE-FUNCTION",
               "SHOW-CREATE-ROUTINE-LOAD",
               "SHOW-CREATE-TABLE",
+              "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
@@ -949,7 +974,7 @@ module.exports = [
     ],
   },
   {
-    title: "FQA",
+    title: "FAQ",
     directoryPath: "faq/",
     initialOpenGroupIndex: -1,
     children: [
@@ -967,7 +992,17 @@ module.exports = [
       "tpc-h"
     ],
   },
-    {
+  {
+    title: "Design Documents",
+    directoryPath: "design/",
+    initialOpenGroupIndex: -1,
+    children: [
+      "doris_storage_optimization",
+      "grouping_sets_design",
+      "metadata-design",
+    ],
+  },  
+  {
     title: "Doris User",
     directoryPath: "case-user/",
     initialOpenGroupIndex: -1,
@@ -993,6 +1028,7 @@ module.exports = [
       "how-to-share-blogs",
       "minidump",
       "bitmap-hll-file-format",
+      "github-checks"
     ],
   },
   {
@@ -1010,7 +1046,8 @@ module.exports = [
         initialOpenGroupIndex: -1,
         children: [
           "how-to-contribute",
-          "committer-guide",
+          "contributor-guide",
+          "how-to-be-a-committer",
           "commit-format-specification",
           "pull-request",
         ],

@@ -41,6 +41,7 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -50,7 +51,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,14 +91,13 @@ public class MultiLoadMgr {
             if (infoMap.containsKey(multiLabel)) {
                 throw new LabelAlreadyUsedException(label);
             }
-            MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
-            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(1,
-                    beAvailablePredicate, false, ConnectContext.get().getClusterName(), null, null);
-            if (backendIds == null) {
-                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(ConnectContext.get().getClusterName())
+                    .needLoadAvailable().build();
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            if (backendIds.isEmpty()) {
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + " policy: " + policy);
             }
+            MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
             multiLoadDesc.setBackendId(backendIds.get(0));
             infoMap.put(multiLabel, multiLoadDesc);
         } finally {
@@ -268,7 +267,7 @@ public class MultiLoadMgr {
         }
 
         public void addFile(String subLabel, String table, List<Pair<String, Long>> files,
-                            TNetworkAddress fileAddr, 
+                            TNetworkAddress fileAddr,
                             Map<String, String> properties,
                             long timestamp) throws DdlException {
 
@@ -541,4 +540,3 @@ public class MultiLoadMgr {
         }
     }
 }
-

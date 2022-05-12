@@ -64,7 +64,7 @@ public:
     Status init() {
         _compressed_helper = StorageByteBuffer::create(_compress_buffer_size);
         if (nullptr == _compressed_helper) {
-            OLAP_LOG_WARNING("fail to create compressed buffer");
+            LOG(WARNING) << "fail to create compressed buffer";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 

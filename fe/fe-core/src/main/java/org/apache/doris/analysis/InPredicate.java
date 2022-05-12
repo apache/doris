@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -164,14 +163,14 @@ public class InPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        
+
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
                     toSql());
-            } 
+            }
             Subquery subquery = (Subquery)getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +
@@ -263,6 +262,19 @@ public class InPredicate extends Predicate {
         strBuilder.append(getChild(0).toSql() + " " + notStr + "IN (");
         for (int i = 1; i < children.size(); ++i) {
             strBuilder.append(getChild(i).toSql());
+            strBuilder.append((i + 1 != children.size()) ? ", " : "");
+        }
+        strBuilder.append(")");
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        String notStr = (isNotIn) ? "NOT " : "";
+        strBuilder.append(getChild(0).toDigest() + " " + notStr + "IN (");
+        for (int i = 1; i < children.size(); ++i) {
+            strBuilder.append(getChild(i).toDigest());
             strBuilder.append((i + 1 != children.size()) ? ", " : "");
         }
         strBuilder.append(")");

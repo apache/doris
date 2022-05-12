@@ -21,6 +21,7 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <filesystem>
+#include <random>
 
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
@@ -158,6 +159,14 @@ string TmpFileMgr::get_tmp_dir_path(DeviceId device_id) const {
     DCHECK_GE(device_id, 0);
     DCHECK_LT(device_id, _tmp_dirs.size());
     return _tmp_dirs[device_id].path();
+}
+
+std::string TmpFileMgr::get_tmp_dir_path() {
+    std::vector<DeviceId> devices = active_tmp_devices();
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(devices.begin(), devices.end(), g);
+    return get_tmp_dir_path(devices.front());
 }
 
 void TmpFileMgr::blacklist_device(DeviceId device_id) {

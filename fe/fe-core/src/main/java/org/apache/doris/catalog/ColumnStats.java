@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,7 +137,7 @@ public class ColumnStats implements Writable {
         columnStats.readFields(in);
         return columnStats;
     }
-    
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -146,11 +145,11 @@ public class ColumnStats implements Writable {
         if (!(obj instanceof ColumnStats)) {
             return false;
         }
-        
+
         ColumnStats stats = (ColumnStats) obj;
-        return (numDistinctValues == stats.numDistinctValues) 
+        return (numDistinctValues == stats.numDistinctValues)
                 && (avgSerializedSize == stats.avgSerializedSize)
-                && (maxSize == stats.maxSize) 
+                && (maxSize == stats.maxSize)
                 && (numNulls == stats.numNulls);
     }
     /**

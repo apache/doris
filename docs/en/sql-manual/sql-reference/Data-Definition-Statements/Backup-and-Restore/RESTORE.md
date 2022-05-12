@@ -119,4 +119,4 @@ RESTORE
 
 4. Efficiency of recovery operations:
 
-   In the case of the same cluster size, the time-consuming of the restore operation is basically the same as the time-consuming of the backup operation. If you want to speed up the recovery operation, you can first restore only one copy by setting the `replication_num` parameter, and then adjust the number of copies by [ALTER TABLE PROPERTY](../../Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html), complete the copy.
+   In the case of the same cluster size, the time-consuming of the restore operation is basically the same as the time-consuming of the backup operation. If you want to speed up the recovery operation, you can first restore only one copy by setting the `replication_num` parameter, and then adjust the number of copies by [ALTER TABLE PROPERTY](../../Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.md), complete the copy.

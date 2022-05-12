@@ -31,7 +31,7 @@ import java.io.IOException;
  */
 public class FeServer {
     private static final Logger LOG = LogManager.getLogger(FeServer.class);
-    
+
     private int port;
     private ThriftServer server;
 

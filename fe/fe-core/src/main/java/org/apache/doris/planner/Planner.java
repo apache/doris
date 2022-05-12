@@ -45,7 +45,6 @@ import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -217,7 +216,7 @@ public class Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-        
+
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -240,7 +239,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
+        if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());

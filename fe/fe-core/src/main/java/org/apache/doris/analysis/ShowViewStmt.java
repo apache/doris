@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -51,7 +52,7 @@ public class ShowViewStmt extends ShowStmt {
     private String db;
     private TableName tbl;
 
-    private List<View> matchViews = Lists.newArrayList();;
+    private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewStmt(String db, TableName tbl) {
         this.db = db;

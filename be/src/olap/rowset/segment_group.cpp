@@ -41,19 +41,19 @@ using std::vector;
 
 namespace doris {
 
-#define SEGMENT_GROUP_PARAM_VALIDATE()                                                   \
-    do {                                                                                 \
-        if (!_index_loaded) {                                                            \
-            OLAP_LOG_WARNING("fail to find, index is not loaded. [segment_group_id=%d]", \
-                             _segment_group_id);                                         \
-            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);                       \
-        }                                                                                \
+#define SEGMENT_GROUP_PARAM_VALIDATE()                                              \
+    do {                                                                            \
+        if (!_index_loaded) {                                                       \
+            LOG(WARNING) << "fail to find, index is not loaded. [segment_group_id=" \
+                         << _segment_group_id << "]";                               \
+            return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);                  \
+        }                                                                           \
     } while (0);
 
 #define POS_PARAM_VALIDATE(pos)                                               \
     do {                                                                      \
         if (nullptr == pos) {                                                 \
-            OLAP_LOG_WARNING("fail to find, nullptr position parameter.");    \
+            LOG(WARNING) << "fail to find, nullptr position parameter.";      \
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR); \
         }                                                                     \
     } while (0);
@@ -61,7 +61,7 @@ namespace doris {
 #define SLICE_PARAM_VALIDATE(slice)                                           \
     do {                                                                      \
         if (nullptr == slice) {                                               \
-            OLAP_LOG_WARNING("fail to find, nullptr slice parameter.");       \
+            LOG(WARNING) << "fail to find, nullptr slice parameter.";         \
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR); \
         }                                                                     \
     } while (0);
@@ -591,13 +591,13 @@ Status SegmentGroup::add_segment() {
     if (_short_key_buf == nullptr) {
         _short_key_buf = new (std::nothrow) char[_short_key_length];
         if (_short_key_buf == nullptr) {
-            OLAP_LOG_WARNING("malloc short_key_buf error.");
+            LOG(WARNING) << "malloc short_key_buf error.";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
 
         memset(_short_key_buf, 0, _short_key_length);
         if (_current_index_row.init(*_schema) != Status::OK()) {
-            OLAP_LOG_WARNING("init _current_index_row fail.");
+            LOG(WARNING) << "init _current_index_row fail.";
             return Status::OLAPInternalError(OLAP_ERR_INIT_FAILED);
         }
     }
@@ -638,13 +638,13 @@ Status SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_t da
 
         // 准备FileHeader
         if ((res = _file_header.prepare(&_current_file_handler)) != Status::OK()) {
-            OLAP_LOG_WARNING("write file header error. [err=%m]");
+            LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
             return res;
         }
 
         // 跳过FileHeader
         if (_current_file_handler.seek(_file_header.size(), SEEK_SET) == -1) {
-            OLAP_LOG_WARNING("lseek header file error. [err=%m]");
+            LOG(WARNING) << "lseek header file error. [err=" << Errno::str() << "]";
             res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
             return res;
         }
@@ -662,14 +662,14 @@ Status SegmentGroup::add_short_key(const RowCursor& short_key, const uint32_t da
 
     // 写入Short Key对应的数据
     if ((res = _current_file_handler.write(_short_key_buf, _short_key_length)) != Status::OK()) {
-        OLAP_LOG_WARNING("write short key failed. [err=%m]");
+        LOG(WARNING) << "write short key failed. [err=" << Errno::str() << "]";
 
         return res;
     }
 
     // 写入对应的数据文件偏移量
     if ((res = _current_file_handler.write(&data_offset, sizeof(data_offset))) != Status::OK()) {
-        OLAP_LOG_WARNING("write data_offset failed. [err=%m]");
+        LOG(WARNING) << "write data_offset failed. [err=" << Errno::str() << "]";
         return res;
     }
 
@@ -697,7 +697,7 @@ Status SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t num_ro
 
     // 写入更新之后的FileHeader
     if ((res = _file_header.serialize(&_current_file_handler)) != Status::OK()) {
-        OLAP_LOG_WARNING("write file header error. [err=%m]");
+        LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
 
         return res;
     }
@@ -706,7 +706,7 @@ Status SegmentGroup::finalize_segment(uint32_t data_segment_size, int64_t num_ro
                 << ", file_length=" << file_length;
 
     if ((res = _current_file_handler.close()) != Status::OK()) {
-        OLAP_LOG_WARNING("close file error. [err=%m]");
+        LOG(WARNING) << "close file error. [err=" << Errno::str() << "]";
 
         return res;
     }

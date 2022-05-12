@@ -26,7 +26,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
-
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.Strings;
 

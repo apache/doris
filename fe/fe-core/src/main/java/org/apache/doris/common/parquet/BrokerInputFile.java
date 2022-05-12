@@ -269,4 +269,3 @@ public class BrokerInputFile implements InputFile {
         }; // end of new SeekableInputStream
     } // end of newStream
 }
-

@@ -21,7 +21,6 @@
 #include <sstream>
 
 #include "common/object_pool.h"
-#include "vec/exec/vbroker_scanner.h"
 #include "exec/json_scanner.h"
 #include "exec/orc_scanner.h"
 #include "exec/parquet_scanner.h"
@@ -31,6 +30,8 @@
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "util/thread.h"
+#include "vec/exec/vbroker_scanner.h"
 
 namespace doris {
 
@@ -256,6 +257,7 @@ Status BrokerScanNode::scanner_scan(const TBrokerScanRange& scan_range,
                                     const std::vector<ExprContext*>& conjunct_ctxs,
                                     ScannerCounter* counter) {
     //create scanner object and open
+    Thread::set_self_name("broker_scanner");
     std::unique_ptr<BaseScanner> scanner = create_scanner(scan_range, counter);
     RETURN_IF_ERROR(scanner->open());
     bool scanner_eof = false;

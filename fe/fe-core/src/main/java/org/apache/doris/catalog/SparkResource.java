@@ -28,13 +28,12 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.load.loadv2.SparkRepository;
 import org.apache.doris.load.loadv2.SparkYarnConfigFiles;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.File;
 import java.util.Map;
@@ -158,6 +157,11 @@ public class SparkResource extends Resource {
         return new SparkResource(name, Maps.newHashMap(sparkConfigs), workingDir, broker, brokerProperties);
     }
 
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(sparkConfigs);
+        return copiedProperties;
+    }
     // Each SparkResource has and only has one SparkRepository.
     // This method get the remote archive which matches the dpp version from remote repository
     public synchronized SparkRepository.SparkArchive prepareArchive() throws LoadException {

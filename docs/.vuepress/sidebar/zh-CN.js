@@ -195,6 +195,7 @@ module.exports = [
       "broker",
       "resource",
       "orthogonal-bitmap-manual",
+      "using-hll",
       "variables",
       "time-zone",
       "small-file-mgr",
@@ -260,7 +261,8 @@ module.exports = [
         children: [
           "native-user-defined-function",
           "remote-user-defined-function",
-          "contribute-udf"
+          "contribute-udf",
+          "java-user-defined-function"
         ],
       },
     ],
@@ -514,7 +516,7 @@ module.exports = [
             ],
           },
           {
-            title: "table functions",
+            title: "表函数",
             directoryPath: "table-functions/",
             initialOpenGroupIndex: -1,
             children: [
@@ -522,6 +524,26 @@ module.exports = [
               "explode-split",
               "explode-json-array",
               "outer-combinator"
+            ],
+          },
+          {
+            title: "分析（窗口）函数",
+            directoryPath: "window-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "WINDOW-FUNCTION",
+              "WINDOW-FUNCTION-SUM",
+              "WINDOW-FUNCTION-AVG",
+              "WINDOW-FUNCTION-COUNT",
+              "WINDOW-FUNCTION-MIN",
+              "WINDOW-FUNCTION-MAX",
+              "WINDOW-FUNCTION-LEAD",
+              "WINDOW-FUNCTION-LAG",
+              "WINDOW-FUNCTION-RANK",
+              "WINDOW-FUNCTION-DENSE-RANK",
+              "WINDOW-FUNCTION-FIRST-VALUE",
+              "WINDOW-FUNCTION-LAST-VALUE",
+              "WINDOW-FUNCTION-ROW-NUMBER",
             ],
           },
           "cast",
@@ -611,9 +633,11 @@ module.exports = [
                   "CREATE-FUNCTION",
                   "CREATE-INDEX",
                   "CREATE-MATERIALIZED-VIEW",
+                  "CREATE-POLICY",
                   "CREATE-RESOURCE",
                   "CREATE-SQL-BLOCK-RULE",
                   "CREATE-TABLE-LIKE",
+                  "CREATE-TABLE-AS-SELECT",
                   "CREATE-TABLE",
                   "CREATE-VIEW",
                   "CREATE-EXTERNAL-TABLE",
@@ -712,6 +736,7 @@ module.exports = [
               "SHOW-CREATE-FUNCTION",
               "SHOW-CREATE-ROUTINE-LOAD",
               "SHOW-CREATE-TABLE",
+              "SHOW-CREATE-MATERIALIZED-VIEW",
               "SHOW-DATA",
               "SHOW-DATABASE-ID",
               "SHOW-DATABASES",
@@ -968,6 +993,17 @@ module.exports = [
     ],
   },
   {
+    title: "设计文档",
+    directoryPath: "design/",
+    initialOpenGroupIndex: -1,
+    children: [
+      "doris_storage_optimization",
+      "grouping_sets_design",
+      "metadata-design",
+      "spark_load",
+    ],
+  },  
+  {
     title: "Doris用户",
     directoryPath: "case-user/",
     initialOpenGroupIndex: -1,
@@ -994,6 +1030,7 @@ module.exports = [
       "minidump",
       "bitmap-hll-file-format",
       "regression-testing",
+      "github-checks"
     ],
   },
   {
@@ -1011,7 +1048,8 @@ module.exports = [
         initialOpenGroupIndex: -1,
         children: [
           "how-to-contribute",
-          "committer-guide",
+          "contributor-guide",
+          "how-to-be-a-committer",
           "commit-format-specification",
           "pull-request",
         ],

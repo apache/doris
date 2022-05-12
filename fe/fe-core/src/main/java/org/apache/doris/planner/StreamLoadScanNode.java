@@ -39,11 +39,10 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -66,8 +65,11 @@ public class StreamLoadScanNode extends LoadScanNode {
     private TupleDescriptor srcTupleDesc;
     private TBrokerScanRange brokerScanRange;
 
-    private Map<String, SlotDescriptor> slotDescByName = Maps.newHashMap();
-    private Map<String, Expr> exprsByName = Maps.newHashMap();
+    // If use case sensitive map, for example,
+    // the column name 「A」 in the table and the mapping '(a) set (A = a)' in load sql，
+    // Slotdescbyname stores「a」, later will use 「a」to get table's 「A」 column info, will throw exception.
+    private final Map<String, SlotDescriptor> slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+    private final Map<String, Expr> exprsByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     // used to construct for streaming loading
     public StreamLoadScanNode(
@@ -86,7 +88,7 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
-        
+
         deleteCondition = taskInfo.getDeleteCondition();
         mergeType = taskInfo.getMergeType();
 

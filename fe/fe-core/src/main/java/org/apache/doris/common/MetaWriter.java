@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.io.CountingDataOutputStream;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -129,6 +128,7 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("policy", () -> catalog.savePolicy(dos, checksum.getRef())));
             imageFileOut.getChannel().force(true);
         }
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());

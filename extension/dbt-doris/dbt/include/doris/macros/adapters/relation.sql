@@ -17,23 +17,20 @@
 
 {% macro doris__engine() -%}
     {% set label = 'ENGINE' %}
-    {% set engine = config.get('engine', validator=validation.any[basestring]) %}
-    {% if engine is not none %}
+    {% set engine = config.get('engine', 'OLAP', validator=validation.any[basestring]) %}
     {{ label }} = {{ engine }}
-  {% else %}
-    {{ label }} = OLAP
-  {% endif %}
 {%- endmacro %}
 
 {% macro doris__partition_by() -%}
   {% set cols = config.get('partition_by') %}
+  {% set partition_type = config.get('partition_type', 'RANGE') %}
   {% if cols is not none %}
-    PARTITION BY RANGE (
+    PARTITION BY {{ partition_type }} (
       {% for col in cols %}
         {{ col }}{% if not loop.last %},{% endif %}
       {% endfor %}
     )(
-        {% set init = config.get('partition_by_init',validator=validation.any[list]) %}
+        {% set init = config.get('partition_by_init', validator=validation.any[list]) %}
         {% if init is not none %}
           {% for row in init %}
             {{ row }}{% if not loop.last %},{% endif %}

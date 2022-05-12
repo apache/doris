@@ -27,7 +27,7 @@ public class SyncStmt extends DdlStmt {
 //             throw new AnalysisException("No need to Sync, for you are master");
 //         }
     }
- 
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;

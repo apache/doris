@@ -18,13 +18,13 @@
 #include "vec/sink/vtablet_sink.h"
 
 #include "runtime/thread_context.h"
+#include "util/debug/sanitizer_scopes.h"
 #include "util/doris_metrics.h"
+#include "util/proto_util.h"
+#include "util/time.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "util/debug/sanitizer_scopes.h"
-#include "util/time.h"
-#include "util/proto_util.h"
 
 namespace doris {
 namespace stream_load {
@@ -152,7 +152,10 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_row() and return OK, because we will check _cancelled in next add_row() or mark_close().
-    while (!_cancelled && _parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
+    while (!_cancelled &&
+           (_pending_batches_bytes > _max_pending_batches_bytes ||
+            _parent->_mem_tracker->any_limit_exceeded()) &&
+           _pending_batches_num > 0) {
         SCOPED_ATOMIC_TIMER(&_mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
@@ -165,6 +168,7 @@ Status VNodeChannel::add_row(const BlockRow& block_row, int64_t tablet_id) {
             SCOPED_ATOMIC_TIMER(&_queue_push_lock_ns);
             std::lock_guard<std::mutex> l(_pending_batches_lock);
             //To simplify the add_row logic, postpone adding block into req until the time of sending req
+            _pending_batches_bytes += _cur_mutable_block->allocated_bytes();
             _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
             _pending_batches_num++;
         }
@@ -439,7 +443,7 @@ Status VOlapTableSink::send(RuntimeState* state, vectorized::Block* input_block)
     }
 
     // check intolerable failure
-    for (auto index_channel : _channels) {
+    for (const auto& index_channel : _channels) {
         RETURN_IF_ERROR(index_channel->check_intolerable_failure());
     }
     return Status::OK();

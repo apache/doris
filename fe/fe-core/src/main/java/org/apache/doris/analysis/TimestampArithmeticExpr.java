@@ -221,7 +221,7 @@ public class TimestampArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
-        msg.setOpcode(opcode);                    
+        msg.setOpcode(opcode);
     }
 
     public ArithmeticExpr.Operator getOp() {
@@ -320,6 +320,44 @@ public class TimestampArithmeticExpr extends Expr {
             strBuilder.append(" " + op.toString() + " ");
             strBuilder.append("INTERVAL ");
             strBuilder.append(getChild(1).toSql() + " ");
+            strBuilder.append(timeUnitIdent);
+        }
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (funcName != null) {
+            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
+                strBuilder.append(funcName).append("(");
+                strBuilder.append(timeUnitIdent).append(", ");
+                strBuilder.append(getChild(1).toDigest()).append(", ");
+                strBuilder.append(getChild(0).toDigest()).append(")");
+                return strBuilder.toString();
+            }
+            // Function-call like version.
+            strBuilder.append(funcName).append("(");
+            strBuilder.append(getChild(0).toDigest()).append(", ");
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toDigest());
+            strBuilder.append(" ").append(timeUnitIdent);
+            strBuilder.append(")");
+            return strBuilder.toString();
+        }
+        if (intervalFirst) {
+            // Non-function-call like version with interval as first operand.
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toDigest() + " ");
+            strBuilder.append(timeUnitIdent);
+            strBuilder.append(" ").append(op.toString()).append(" ");
+            strBuilder.append(getChild(0).toDigest());
+        } else {
+            // Non-function-call like version with interval as second operand.
+            strBuilder.append(getChild(0).toDigest());
+            strBuilder.append(" " + op.toString() + " ");
+            strBuilder.append("INTERVAL ");
+            strBuilder.append(getChild(1).toDigest() + " ");
             strBuilder.append(timeUnitIdent);
         }
         return strBuilder.toString();

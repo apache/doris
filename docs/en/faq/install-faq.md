@@ -81,7 +81,7 @@ Here we provide 3 ways to solve this problem:
 
 3. Manually migrate data using the API
 
-   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.html), which can manually specify the migration of data shards on one disk to another disk.
+   Doris provides [HTTP API](../admin-manual/http-actions/tablet-migration-action.md), which can manually specify the migration of data shards on one disk to another disk.
 
 ### Q5. How to read FE/BE logs correctly?
 
@@ -161,9 +161,11 @@ In many cases, we need to troubleshoot problems through logs. The format and vie
 
    FE is a java process, and the robustness is due to the C/C++ program. Usually the reason for FE to hang up may be OOM (Out-of-Memory) or metadata write failure. These errors usually have an error stack in fe.log or fe.out. Further investigation is required based on the error stack information.
 
-### Q7. About the configuration of data directory SSD and HDD
+### Q7. About the configuration of data directory SSD and HDD, create table encounter error `Failed to find enough host with storage medium and tag`
 
 Doris supports one BE node to configure multiple storage paths. Usually, one storage path can be configured for each disk. At the same time, Doris supports storage media properties that specify paths, such as SSD or HDD. SSD stands for high-speed storage device and HDD stands for low-speed storage device.
+
+If doris cluster has only one storage medium type, the practice is not specify storage medium in be.conf configuration file. ```Failed to find enough host with storage medium and tag```, generally we got this error for only config SSD medium in be.conf, but default parameter ```default_storage_medium``` in fe is HDD, so there is no HDD storage medium in cluster. There are several ways to fix this, one is modify the parameter in fe.conf and restart fe; the other way is take the SSD config in be.conf away,and the third way is add properties when create table ```{"storage_medium" = "ssd"}```
 
 By specifying the storage medium properties of the path, we can take advantage of Doris's hot and cold data partition storage function to store hot data in SSD at the partition level, while cold data is automatically transferred to HDD.
 
@@ -253,7 +255,7 @@ There are usually two reasons for this problem:
 1. The local IP obtained when FE is started this time is inconsistent with the last startup, usually because `priority_network` is not set correctly, which causes FE to match the wrong IP address when it starts. Restart FE after modifying `priority_network`.
 2. Most Follower FE nodes in the cluster are not started. For example, there are 3 Followers, and only one is started. At this time, at least one other FE needs to be started, so that the FE electable group can elect the Master to provide services.
 
-If the above situation cannot be solved, you can restore it according to the [metadata operation and maintenance document] (../admin-manual/maint-monitor/metadata-operation.html) in the Doris official website document.
+If the above situation cannot be solved, you can restore it according to the [metadata operation and maintenance document] (../admin-manual/maint-monitor/metadata-operation.md) in the Doris official website document.
 
 ### Q10. Lost connection to MySQL server at 'reading initial communication packet', system error: 0
 
@@ -263,11 +265,11 @@ If the following problems occur when using MySQL client to connect to Doris, thi
 
 Sometimes when FE is restarted, the above error will occur (usually only in the case of multiple Followers). And the two values in the error differ by 2. Causes FE to fail to start.
 
-This is a bug in bdbje that has not yet been resolved. In this case, you can only restore the metadata by performing the operation of failure recovery in [Metadata Operation and Maintenance Documentation](../admin-manual/maint-monitor/metadata-operation.html).
+This is a bug in bdbje that has not yet been resolved. In this case, you can only restore the metadata by performing the operation of failure recovery in [Metadata Operation and Maintenance Documentation](../admin-manual/maint-monitor/metadata-operation.md).
 
 ### Q12. Doris compile and install JDK version incompatibility problem
 
-When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.html)
+When compiling Doris using Docker, start FE after compiling and installing, and the exception message `java.lang.Suchmethoderror: java.nio.ByteBuffer.limit (I)Ljava/nio/ByteBuffer;` appears, this is because the default in Docker It is JDK 11. If your installation environment is using JDK8, you need to switch the JDK environment to JDK8 in Docker. For the specific switching method, please refer to [Compile Documentation](../install/source-install/compilation.md)
 
 ### Q13. Error starting FE or unit test locally Cannot find external parser table action_table.dat
 Run the following command
@@ -278,3 +280,16 @@ If the same error is reported, Run the following command
 ```
 cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.dat fe-core/target/classes/org/apache/doris/analysis
 ```
+
+### ### Q14. Doris upgrades to version 1.0 or later and reports error ``Failed to set ciphers to use (2026)` in MySQL appearance via ODBC.
+This problem occurs after doris upgrades to version 1.0 and uses Connector/ODBC 8.0.x or higher. Connector/ODBC 8.0.x has multiple access methods, such as `/usr/lib64/libmyodbc8w.so` which is installed via yum and relies on ` libssl.so.10` and `libcrypto.so.10`.
+In doris 1.0 onwards, openssl has been upgraded to 1.1 and is built into the doris binary package, so this can lead to openssl conflicts and errors like the following
+```
+ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)
+```
+The solution is to use the `Connector/ODBC 8.0.28` version of ODBC Connector and select `Linux - Generic` in the operating system, this version of ODBC Driver uses openssl version 1,1. For details, see the [ODBC exterior documentation](../ecosystem/external-table/odbc-of-doris.md)
+You can verify the version of openssl used by MySQL ODBC Driver by
+```
+ldd /path/to/libmyodbc8w.so |grep libssl.so
+```
+If the output contains ``libssl.so.10``, there may be problems using it, if it contains ``libssl.so.1.1``, it is compatible with doris 1.0

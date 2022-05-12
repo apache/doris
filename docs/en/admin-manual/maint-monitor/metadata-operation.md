@@ -28,7 +28,7 @@ under the License.
 
 This document focuses on how to manage Doris metadata in a real production environment. It includes the proposed deployment of FE nodes, some commonly used operational methods, and common error resolution methods.
 
-For the time being, read the [Doris metadata design document](../../internal/metadata-design_EN.md) to understand how Doris metadata works.
+For the time being, read the [Doris metadata design document](../../design/metadata-design.md) to understand how Doris metadata works.
 
 ## Important tips
 
@@ -136,7 +136,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 
 ### Add FE
 
-Adding FE processes is described in detail in the [Elastic Expansion Documents](../../admin-manual/cluster-management/elastic-expansion.html) and will not be repeated. Here are some points for attention, as well as common problems.
+Adding FE processes is described in detail in the [Elastic Expansion Documents](../../admin-manual/cluster-management/elastic-expansion.md) and will not be repeated. Here are some points for attention, as well as common problems.
 
 1. Notes
 

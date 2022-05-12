@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import com.google.common.base.Strings;
-
 import org.apache.commons.codec.binary.Base64;
 
 import java.nio.charset.StandardCharsets;
@@ -26,7 +25,6 @@ import java.security.InvalidAlgorithmParameterException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-
 import javax.crypto.Cipher;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.IvParameterSpec;

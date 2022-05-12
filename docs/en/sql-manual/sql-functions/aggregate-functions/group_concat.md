@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## group_concat
+## GROUP_CONCAT
 ### description
 #### Syntax
 

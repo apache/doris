@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/runtime-state.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
-#define DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H
+#pragma once
 
 #include <atomic>
 #include <fstream>
@@ -521,5 +520,3 @@ private:
     } while (false)
 
 } // namespace doris
-
-#endif // end of DORIS_BE_SRC_QUERY_RUNTIME_RUNTIME_STATE_H

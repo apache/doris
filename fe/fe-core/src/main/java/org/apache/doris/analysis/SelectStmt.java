@@ -52,7 +52,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1706,6 +1705,83 @@ public class SelectStmt extends QueryStmt {
 
         if (hasOutFileClause()) {
             strBuilder.append(outFileClause.toSql());
+        }
+        return strBuilder.toString();
+    }
+
+    @Override
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toDigest());
+            strBuilder.append(" ");
+        }
+
+        // Select list
+        strBuilder.append("SELECT ");
+        if (selectList.isDistinct()) {
+            strBuilder.append("DISTINCT ");
+        }
+
+        if (originalExpr == null) {
+            originalExpr = Expr.cloneList(resultExprs);
+        }
+
+        if (resultExprs.isEmpty()) {
+            for (int i = 0; i < selectList.getItems().size(); ++i) {
+                if (i != 0) {
+                    strBuilder.append(", ");
+                }
+                strBuilder.append(selectList.getItems().get(i).toDigest());
+            }
+        } else {
+            for (int i = 0; i < originalExpr.size(); ++i) {
+                if (i != 0) {
+                    strBuilder.append(", ");
+                }
+                strBuilder.append(originalExpr.get(i).toDigest());
+                strBuilder.append(" AS ").append(SqlUtils.getIdentSql(colLabels.get(i)));
+            }
+        }
+
+        // From clause
+        if (!fromClause_.isEmpty()) {
+            strBuilder.append(fromClause_.toDigest());
+        }
+
+        // Where clause
+        if (whereClause != null) {
+            strBuilder.append(" WHERE ");
+            strBuilder.append(whereClause.toDigest());
+        }
+        // Group By clause
+        if (groupByClause != null) {
+            strBuilder.append(" GROUP BY ");
+            strBuilder.append(groupByClause.toSql());
+        }
+        // Having clause
+        if (havingClause != null) {
+            strBuilder.append(" HAVING ");
+            strBuilder.append(havingClause.toDigest());
+        }
+        // Order By clause
+        if (orderByElements != null) {
+            strBuilder.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                strBuilder.append(orderByElements.get(i).getExpr().toDigest());
+                if (sortInfo != null) {
+                    strBuilder.append((sortInfo.getIsAscOrder().get(i)) ? " ASC" : " DESC");
+                }
+                strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+        // Limit clause.
+        if (hasLimitClause()) {
+            strBuilder.append(limitElement.toDigest());
+        }
+
+        if (hasOutFileClause()) {
+            strBuilder.append(outFileClause.toDigest());
         }
         return strBuilder.toString();
     }

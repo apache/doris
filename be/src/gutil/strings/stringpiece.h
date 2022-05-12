@@ -109,8 +109,7 @@
 // (3) A null StringPiece is empty.
 //     An empty StringPiece may or may not be a null StringPiece.
 
-#ifndef STRINGS_STRINGPIECE_H_
-#define STRINGS_STRINGPIECE_H_
+#pragma once
 
 #include <assert.h>
 #include <stddef.h>
@@ -361,5 +360,3 @@ struct GoodFastHash<StringPiece> {
 
 // allow StringPiece to be logged
 extern ostream& operator<<(ostream& o, StringPiece piece);
-
-#endif // STRINGS_STRINGPIECE_H__

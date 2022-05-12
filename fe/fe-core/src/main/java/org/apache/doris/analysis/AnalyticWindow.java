@@ -20,14 +20,15 @@
 
 package org.apache.doris.analysis;
 
-import java.math.BigDecimal;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
 import org.apache.doris.thrift.TAnalyticWindowType;
+
 import com.google.common.base.Preconditions;
+
+import java.math.BigDecimal;
 
 /**
  * Windowing clause of an analytic expr
@@ -167,6 +168,17 @@ public class AnalyticWindow {
             return sb.toString();
         }
 
+        public String toDigest() {
+            StringBuilder sb = new StringBuilder();
+
+            if (expr != null) {
+                sb.append(expr.toDigest()).append(" ");
+            }
+
+            sb.append(type.toString());
+            return sb.toString();
+        }
+
         public TAnalyticWindowBoundary toThrift(Type windowType) {
             TAnalyticWindowBoundary result = new TAnalyticWindowBoundary(type.toThrift());
 
@@ -295,6 +307,21 @@ public class AnalyticWindow {
 
         return sb.toString();
     }
+
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(type_.toString()).append(" ");
+
+        if (rightBoundary_ == null) {
+            sb.append(leftBoundary_.toDigest());
+        } else {
+            sb.append("BETWEEN ").append(leftBoundary_.toDigest()).append(" AND ");
+            sb.append(rightBoundary_.toDigest());
+        }
+
+        return sb.toString();
+    }
+
 
     public TAnalyticWindow toThrift() {
         TAnalyticWindow result = new TAnalyticWindow(type_.toThrift());

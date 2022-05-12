@@ -50,8 +50,11 @@ import org.apache.doris.thrift.TTabletInfo;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
+import com.google.common.collect.MoreCollectors;
 import com.google.common.collect.Table;
-
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,11 +69,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
-import static com.google.common.collect.MoreCollectors.onlyElement;
 
 public class RebalanceTest {
     private static final Logger LOG = LogManager.getLogger(RebalanceTest.class);
@@ -268,8 +266,12 @@ public class RebalanceTest {
 //        tabletScheduler.runAfterCatalogReady();
 
         for (Long tabletId : needCheckTablets) {
-            TabletSchedCtx tabletSchedCtx = alternativeTablets.stream().filter(ctx -> ctx.getTabletId() == tabletId).collect(onlyElement());
-            AgentTask task = tasks.stream().filter(t -> t.getTabletId() == tabletId).collect(onlyElement());
+            TabletSchedCtx tabletSchedCtx = alternativeTablets.stream()
+                    .filter(ctx -> ctx.getTabletId() == tabletId)
+                    .collect(MoreCollectors.onlyElement());
+            AgentTask task = tasks.stream()
+                    .filter(t -> t.getTabletId() == tabletId)
+                    .collect(MoreCollectors.onlyElement());
 
             LOG.info("try to finish tabletCtx {}", tabletId);
             try {
@@ -294,7 +296,9 @@ public class RebalanceTest {
         needCheckTablets.forEach(t -> {
             List<Replica> replicas = invertedIndex.getReplicasByTabletId(t);
             Assert.assertEquals(4, replicas.size());
-            Replica decommissionedReplica = replicas.stream().filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION).collect(onlyElement());
+            Replica decommissionedReplica = replicas.stream()
+                    .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
+                    .collect(MoreCollectors.onlyElement());
             // expected watermarkTxnId is 111
             Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
         });
@@ -336,4 +340,3 @@ public class RebalanceTest {
         }
     }
 }
-

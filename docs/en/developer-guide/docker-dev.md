@@ -29,9 +29,9 @@ under the License.
 
 ## Related detailed document navigation
 
-- [Developing mirror compilation using Docker](https://doris.incubator.apache.org/installing/compilation.html#developing-mirror-compilation-using-docker-recommended)
-- [Deploying Doris](https://doris.incubator.apache.org/installing/install-deploy.html#cluster-deployment)
-- [VSCode Be Development Debugging](https://doris.incubator.apache.org/developer-guide/be-vscode-dev.html)
+- [Developing mirror compilation using Docker](../install/source-install/compilation.md#developing-mirror-compilation-using-docker-recommended)
+- [Deploying Doris](../install/install-deploy.md#cluster-deployment)
+- [VSCode Be Development Debugging](./be-vscode-dev.md)
 
 ## Environment preparation
 
@@ -90,7 +90,7 @@ docker build -t doris .
 
 run image
 
-note! [problems with mounting](../installing/compilation.md)
+note! [problems with mounting](../install/source-install/compilation.md)
 
 > See the link above: It is recommended to run the image by mounting the local Doris source code directory as a volume .....
 

@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -96,7 +97,14 @@ public class BetweenPredicate extends Predicate {
     public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
         return children.get(0).toSql() + " " + notStr + "BETWEEN " +
-          children.get(1).toSql() + " AND " + children.get(2).toSql();
+                children.get(1).toSql() + " AND " + children.get(2).toSql();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        String notStr = (isNotBetween) ? "NOT " : "";
+        return children.get(0).toDigest() + " " + notStr + "BETWEEN " +
+                children.get(1).toDigest() + " AND " + children.get(2).toDigest();
     }
 
     @Override

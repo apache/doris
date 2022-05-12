@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_LOGGING_H
-#define DORIS_BE_SRC_COMMON_UTIL_LOGGING_H
+#pragma once
 
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
@@ -25,8 +24,8 @@
 #include <string>
 
 #include "common/logging.h"
-#include "util/uid_util.h"
 #include "gutil/walltime.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -177,5 +176,3 @@ public:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_UTIL_LOGGING_H

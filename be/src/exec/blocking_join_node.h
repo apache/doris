@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/blocking-join-node.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_BLOCKING_JOIN_NODE_H
+#pragma once
 
 #include <future>
 #include <string>
@@ -132,5 +131,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

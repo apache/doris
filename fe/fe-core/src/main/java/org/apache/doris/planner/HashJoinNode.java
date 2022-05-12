@@ -48,7 +48,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -172,7 +171,7 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-    
+
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
      * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that

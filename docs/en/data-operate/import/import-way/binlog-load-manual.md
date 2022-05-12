@@ -338,32 +338,67 @@ Like the slave node in mysql, Canal Server also needs to save the latest consump
 
 ### Configure Target Table Properties
 
-User needs to first create the target table which is corresponding to the MySQL side.
+User needs to first create the target table which is corresponding to the MySQL side
 
 Binlog Load can only support unique target tables from now, and the batch delete feature of the target table must be activated.
 
-For the method of enabling Batch Delete, please refer to the batch delete function in [ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.html).
+For the method of enabling Batch Delete, please refer to the batch delete function in [ALTER TABLE PROPERTY](../../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PROPERTY.md).
 
 Example:
 
-```
--- create target table
-CREATE TABLE `test1` (
-  `a` int(11) NOT NULL COMMENT "",
-  `b` int(11) NOT NULL COMMENT ""
+```text
+--create Mysql table
+CREATE TABLE `demo.source_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- create Doris table
+CREATE TABLE `target_test` (
+  `id` int(11) NOT NULL COMMENT "",
+  `name` int(11) NOT NULL COMMENT ""
 ) ENGINE=OLAP
-UNIQUE KEY(`a`)
+UNIQUE KEY(`id`)
 COMMENT "OLAP"
-DISTRIBUTED BY HASH(`a`) BUCKETS 8;
+DISTRIBUTED BY HASH(`id`) BUCKETS 8;
 
 -- enable batch delete
 ALTER TABLE canal_test.test1 ENABLE FEATURE "BATCH_DELETE";
 ```
+**! !  Doris table structure and Mysql table structure field order must be consistent ! !**
 
 ### Create SyncJob
 
-The detailed syntax for creating a data synchronization job can be connected to Doris and [CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) to view the syntax help. Here is a detailed introduction to the precautions when creating a job.
+```text
+CREATE SYNC `demo`.`job`
+(
+FROM `demo`.`source_test1` INTO `target_test`
+(id,name)
+)
+FROM BINLOG
+(
+"type" = "canal",
+"canal.server.ip" = "127.0.0.1",
+"canal.server.port" = "11111",
+"canal.destination" = "xxx",
+"canal.username" = "canal",
+"canal.password" = "canal"
+);
+```
 
+The detailed syntax for creating a data synchronization job can be connected to Doris and [CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) to view the syntax help. Here is a detailed introduction to the precautions when creating a job.
+
+grammar：
+```
+CREATE SYNC [db.]job_name
+ (
+        channel_desc, 
+        channel_desc
+        ...
+ )
+binlog_desc
+```
 * job_name
 
 	`job_Name` is the unique identifier of the SyncJob in the current database. With a specified job name, only one SyncJob can be running at the same time.
@@ -395,7 +430,7 @@ The detailed syntax for creating a data synchronization job can be connected to 
 ### Show Job Status
 
 
-Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.html) command.
+Specific commands and examples for viewing job status can be viewed through the [SHOW SYNC JOB](../../../sql-manual/sql-reference/Show-Statements/SHOW-SYNC-JOB.md) command.
 
 The parameters in the result set have the following meanings:
 
@@ -445,11 +480,11 @@ The parameters in the result set have the following meanings:
 
 Users can control the status of jobs through `stop/pause/resume` commands.
 
-You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.html) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.html); And [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.html); commands to view help and examples.
+You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STOP-SYNC-JOB.md) ; [PAUSE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB.md); And [RESUME SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/RESUME-SYNC-JOB.md); commands to view help and examples.
 
 ## Case Combat
 
-[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.html)
+[How to use Apache Doris Binlog Load and examples](https://doris.apache.org/zh-CN/article/articles/doris-binlog-load.md)
 
 ## Related Parameters
 
@@ -521,4 +556,4 @@ The following configuration belongs to the system level configuration of SyncJob
 
 ## More Help
 
-For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.html) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.
+For more detailed syntax and best practices used by Binlog Load, see [Binlog Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) command manual, you can also enter `HELP BINLOG` in the MySql client command line for more help information.

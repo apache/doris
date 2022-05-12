@@ -126,7 +126,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _rows_vec_cond_counter = ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
-    _pred_col_read_timer = ADD_TIMER(_segment_profile, "PredColumnReadTime");
+    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
@@ -1527,6 +1527,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
+    Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
         std::unique_lock<std::mutex> l(_scan_batches_lock);

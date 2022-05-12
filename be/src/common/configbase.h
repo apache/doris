@@ -15,16 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIGBASE_H
-#define DORIS_BE_SRC_COMMON_CONFIGBASE_H
+#pragma once
 
 #include <cstdint>
-
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <functional>
 
 namespace doris {
 class Status;
@@ -186,5 +184,3 @@ std::vector<std::vector<std::string>> get_config_info();
 
 } // namespace config
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIGBASE_H

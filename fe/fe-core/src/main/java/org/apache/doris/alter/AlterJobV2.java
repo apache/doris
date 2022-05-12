@@ -29,7 +29,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,6 +57,8 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public enum JobType {
+        // Must not remove it or change the order, because catalog depend on it to traverse the image
+        // and load meta data
         ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
     }
 
@@ -145,7 +146,7 @@ public abstract class AlterJobV2 implements Writable {
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
-     * 
+     *
      * lock order:
      *      synchronized
      *      db lock
