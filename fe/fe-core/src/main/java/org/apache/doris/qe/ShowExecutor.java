@@ -995,16 +995,15 @@ public class ShowExecutor {
         ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
 
         Catalog catalog = Catalog.getCurrentCatalog();
-        List<Database> dbList=null;
+        List<Database> dbList=Lists.newArrayList();
 
         if(showStmt.getIsAll()){
             if(ctx.getCurrentUserIdentity().getQualifiedUser().equals("root")){
-                dbList = catalog.getFullNameToDb().values().stream().filter(data -> data.getId() != 0&&!data.getFullName().equals(data.getClusterName()+":information_schema")).collect(Collectors.toList());
+                dbList.addAll(catalog.getFullNameToDb().values().stream().filter(data -> data.getId() != 0&&!data.getFullName().equals(data.getClusterName()+":information_schema")).collect(Collectors.toList()));
             }else{
                 throw new AnalysisException("The current user has no permission, and the root user is required to execute SHOW LOAD ALL.");
             }
         }else{
-            dbList=new ArrayList<>();
             dbList.add(catalog.getDbOrAnalysisException(showStmt.getDbName()));
         }
 
