@@ -151,6 +151,13 @@ void Block::insert(ColumnWithTypeAndName&& elem) {
     data.emplace_back(std::move(elem));
 }
 
+void Block::insert_and_resize(ColumnWithTypeAndName&& elem) {
+    index_by_name.emplace(elem.name, data.size());
+    // usualy elem.column always is const column, so we just clone it.
+    elem.column = elem.column->clone_resized(std::max(rows(), size_t(1)));
+    data.emplace_back(std::move(elem));
+}
+
 void Block::insert_unique(const ColumnWithTypeAndName& elem) {
     if (index_by_name.end() == index_by_name.find(elem.name)) {
         insert(elem);

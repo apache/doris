@@ -47,12 +47,8 @@ VInfoFunc::VInfoFunc(const TExprNode& node) : VExpr(node) {
 }
 
 Status VInfoFunc::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    int rows = block->rows();
-    if (rows < 1) {
-        rows = 1;
-    }
     *result_column_id = block->columns();
-    block->insert({_column_ptr->clone_resized(rows), _data_type, _expr_name});
+    block->insert_and_resize({_column_ptr, _data_type, _expr_name});
     return Status::OK();
 }
 

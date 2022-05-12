@@ -80,6 +80,8 @@ public:
     /// insert the column to the end
     void insert(const ColumnWithTypeAndName& elem);
     void insert(ColumnWithTypeAndName&& elem);
+    // resize inserted column to make sure column size equal to block.rows()
+    void insert_and_resize(ColumnWithTypeAndName&& elem);
     /// insert the column to the end, if there is no column with that name yet
     void insert_unique(const ColumnWithTypeAndName& elem);
     void insert_unique(ColumnWithTypeAndName&& elem);

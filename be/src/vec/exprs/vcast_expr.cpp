@@ -78,7 +78,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     _children[0]->execute(context, block, &column_id);
 
     size_t const_param_id = block->columns();
-    block->insert({_cast_param, _cast_param_data_type, _target_data_type_name});
+    block->insert_and_resize({_cast_param, _cast_param_data_type, _target_data_type_name});
 
     // call function
     size_t num_columns_without_result = block->columns();
@@ -86,8 +86,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     block->insert({nullptr, _data_type, _expr_name});
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block,
                                        {static_cast<size_t>(column_id), const_param_id},
-                                       num_columns_without_result,
-                                       block->get_by_position(column_id).column->size(), false));
+                                       num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
     return Status::OK();
 }

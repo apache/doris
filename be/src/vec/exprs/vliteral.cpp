@@ -123,12 +123,8 @@ void VLiteral::init(const TExprNode& node) {
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    int rows = block->rows();
-    if (rows < 1) {
-        rows = 1;
-    }
     size_t res = block->columns();
-    block->insert({_column_ptr->clone_resized(rows), _data_type, _expr_name});
+    block->insert_and_resize({_column_ptr, _data_type, _expr_name});
     *result_column_id = res;
     return Status::OK();
 }
