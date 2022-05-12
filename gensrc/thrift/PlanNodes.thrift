@@ -252,7 +252,8 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
-	4: optional list<Exprs.TExpr> pre_filter_exprs
+    4: optional list<Exprs.TExpr> pre_filter_exprs
+    // Use in vec exec engine
     5: optional Exprs.TExpr vpre_filter_expr
 }
 
