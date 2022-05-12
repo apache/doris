@@ -238,7 +238,7 @@ public:
             for (size_t i = 0; i < num; i++) {
                 total_mem_size += len_array[i];
             }
-            
+
             char* destination = (char*)_pool->allocate(total_mem_size);
             for (size_t i = 0; i < num; i++) {
                 uint32_t len = len_array[i];
@@ -253,8 +253,8 @@ public:
 
     void insert_default() override { data.push_back(T()); }
 
-    void clear() override { 
-        data.clear(); 
+    void clear() override {
+        data.clear();
         if (_pool != nullptr) {
             _pool->clear();
         }
