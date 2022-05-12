@@ -195,7 +195,7 @@ public class DatabaseTransactionMgr {
         return labelToTxnIds.get(label);
     }
 
-    protected int getRunningTxnNums() {
+    public int getRunningTxnNums() {
         return runningTxnNums;
     }
 
