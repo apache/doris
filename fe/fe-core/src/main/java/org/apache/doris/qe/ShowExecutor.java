@@ -2215,7 +2215,7 @@ public class ShowExecutor {
         ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
         resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
-  
+
     private void handleShowUser() {
         ShowUserStmt showStmt = (ShowUserStmt) stmt;
         List<List<String>> resultRowSet = Lists.newArrayList();
