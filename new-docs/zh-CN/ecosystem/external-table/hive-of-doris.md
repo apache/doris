@@ -63,7 +63,8 @@ CREATE TABLE `t_hive` (
   `k2` char(10) NOT NULL COMMENT "",
   `k3` datetime NOT NULL COMMENT "",
   `k5` varchar(20) NOT NULL COMMENT "",
-  `k6` double NOT NULL COMMENT ""
+  `k6` double NOT NULL COMMENT "",
+  `k7` bitmap NOT NULL COMMENT ""
 ) ENGINE=HIVE
 COMMENT "HIVE"
 PROPERTIES (
@@ -90,25 +91,27 @@ PROPERTIES (
 
 支持的 Hive 列类型与 Doris 对应关系如下表：
 
-|  Hive  | Doris  |             描述              |
-| :------: | :----: | :-------------------------------: |
-|   BOOLEAN  | BOOLEAN  |                         |
-|   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
-|   VARCHAR | VARCHAR |       当前仅支持UTF8编码       |
-|   TINYINT   | TINYINT |  |
-|   SMALLINT  | SMALLINT |  |
-|   INT  | INT |  |
-|   BIGINT  | BIGINT |  |
-|   FLOAT   |  FLOAT  |                                   |
-|   DOUBLE  | DOUBLE |  |
-|   DECIMAL  | DECIMAL |  |
-|   DATE   |  DATE  |                                   |
-|   TIMESTAMP  | DATETIME | Timestamp 转成 Datetime 会损失精度 |
+|   Hive    |  Doris   |             描述              |
+|:---------:|:--------:|:---------------------------:|
+|  BOOLEAN  | BOOLEAN  |                             |
+|   CHAR    |   CHAR   |         当前仅支持UTF8编码         |
+|  VARCHAR  | VARCHAR  |         当前仅支持UTF8编码         |
+|  TINYINT  | TINYINT  |                             |
+| SMALLINT  | SMALLINT |                             |
+|    INT    |   INT    |                             |
+|  BIGINT   |  BIGINT  |                             |
+|   FLOAT   |  FLOAT   |                             |
+|  DOUBLE   |  DOUBLE  |                             |
+|  DECIMAL  | DECIMAL  |                             |
+|   DATE    |   DATE   |                             |
+| TIMESTAMP | DATETIME | Timestamp 转成 Datetime 会损失精度 |
+| BINARY    |   BITMAP |                             |
 
 **注意：**
 - Hive 表 Schema 变更**不会自动同步**，需要在 Doris 中重建 Hive 外表。
 - 当前 Hive 的存储格式仅支持 Text，Parquet 和 ORC 类型
 - 当前默认支持的 Hive 版本为 `2.3.7、3.1.2`，未在其他版本进行测试。后续后支持更多版本。
+- hive 中的 binary(bitmap) 通过 fe/hive-udf 中的 bitmap udf 函数生成 , hive 中 bitmap 与 doris 中的 bitmap 完全一致。
 
 ### 查询用法
 
@@ -116,6 +119,8 @@ PROPERTIES (
 
 ```sql
 select * from t_hive where k1 > 1000 and k3 ='term' or k4 like '%doris';
+
+select bitmap_union_count(k7) from t_hive where k1 > 1000 and k3 ='term' or k4 like '%doris';
 ```
 
 
