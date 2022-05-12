@@ -461,8 +461,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 format = ""; // if it's not json, then it's mean csv and set empty
             } else if (format.equalsIgnoreCase("json")) {
                 format = "json";
-                jsonPaths = jobProperties.get(JSONPATHS);
-                jsonRoot = jobProperties.get(JSONROOT);
+                jsonPaths = jobProperties.getOrDefault(JSONPATHS, "");
+                jsonRoot = jobProperties.getOrDefault(JSONROOT, "");
                 stripOuterArray = Boolean.valueOf(jobProperties.getOrDefault(STRIP_OUTER_ARRAY, "false"));
                 numAsString = Boolean.valueOf(jobProperties.getOrDefault(NUM_AS_STRING, "false"));
                 fuzzyParse = Boolean.valueOf(jobProperties.getOrDefault(FUZZY_PARSE, "false"));
