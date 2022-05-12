@@ -21,12 +21,12 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include <arrow/array.h>
-#include "common/status.h"
 #include <exec/parquet_scanner.h>
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"

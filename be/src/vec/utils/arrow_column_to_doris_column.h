@@ -17,10 +17,10 @@
 
 #pragma once
 
-#include <iostream>
-#include <memory>
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
+#include <iostream>
+#include <memory>
 
 #include "common/status.h"
 #include "runtime/primitive_type.h"

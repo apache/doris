@@ -21,14 +21,14 @@
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
 
-#include <arrow/record_batch.h>
 #include <arrow/array.h>
+#include <arrow/record_batch.h>
 #include <arrow/status.h>
 
-#include "arrow/type.h"
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/scalar.h"
+#include "arrow/type.h"
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
 #include "gutil/casts.h"
