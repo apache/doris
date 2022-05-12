@@ -54,4 +54,3 @@ public class ReplaceTableOperationLogTest {
         file.delete();
     }
 }
-

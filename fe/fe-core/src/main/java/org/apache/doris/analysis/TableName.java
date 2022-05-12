@@ -150,4 +150,3 @@ public class TableName implements Writable {
         return tableName;
     }
 }
-

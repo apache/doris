@@ -28,18 +28,18 @@ import java.io.IOException;
  * Random partition.
  */
 public class RandomDistributionInfo extends DistributionInfo {
-    
+
     private int bucketNum;
 
     public RandomDistributionInfo() {
         super();
     }
-    
+
     public RandomDistributionInfo(int bucketNum) {
         super(DistributionInfoType.RANDOM);
         this.bucketNum = bucketNum;
     }
-    
+
     @Override
     public DistributionDesc toDistributionDesc() {
         DistributionDesc distributionDesc = new RandomDistributionDesc(bucketNum);
@@ -72,7 +72,7 @@ public class RandomDistributionInfo extends DistributionInfo {
         distributionInfo.readFields(in);
         return distributionInfo;
     }
-    
+
     public boolean equals(DistributionInfo info) {
         if (this == info) {
             return true;

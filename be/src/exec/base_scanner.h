@@ -19,9 +19,9 @@
 
 #include "common/status.h"
 #include "exprs/expr.h"
-#include "vec/exprs/vexpr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 

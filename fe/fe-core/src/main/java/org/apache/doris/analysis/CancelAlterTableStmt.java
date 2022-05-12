@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -25,6 +24,8 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.stream.Collectors;

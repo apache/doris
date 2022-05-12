@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,7 +53,7 @@ public class KafkaUtil {
             Collections.shuffle(backendIds);
             Backend be = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
             address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
-            
+
             // create request
             InternalService.PProxyRequest request = InternalService.PProxyRequest.newBuilder().setKafkaMetaRequest(
                     InternalService.PKafkaMetaProxyRequest.newBuilder()
@@ -71,7 +70,7 @@ public class KafkaUtil {
                                     )
                             )
             ).build();
-            
+
             // get info
             Future<InternalService.PProxyResult> future = BackendServiceProxy.getInstance().getInfo(address, request);
             InternalService.PProxyResult result = future.get(5, TimeUnit.SECONDS);
@@ -209,5 +208,3 @@ public class KafkaUtil {
         }
     }
 }
-
-

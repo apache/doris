@@ -22,9 +22,6 @@
 
 #include <algorithm>
 #include <vector>
-#include "rapidjson/document.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
@@ -38,6 +35,9 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/wrapper_field.h"
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
@@ -352,9 +352,10 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
             goto PROCESS_ALTER_EXIT;
         }
 
-        if ((res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
-                                           sm_params.new_tablet->tablet_path_desc(), rs_reader,
-                                           rowset_writer.get(), new_tablet)) != OLAP_SUCCESS) {
+        if (!(res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
+                                            sm_params.new_tablet->tablet_path_desc(), rs_reader,
+                                            rowset_writer.get(), new_tablet))
+                     .ok()) {
             LOG(WARNING) << "failed to add_rowset. version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
             new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
@@ -372,7 +373,7 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
             goto PROCESS_ALTER_EXIT;
         }
         res = sm_params.new_tablet->add_rowset(new_rowset, false);
-        if (res == Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+        if (res.precise_code() == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sm_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;

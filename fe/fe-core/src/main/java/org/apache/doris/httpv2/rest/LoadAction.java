@@ -21,17 +21,19 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
-
+import io.netty.handler.codec.http.HttpHeaderNames;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.ResponseEntity;
@@ -42,11 +44,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
 import java.util.List;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import io.netty.handler.codec.http.HttpHeaderNames;
 
 @RestController
 public class LoadAction extends RestBaseController {
@@ -145,21 +144,7 @@ public class LoadAction extends RestBaseController {
                     return new RestBaseResult(e.getMessage());
                 }
             } else {
-                // Choose a backend sequentially.
-                SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                        new SystemInfoService.BeAvailablePredicate(false, false, true);
-                List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                        1, beAvailablePredicate, false, clusterName, null, null);
-                if (backendIds == null) {
-                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
-                }
-
-                Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
-                if (backend == null) {
-                    return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
-                }
-
-                redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+                redirectAddr = selectRedirectBackend(clusterName);
             }
 
             LOG.info("redirect load action to destination={}, stream: {}, db: {}, tbl: {}, label: {}",
@@ -194,22 +179,7 @@ public class LoadAction extends RestBaseController {
                 return new RestBaseResult("No transaction operation(\'commit\' or \'abort\') selected.");
             }
 
-            // Choose a backend sequentially.
-            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, beAvailablePredicate, false, clusterName, null, null);
-            if (backendIds == null) {
-                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
-            }
-
-            Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            if (backend == null) {
-                return new RestBaseResult(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG);
-            }
-
-            TNetworkAddress redirectAddr = new TNetworkAddress(backend.getHost(), backend.getHttpPort());
-
+            TNetworkAddress redirectAddr = selectRedirectBackend(clusterName);
             LOG.info("redirect stream load 2PC action to destination={}, db: {}, txn: {}, operation: {}",
                     redirectAddr.toString(), dbName, request.getHeader(TXN_ID_KEY), txnOperation);
 
@@ -219,5 +189,19 @@ public class LoadAction extends RestBaseController {
         } catch (Exception e) {
             return new RestBaseResult(e.getMessage());
         }
+    }
+
+    private TNetworkAddress selectRedirectBackend(String clusterName) throws LoadException {
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(clusterName).needLoadAvailable().build();
+        List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (backendIds.isEmpty()) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+
+        Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        if (backend == null) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
     }
 }

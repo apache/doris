@@ -49,7 +49,7 @@ import org.apache.doris.thrift.TTabletVersionInfo;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
-
+import io.netty.handler.codec.http.HttpResponseStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -69,8 +69,6 @@ import java.util.Map;
 import java.util.UUID;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import io.netty.handler.codec.http.HttpResponseStatus;
 
 /**
  * This class responsible for parse the sql and generate the query plan fragment for a (only one) table{@see OlapTable}

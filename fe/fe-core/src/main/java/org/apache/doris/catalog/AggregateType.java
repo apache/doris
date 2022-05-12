@@ -167,4 +167,3 @@ public enum AggregateType {
         }
     }
 }
-

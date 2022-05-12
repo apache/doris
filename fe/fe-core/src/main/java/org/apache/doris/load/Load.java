@@ -106,7 +106,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -1049,8 +1048,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
-            String realColName = tbl.getColumn(columnName) == null ? columnName
-                    : tbl.getColumn(columnName).getName();
+            String realColName;
+            if (tbl.getColumn(columnName) == null || importColumnDesc.getExpr() == null) {
+                realColName = columnName;
+            } else {
+                realColName = tbl.getColumn(columnName).getName();
+            }
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);

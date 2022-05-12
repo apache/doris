@@ -29,7 +29,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
-
 import org.json.simple.JSONObject;
 
 import java.util.List;

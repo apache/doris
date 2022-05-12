@@ -26,7 +26,6 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.FailMsg;
 
 import com.google.common.collect.Queues;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

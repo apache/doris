@@ -23,10 +23,10 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
-import com.google.common.collect.Maps;
 
-import org.apache.logging.log4j.Logger;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -46,12 +46,12 @@ public class HadoopLoadEtlTask extends LoadEtlTask {
         DppScheduler dppScheduler = new DppScheduler(job.getHadoopDppConfig());
         EtlStatus status = dppScheduler.getEtlJobStatus(job.getHadoopEtlJobId());
         LOG.info("job status: {}. job: {}", status, job.toString());
-        
+
         // update load job etl status
         job.setEtlJobStatus(status);
         return true;
     }
-    
+
     @Override
     protected void processEtlRunning() throws LoadException {
         Map<String, String> stats = job.getEtlJobStatus().getStats();
@@ -63,16 +63,16 @@ public class HadoopLoadEtlTask extends LoadEtlTask {
             if (progress >= 100) {
                 // hadoop job status result:
                 // [map() completion] and [reduce() completion] are not accurate,
-                // etl job state must be depend on [job state] 
+                // etl job state must be depend on [job state]
                 progress = 99;
             }
             job.setProgress(progress);
-            
+
             if (mapProgress >= 1) {
                 isMapCompleted = true;
             }
         }
-        
+
         // check data quality when map complete
         if (isMapCompleted) {
             // [map() completion] is not accurate

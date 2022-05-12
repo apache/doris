@@ -30,7 +30,6 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;

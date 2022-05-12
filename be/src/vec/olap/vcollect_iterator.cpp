@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/olap/vcollect_iterator.h"
+
 #include <memory>
 
 #include "olap/rowset/beta_rowset_reader.h"
@@ -322,7 +323,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
     if (LIKELY(res.ok())) {
         _heap->push(_cur_child);
         _cur_child = _heap->top();
-    } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
         // current child has been read, to read next
         delete _cur_child;
         if (!_heap->empty()) {
@@ -357,7 +358,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
     if (LIKELY(res.ok())) {
         _ref = *ref;
         return Status::OK();
-    } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
         // current child has been read, to read next
         delete _cur_child;
         _children.pop_front();
@@ -389,7 +390,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         }
         ++target_block_row;
         auto res = _merge_next(&cur_row);
-        if (UNLIKELY(res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+        if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
             if (target_block_row > 0) {
                 return Status::OK();
             } else {
@@ -410,7 +411,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     auto res = _cur_child->next(block);
     if (LIKELY(res.ok())) {
         return Status::OK();
-    } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
         // current child has been read, to read next
         delete _cur_child;
         _children.pop_front();

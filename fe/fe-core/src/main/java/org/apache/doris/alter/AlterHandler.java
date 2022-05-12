@@ -39,7 +39,6 @@ import org.apache.doris.task.AlterReplicaTask;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,15 +63,15 @@ public abstract class AlterHandler extends MasterDaemon {
      *  Operations like Get or Put do not need lock.
      */
     protected ReentrantLock lock = new ReentrantLock();
-    
+
     protected void lock() {
         lock.lock();
     }
-    
+
     protected void unlock() {
         lock.unlock();
     }
-    
+
     public AlterHandler(String name) {
         this(name, FeConstants.default_scheduler_interval_millisecond);
     }
@@ -161,7 +160,7 @@ public abstract class AlterHandler extends MasterDaemon {
     public abstract List<List<Comparable>> getAlterJobInfosByDb(Database db);
 
     /*
-     * entry function. handle alter ops 
+     * entry function. handle alter ops
      */
     public abstract void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException;
@@ -189,7 +188,7 @@ public abstract class AlterHandler extends MasterDaemon {
      *      After alter table process starts, there are some load job being processed.
      * Case 2.1:
      *      None of them succeed on this replica. so the version is still 1. We should modify the replica's version to X.
-     * Case 2.2 
+     * Case 2.2
      *      There are new load jobs after alter task, and at least one of them is succeed on this replica.
      *      So the replica's version should be larger than X. So we don't need to modify the replica version
      *      because its already looks like normal.
@@ -227,7 +226,7 @@ public abstract class AlterHandler extends MasterDaemon {
             if (versionChanged) {
                 ReplicaPersistInfo info = ReplicaPersistInfo.createForClone(task.getDbId(), task.getTableId(),
                         task.getPartitionId(), task.getIndexId(), task.getTabletId(), task.getBackendId(),
-                        replica.getId(), replica.getVersion(), -1, 
+                        replica.getId(), replica.getVersion(), -1,
                         replica.getDataSize(), replica.getRowCount(),
                         replica.getLastFailedVersion(), replica.getLastSuccessVersion());
                 Catalog.getCurrentCatalog().getEditLog().logUpdateReplica(info);

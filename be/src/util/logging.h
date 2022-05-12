@@ -24,8 +24,8 @@
 #include <string>
 
 #include "common/logging.h"
-#include "util/uid_util.h"
 #include "gutil/walltime.h"
+#include "util/uid_util.h"
 
 namespace doris {
 

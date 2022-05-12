@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

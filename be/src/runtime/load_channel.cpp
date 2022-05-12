@@ -18,6 +18,7 @@
 #include "runtime/load_channel.h"
 
 #include "olap/lru_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
@@ -31,8 +32,11 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, int64_t tim
           _is_high_priority(is_high_priority),
           _sender_ip(sender_ip),
           _is_vec(is_vec) {
-    _mem_tracker = MemTracker::create_tracker(mem_limit, "LoadChannel:" + _load_id.to_string(),
-                                              nullptr, MemTrackerLevel::TASK);
+    _mem_tracker = MemTracker::create_tracker(
+            mem_limit, "LoadChannel:tabletId=" + _load_id.to_string(),
+            ExecEnv::GetInstance()->task_pool_mem_tracker_registry()->get_task_mem_tracker(
+                    _load_id.to_string()),
+            MemTrackerLevel::TASK);
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
     // immediately by gc thread.
@@ -47,7 +51,7 @@ LoadChannel::~LoadChannel() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = params.index_id();
     std::shared_ptr<TabletsChannel> channel;
     {
@@ -133,7 +137,7 @@ bool LoadChannel::is_finished() {
 }
 
 Status LoadChannel::cancel() {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
         it.second->cancel();

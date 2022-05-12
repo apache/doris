@@ -41,7 +41,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -394,7 +393,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     // for replay idToTransactionState
-    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
+    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());

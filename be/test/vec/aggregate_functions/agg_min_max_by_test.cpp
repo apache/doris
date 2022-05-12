@@ -20,8 +20,8 @@
 
 #include "gtest/gtest.h"
 #include "vec/aggregate_functions/aggregate_function.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_min_max_by.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/columns/column_vector.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_number.h"

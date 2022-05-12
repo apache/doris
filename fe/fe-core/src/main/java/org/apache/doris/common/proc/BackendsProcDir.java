@@ -35,7 +35,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,12 +77,12 @@ public class BackendsProcDir implements ProcDirInterface {
         }
         return result;
     }
-   
+
     /**
      * get backends of cluster
      * @param clusterName
      * @return
-     */ 
+     */
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
         final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
@@ -191,7 +190,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfos.add(oneInfo);
         }
-        
+
         return backendInfos;
     }
 
@@ -222,5 +221,3 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
 }
-
-

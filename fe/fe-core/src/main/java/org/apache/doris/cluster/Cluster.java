@@ -25,7 +25,6 @@ import org.apache.doris.persist.LinkDbInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,7 +40,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * cluster only save db and user's id and name
- * 
+ *
  */
 public class Cluster implements Writable {
     private static final Logger LOG = LogManager.getLogger(Cluster.class);

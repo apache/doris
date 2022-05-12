@@ -60,4 +60,3 @@ public class StatsCategoryDesc {
         this.columnName = columnName;
     }
 }
-

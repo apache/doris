@@ -54,7 +54,7 @@ public class TransStateProcDir implements ProcDirInterface {
         if (Strings.isNullOrEmpty(state)) {
             throw new AnalysisException("State is not set");
         }
-        
+
         if (!state.equals("running") && !state.equals("finished")) {
             throw new AnalysisException("State is invalid");
         }

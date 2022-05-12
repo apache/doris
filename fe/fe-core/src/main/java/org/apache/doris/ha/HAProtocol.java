@@ -23,31 +23,31 @@ import java.util.List;
 public interface HAProtocol {
     // get current epoch number
     public long getEpochNumber();
-    
+
     // increase epoch number by one
     public boolean fencing();
-    
+
     // get observer nodes in the current group
     public List<InetSocketAddress> getObserverNodes();
-    
+
     // get replica nodes in the current group
     public List<InetSocketAddress> getElectableNodes(boolean leaderIncluded);
-    
+
     // get the leader of current group
     public InetSocketAddress getLeader();
-    
+
     // get all the nodes except leader in the current group
     public List<InetSocketAddress> getNoneLeaderNodes();
-    
+
     // transfer from nonMaster(unknown, follower or init) to master
     public void transferToMaster();
-    
+
     // transfer to non-master
     public void transferToNonMaster();
-    
+
     // check if the current node is leader
     public boolean isLeader();
-    
+
     // remove a node from the group
     public boolean removeElectableNode(String nodeName);
 }

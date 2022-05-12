@@ -17,19 +17,17 @@
 
 package org.apache.doris.catalog;
 
-import static org.apache.doris.common.io.IOUtils.readOptionStringOrNull;
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
-
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
 import org.apache.doris.analysis.CreateFunctionStmt;
-
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -505,13 +503,13 @@ public class AggregateFunction extends Function {
         if (hasInterType) {
             ColumnType.write(output, intermediateType);
         }
-        writeOptionString(output, updateFnSymbol);
-        writeOptionString(output, initFnSymbol);
-        writeOptionString(output, serializeFnSymbol);
-        writeOptionString(output, mergeFnSymbol);
-        writeOptionString(output, getValueFnSymbol);
-        writeOptionString(output, removeFnSymbol);
-        writeOptionString(output, finalizeFnSymbol);
+        IOUtils.writeOptionString(output, updateFnSymbol);
+        IOUtils.writeOptionString(output, initFnSymbol);
+        IOUtils.writeOptionString(output, serializeFnSymbol);
+        IOUtils.writeOptionString(output, mergeFnSymbol);
+        IOUtils.writeOptionString(output, getValueFnSymbol);
+        IOUtils.writeOptionString(output, removeFnSymbol);
+        IOUtils.writeOptionString(output, finalizeFnSymbol);
 
         output.writeBoolean(ignoresDistinct);
         output.writeBoolean(isAnalyticFn);
@@ -525,13 +523,13 @@ public class AggregateFunction extends Function {
         if (input.readBoolean()) {
             intermediateType = ColumnType.read(input);
         }
-        updateFnSymbol = readOptionStringOrNull(input);
-        initFnSymbol = readOptionStringOrNull(input);
-        serializeFnSymbol = readOptionStringOrNull(input);
-        mergeFnSymbol = readOptionStringOrNull(input);
-        getValueFnSymbol = readOptionStringOrNull(input);
-        removeFnSymbol = readOptionStringOrNull(input);
-        finalizeFnSymbol = readOptionStringOrNull(input);
+        updateFnSymbol = IOUtils.readOptionStringOrNull(input);
+        initFnSymbol = IOUtils.readOptionStringOrNull(input);
+        serializeFnSymbol = IOUtils.readOptionStringOrNull(input);
+        mergeFnSymbol = IOUtils.readOptionStringOrNull(input);
+        getValueFnSymbol = IOUtils.readOptionStringOrNull(input);
+        removeFnSymbol = IOUtils.readOptionStringOrNull(input);
+        finalizeFnSymbol = IOUtils.readOptionStringOrNull(input);
         ignoresDistinct = input.readBoolean();
         isAnalyticFn = input.readBoolean();
         isAggregateFn = input.readBoolean();
@@ -559,4 +557,3 @@ public class AggregateFunction extends Function {
         return new Gson().toJson(properties);
     }
 }
-

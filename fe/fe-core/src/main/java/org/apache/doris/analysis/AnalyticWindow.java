@@ -20,14 +20,15 @@
 
 package org.apache.doris.analysis;
 
-import java.math.BigDecimal;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
 import org.apache.doris.thrift.TAnalyticWindowType;
+
 import com.google.common.base.Preconditions;
+
+import java.math.BigDecimal;
 
 /**
  * Windowing clause of an analytic expr

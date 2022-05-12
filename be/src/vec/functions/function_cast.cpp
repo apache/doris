@@ -18,6 +18,7 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionsConversion.h
 // and modified by Doris
 #include "vec/functions/function_cast.h"
+
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

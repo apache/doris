@@ -36,8 +36,8 @@ import java.util.stream.Collectors;
 
 /*
  * Like this:
- * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms 
- * # TYPE doris_fe_job_load_broker_cost_ms gauge 
+ * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms
+ * # TYPE doris_fe_job_load_broker_cost_ms gauge
  * doris_fe_job{job="load", type="mini", state="pending"} 0
  */
 public class PrometheusMetricVisitor extends MetricVisitor {
@@ -212,4 +212,3 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         return;
     }
 }
-

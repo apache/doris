@@ -30,7 +30,7 @@ import java.util.Map;
 public class AddBackendClause extends BackendClause {
     // be in free state is not owned by any cluster
     protected boolean isFree;
-    // cluster that backend will be added to 
+    // cluster that backend will be added to
     protected String destCluster;
     protected Map<String, String> properties = Maps.newHashMap();
     private Tag tag;
@@ -96,11 +96,10 @@ public class AddBackendClause extends BackendClause {
 
     public boolean isFree() {
         return this.isFree;
-    } 
+    }
 
     public String getDestCluster() {
         return destCluster;
     }
 
 }
-

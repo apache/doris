@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import com.google.common.math.LongMath;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

@@ -20,25 +20,23 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.sync.position.EntryPosition;
-import org.apache.doris.load.sync.model.Events;
-import org.apache.doris.load.sync.position.PositionMeta;
-import org.apache.doris.load.sync.position.PositionRange;
 import org.apache.doris.load.sync.SyncChannelHandle;
 import org.apache.doris.load.sync.SyncDataConsumer;
 import org.apache.doris.load.sync.SyncFailMsg;
+import org.apache.doris.load.sync.model.Events;
+import org.apache.doris.load.sync.position.EntryPosition;
+import org.apache.doris.load.sync.position.PositionMeta;
+import org.apache.doris.load.sync.position.PositionRange;
 
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.common.CanalException;
 import com.alibaba.otter.canal.protocol.CanalEntry;
 import com.alibaba.otter.canal.protocol.Message;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

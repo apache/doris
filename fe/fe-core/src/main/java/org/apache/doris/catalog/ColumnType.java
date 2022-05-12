@@ -17,8 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.common.io.Text;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -151,4 +152,3 @@ public abstract class ColumnType {
         }
     }
 }
-

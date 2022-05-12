@@ -19,7 +19,7 @@ package org.apache.doris.mysql;
 
 // MySQL column type
 // TYPE codes are defined in the file 'mysql/include/mysql_com.h' enum enum_field_types
-// which is also demostrated in 
+// which is also demostrated in
 // http://dev.mysql.com/doc/internals/en/com-query-response.html
 public enum MysqlColType {
     MYSQL_TYPE_DECIMAL(0, "DECIMAL"),

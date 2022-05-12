@@ -19,21 +19,19 @@
 
 #include <map>
 
-#include "runtime/tuple_row.h"
-#include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
-#include "runtime/mem_tracker.h"
-#include "exprs/expr_context.h"
-#include "exprs/expr.h"
 #include "common/object_pool.h"
 #include "common/status.h"
-
+#include "exprs/expr.h"
+#include "exprs/expr_context.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
+#include "runtime/tuple_row.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-
-#include "gen_cpp/internal_service.pb.h"
-#include "gen_cpp/PaloInternalService_types.h"
 
 using std::string;
 using std::map;

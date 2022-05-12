@@ -25,7 +25,6 @@ import org.apache.doris.qe.RowBatch;
 
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -184,4 +183,3 @@ public class RowBatchBuilder {
         return updateRequest;
     }
 }
-

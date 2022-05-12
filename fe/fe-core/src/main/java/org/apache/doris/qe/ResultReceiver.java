@@ -66,7 +66,7 @@ public class ResultReceiver {
                         .setFinstId(finstId)
                         .setRespInAttachment(false)
                         .build();
-                
+
                 currentThread = Thread.currentThread();
                 Future<InternalService.PFetchDataResult> future = BackendServiceProxy.getInstance().fetchDataAsync(address, request);
                 InternalService.PFetchDataResult pResult = null;
@@ -90,8 +90,8 @@ public class ResultReceiver {
                 if (code != TStatusCode.OK) {
                     status.setPstatus(pResult.getStatus());
                     return null;
-                } 
- 
+                }
+
                 rowBatch.setQueryStatistics(pResult.getQueryStatistics());
 
                 if (packetIdx != pResult.getPacketSeq()) {
@@ -99,7 +99,7 @@ public class ResultReceiver {
                     status.setRpcStatus("receive error packet");
                     return null;
                 }
-    
+
                 packetIdx++;
                 isDone = pResult.getEos();
 
@@ -138,7 +138,7 @@ public class ResultReceiver {
                 currentThread = null;
             }
         }
-        
+
         if (isCancel) {
             status.setStatus(Status.CANCELLED);
         }

@@ -217,16 +217,6 @@ private:
     static __thread char _buf[BUF_SIZE];
 };
 
-inline bool is_io_error(Status status) {
-    return (((Status::OLAPInternalError(OLAP_ERR_IO_ERROR) == status ||
-              Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH) == status) &&
-             errno == EIO) ||
-            Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_ROWBLOCK_READ_INFO_ERROR) == status);
-}
-
 #define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
@@ -280,29 +270,6 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 bool valid_datetime(const std::string& value_str);
 
 bool valid_bool(const std::string& value_str);
-
-#define OLAP_LOG_WRITE(level, fmt, arg...)      \
-    do {                                        \
-        char buf[10240] = {0};                  \
-        write_log_info(buf, 10240, fmt, ##arg); \
-        LOG(level) << buf;                      \
-    } while (0)
-
-#define OLAP_VLOG_WRITE(level, fmt, arg...)         \
-    do {                                            \
-        if (OLAP_UNLIKELY(VLOG_IS_ON(level))) {     \
-            char buf[10240] = {0};                  \
-            write_log_info(buf, 10240, fmt, ##arg); \
-            VLOG(level) << buf;                     \
-        }                                           \
-    } while (0)
-
-// Log define for non-network usage
-// 屏蔽DEBUG和TRACE日志以满足性能测试需求
-#define OLAP_LOG_WARNING(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
-#define OLAP_LOG_NOTICE_DIRECT_SOCK(fmt, arg...) OLAP_LOG_WRITE(INFO, fmt, ##arg)
-#define OLAP_LOG_WARNING_SOCK(fmt, arg...) OLAP_LOG_WRITE(WARNING, fmt, ##arg)
-#define OLAP_LOG_SETBASIC(type, fmt, arg...)
 
 // Util used to get string name of thrift enum item
 #define EnumToString(enum_type, index, out)                 \

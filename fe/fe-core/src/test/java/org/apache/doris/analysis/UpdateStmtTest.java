@@ -19,13 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
 
-import java.util.List;
-
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.List;
 
 public class UpdateStmtTest {
 

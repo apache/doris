@@ -74,7 +74,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -927,7 +926,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             // so we can find this error and step in.
             return;
         }
-        
+
         writeLock();
         try {
             this.jobStatistic.runningTxnIds.remove(txnState.getTransactionId());
@@ -1088,12 +1087,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         if (routineLoadDesc == null) {
             return;
         }
-        
+
         PartitionNames partitionNames = routineLoadDesc.getPartitionNames();
         if (partitionNames == null) {
             return;
         }
-        
+
         // check partitions
         olapTable.readLock();
         try {
@@ -1124,7 +1123,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                 .add("desire_job_state", jobState)
                 .add("msg", reason)
                 .build());
-      
+
         checkStateTransform(jobState);
         switch (jobState) {
             case RUNNING:
@@ -1591,7 +1590,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.jobStatistic = RoutineLoadStatistic.read(in);
         }
         origStmt = OriginStatement.read(in);
-        
+
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);

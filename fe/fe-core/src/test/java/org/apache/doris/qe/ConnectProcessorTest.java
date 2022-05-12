@@ -31,6 +31,8 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.proto.Data;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -39,9 +41,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class ConnectProcessorTest {
     private static ByteBuffer initDbPacket;

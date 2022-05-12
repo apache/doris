@@ -68,23 +68,21 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.thrift.TException;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import io.grpc.stub.StreamObserver;
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 
-import io.grpc.stub.StreamObserver;
-
 /*
  * This class is used to create mock backends.
  * Usage can be found in Demon.java's beforeClass()
- * 
- * 
+ *
+ *
  */
 public class MockedBackendFactory {
 
@@ -125,7 +123,7 @@ public class MockedBackendFactory {
             return result;
         }
     }
-    
+
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {

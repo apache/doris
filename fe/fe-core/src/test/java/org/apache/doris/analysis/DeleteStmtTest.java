@@ -24,15 +24,13 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.google.common.collect.Lists;
-
 import java.util.List;
-
-import mockit.Mocked;
 
 public class DeleteStmtTest {
 
@@ -140,7 +138,7 @@ public class DeleteStmtTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("Left expr of binary predicate should be column name"));
         }
-        
+
         // case 6 partition is null
         binaryPredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new StringLiteral("abc"));
         compoundPredicate = new CompoundPredicate(org.apache.doris.analysis.CompoundPredicate.Operator.AND,

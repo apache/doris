@@ -17,9 +17,13 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Mocked;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+
+import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -28,10 +32,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.LinkedList;
 import java.util.List;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class MaterializedIndexTest {
 
@@ -75,7 +75,7 @@ public class MaterializedIndexTest {
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         MaterializedIndex rIndex = MaterializedIndex.read(dis);

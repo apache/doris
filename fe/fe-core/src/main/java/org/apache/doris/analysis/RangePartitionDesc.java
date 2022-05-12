@@ -58,7 +58,7 @@ public class RangePartitionDesc extends PartitionDesc {
             idx++;
         }
         sb.append(")\n(\n");
-        
+
         for (int i = 0; i < singlePartitionDescs.size(); i++) {
             if (i != 0) {
                 sb.append(",\n");

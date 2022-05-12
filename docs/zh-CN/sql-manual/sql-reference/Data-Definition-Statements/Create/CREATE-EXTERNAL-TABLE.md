@@ -48,6 +48,7 @@ CREATE EXTERNAL TABLE
    	"table" = "table_name"
    )
    ```
+   以及一个可选属性"charset"，可以用来设置mysql连接的字符集, 默认值是"utf8"。如有需要,你可以设置为另外一个字符集"utf8mb4"。
 
    注意：
 
@@ -133,7 +134,8 @@ CREATE EXTERNAL TABLE
    	"user" = "mysql_user",
    	"password" = "mysql_passwd",
    	"database" = "mysql_db_test",
-   	"table" = "mysql_table_test"
+	"table" = "mysql_table_test",
+	"charset" = "utf8mb4"
    )
    ```
 

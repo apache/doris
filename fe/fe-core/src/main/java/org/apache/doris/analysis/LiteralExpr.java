@@ -26,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -220,7 +219,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     public void readFields(DataInput in) throws IOException {
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -244,4 +243,3 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return this instanceof NullLiteral;
     }
 }
-

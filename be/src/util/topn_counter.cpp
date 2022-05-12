@@ -15,12 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-#include <rapidjson/writer.h>
+#include "topn_counter.h"
+
 #include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
+
+#include <algorithm>
 
 #include "gen_cpp/olap_common.pb.h"
-#include "topn_counter.h"
 #include "slice.h"
 
 namespace doris {

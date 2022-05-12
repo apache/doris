@@ -19,6 +19,7 @@ package org.apache.doris.udf;
 
 import org.apache.doris.common.BitmapValueUtil;
 import org.apache.doris.common.io.BitmapValue;
+
 import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;

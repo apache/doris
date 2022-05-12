@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -206,7 +205,7 @@ public final class QeProcessorImpl implements QeProcessor {
         private final String sql;
         private final long startExecTime;
 
-        // from Export, Pull load, Insert 
+        // from Export, Pull load, Insert
         public QueryInfo(Coordinator coord) {
             this(null, null, coord);
         }

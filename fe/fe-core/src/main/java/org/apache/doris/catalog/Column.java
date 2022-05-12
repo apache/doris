@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TColumnType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -343,7 +342,7 @@ public class Column implements Writable {
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
-        
+
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.

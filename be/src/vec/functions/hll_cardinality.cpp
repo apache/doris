@@ -17,10 +17,10 @@
 
 #include "exprs/hll_function.h"
 #include "udf/udf.h"
+#include "vec/columns/column_complex.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/columns/column_complex.h"
 
 namespace doris::vectorized {
 

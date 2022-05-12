@@ -19,7 +19,6 @@
 #include <fmt/format.h>
 
 #include "exprs/create_predicate_function.h"
-
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_set.h"

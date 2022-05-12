@@ -68,7 +68,7 @@ public class AmbariDeployManagerTest {
     public void getPropertyFromBlueprintTest() throws NoSuchMethodException, SecurityException, IllegalAccessException,
             IllegalArgumentException, InvocationTargetException, NoSuchFieldException {
         String res = getBlueprint();
-        
+
         Field bpF = manager.getClass().getDeclaredField("blueprintJson");
         bpF.setAccessible(true);
         bpF.set(manager, res);

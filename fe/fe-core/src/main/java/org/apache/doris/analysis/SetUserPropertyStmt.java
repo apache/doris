@@ -99,4 +99,3 @@ public class SetUserPropertyStmt extends DdlStmt {
         return toSql();
     }
 }
-

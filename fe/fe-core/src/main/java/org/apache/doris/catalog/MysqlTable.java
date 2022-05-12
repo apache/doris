@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -48,6 +47,7 @@ public class MysqlTable extends Table {
     private static final String MYSQL_PASSWORD = "password";
     private static final String MYSQL_DATABASE = "database";
     private static final String MYSQL_TABLE = "table";
+    private static final String MYSQL_CHARSET = "charset";
 
     private String odbcCatalogResourceName;
     private String host;
@@ -56,6 +56,7 @@ public class MysqlTable extends Table {
     private String passwd;
     private String mysqlDatabaseName;
     private String mysqlTableName;
+    private String charset;
 
     public MysqlTable() {
         super(TableType.MYSQL);
@@ -124,8 +125,17 @@ public class MysqlTable extends Table {
                 throw new DdlException("Password of MySQL table is null. "
                         + "Please set proper resource or add properties('password'='xxxx') when create table");
             }
+
+            charset = properties.get(MYSQL_CHARSET);
+            if (charset == null) {
+                charset = "utf8";
+            }
+            if (!charset.equalsIgnoreCase("utf8") && !charset.equalsIgnoreCase("utf8mb4")) {
+                throw new DdlException("Unknown character set of MySQL table. "
+                        + "Please set charset 'utf8' or 'utf8mb4', other charsets not be unsupported now.");
+            }
         }
-        
+
         mysqlDatabaseName = properties.get(MYSQL_DATABASE);
         if (Strings.isNullOrEmpty(mysqlDatabaseName)) {
             throw new DdlException("Database of MySQL table is null. "
@@ -138,14 +148,14 @@ public class MysqlTable extends Table {
                     + "Please add properties('table'='xxxx') when create table");
         }
     }
-    
+
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
                 (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
-        
+
         String property = odbcCatalogResource.getProperty(propertyName);
         if (property == null) {
             throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
@@ -193,9 +203,16 @@ public class MysqlTable extends Table {
         return mysqlTableName;
     }
 
+    public String getCharset() {
+        if (charset != null) {
+            return charset;
+        }
+        return "utf8";
+    }
+
     public TTableDescriptor toThrift() {
-        TMySQLTable tMySQLTable = 
-                new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), mysqlDatabaseName, mysqlTableName);
+        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(),
+                mysqlDatabaseName, mysqlTableName, getCharset());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setMysqlTable(tMySQLTable);
@@ -213,6 +230,7 @@ public class MysqlTable extends Table {
         sb.append(getPasswd());
         sb.append(mysqlDatabaseName);
         sb.append(mysqlTableName);
+        sb.append(getCharset());
         String md5 = DigestUtils.md5Hex(sb.toString());
         LOG.debug("get signature of mysql table {}: {}. signature string: {}", name, md5, sb.toString());
         return md5;
@@ -230,6 +248,7 @@ public class MysqlTable extends Table {
         serializeMap.put(MYSQL_PASSWORD, passwd);
         serializeMap.put(MYSQL_DATABASE, mysqlDatabaseName);
         serializeMap.put(MYSQL_TABLE, mysqlTableName);
+        serializeMap.put(MYSQL_CHARSET, charset);
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -262,5 +281,6 @@ public class MysqlTable extends Table {
         passwd = serializeMap.get(MYSQL_PASSWORD);
         mysqlDatabaseName = serializeMap.get(MYSQL_DATABASE);
         mysqlTableName = serializeMap.get(MYSQL_TABLE);
+        charset = serializeMap.get(MYSQL_CHARSET);
     }
 }

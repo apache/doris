@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.load.loadv2.dpp;
 
@@ -22,6 +21,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
 import org.junit.Assert;
 import org.junit.Test;
+
 import java.util.ArrayList;
 import java.util.List;
 

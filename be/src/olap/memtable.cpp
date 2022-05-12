@@ -24,9 +24,9 @@
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/doris_metrics.h"
-#include "vec/core/field.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "vec/core/field.h"
 
 namespace doris {
 
@@ -286,7 +286,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     if (_skip_list) {
         Status st = _rowset_writer->flush_single_memtable(this, &_flush_size);
-        if (st == Status::OLAPInternalError(OLAP_ERR_FUNC_NOT_IMPLEMENTED)) {
+        if (st.precise_code() == OLAP_ERR_FUNC_NOT_IMPLEMENTED) {
             // For alpha rowset, we do not implement "flush_single_memtable".
             // Flush the memtable like the old way.
             Table::Iterator it(_skip_list.get());

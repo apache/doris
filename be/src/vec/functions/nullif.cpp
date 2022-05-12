@@ -18,16 +18,16 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Nullif.cpp
 // and modified by Doris
 
-#include "vec/functions/simple_function_factory.h"
 #include "vec/columns/column_nullable.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/utils/util.hpp"
-#include "vec/functions/function_string.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/get_least_supertype.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/functions/function_helpers.h"
+#include "vec/functions/function_string.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 class FunctionNullIf : public IFunction {

@@ -59,7 +59,7 @@ Status VMysqlTableWriter::open(const MysqlConnInfo& conn_info, const std::string
     }
 
     // set character
-    if (mysql_set_character_set(_mysql_conn, "utf8")) {
+    if (mysql_set_character_set(_mysql_conn, conn_info.charset.c_str())) {
         fmt::memory_buffer err_ss;
         fmt::format_to(err_ss, "mysql_set_character_set failed because : {}.",
                        mysql_error(_mysql_conn));
