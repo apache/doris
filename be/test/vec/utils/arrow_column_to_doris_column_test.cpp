@@ -25,7 +25,6 @@
 #include <arrow/testing/gtest_util.h>
 #include <arrow/testing/util.h>
 #include <arrow/util/bit_util.h>
-
 #include <gtest/gtest.h>
 
 #include <memory>
