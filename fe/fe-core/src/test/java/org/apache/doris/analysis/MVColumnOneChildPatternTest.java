@@ -23,14 +23,12 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class MVColumnOneChildPatternTest {
 

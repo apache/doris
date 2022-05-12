@@ -39,15 +39,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class RuntimeFilterGeneratorTest {
     private Analyzer analyzer;

@@ -26,7 +26,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class MetaObject implements Writable {
-    
+
     protected long signature;
     protected long lastCheckTime; // last check consistency time
 

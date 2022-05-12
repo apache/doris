@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -39,29 +40,29 @@ public class DropInfoTest {
         File file = new File("./dropInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         DropInfo info1 = new DropInfo();
         info1.write(dos);
-        
+
         DropInfo info2 = new DropInfo(1, 2, -1, true);
         info2.write(dos);
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         DropInfo rInfo1 = DropInfo.read(dis);
         Assert.assertTrue(rInfo1.equals(info1));
-        
+
         DropInfo rInfo2 = DropInfo.read(dis);
         Assert.assertTrue(rInfo2.equals(info2));
-        
+
         Assert.assertEquals(1, rInfo2.getDbId());
         Assert.assertEquals(2, rInfo2.getTableId());
         Assert.assertTrue(rInfo2.isForceDrop());
-        
+
         Assert.assertTrue(rInfo2.equals(rInfo2));
         Assert.assertFalse(rInfo2.equals(this));
         Assert.assertFalse(info2.equals(new DropInfo(0, 2, -1L, true)));

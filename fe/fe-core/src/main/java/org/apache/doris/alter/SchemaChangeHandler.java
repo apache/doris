@@ -87,7 +87,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1114,7 +1113,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setStorageFormat(storageFormat);
 
         // begin checking each table
-        // ATTN: DO NOT change any meta in this loop 
+        // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
         Map<Long, Short> indexIdToShortKeyColumnCount = Maps.newHashMap();
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();

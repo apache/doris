@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

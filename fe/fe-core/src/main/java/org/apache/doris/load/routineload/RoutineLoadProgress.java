@@ -40,7 +40,7 @@ public abstract class RoutineLoadProgress implements Writable {
     abstract void update(RLTaskTxnCommitAttachment attachment);
 
     abstract String toJsonString();
-    
+
     public static RoutineLoadProgress read(DataInput in) throws IOException {
         RoutineLoadProgress progress = null;
         LoadDataSourceType type = LoadDataSourceType.valueOf(Text.readString(in));

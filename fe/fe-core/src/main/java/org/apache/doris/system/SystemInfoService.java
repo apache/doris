@@ -44,7 +44,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -103,7 +102,7 @@ public class SystemInfoService {
     /**
      * @param hostPortPairs : backend's host and port
      * @param isFree : if true the backend is not owned by any cluster
-     * @param destCluster : if not null or empty backend will be added to destCluster 
+     * @param destCluster : if not null or empty backend will be added to destCluster
      * @throws DdlException
      */
     public void addBackends(List<Pair<String, Integer>> hostPortPairs,
@@ -1175,5 +1174,3 @@ public class SystemInfoService {
         return bes.stream().filter(b -> b.getTag().equals(tag)).collect(Collectors.toList());
     }
 }
-
-

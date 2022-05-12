@@ -37,7 +37,7 @@ public class BuiltinAggregateFunction extends Function {
     private final Operator                          op_;
     // this is to judge the analytic function
     private boolean isAnalyticFn = false;
-    
+
     public boolean isAnalyticFn() {
         return isAnalyticFn;
     }
@@ -48,7 +48,7 @@ public class BuiltinAggregateFunction extends Function {
     public boolean isReqIntermediateTuple() {
         return reqIntermediateTuple;
     }
-    
+
     public BuiltinAggregateFunction(Operator op, ArrayList<Type> argTypes,
       Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
       throws AnalysisException {

@@ -67,4 +67,3 @@ public class AuthProcDir implements ProcDirInterface {
         return result;
     }
 }
-

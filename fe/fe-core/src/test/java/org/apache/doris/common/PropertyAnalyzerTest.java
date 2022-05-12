@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -56,7 +55,7 @@ public class PropertyAnalyzerTest {
         columns.add(new Column("k2", PrimitiveType.TINYINT));
         columns.add(new Column("v1",
                         ScalarType.createType(PrimitiveType.VARCHAR), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("v2", 
+        columns.add(new Column("v2",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.SUM, "0", ""));
         columns.get(0).setIsKey(true);
         columns.get(1).setIsKey(true);

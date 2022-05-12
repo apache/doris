@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -62,7 +63,7 @@ public class QueryDetailQueue {
                 results.add(queryDetail);
             }
         }
-        return results; 
+        return results;
     }
 
 };

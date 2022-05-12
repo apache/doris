@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
@@ -42,7 +41,6 @@ import org.apache.doris.common.UserException;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -55,13 +53,13 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
-import java.util.Date;
-import java.util.Calendar;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;

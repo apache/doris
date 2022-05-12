@@ -50,7 +50,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -363,7 +362,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
             tParams.setVecExec(VectorizedUtil.isVectorized());
-            
+
             Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
 
@@ -395,4 +394,3 @@ public class FoldConstantsRule implements ExprRewriteRule {
         return resultMap;
     }
 }
-

@@ -36,7 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,8 +48,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-
-import com.google.gson.annotations.SerializedName;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.

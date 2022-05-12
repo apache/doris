@@ -18,11 +18,11 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;

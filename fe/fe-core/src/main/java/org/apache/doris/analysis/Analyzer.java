@@ -70,7 +70,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -172,7 +171,7 @@ public class Analyzer {
     public boolean hasPlanHints() { return globalState.hasPlanHints; }
     public void setIsWithClause() { isWithClause_ = true; }
     public boolean isWithClause() { return isWithClause_; }
-    
+
     public void setUDFAllowed(boolean val) { this.isUDFAllowed = val; }
     public boolean isUDFAllowed() { return this.isUDFAllowed; }
     public void setTimezone(String timezone) { this.timezone = timezone; }
@@ -820,7 +819,7 @@ public class Analyzer {
         for (TupleDescriptor desc : tupleByAlias.get(tblName.toString())) {
             //result = desc;
             if (!colName.equalsIgnoreCase(Column.DELETE_SIGN) && !isVisible(desc.getId())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR, 
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_ILLEGAL_COLUMN_REFERENCE_ERROR,
                         Joiner.on(".").join(tblName.getTbl(),colName));
             }
             Column col = desc.getTable().getColumn(colName);
@@ -1106,14 +1105,14 @@ public class Analyzer {
 
         e.setId(globalState.conjunctIdGenerator.getNextId());
         globalState.conjuncts.put(e.getId(), e);
-        
+
         // LOG.info("registered conjunct " + p.getId().toString() + ": " + p.toSql());
         ArrayList<TupleId> tupleIds = Lists.newArrayList();
         ArrayList<SlotId> slotIds = Lists.newArrayList();
         e.getIds(tupleIds, slotIds);
         // register full join conjuncts
         registerFullOuterJoinedConjunct(e);
-       
+
         // update tuplePredicates
         for (TupleId id : tupleIds) {
             if (!tuplePredicates.containsKey(id)) {
@@ -1281,9 +1280,9 @@ public class Analyzer {
     public List<Expr> getAllUnassignedConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
         for (Expr e : globalState.conjuncts.values()) {
-            if (!e.isAuxExpr() 
-                && e.isBoundByTupleIds(tupleIds) 
-                && !globalState.assignedConjuncts.contains(e.getId()) 
+            if (!e.isAuxExpr()
+                && e.isBoundByTupleIds(tupleIds)
+                && !globalState.assignedConjuncts.contains(e.getId())
                 && !globalState.ojClauseByConjunct.containsKey(e.getId())) {
                 result.add(e);
             }
@@ -1966,7 +1965,7 @@ public class Analyzer {
         }
         return globalState.context.getSessionVariable().isEnableJoinReorderBasedCost() && !globalState.context.getSessionVariable().isDisableJoinReorder();
     }
-    
+
     public boolean safeIsEnableFoldConstantByBe() {
         if (globalState.context == null) {
             return false;
@@ -2021,7 +2020,7 @@ public class Analyzer {
         }
 
         if (e.isOnClauseConjunct()) {
-         
+
             if (isAntiJoinedConjunct(e)) return canEvalAntiJoinedConjunct(e, tupleIds);
             if (isIjConjunct(e) || isSjConjunct(e)) {
                 if (!containsOuterJoinedTid(tids)) return true;

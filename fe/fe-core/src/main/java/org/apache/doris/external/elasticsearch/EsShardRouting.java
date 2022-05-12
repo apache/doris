@@ -20,7 +20,6 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
-
 import org.json.simple.JSONObject;
 
 public class EsShardRouting {
@@ -32,7 +31,7 @@ public class EsShardRouting {
 
     private TNetworkAddress httpAddress;
     private final String nodeId;
-    
+
     public EsShardRouting(String indexName, int shardId, boolean isPrimary, TNetworkAddress address, String nodeId) {
         this.indexName = indexName;
         this.shardId = shardId;
@@ -40,7 +39,7 @@ public class EsShardRouting {
         this.address = address;
         this.nodeId = nodeId;
     }
-    
+
     public static EsShardRouting newSearchShard(String indexName, int shardId, boolean isPrimary,
             String nodeId, JSONObject nodesMap) {
         JSONObject nodeInfo = (JSONObject) nodesMap.get(nodeId);
@@ -54,7 +53,7 @@ public class EsShardRouting {
         }
         return new EsShardRouting(indexName, shardId, isPrimary, addr, nodeId);
     }
-    
+
     public int getShardId() {
         return shardId;
     }

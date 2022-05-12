@@ -17,11 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Objects;
-
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumnType;
@@ -29,12 +24,17 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,

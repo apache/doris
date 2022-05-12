@@ -40,7 +40,7 @@ public class ClientPool {
         heartbeatConfig.setMaxTotal(-1);          // (default -1)
         heartbeatConfig.setMaxWaitMillis(500);    //  wait for the connection
     }
-    
+
     static {
         backendConfig.setLifo(true);            // set Last In First Out strategy
         backendConfig.setMaxIdlePerKey(128);      // (default 8)

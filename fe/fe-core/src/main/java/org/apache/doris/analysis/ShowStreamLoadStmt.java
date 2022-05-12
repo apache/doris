@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -29,6 +27,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

@@ -17,13 +17,10 @@
 
 package org.apache.doris.planner;
 
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.function.Function;
-import java.util.stream.Collectors;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
@@ -31,10 +28,13 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.common.AnalysisException;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected final Map<Long, PartitionItem> idToPartitionItem;

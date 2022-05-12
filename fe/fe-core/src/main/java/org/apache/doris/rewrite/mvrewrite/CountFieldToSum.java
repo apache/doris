@@ -29,10 +29,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 

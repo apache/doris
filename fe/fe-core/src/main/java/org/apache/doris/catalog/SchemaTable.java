@@ -448,4 +448,3 @@ public class SchemaTable extends Table {
         return tTableDescriptor;
     }
 }
-

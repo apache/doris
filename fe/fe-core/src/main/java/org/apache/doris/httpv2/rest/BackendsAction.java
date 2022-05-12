@@ -24,7 +24,8 @@ import org.apache.doris.system.Backend;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,9 +35,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import lombok.Getter;
-import lombok.Setter;
 
 /**
  * This class responsible for returning current backends info.

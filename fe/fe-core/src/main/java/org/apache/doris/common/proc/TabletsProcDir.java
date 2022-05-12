@@ -201,4 +201,3 @@ public class TabletsProcDir implements ProcDirInterface {
         throw new AnalysisException("Title name[" + columnName + "] does not exist");
     }
 }
-

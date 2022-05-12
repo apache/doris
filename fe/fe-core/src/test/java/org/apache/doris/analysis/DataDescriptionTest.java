@@ -31,17 +31,15 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class DataDescriptionTest {
 
@@ -151,12 +149,12 @@ public class DataDescriptionTest {
                                                   null, null, null, false, null);
         desc.analyze("testDb");
         Assert.assertEquals("APPEND DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2)", desc.toString());
-        
+
         // alignment_timestamp func
         List<Expr> params = Lists.newArrayList();
         params.add(new StringLiteral("day"));
         params.add(new SlotRef(null, "k2"));
-        BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), 
+        BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("alignment_timestamp", params));
         desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),

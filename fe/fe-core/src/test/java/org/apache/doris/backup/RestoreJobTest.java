@@ -42,7 +42,12 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -50,12 +55,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.Adler32;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class RestoreJobTest {
 
@@ -123,25 +122,25 @@ public class RestoreJobTest {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = db;
-        
+
                 Catalog.getCurrentCatalogJournalVersion();
                 minTimes = 0;
                 result = FeConstants.meta_version;
-        
+
                 catalog.getNextId();
                 minTimes = 0;
                 result = id.getAndIncrement();
-        
+
                 catalog.getEditLog();
                 minTimes = 0;
                 result = editLog;
-        
+
                 Catalog.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
             }
         };
-        
+
         new Expectations() {
             {
                 systemInfoService.selectBackendIdsForReplicaCreation((ReplicaAllocation) any,
@@ -159,7 +158,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new Expectations() {
             {
                 editLog.logBackupJob((BackupJob) any);
@@ -171,7 +170,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new Expectations() {
             {
                 repo.upload(anyString, anyString);
@@ -189,7 +188,7 @@ public class RestoreJobTest {
                 };
             }
         };
-        
+
         new MockUp<MarkedCountDownLatch>() {
             @Mock
             boolean await(long timeout, TimeUnit unit) {
@@ -204,23 +203,23 @@ public class RestoreJobTest {
         jobInfo.dbName = CatalogMocker.TEST_DB_NAME;
         jobInfo.name = label;
         jobInfo.success = true;
-        
+
         expectedRestoreTbl = (OlapTable) db.getTableNullable(CatalogMocker.TEST_TBL2_ID);
         BackupOlapTableInfo tblInfo = new BackupOlapTableInfo();
         tblInfo.id = CatalogMocker.TEST_TBL2_ID;
         jobInfo.backupOlapTableObjects.put(CatalogMocker.TEST_TBL2_NAME, tblInfo);
-        
+
         for (Partition partition : expectedRestoreTbl.getPartitions()) {
             BackupPartitionInfo partInfo = new BackupPartitionInfo();
             partInfo.id = partition.getId();
             tblInfo.partitions.put(partition.getName(), partInfo);
-            
+
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 BackupIndexInfo idxInfo = new BackupIndexInfo();
                 idxInfo.id = index.getId();
                 idxInfo.schemaHash = expectedRestoreTbl.getSchemaHashByIndexId(index.getId());
                 partInfo.indexes.put(expectedRestoreTbl.getIndexNameById(index.getId()), idxInfo);
-                
+
                 for (Tablet tablet : index.getTablets()) {
                     List<String> files = Lists.newArrayList(tablet.getId() + ".dat",
                             tablet.getId()+ ".idx",  tablet.getId()+".hdr");
@@ -229,13 +228,13 @@ public class RestoreJobTest {
                 }
             }
         }
-        
+
         // drop this table, cause we want to try restoring this table
         db.dropTable(expectedRestoreTbl.getName());
 
         job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(),
                 jobInfo, false, new ReplicaAllocation((short) 3), 100000, -1, catalog, repo.getId());
-        
+
         List<Table> tbls = Lists.newArrayList();
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
@@ -264,4 +263,3 @@ public class RestoreJobTest {
     }
 
 }
-

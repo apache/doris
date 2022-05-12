@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -25,6 +24,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TColumnDefinition;
 import org.apache.doris.thrift.TShowResultSet;
 import org.apache.doris.thrift.TShowResultSetMetaData;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,7 +62,7 @@ public class ShowResultSet extends AbstractResultSet {
                     definition.getName(), definition.getOriginType().toColumnTypeThrift())
             );
         }
-         
+
         set.resultRows = Lists.newArrayList();
         for (int i = 0; i < resultRows.size(); i ++) {
             ArrayList<String> list = Lists.newArrayList();
@@ -69,7 +70,7 @@ public class ShowResultSet extends AbstractResultSet {
                 list.add(resultRows.get(i).get(j) == null ? FeConstants.null_string : resultRows.get(i).get(j));
             }
             set.resultRows.add(list);
-        }    
+        }
         return set;
     }
 }

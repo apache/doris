@@ -33,7 +33,6 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,7 +44,7 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * Checkpoint daemon is running on master node. handle the checkpoint work for palo. 
+ * Checkpoint daemon is running on master node. handle the checkpoint work for palo.
  */
 public class Checkpoint extends MasterDaemon {
     public static final Logger LOG = LogManager.getLogger(Checkpoint.class);

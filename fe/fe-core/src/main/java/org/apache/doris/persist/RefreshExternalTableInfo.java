@@ -17,12 +17,12 @@
 
 package org.apache.doris.persist;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.io.Text;
-
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -49,7 +49,7 @@ public class RefreshExternalTableInfo implements Writable {
         this.dbName = dbName;
         this.tableName = tableName;
         this.newSchema = newSchema;
-        
+
     }
 
     public String getDbName() {
@@ -59,7 +59,7 @@ public class RefreshExternalTableInfo implements Writable {
     public String getTableName() {
         return tableName;
     }
-    
+
     public List<Column> getNewSchema() {
         return newSchema;
     }

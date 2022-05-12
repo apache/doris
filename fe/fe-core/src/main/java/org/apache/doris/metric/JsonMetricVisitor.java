@@ -18,7 +18,9 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.monitor.jvm.JvmStats;
+
 import com.codahale.metrics.Histogram;
+
 import java.util.List;
 
 public class JsonMetricVisitor extends MetricVisitor {
@@ -83,4 +85,3 @@ public class JsonMetricVisitor extends MetricVisitor {
         return;
     }
 }
-

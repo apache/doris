@@ -23,7 +23,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.LinkedList;

@@ -24,11 +24,10 @@ import com.google.common.collect.BoundType;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
-
-import java.util.Set;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.Set;
 
 public class RangeCompareTest {
 

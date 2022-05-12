@@ -54,8 +54,11 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
-import com.google.common.collect.Lists;
 
+import com.google.common.collect.Lists;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -66,9 +69,6 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 
 public class ShowExecutorTest {
     private ConnectContext ctx;
@@ -164,7 +164,7 @@ public class ShowExecutorTest {
                 result = table;
             }
         };
-        
+
         // mock auth
         PaloAuth auth = AccessTestUtil.fetchAdminAccess();
 

@@ -34,7 +34,7 @@ import java.util.Map;
  * The design of JobI is as follows
  * 1. Here are only two methods: run() and cancel() that can modify the internal state of a Job.
  *    And each method is implemented as synchronized to avoid handling concurrent modify things.
- *    
+ *
  * 2. isDone() method is used to check whether we can submit the next job.
  */
 public abstract class AbstractJob implements Writable {
@@ -241,4 +241,3 @@ public abstract class AbstractJob implements Writable {
         return sb.toString();
     }
 }
-

@@ -17,14 +17,14 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -86,7 +86,7 @@ public class ConnectContextTest {
         Assert.assertEquals("", ctx.getClusterName());
         ctx.setCluster("testCluster");
         Assert.assertEquals("testCluster", ctx.getClusterName());
-        
+
         // Current db
         Assert.assertEquals("", ctx.getDatabase());
         ctx.setDatabase("testCluster:testDb");
