@@ -394,7 +394,7 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
 
-        if (hasObjectStored && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+        if (engineName.equals("olap") && hasObjectStored && keysDesc.getKeysType() != KeysType.AGG_KEYS) {
             throw new AnalysisException("column:" + objectStoredColumn + " must be used in AGG_KEYS.");
         }
 
