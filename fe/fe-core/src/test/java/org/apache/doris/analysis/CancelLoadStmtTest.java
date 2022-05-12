@@ -70,13 +70,11 @@ public class CancelLoadStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
         CancelLoadStmt stmt = new CancelLoadStmt(null, binaryPredicate);
         stmt.analyze(analyzer);
-        Assert.assertTrue(stmt.isAccurateMatch());
         Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` = 'doris_test_label'", stmt.toString());
 
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteral);
         stmt = new CancelLoadStmt(null, likePredicate);
         stmt.analyze(analyzer);
-        Assert.assertFalse(stmt.isAccurateMatch());
         Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` LIKE 'doris_test_label'", stmt.toString());
     }
 

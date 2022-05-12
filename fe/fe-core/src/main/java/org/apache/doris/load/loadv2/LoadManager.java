@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.CancelLoadStmt;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -50,6 +51,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
+import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,6 +65,7 @@ import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -301,51 +305,70 @@ public class LoadManager implements Writable {
         Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
     }
 
-    public void cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException, AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
+    private void addNeedCancelLoadJob(CancelLoadStmt stmt, List<LoadJob> loadJobs, List<LoadJob> matchLoadJobs)
+            throws AnalysisException {
+        String label = stmt.getLabel();
+        if (StringUtils.isNotEmpty(label)) {
+            if (label.contains("%")) {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+                for (LoadJob loadJob : loadJobs) {
+                    if (matcher.match(loadJob.getLabel())) {
+                        matchLoadJobs.add(loadJob);
+                    }
+                }
+            } else {
+                matchLoadJobs.addAll(loadJobs.stream().filter(job -> label.equals(job.getLabel())).collect(Collectors.toList()));
+            }
+        }
+        String state = stmt.getState();
+        if (StringUtils.isNotEmpty(state)) {
+            if (state.contains("%")) {
+                PatternMatcher matcher = PatternMatcher.createMysqlPattern(state, CaseSensibility.STATE.getCaseSensibility());
+                if (CompoundPredicate.Operator.AND.equals(stmt.getOperator())) {
+                    matchLoadJobs.removeIf(loadJob -> matcher.match(loadJob.getState().name().toLowerCase()));
+                } else {
+                    for (LoadJob loadJob : loadJobs) {
+                        if (matcher.match(loadJob.getState().name().toLowerCase())) {
+                            matchLoadJobs.add(loadJob);
+                        }
+                    }
+                }
+            } else {
+                if (CompoundPredicate.Operator.AND.equals(stmt.getOperator())) {
+                    matchLoadJobs.removeIf(loadJob -> state.equals(loadJob.getState().name().toLowerCase()));
+                } else {
+                    matchLoadJobs.addAll(
+                            loadJobs.stream().filter(job -> state.equals(job.getState().name().toLowerCase()))
+                                    .collect(Collectors.toList()));
+                }
+            }
+        }
+    }
 
+    public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
-        List<LoadJob> loadJobs = Lists.newArrayList();
+        List<LoadJob> matchLoadJobs = Lists.newArrayList();
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
             if (labelToLoadJobs == null) {
                 throw new DdlException("Load job does not exist");
             }
-
-            // get jobs by label
-            List<LoadJob> matchLoadJobs = Lists.newArrayList();
-            if (isAccurateMatch) {
-                if (labelToLoadJobs.containsKey(stmt.getLabel())) {
-                    matchLoadJobs.addAll(labelToLoadJobs.get(stmt.getLabel()));
-                }
-            } else {
-                PatternMatcher matcher = PatternMatcher.createMysqlPattern(stmt.getLabel(), CaseSensibility.LABEL.getCaseSensibility());
-                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (matcher.match(entry.getKey())) {
-                        matchLoadJobs.addAll(entry.getValue());
-                    }
-                }
-            }
-
+            addNeedCancelLoadJob(stmt, labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()), matchLoadJobs);
             if (matchLoadJobs.isEmpty()) {
                 throw new DdlException("Load job does not exist");
             }
-
             // check state here
             List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(entity -> !entity.isTxnDone())
                     .collect(Collectors.toList());
             if (uncompletedLoadJob.isEmpty()) {
-                throw new DdlException("There is no uncompleted job which label " +
-                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
+                throw new DdlException("There is no uncompleted job");
             }
-
-            loadJobs.addAll(uncompletedLoadJob);
         } finally {
             readUnlock();
         }
-
-        for (LoadJob loadJob : loadJobs) {
+        for (LoadJob loadJob : matchLoadJobs) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {

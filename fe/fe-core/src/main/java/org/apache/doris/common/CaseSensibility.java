@@ -28,6 +28,7 @@ public enum CaseSensibility {
     ROLE(false),
     HOST(false),
     LABEL(false),
+    STATE(false),
     VARIABLES(true),
     RESOURCE(true),
     CONFIG(true),

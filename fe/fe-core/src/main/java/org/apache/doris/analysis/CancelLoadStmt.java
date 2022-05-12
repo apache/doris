@@ -23,6 +23,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import lombok.Getter;
+
+import java.util.List;
+
 
 // CANCEL LOAD statement used to cancel load job.
 //
@@ -30,28 +35,88 @@ import com.google.common.base.Strings;
 //      CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
 public class CancelLoadStmt extends DdlStmt {
 
+    @Getter
     private String dbName;
+
+    @Getter
+    private CompoundPredicate.Operator operator;
+
+    @Getter
     private String label;
 
+    @Getter
+    private String state;
+
     private Expr whereClause;
-    private boolean isAccurateMatch;
 
-    public String getDbName() {
-        return dbName;
-    }
-
-    public String getLabel() {
-        return label;
-    }
+    private static final List<String> SUPPORT_COLUMNS = Lists.newArrayList("label", "state");
 
     public CancelLoadStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
         this.whereClause = whereClause;
-        this.isAccurateMatch = false;
     }
 
-    public boolean isAccurateMatch() {
-        return isAccurateMatch;
+    private void checkColumn(Expr expr, boolean like) throws AnalysisException {
+        String inputCol = ((SlotRef) expr.getChild(0)).getColumnName().toLowerCase();
+        if (!SUPPORT_COLUMNS.contains(inputCol)) {
+            throw new AnalysisException("Current not support " + inputCol);
+        }
+        if (!(expr.getChild(1) instanceof StringLiteral)) {
+            throw new AnalysisException("Value must is string");
+        }
+
+        String inputValue = expr.getChild(1).getStringValue();
+        if (Strings.isNullOrEmpty(inputValue)) {
+            throw new AnalysisException("Value can't is null");
+        }
+        if (like && !inputValue.contains("%")) {
+            inputValue = "%" + inputValue + "%";
+        }
+        if (inputCol.equals("label")) {
+            label = inputValue;
+        }
+        if (inputCol.equals("state")) {
+            state = inputValue;
+        }
+    }
+
+    private void likeCheck(Expr expr) throws AnalysisException {
+        if (expr instanceof LikePredicate) {
+            LikePredicate likePredicate = (LikePredicate) expr;
+            boolean like = LikePredicate.Operator.LIKE.equals(likePredicate.getOp());
+            if (!like) {
+                throw new AnalysisException("Not support REGEXP");
+            }
+            checkColumn(expr, true);
+        }
+    }
+
+    private void binaryCheck(Expr expr) throws AnalysisException {
+        if (expr instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
+            if (!Operator.EQ.equals(binaryPredicate.getOp())) {
+                throw new AnalysisException("Only support equal or like");
+            }
+            checkColumn(expr, false);
+        }
+    }
+
+    private void compoundCheck(Expr expr) throws AnalysisException {
+        if (expr == null) {
+            throw new AnalysisException("Where clause can't is null");
+        }
+        if (expr instanceof CompoundPredicate) {
+            // current only support label and state
+            CompoundPredicate compoundPredicate = (CompoundPredicate) whereClause;
+            for (int i = 0; i < 2; i++) {
+                Expr child = compoundPredicate.getChild(i);
+                if (child instanceof CompoundPredicate) {
+                    throw new AnalysisException("Current only support label and state");
+                }
+                likeCheck(expr);
+                binaryCheck(expr);
+            }
+        }
     }
 
     @Override
@@ -67,63 +132,8 @@ public class CancelLoadStmt extends DdlStmt {
         }
 
         // check auth after we get real load job
-
-        // analyze expr if not null
-        boolean valid = true;
-        do {
-            if (whereClause == null) {
-                valid = false;
-                break;
-            }
-
-            if (whereClause instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
-                isAccurateMatch = true;
-                if (binaryPredicate.getOp() != Operator.EQ) {
-                    valid = false;
-                    break;
-                }
-            } else if (whereClause instanceof LikePredicate) {
-                LikePredicate likePredicate = (LikePredicate) whereClause;
-                if (likePredicate.getOp() != LikePredicate.Operator.LIKE) {
-                    valid = false;
-                    break;
-                }
-            } else {
-                valid = false;
-                break;
-            }
-
-            // left child
-            if (!(whereClause.getChild(0) instanceof SlotRef)) {
-                valid = false;
-                break;
-            }
-            if (!((SlotRef) whereClause.getChild(0)).getColumnName().equalsIgnoreCase("label")) {
-                valid = false;
-                break;
-            }
-
-            // right child
-            if (!(whereClause.getChild(1) instanceof StringLiteral)) {
-                valid = false;
-                break;
-            }
-
-            label = ((StringLiteral) whereClause.getChild(1)).getStringValue();
-            if (Strings.isNullOrEmpty(label)) {
-                valid = false;
-                break;
-            }
-            if (!isAccurateMatch && !label.contains("%")) {
-                label = "%" + label + "%";
-            }
-        } while (false);
-
-        if (!valid) {
-            throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\"," +
-                    " or LABEL LIKE \"matcher\"");
-        }
+        // analyze expr
+        compoundCheck(whereClause);
     }
 
     @Override
@@ -131,11 +141,11 @@ public class CancelLoadStmt extends DdlStmt {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CANCEL LOAD ");
         if (!Strings.isNullOrEmpty(dbName)) {
-            stringBuilder.append("FROM " + dbName);
+            stringBuilder.append("FROM ").append(dbName);
         }
 
         if (whereClause != null) {
-            stringBuilder.append(" WHERE " + whereClause.toSql());
+            stringBuilder.append(" WHERE ").append(whereClause.toSql());
         }
         return stringBuilder.toString();
     }
