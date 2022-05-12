@@ -353,10 +353,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
         auto type = (FieldType)_meta.type();
         switch (type) {
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-            ColumnIterator* item_iterator;
+            ColumnIterator* item_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&item_iterator));
 
-            ColumnIterator* offset_iterator;
+            ColumnIterator* offset_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&offset_iterator));
 
             ColumnIterator* null_iterator = nullptr;
@@ -465,7 +465,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool
 
 FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
-FileColumnIterator::~FileColumnIterator() {}
+FileColumnIterator::~FileColumnIterator() = default;
 
 Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_reader->seek_to_first(&_page_iter));
@@ -491,7 +491,7 @@ Status FileColumnIterator::seek_to_page_start() {
     return seek_to_ordinal(_page.first_ordinal);
 }
 
-void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) {
+void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page) const {
     if (page->offset_in_page == offset_in_page) {
         // fast path, do nothing
         return;
@@ -825,6 +825,13 @@ void DefaultValueColumnIterator::insert_default_data(vectorized::MutableColumnPt
         int128 = DecimalV2Value(d->integer, d->fraction).value();
         insert_column_data();
         break;
+    }
+    case OLAP_FIELD_TYPE_STRING:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_CHAR: {
+        data_ptr = _default_value.data();
+        data_len = _default_value.length();
+        insert_column_data();
     }
     default: {
         data_ptr = (char*)_mem_value;
