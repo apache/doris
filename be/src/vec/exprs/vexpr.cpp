@@ -155,8 +155,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
         break;
     }
     default:
-        return Status::InternalError(
-                fmt::format("Unknown expr node type: {}", texpr_node.node_type));
+        return Status::InternalError("Unknown expr node type: {}", texpr_node.node_type);
     }
     return Status::OK();
 }

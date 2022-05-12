@@ -437,7 +437,7 @@ Status VOlapTablePartitionParam::init() {
                                                const std::string& column_type) {
         auto it = std::find(slot_column_names.begin(), slot_column_names.end(), slot_name);
         if (it == slot_column_names.end()) {
-            return Status::InternalError(column_type + " column not found, column =" + slot_name);
+            return Status::InternalError("{} column not found, column ={}", column_type, slot_name);
         }
         locs.emplace_back(it - slot_column_names.begin());
         return Status::OK();

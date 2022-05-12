@@ -72,7 +72,7 @@ std::string json_value_to_string(const rapidjson::Value& value) {
 
 static const std::string ERROR_INVALID_COL_DATA =
         "Data source returned inconsistent column data. "
-        "Expected value of type $0 based on column metadata. This likely indicates a "
+        "Expected value of type {} based on column metadata. This likely indicates a "
         "problem with the data source library.";
 static const std::string ERROR_MEM_LIMIT_EXCEEDED =
         "DataSourceScanNode::$0() failed to allocate "
@@ -499,8 +499,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
             }
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
@@ -727,8 +726,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
                 is_nested_str = true;
             } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(
-                        strings::Substitute(ERROR_INVALID_COL_DATA, "BOOLEAN"));
+                return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
             }
 
             const rapidjson::Value& str_col = is_nested_str ? col[0] : col;

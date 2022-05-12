@@ -358,33 +358,31 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
     return true;
 }
 
-#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                           \
-    if (strcmp((FIELD).type, #TYPE) == 0) {                                                 \
-        TYPE new_value;                                                                     \
-        if (!convert((VALUE), new_value)) {                                                 \
-            return Status::InvalidArgument(                                                 \
-                    strings::Substitute("convert '$0' as $1 failed", VALUE, #TYPE));        \
-        }                                                                                   \
-        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                   \
-        TYPE old_value = ref_conf_value;                                                    \
-        ref_conf_value = new_value;                                                         \
-        auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);     \
-        if (validator != RegisterConfValidator::_s_field_validator->end() &&                \
-            !(validator->second)()) {                                                       \
-            ref_conf_value = old_value;                                                     \
-            return Status::InvalidArgument(                                                 \
-                    strings::Substitute("validate $0=$1 failed", (FIELD).name, new_value)); \
-        }                                                                                   \
-        ref_conf_value = new_value;                                                         \
-        if (full_conf_map != nullptr) {                                                     \
-            std::ostringstream oss;                                                         \
-            oss << new_value;                                                               \
-            (*full_conf_map)[(FIELD).name] = oss.str();                                     \
-        }                                                                                   \
-        if (PERSIST) {                                                                      \
-            persist_config(std::string((FIELD).name), VALUE);                               \
-        }                                                                                   \
-        return Status::OK();                                                                \
+#define UPDATE_FIELD(FIELD, VALUE, TYPE, PERSIST)                                             \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                   \
+        TYPE new_value;                                                                       \
+        if (!convert((VALUE), new_value)) {                                                   \
+            return Status::InvalidArgument("convert '{}' as {} failed", VALUE, #TYPE);        \
+        }                                                                                     \
+        TYPE& ref_conf_value = *reinterpret_cast<TYPE*>((FIELD).storage);                     \
+        TYPE old_value = ref_conf_value;                                                      \
+        ref_conf_value = new_value;                                                           \
+        auto validator = RegisterConfValidator::_s_field_validator->find((FIELD).name);       \
+        if (validator != RegisterConfValidator::_s_field_validator->end() &&                  \
+            !(validator->second)()) {                                                         \
+            ref_conf_value = old_value;                                                       \
+            return Status::InvalidArgument("validate {}={} failed", (FIELD).name, new_value); \
+        }                                                                                     \
+        ref_conf_value = new_value;                                                           \
+        if (full_conf_map != nullptr) {                                                       \
+            std::ostringstream oss;                                                           \
+            oss << new_value;                                                                 \
+            (*full_conf_map)[(FIELD).name] = oss.str();                                       \
+        }                                                                                     \
+        if (PERSIST) {                                                                        \
+            persist_config(std::string((FIELD).name), VALUE);                                 \
+        }                                                                                     \
+        return Status::OK();                                                                  \
     }
 
 // write config to be_custom.conf
@@ -408,11 +406,11 @@ bool persist_config(const std::string& field, const std::string& value) {
 Status set_config(const std::string& field, const std::string& value, bool need_persist) {
     auto it = Register::_s_field_map->find(field);
     if (it == Register::_s_field_map->end()) {
-        return Status::NotFound(strings::Substitute("'$0' is not found", field));
+        return Status::NotFound("'{}' is not found", field);
     }
 
     if (!it->second.valmutable) {
-        return Status::NotSupported(strings::Substitute("'$0' is not support to modify", field));
+        return Status::NotSupported("'{}' is not support to modify", field);
     }
 
     UPDATE_FIELD(it->second, value, bool, need_persist);
@@ -427,8 +425,8 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     }
 
     // The other types are not thread safe to change dynamically.
-    return Status::NotSupported(strings::Substitute(
-            "'$0' is type of '$1' which is not support to modify", field, it->second.type));
+    return Status::NotSupported("'{}' is type of '{}' which is not support to modify", field,
+                                it->second.type);
 }
 
 std::mutex* get_mutable_string_config_lock() {

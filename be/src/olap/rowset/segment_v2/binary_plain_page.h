@@ -230,8 +230,7 @@ public:
         out = reinterpret_cast<Slice*>(dst->data());
         char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
         if (destination == nullptr) {
-            return Status::MemoryAllocFailed(
-                    strings::Substitute("memory allocate failed, size:$0", mem_size));
+            return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
         }
         for (int i = 0; i < max_fetch; ++i) {
             out->relocate(destination);

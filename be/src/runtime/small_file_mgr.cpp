@@ -77,20 +77,19 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     // file_id.md5
     std::vector<std::string> parts = strings::Split(file_name, ".");
     if (parts.size() != 2) {
-        return Status::InternalError("Not a valid file name: " + file_name);
+        return Status::InternalError("Not a valid file name: {}", file_name);
     }
     int64_t file_id = std::stol(parts[0]);
     std::string md5 = parts[1];
 
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError(
-                fmt::format("File with same id is already been loaded: {}", file_id));
+        return Status::InternalError("File with same id is already been loaded: {}", file_id);
     }
 
     std::string file_md5;
     RETURN_IF_ERROR(FileUtils::md5sum(path + "/" + file_name, &file_md5));
     if (file_md5 != md5) {
-        return Status::InternalError("Invalid md5 of file: " + file_name);
+        return Status::InternalError("Invalid md5 of file: {}", file_name);
     }
 
     CacheEntry entry;

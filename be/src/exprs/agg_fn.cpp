@@ -152,7 +152,7 @@ Status AggFn::init(const RowDescriptor& row_desc, RuntimeState* state) {
                     std::make_unique<RPCFn>(state, _fn, RPCFn::AggregationStep::FINALIZE, true);
         }
     } else {
-        return Status::NotSupported(fmt::format("Not supported BinaryType: {}", _fn.binary_type));
+        return Status::NotSupported("Not supported BinaryType: {}", _fn.binary_type);
     }
     return Status::OK();
 }

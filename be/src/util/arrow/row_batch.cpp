@@ -87,8 +87,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         *result = arrow::boolean();
         break;
     default:
-        return Status::InvalidArgument(
-                strings::Substitute("Unknown primitive type($0)", type.type));
+        return Status::InvalidArgument("Unknown primitive type({})", type.type);
     }
     return Status::OK();
 }
@@ -138,7 +137,7 @@ Status convert_to_doris_type(const arrow::DataType& type, TSlotDescriptorBuilder
         builder->type(TYPE_BOOLEAN);
         break;
     default:
-        return Status::InvalidArgument(strings::Substitute("Unknown arrow type id($0)", type.id()));
+        return Status::InvalidArgument("Unknown arrow type id({})", type.id());
     }
     return Status::OK();
 }

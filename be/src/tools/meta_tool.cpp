@@ -258,8 +258,7 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     RETURN_IF_ERROR(input_file->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < 12",
-                                                      file_name, file_size));
+        return Status::Corruption("Bad segment file {}: file size {} < 12", file_name, file_size);
     }
 
     uint8_t fixed_buf[12];
@@ -270,15 +269,14 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     const char* k_segment_magic = "D0R1";
     const uint32_t k_segment_magic_length = 4;
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(
-                strings::Substitute("Bad segment file $0: magic number not match", file_name));
+        return Status::Corruption("Bad segment file {}: magic number not match", file_name);
     }
 
     // read footer PB
     uint32_t footer_length = doris::decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption(strings::Substitute("Bad segment file $0: file size $1 < $2",
-                                                      file_name, file_size, 12 + footer_length));
+        return Status::Corruption("Bad segment file {}: file size {} < {}", file_name, file_size,
+                                  12 + footer_length);
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -289,15 +287,15 @@ Status get_segment_footer(RandomAccessFile* input_file, SegmentFooterPB* footer)
     uint32_t expect_checksum = doris::decode_fixed32_le(fixed_buf + 4);
     uint32_t actual_checksum = doris::crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2", file_name,
-                actual_checksum, expect_checksum));
+        return Status::Corruption(
+                "Bad segment file {}: footer checksum not match, actual={} vs expect={}", file_name,
+                actual_checksum, expect_checksum);
     }
 
     // deserialize footer PB
     if (!footer->ParseFromString(footer_buf)) {
-        return Status::Corruption(strings::Substitute(
-                "Bad segment file $0: failed to parse SegmentFooterPB", file_name));
+        return Status::Corruption("Bad segment file {}: failed to parse SegmentFooterPB",
+                                  file_name);
     }
     return Status::OK();
 }

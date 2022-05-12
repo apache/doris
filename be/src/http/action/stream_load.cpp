@@ -541,7 +541,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         if (merge_type_map.find(merge_type_str) != merge_type_map.end()) {
             merge_type = merge_type_map.find(merge_type_str)->second;
         } else {
-            return Status::InvalidArgument("Invalid merge type " + merge_type_str);
+            return Status::InvalidArgument("Invalid merge type {}", merge_type_str);
         }
         if (merge_type == TMergeType::MERGE && http_req->header(HTTP_DELETE_CONDITION).empty()) {
             return Status::InvalidArgument("Excepted DELETE ON clause when merge type is MERGE.");

@@ -666,9 +666,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             _fragment_map.erase(params.params.fragment_instance_id);
         }
         exec_state->cancel_before_execute();
-        return Status::InternalError(
-                strings::Substitute("Put planfragment to thread pool failed. err = $0, BE: $1",
-                                    st.get_error_msg(), BackendOptions::get_localhost()));
+        return Status::InternalError("Put planfragment to thread pool failed. err = {}, BE: {}",
+                                     st.get_error_msg(), BackendOptions::get_localhost());
     }
 
     return Status::OK();
@@ -873,7 +872,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request, const cha
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
             VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
-            return Status::InvalidArgument("fragment-id: " + fragment_instance_id.to_string());
+            return Status::InvalidArgument("fragment-id: {}", fragment_instance_id.to_string());
         }
         fragment_state = iter->second;
     }

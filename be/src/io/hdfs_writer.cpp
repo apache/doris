@@ -53,7 +53,7 @@ Status HDFSWriter::open() {
     int exists = hdfsExists(_hdfs_fs, _path.c_str());
     if (exists == 0) {
         // the path already exists
-        return Status::AlreadyExist(_path + " already exists.");
+        return Status::AlreadyExist("{} already exists.", _path);
     }
 
     std::filesystem::path hdfs_path(_path);

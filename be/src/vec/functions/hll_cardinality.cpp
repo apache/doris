@@ -96,9 +96,9 @@ public:
             block.replace_by_position(result, std::move(column_result));
             return Status::OK();
         } else {
-            return Status::RuntimeError(fmt::format(
-                    "Illegal column {} of argument of function {}",
-                    block.get_by_position(arguments[0]).column->get_name(), get_name()));
+            return Status::RuntimeError("Illegal column {} of argument of function {}",
+                                        block.get_by_position(arguments[0]).column->get_name(),
+                                        get_name());
         }
 
         block.replace_by_position(result, std::move(column_result));

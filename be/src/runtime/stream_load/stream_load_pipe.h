@@ -123,7 +123,7 @@ public:
             }
             // cancelled
             if (_cancelled) {
-                return Status::InternalError("cancelled: " + _cancelled_reason);
+                return Status::InternalError("cancelled: {}", _cancelled_reason);
             }
             // finished
             if (_buf_queue.empty()) {
@@ -198,7 +198,7 @@ private:
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError("cancelled: " + _cancelled_reason);
+            return Status::InternalError("cancelled: {}", _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -238,7 +238,7 @@ private:
                 }
             }
             if (_cancelled) {
-                return Status::InternalError("cancelled: " + _cancelled_reason);
+                return Status::InternalError("cancelled: {}", _cancelled_reason);
             }
             _buf_queue.push_back(buf);
             if (_use_proto) {

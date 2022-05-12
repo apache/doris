@@ -52,7 +52,7 @@ Status CompactionAction::_check_param(HttpRequest* req, uint64_t* tablet_id) {
     try {
         *tablet_id = std::stoull(req_tablet_id);
     } catch (const std::exception& e) {
-        return Status::InternalError(strings::Substitute("convert tablet_id failed, $0", e.what()));
+        return Status::InternalError("convert tablet_id failed, {}", e.what());
     }
 
     return Status::OK();
@@ -65,7 +65,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* 
 
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        return Status::NotFound(strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
+        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
     tablet->get_compaction_status(json_result);
@@ -82,14 +82,13 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
     std::string compaction_type = req->param(PARAM_COMPACTION_TYPE);
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE) {
-        return Status::NotSupported(
-                strings::Substitute("The compaction type '$0' is not supported", compaction_type));
+        return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
 
     // 2. fetch the tablet by tablet_id
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        return Status::NotFound(strings::Substitute("Tablet not found. tablet_id=$0", tablet_id));
+        return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
     // 3. execute compaction task
@@ -145,7 +144,7 @@ Status CompactionAction::_handle_run_status_compaction(HttpRequest* req, std::st
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
         if (tablet == nullptr) {
             LOG(WARNING) << "invalid argument.tablet_id:" << tablet_id;
-            return Status::InternalError(strings::Substitute("fail to get $0", tablet_id));
+            return Status::InternalError("fail to get {}", tablet_id);
         }
 
         std::string json_template = R"({
