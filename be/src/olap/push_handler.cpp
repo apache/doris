@@ -185,7 +185,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
                 request.partition_id, tablet_var.tablet, request.transaction_id, load_id,
                 tablet_var.rowset_to_add, false);
         if (commit_status != Status::OK() &&
-            commit_status != Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+            commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             res = commit_status;
         }
     }

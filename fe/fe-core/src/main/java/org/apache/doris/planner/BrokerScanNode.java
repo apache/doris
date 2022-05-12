@@ -247,8 +247,8 @@ public class BrokerScanNode extends LoadScanNode {
      */
     private void initColumns(ParamCreateContext context) throws UserException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
-        context.slotDescByName = Maps.newHashMap();
-        context.exprMap = Maps.newHashMap();
+        context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
         // for load job, column exprs is got from file group
         // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"

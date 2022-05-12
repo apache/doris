@@ -795,7 +795,7 @@ Status SegmentReader::_seek_to_block_directly(int64_t block_id, const std::vecto
         Status res = Status::OK();
         PositionProvider position(&_column_indices[cid]->entry(block_id));
         if (!(res = _column_readers[cid]->seek(&position))) {
-            if (Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) == res) {
+            if (OLAP_ERR_COLUMN_STREAM_EOF == res.precise_code()) {
                 VLOG_TRACE << "Stream EOF. tablet_id=" << _segment_group->get_tablet_id()
                            << ", column_id=" << _column_readers[cid]->column_unique_id()
                            << ", block_id=" << block_id;
