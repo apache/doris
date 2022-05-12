@@ -298,6 +298,11 @@ public:
     Field* get_sub_field(int i) const { return _sub_fields[i].get(); }
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
+    void set_precision(int32_t precision) { _precision = precision; }
+    void set_frac(int32_t frac) { _frac = frac; }
+    int32_t precision() const { return _precision; }
+    int32_t frac() const { return _frac; }
+
 protected:
     TypeInfoPtr _type_info;
     const AggregateInfo* _agg_info;
@@ -340,6 +345,8 @@ private:
     uint16_t _index_size;
     bool _is_nullable;
     std::vector<std::unique_ptr<Field>> _sub_fields;
+    int32_t _precision;
+    int32_t _frac;
 };
 
 template <typename LhsCellType, typename RhsCellType>
@@ -738,6 +745,18 @@ public:
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
+            case OLAP_FIELD_TYPE_DECIMAL:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL32:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL64:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL128: {
+                Field* field = new Field(column);
+                field->set_precision(column.precision());
+                field->set_frac(column.frac());
+                return field;
+            }
             default:
                 return new Field(column);
             }
@@ -763,6 +782,18 @@ public:
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
+            }
+            case OLAP_FIELD_TYPE_DECIMAL:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL32:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL64:
+                [[fallthrough]];
+            case OLAP_FIELD_TYPE_DECIMAL128: {
+                Field* field = new Field(column);
+                field->set_precision(column.precision());
+                field->set_frac(column.frac());
+                return field;
             }
             default:
                 return new Field(column);

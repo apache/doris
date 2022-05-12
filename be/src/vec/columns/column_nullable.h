@@ -99,6 +99,11 @@ public:
     void insert_range_from_not_nullable(const IColumn& src, size_t start, size_t length);
     void insert_many_from_not_nullable(const IColumn& src, size_t position, size_t length);
 
+    void insert_many_decimalv2_data(const char* pos, size_t num) override {
+        get_null_map_column().fill(0, num);
+        get_nested_column().insert_many_decimalv2_data(pos, num);
+    }
+
     void insert_many_fix_len_data(const char* pos, size_t num) override {
         get_null_map_column().fill(0, num);
         get_nested_column().insert_many_fix_len_data(pos, num);

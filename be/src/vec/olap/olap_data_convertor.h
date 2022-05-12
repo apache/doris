@@ -198,6 +198,46 @@ private:
         Status convert_to_olap() override;
     };
 
+    // decimalv3 don't need to do any convert
+    template <typename T>
+    class OlapColumnDataConvertorDecimalV3 : public OlapColumnDataConvertorBase {
+    public:
+        using FieldType = typename T::NativeType;
+        OlapColumnDataConvertorDecimalV3() = default;
+        ~OlapColumnDataConvertorDecimalV3() override = default;
+
+        const void* get_data() const override { return _values; }
+
+        const void* get_data_at(size_t offset) const override {
+            assert(offset < _num_rows);
+            UInt8 null_flag = 0;
+            if (_nullmap) {
+                null_flag = _nullmap[offset];
+            }
+            return null_flag ? nullptr : _values + offset;
+        }
+
+        Status convert_to_olap() override {
+            const vectorized::ColumnDecimal<T>* column_data = nullptr;
+            if (_nullmap) {
+                auto nullable_column =
+                        assert_cast<const vectorized::ColumnNullable*>(_typed_column.column.get());
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        nullable_column->get_nested_column_ptr().get());
+            } else {
+                column_data = assert_cast<const vectorized::ColumnDecimal<T>*>(
+                        _typed_column.column.get());
+            }
+
+            assert(column_data);
+            _values = (const FieldType*)(column_data->get_data().data()) + _row_pos;
+            return Status::OK();
+        }
+
+    private:
+        const FieldType* _values = nullptr;
+    };
+
     // class OlapColumnDataConvertorSimple for simple types, which don't need to do any convert, like int, float, double, etc...
     template <typename T>
     class OlapColumnDataConvertorSimple : public OlapColumnDataConvertorBase {

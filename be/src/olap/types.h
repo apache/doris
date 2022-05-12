@@ -495,6 +495,21 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL> {
     using UnsignedCppType = decimal12_t;
 };
 template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL32> {
+    using CppType = int32_t;
+    using UnsignedCppType = uint32_t;
+};
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL64> {
+    using CppType = int64_t;
+    using UnsignedCppType = uint64_t;
+};
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_DECIMAL128> {
+    using CppType = int128_t;
+    using UnsignedCppType = uint128_t;
+};
+template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_DATE> {
     using CppType = uint24_t;
     using UnsignedCppType = uint24_t;
@@ -891,6 +906,87 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL>
         CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = -999999999999999999;
         data->fraction = -999999999;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>
+        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL32> {
+    static void set_to_max(void* buf) {
+        CppType* data = reinterpret_cast<CppType*>(buf);
+        *data = 999999999;
+    }
+    static void set_to_min(void* buf) {
+        CppType* data = reinterpret_cast<CppType*>(buf);
+        *data = -999999999;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>
+        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL64> {
+    static void set_to_max(void* buf) {
+        CppType* data = reinterpret_cast<CppType*>(buf);
+        *data = 999999999999999999ll;
+    }
+    static void set_to_min(void* buf) {
+        CppType* data = reinterpret_cast<CppType*>(buf);
+        *data = -999999999999999999ll;
+    }
+};
+
+template <>
+struct FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128>
+        : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_DECIMAL128> {
+    static Status from_string(void* buf, const std::string& scan_key) {
+        int128_t value = 0;
+        const char* value_string = scan_key.c_str();
+        char* end = nullptr;
+        value = strtol(value_string, &end, 10);
+        if (*end != 0) {
+            value = 0;
+        } else if (value > LONG_MIN && value < LONG_MAX) {
+            // use strtol result directly
+        } else {
+            bool is_negative = false;
+            if (*value_string == '-' || *value_string == '+') {
+                if (*(value_string++) == '-') {
+                    is_negative = true;
+                }
+            }
+            uint128_t current = 0;
+            uint128_t max_int128 = ~((int128_t)(1) << 127);
+            while (*value_string != 0) {
+                if (current > max_int128 / 10) {
+                    break;
+                }
+                current = current * 10 + (*(value_string++) - '0');
+            }
+            if (*value_string != 0 || (!is_negative && current > max_int128) ||
+                (is_negative && current > max_int128 + 1)) {
+                current = 0;
+            }
+            value = is_negative ? -current : current;
+        }
+
+        *reinterpret_cast<PackedInt128*>(buf) = value;
+        return Status::OK();
+    }
+    static std::string to_string(const void* src) {
+        int128_t value = reinterpret_cast<const PackedInt128*>(src)->value;
+        fmt::memory_buffer buffer;
+        fmt::format_to(buffer, "{}", value);
+        return std::string(buffer.data(), buffer.size());
+    }
+    static void set_to_max(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll;
+    }
+    static void set_to_min(void* buf) {
+        *reinterpret_cast<PackedInt128*>(buf) =
+                -(static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
+                  static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
     }
 };
 
