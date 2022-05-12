@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
@@ -30,7 +29,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

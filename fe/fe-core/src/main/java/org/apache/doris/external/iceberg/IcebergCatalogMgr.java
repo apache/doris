@@ -25,12 +25,12 @@ import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 
 import com.google.common.base.Enums;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,12 +38,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
-import static org.apache.doris.catalog.IcebergProperty.ICEBERG_CATALOG_TYPE;
-import static org.apache.doris.catalog.IcebergProperty.ICEBERG_DATABASE;
-import static org.apache.doris.catalog.IcebergProperty.ICEBERG_HIVE_METASTORE_URIS;
-import static org.apache.doris.catalog.IcebergProperty.ICEBERG_TABLE;
-import static org.apache.doris.common.SystemIdGenerator.getNextId;
 
 /**
  * Iceberg catalog manager
@@ -92,27 +86,29 @@ public class IcebergCatalogMgr {
         }
 
         Map<String, String> copiedProps = Maps.newHashMap(properties);
-        String icebergDb = copiedProps.get(ICEBERG_DATABASE);
+        String icebergDb = copiedProps.get(IcebergProperty.ICEBERG_DATABASE);
         if (Strings.isNullOrEmpty(icebergDb)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_DATABASE, ICEBERG_DATABASE));
+            throw new DdlException(String.format(PROPERTY_MISSING_MSG,
+                    IcebergProperty.ICEBERG_DATABASE, IcebergProperty.ICEBERG_DATABASE));
         }
-        copiedProps.remove(ICEBERG_DATABASE);
+        copiedProps.remove(IcebergProperty.ICEBERG_DATABASE);
 
         // check hive properties
         // hive.metastore.uris
-        String hiveMetastoreUris = copiedProps.get(ICEBERG_HIVE_METASTORE_URIS);
+        String hiveMetastoreUris = copiedProps.get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
         if (Strings.isNullOrEmpty(hiveMetastoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_HIVE_METASTORE_URIS, ICEBERG_HIVE_METASTORE_URIS));
+            throw new DdlException(String.format(PROPERTY_MISSING_MSG,
+                    IcebergProperty.ICEBERG_HIVE_METASTORE_URIS, IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
         }
-        copiedProps.remove(ICEBERG_HIVE_METASTORE_URIS);
+        copiedProps.remove(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
 
         // check iceberg catalog type
-        String icebergCatalogType = copiedProps.get(ICEBERG_CATALOG_TYPE);
+        String icebergCatalogType = copiedProps.get(IcebergProperty.ICEBERG_CATALOG_TYPE);
         if (Strings.isNullOrEmpty(icebergCatalogType)) {
             icebergCatalogType = IcebergCatalogMgr.CatalogType.HIVE_CATALOG.name();
-            properties.put(ICEBERG_CATALOG_TYPE, icebergCatalogType);
+            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, icebergCatalogType);
         } else {
-            copiedProps.remove(ICEBERG_CATALOG_TYPE);
+            copiedProps.remove(IcebergProperty.ICEBERG_CATALOG_TYPE);
         }
 
         if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
@@ -121,11 +117,12 @@ public class IcebergCatalogMgr {
 
         // only check table property when it's an iceberg table
         if (isTable) {
-            String icebergTbl = copiedProps.get(ICEBERG_TABLE);
+            String icebergTbl = copiedProps.get(IcebergProperty.ICEBERG_TABLE);
             if (Strings.isNullOrEmpty(icebergTbl)) {
-                throw new DdlException(String.format(PROPERTY_MISSING_MSG, ICEBERG_TABLE, ICEBERG_TABLE));
+                throw new DdlException(String.format(PROPERTY_MISSING_MSG,
+                        IcebergProperty.ICEBERG_TABLE, IcebergProperty.ICEBERG_TABLE));
             }
-            copiedProps.remove(ICEBERG_TABLE);
+            copiedProps.remove(IcebergProperty.ICEBERG_TABLE);
         }
 
         if (!copiedProps.isEmpty()) {
@@ -192,7 +189,7 @@ public class IcebergCatalogMgr {
         // 1. Already set column def in Create Stmt, just create table
         // 2. No column def in Create Stmt, get it from remote Iceberg schema.
         IcebergTable table;
-        long tableId = getNextId();
+        long tableId = SystemIdGenerator.getNextId();
         if (stmt.getColumns().size() > 0) {
             // set column def in CREATE TABLE
             table = new IcebergTable(tableId, tableName, stmt.getColumns(), icebergProperty, null);

@@ -34,14 +34,14 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import java.util.List;
-
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.List;
 
 public class UpdateStmtExecutorTest {
 

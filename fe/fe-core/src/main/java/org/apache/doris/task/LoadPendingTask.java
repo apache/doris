@@ -32,10 +32,9 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
+import com.google.common.base.Joiner;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Joiner;
 
 import java.util.List;
 import java.util.UUID;
@@ -66,7 +65,7 @@ public abstract class LoadPendingTask extends MasterTask {
             load.cancelLoadJob(job, CancelType.TIMEOUT, "pending timeout to cancel");
             return;
         }
-        
+
         // get db
         long dbId = job.getDbId();
         db = Catalog.getCurrentCatalog().getDbNullable(dbId);
@@ -118,7 +117,7 @@ public abstract class LoadPendingTask extends MasterTask {
         load.cancelLoadJob(job, CancelType.ETL_SUBMIT_FAIL, failMsg);
         LOG.warn("submit etl job fail. job: {}", job);
     }
-    
+
     protected abstract void createEtlRequest() throws Exception;
 
     protected abstract EtlSubmitResult submitEtlJob(int retry);

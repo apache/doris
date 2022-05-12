@@ -55,7 +55,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -433,7 +432,7 @@ public class InsertStmt extends DdlStmt {
          * processing, targetColumns: (A, B, C, __doris_shadow_B), and
          * origColIdxsForExtendCols has 1 element: "1", which is the index of column B
          * in targetColumns.
-         * 
+         *
          * Rule A: If the column which the shadow column related to is not mentioned,
          * then do not add the shadow column to targetColumns. They will be filled by
          * null or default value when loading.
@@ -485,7 +484,7 @@ public class InsertStmt extends DdlStmt {
 
         // Check if all columns mentioned is enough
         checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
-        
+
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -600,7 +599,7 @@ public class InsertStmt extends DdlStmt {
              */
             ArrayList<Expr> extentedRow = Lists.newArrayList();
             extentedRow.addAll(row);
-            
+
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
                 if (entry != null) {
                     if (entry.second == null) {

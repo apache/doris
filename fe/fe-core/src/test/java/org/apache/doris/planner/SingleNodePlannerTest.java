@@ -17,9 +17,6 @@
 
 package org.apache.doris.planner;
 
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Tested;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BaseTableRef;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -39,15 +36,16 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Tested;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class SingleNodePlannerTest {
 

@@ -17,9 +17,10 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Strings;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+
+import com.google.common.base.Strings;
 
 public class QueryStateException extends UserException {
     private QueryState queryState;

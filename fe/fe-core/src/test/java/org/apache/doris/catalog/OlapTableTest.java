@@ -25,7 +25,8 @@ import org.apache.doris.common.util.UnitTestUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -35,14 +36,11 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Mock;
-import mockit.MockUp;
-
 public class OlapTableTest {
 
     @Test
     public void test() throws IOException {
-        
+
         new MockUp<Catalog>() {
             @Mock
             int getCurrentCatalogJournalVersion() {
@@ -52,7 +50,7 @@ public class OlapTableTest {
 
         Database db = UnitTestUtil.createDb(1, 2, 3, 4, 5, 6, 7);
         List<Table> tables = db.getTables();
-        
+
         for (Table table : tables) {
             if (table.getType() != TableType.OLAP) {
                 continue;
@@ -73,7 +71,7 @@ public class OlapTableTest {
             Table copiedTbl = OlapTable.read(in);
             System.out.println("copied table id: " + copiedTbl.getId());
         }
-        
+
     }
 
     @Test

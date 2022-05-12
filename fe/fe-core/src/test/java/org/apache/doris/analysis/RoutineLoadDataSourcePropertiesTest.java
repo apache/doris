@@ -24,7 +24,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.KafkaProgress;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 

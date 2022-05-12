@@ -17,11 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import mockit.Mocked;
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -51,6 +46,12 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import mockit.Mocked;
+import org.apache.commons.collections.map.HashedMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -75,7 +76,7 @@ public class CoordinatorTest extends Coordinator {
     @Mocked
     static FrontendOptions frontendOptions;
     static Analyzer analyzer = new Analyzer(catalog, context);
-    
+
     public CoordinatorTest() {
         super(context, analyzer, planner);
     }
@@ -844,5 +845,3 @@ public class CoordinatorTest extends Coordinator {
         }
     }
 }
-
-

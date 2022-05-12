@@ -17,16 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -57,7 +56,7 @@ public class AlterDatabaseQuotaStmtTest {
             }
         };
     }
-    
+
     private void testAlterDatabaseDataQuotaStmt(String dbName, String quotaQuantity, long quotaSize)
             throws AnalysisException, UserException {
         AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quotaQuantity);

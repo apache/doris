@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TFetchResourceResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -293,4 +292,3 @@ public class UserPropertyMgr implements Writable {
         resourceVersion = new AtomicLong(in.readLong());
     }
 }
-

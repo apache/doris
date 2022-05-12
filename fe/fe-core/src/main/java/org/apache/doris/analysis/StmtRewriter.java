@@ -1210,4 +1210,3 @@ public class StmtRewriter {
         return reAnalyze;
     }
 }
-

@@ -17,9 +17,9 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetNamesVar;
 import org.apache.doris.analysis.SetPassVar;
-import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.SetTransaction;
 import org.apache.doris.analysis.SetVar;

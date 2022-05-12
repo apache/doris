@@ -17,7 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.SetPassVar;
@@ -32,11 +31,11 @@ import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Mocked;
 
 public class SetPasswordTest {
 
@@ -85,7 +84,7 @@ public class SetPasswordTest {
         userIdentity.setIsAnalyzed();
         CreateUserStmt stmt = new CreateUserStmt(new UserDesc(userIdentity));
         auth.createUser(stmt);
-        
+
         ConnectContext ctx = new ConnectContext(null);
         // set password for 'cmy'@'%'
         UserIdentity currentUser1 = new UserIdentity("default_cluster:cmy", "%");
@@ -131,7 +130,7 @@ public class SetPasswordTest {
             e.printStackTrace();
             Assert.fail();
         }
-        
+
         // set password for cmy2@'192.168.1.1'
         UserIdentity user2 = new UserIdentity("default_cluster:cmy2", "192.168.1.1");
         user2.setIsAnalyzed();

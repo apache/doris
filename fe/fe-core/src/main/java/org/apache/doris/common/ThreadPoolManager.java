@@ -24,7 +24,6 @@ import org.apache.doris.metric.MetricRepo;
 
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -221,4 +220,3 @@ public class ThreadPoolManager {
         }
     }
 }
-

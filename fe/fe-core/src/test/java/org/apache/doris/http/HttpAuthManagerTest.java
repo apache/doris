@@ -17,13 +17,14 @@
 
 package org.apache.doris.http;
 
-import java.util.ArrayList;
-import java.util.List;
 import org.apache.doris.analysis.UserIdentity;
-
 import org.apache.doris.httpv2.HttpAuthManager;
+
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 
 public class HttpAuthManagerTest {
@@ -31,7 +32,7 @@ public class HttpAuthManagerTest {
     @Test
     public void testNormal() {
         HttpAuthManager authMgr = HttpAuthManager.getInstance();
-        String sessionId = "test_session_id"; 
+        String sessionId = "test_session_id";
         String username = "test-user";
         HttpAuthManager.SessionValue sessionValue = new HttpAuthManager.SessionValue();
         sessionValue.currentUser = UserIdentity.createAnalyzedUserIdentWithIp(username, "%");
@@ -42,7 +43,7 @@ public class HttpAuthManagerTest {
         System.out.println("username in test: " + authMgr.getSessionValue(sessionIds).currentUser);
         Assert.assertEquals(username, authMgr.getSessionValue(sessionIds).currentUser.getQualifiedUser());
 
-        
+
         String noExistSession = "no-exist-session-id";
         sessionIds.clear();
         sessionIds.add (noExistSession);

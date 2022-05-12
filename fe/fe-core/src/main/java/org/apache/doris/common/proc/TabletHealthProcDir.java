@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Database;
@@ -37,6 +35,9 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TTaskType;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Comparator;

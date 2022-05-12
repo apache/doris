@@ -45,7 +45,11 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Before;
@@ -61,12 +65,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class BackupJobTest {
 
@@ -125,7 +123,7 @@ public class BackupJobTest {
         File backupDir = new File(BackupHandler.BACKUP_ROOT_DIR.toString());
         backupDir.mkdirs();
     }
-    
+
     @AfterClass
     public static void end() throws IOException {
         Config.tmp_dir = "./";
@@ -212,7 +210,7 @@ public class BackupJobTest {
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
-        
+
         BackupMeta backupMeta = job.getBackupMeta();
         Assert.assertEquals(1, backupMeta.getTables().size());
         OlapTable backupTbl = (OlapTable) backupMeta.getTable(UnitTestUtil.TABLE_NAME);
@@ -224,12 +222,12 @@ public class BackupJobTest {
         AgentTask task = AgentTaskQueue.getTask(backendId, TTaskType.MAKE_SNAPSHOT, tabletId);
         Assert.assertTrue(task instanceof SnapshotTask);
         SnapshotTask snapshotTask = (SnapshotTask) task;
-        
+
         // 2. snapshoting
         job.run();
         Assert.assertEquals(Status.OK, job.getStatus());
         Assert.assertEquals(BackupJobState.SNAPSHOTING, job.getState());
-        
+
         // 3. snapshot finished
         String snapshotPath = "/path/to/snapshot";
         List<String> snapshotFiles = Lists.newArrayList();
@@ -256,7 +254,7 @@ public class BackupJobTest {
         task = AgentTaskQueue.getTask(backendId, TTaskType.UPLOAD, id.get() - 1);
         Assert.assertTrue(task instanceof UploadTask);
         UploadTask upTask = (UploadTask) task;
-        
+
         Assert.assertEquals(job.getJobId(), upTask.getJobId());
         Map<String, String> srcToDest = upTask.getSrcToDestPath();
         Assert.assertEquals(1, srcToDest.size());

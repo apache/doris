@@ -22,19 +22,17 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
 
+import mockit.Expectations;
+import mockit.Injectable;
 import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.ObjectMapper;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-
-import static org.junit.Assert.assertNotNull;
 
 public class PartitionPhaseTest extends EsTestCase {
 
@@ -44,7 +42,7 @@ public class PartitionPhaseTest extends EsTestCase {
         ExceptionChecker.expectThrowsNoException(() ->
                 esShardPartitions[0] = EsShardPartitions.findShardPartitions("doe",
                         loadJsonFromFile("data/es/test_search_shards.json")));
-        assertNotNull(esShardPartitions[0]);
+        Assert.assertNotNull(esShardPartitions[0]);
         ObjectMapper mapper = new ObjectMapper();
         JsonParser jsonParser = mapper.getJsonFactory().createJsonParser(loadJsonFromFile("data/es/test_nodes_http.json"));
         Map<String, Map<String, Object>> nodesData = (Map<String, Map<String, Object>>) mapper.readValue(jsonParser, Map.class).get("nodes");
@@ -75,6 +73,6 @@ public class PartitionPhaseTest extends EsTestCase {
         PartitionPhase partitionPhase = new PartitionPhase(client);
         ExceptionChecker.expectThrowsNoException(() -> partitionPhase.execute(context));
         ExceptionChecker.expectThrowsNoException(() -> partitionPhase.postProcess(context));
-        assertNotNull(context.tablePartitions());
+        Assert.assertNotNull(context.tablePartitions());
     }
 }

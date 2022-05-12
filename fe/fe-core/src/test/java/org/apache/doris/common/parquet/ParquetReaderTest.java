@@ -20,7 +20,6 @@ package org.apache.doris.common.parquet;
 import org.apache.doris.analysis.BrokerDesc;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Ignore;

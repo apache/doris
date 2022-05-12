@@ -24,7 +24,6 @@ import org.apache.doris.common.FeConstants;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.StringUtils;
 
 import java.util.Arrays;

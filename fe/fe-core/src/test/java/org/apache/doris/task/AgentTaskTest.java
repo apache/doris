@@ -36,7 +36,6 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Range;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -138,7 +137,7 @@ public class AgentTaskTest {
         // add null
         agentBatchTask.addTask(null);
         Assert.assertEquals(0, agentBatchTask.getTaskNum());
-        
+
         // normal
         agentBatchTask.addTask(createReplicaTask);
         Assert.assertEquals(1, agentBatchTask.getTaskNum());

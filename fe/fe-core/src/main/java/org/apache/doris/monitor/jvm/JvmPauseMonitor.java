@@ -25,7 +25,6 @@ import com.google.common.base.Stopwatch;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.log4j.Logger;
 
 import java.lang.management.GarbageCollectorMXBean;
@@ -317,5 +316,3 @@ public class JvmPauseMonitor {
     }
 
 }
-
-

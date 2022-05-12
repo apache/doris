@@ -24,7 +24,7 @@ import java.lang.annotation.RetentionPolicy;
 /*
  * AuditEvent contains all information about audit log info.
  * It should be created by AuditEventBuilder. For example:
- * 
+ *
  *      AuditEvent event = new AuditEventBuilder()
  *          .setEventType(AFTER_QUERY)
  *          .setClientIp(xxx)

@@ -21,7 +21,6 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.collect.Lists;
-
 import org.junit.After;
 import org.junit.Test;
 

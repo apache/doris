@@ -32,15 +32,13 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class MaterializedViewHandlerTest {
     @Test

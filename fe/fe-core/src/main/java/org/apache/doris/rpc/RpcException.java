@@ -36,4 +36,3 @@ public class RpcException extends Exception {
         return super.getMessage() + ", host: " + host;
     }
 }
-

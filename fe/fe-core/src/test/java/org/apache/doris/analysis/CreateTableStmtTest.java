@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -29,7 +28,8 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -42,11 +42,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Mocked;
-
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
-    
+
     // used to get default db
     private TableName tblName;
     private TableName tblNameNoDb;
@@ -55,7 +53,7 @@ public class CreateTableStmtTest {
     private List<String> colsName;
     private List<String> invalidColsName;
     private Analyzer analyzer;
-    
+
     @Mocked
     private PaloAuth auth;
     @Mocked
@@ -93,7 +91,7 @@ public class CreateTableStmtTest {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
-    
+
     @Test
     public void testNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
@@ -131,7 +129,7 @@ public class CreateTableStmtTest {
         Assert.assertNull(stmt.getProperties());
         Assert.assertTrue(stmt.toSql().contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
     }
-    
+
     @Test
     public void testDefaultDbNormal() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
@@ -143,7 +141,7 @@ public class CreateTableStmtTest {
         Assert.assertNull(stmt.getPartitionDesc());
         Assert.assertNull(stmt.getProperties());
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
         // make default db return empty;
@@ -163,7 +161,7 @@ public class CreateTableStmtTest {
                 new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(noDbAnalyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws UserException, AnalysisException {
         // make default db return empty;
@@ -173,7 +171,7 @@ public class CreateTableStmtTest {
                 new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws UserException, AnalysisException {
         // make default db return empty;

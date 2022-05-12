@@ -39,11 +39,10 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -89,7 +88,7 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
-        
+
         deleteCondition = taskInfo.getDeleteCondition();
         mergeType = taskInfo.getMergeType();
 

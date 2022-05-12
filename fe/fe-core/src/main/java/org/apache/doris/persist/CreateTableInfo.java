@@ -18,8 +18,8 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +33,7 @@ public class CreateTableInfo implements Writable {
 
     private String dbName;
     private Table table;
-    
+
     public CreateTableInfo() {
         // for persist
     }
@@ -42,11 +42,11 @@ public class CreateTableInfo implements Writable {
         this.dbName = dbName;
         this.table = table;
     }
-    
+
     public String getDbName() {
         return dbName;
     }
-    
+
     public Table getTable() {
         return table;
     }
@@ -59,7 +59,7 @@ public class CreateTableInfo implements Writable {
         dbName = Text.readString(in);
         table = Table.read(in);
     }
-    
+
     public static CreateTableInfo read(DataInput in) throws IOException {
         CreateTableInfo createTableInfo = new CreateTableInfo();
         createTableInfo.readFields(in);
@@ -73,9 +73,9 @@ public class CreateTableInfo implements Writable {
         if (!(obj instanceof CreateTableInfo)) {
             return false;
         }
-        
+
         CreateTableInfo info = (CreateTableInfo) obj;
-        
+
         return (dbName.equals(info.dbName))
                 && (table.equals(info.table));
     }

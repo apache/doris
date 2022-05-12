@@ -29,7 +29,7 @@ public class EtlJobInfo implements Writable {
     public EtlJobInfo() {
         jobStatus = new EtlStatus();
     }
-    
+
     public EtlStatus getJobStatus() {
         return jobStatus;
     }
@@ -51,7 +51,7 @@ public class EtlJobInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         jobStatus.readFields(in);
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         return true;

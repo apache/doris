@@ -32,7 +32,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,7 +71,7 @@ public class DataPartition {
         List<Expr> list = Expr.trySubstituteList(partitionExprs, smap, analyzer, false);
         partitionExprs = ImmutableList.copyOf(list);
     }
-    
+
     public DataPartition(TPartitionType type) {
         Preconditions.checkState(
           type == TPartitionType.UNPARTITIONED || type == TPartitionType.RANDOM);
