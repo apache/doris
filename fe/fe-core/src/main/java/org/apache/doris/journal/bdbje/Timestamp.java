@@ -26,11 +26,11 @@ import java.io.IOException;
 // Write this class to bdb periodically
 public class Timestamp implements Writable {
     private long timestamp;
-    
+
     public Timestamp() {
         timestamp = System.currentTimeMillis();
     }
-    
+
     public long getTimestamp() {
         return this.timestamp;
     }
@@ -43,7 +43,7 @@ public class Timestamp implements Writable {
     public void readFields(DataInput in) throws IOException {
         timestamp = in.readLong();
     }
-    
+
     public String toString() {
         return "" + timestamp;
     }

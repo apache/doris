@@ -43,9 +43,9 @@ public class PublishVersionTask extends AgentTask {
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
     }
-    
+
     public TPublishVersionRequest toThrift() {
-        TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId, 
+        TPublishVersionRequest publishVersionRequest = new TPublishVersionRequest(transactionId,
                 partitionVersionInfos);
         return publishVersionRequest;
     }
@@ -61,7 +61,7 @@ public class PublishVersionTask extends AgentTask {
     public synchronized List<Long> getErrorTablets() {
         return errorTablets;
     }
-    
+
     public synchronized void addErrorTablets(List<Long> errorTablets) {
         this.errorTablets.clear();
         if (errorTablets == null) {
@@ -69,11 +69,11 @@ public class PublishVersionTask extends AgentTask {
         }
         this.errorTablets.addAll(errorTablets);
     }
-    
+
     public void setIsFinished(boolean isFinished) {
         this.isFinished = isFinished;
     }
-    
+
     public boolean isFinished() {
         return isFinished;
     }

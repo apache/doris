@@ -24,6 +24,12 @@ import org.apache.log4j.Logger;
 import org.codehaus.jackson.JsonFactory;
 import org.codehaus.jackson.JsonGenerator;
 
+import java.io.IOException;
+import java.io.StringWriter;
+import java.lang.management.ManagementFactory;
+import java.lang.reflect.Array;
+import java.util.Iterator;
+import java.util.Set;
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
 import javax.management.IntrospectionException;
@@ -38,12 +44,6 @@ import javax.management.RuntimeMBeanException;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.CompositeType;
 import javax.management.openmbean.TabularData;
-import java.io.IOException;
-import java.io.StringWriter;
-import java.lang.management.ManagementFactory;
-import java.lang.reflect.Array;
-import java.util.Iterator;
-import java.util.Set;
 
 /**
  * Utility class that returns a JSON representation of the JMX beans.

@@ -24,7 +24,6 @@ import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

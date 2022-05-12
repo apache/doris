@@ -33,16 +33,14 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Test;
 
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class RoutineLoadTaskSchedulerTest {
 

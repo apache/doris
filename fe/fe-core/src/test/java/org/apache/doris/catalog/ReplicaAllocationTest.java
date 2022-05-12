@@ -25,7 +25,6 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 

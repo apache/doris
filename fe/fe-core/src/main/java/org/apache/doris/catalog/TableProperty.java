@@ -32,7 +32,6 @@ import org.apache.doris.thrift.TStorageFormat;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -222,10 +221,10 @@ public class TableProperty implements Writable {
     }
 
     public TStorageFormat getStorageFormat() {
-    	// Force convert all V1 table to V2 table
-    	if (TStorageFormat.V1 == storageFormat) {
-    		return TStorageFormat.V2;
-    	}
+        // Force convert all V1 table to V2 table
+        if (TStorageFormat.V1 == storageFormat) {
+            return TStorageFormat.V2;
+        }
         return storageFormat;
     }
 

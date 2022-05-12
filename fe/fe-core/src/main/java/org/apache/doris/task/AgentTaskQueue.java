@@ -24,7 +24,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,7 +49,7 @@ public class AgentTaskQueue {
             addTask(task);
         }
     }
- 
+
     public static synchronized boolean addTask(AgentTask task) {
         long backendId = task.getBackendId();
         TTaskType type = task.getTaskType();
@@ -60,7 +59,7 @@ public class AgentTaskQueue {
             signatureMap = Maps.newHashMap();
             tasks.put(backendId, type, signatureMap);
         }
-        
+
         long signature = task.getSignature();
         if (signatureMap.containsKey(signature)) {
             return false;
@@ -74,7 +73,7 @@ public class AgentTaskQueue {
         }
         return true;
     }
-    
+
     // remove all task in AgentBatchTask.
     // the caller should make sure all tasks in AgentBatchTask is type of 'type'
     public static synchronized void removeBatchTask(AgentBatchTask batchTask, TTaskType type) {
@@ -96,7 +95,7 @@ public class AgentTaskQueue {
         LOG.debug("remove task: type[{}], backend[{}], signature[{}]", type, backendId, signature);
         --taskNum;
     }
-    
+
     /*
      * we cannot define a push task with only 'backendId', 'signature' and 'TTaskType'
      * add version and TPushType to help
@@ -139,7 +138,7 @@ public class AgentTaskQueue {
         Map<Long, AgentTask> signatureMap = tasks.get(backendId, type);
         return signatureMap.get(signature);
     }
-    
+
     // this is just for unit test
     public static synchronized List<AgentTask> getTask(TTaskType type) {
         List<AgentTask> res = Lists.newArrayList();
@@ -160,7 +159,7 @@ public class AgentTaskQueue {
         if (!tasks.containsRow(backendId)) {
             return diffTasks;
         }
-        
+
         Map<TTaskType, Map<Long, AgentTask>> backendAllTasks = tasks.row(backendId);
         for (Map.Entry<TTaskType, Map<Long, AgentTask>> entry : backendAllTasks.entrySet()) {
             TTaskType taskType = entry.getKey();
@@ -169,7 +168,7 @@ public class AgentTaskQueue {
             if (runningTasks.containsKey(taskType)) {
                 excludeSignatures = runningTasks.get(taskType);
             }
-            
+
             for (Map.Entry<Long, AgentTask> taskEntry : tasks.entrySet()) {
                 long signature = taskEntry.getKey();
                 AgentTask task = taskEntry.getValue();
@@ -270,4 +269,3 @@ public class AgentTaskQueue {
         return tasks;
     }
 }
-

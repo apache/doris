@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
@@ -34,15 +35,13 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.update.UpdatePlanner;
 
-import java.util.List;
-
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
-import static org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PRFIX;
+import java.util.List;
 
 public class UpdatePlannerTest {
 
@@ -96,7 +95,7 @@ public class UpdatePlannerTest {
                 v1.getName();
                 result = "v1";
                 shadow_v1.getName();
-                result = SHADOW_NAME_PRFIX + "v1";
+                result = SchemaChangeHandler.SHADOW_NAME_PRFIX + "v1";
             }
         };
 

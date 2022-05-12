@@ -22,13 +22,12 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.io.StringReader;
-
-import mockit.Mocked;
 
 public class SetOperationStmtTest {
     private Analyzer analyzer;

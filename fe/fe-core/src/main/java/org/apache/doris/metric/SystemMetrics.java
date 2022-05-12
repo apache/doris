@@ -20,7 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

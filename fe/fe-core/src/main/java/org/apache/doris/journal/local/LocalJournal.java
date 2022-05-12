@@ -35,12 +35,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class LocalJournal implements Journal {
     private static final Logger LOG = LogManager.getLogger(LocalJournal.class);
-    
+
     private EditLogOutputStream outputStream = null;
     private AtomicLong journalId = new AtomicLong(1);
     private String imageDir;
     private File currentEditFile;
-    
+
     public LocalJournal(String imageDir) {
         this.imageDir = imageDir;
     }
@@ -52,7 +52,7 @@ public class LocalJournal implements Journal {
                 Storage storage = new Storage(imageDir);
 
                 this.journalId.set(getCurrentJournalId(storage.getEditsFileSequenceNumbers()));
-                
+
                 long id = journalId.get();
                 if (id == storage.getEditsSeq()) {
                     this.currentEditFile = storage.getEditsFile(id);
@@ -112,7 +112,7 @@ public class LocalJournal implements Journal {
             LOG.error(e);
         }
     }
-    
+
     @Override
     public JournalEntity read(long journalId) {
         return null;
@@ -164,18 +164,18 @@ public class LocalJournal implements Journal {
         }
         return 0;
     }
-    
+
     private long getCurrentJournalId(List<Long> editFileNames) {
         if (editFileNames.size() == 0) {
             return 1;
         }
-        
+
         long ret = editFileNames.get(editFileNames.size() - 1);
         JournalCursor cursor = read(ret, -1);
         while (cursor.next() != null) {
             ret++;
         }
-        
+
         return ret;
     }
 

@@ -35,7 +35,8 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -46,9 +47,6 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class SystemInfoServiceTest {
 

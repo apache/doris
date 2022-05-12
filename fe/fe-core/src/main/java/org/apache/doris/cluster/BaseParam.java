@@ -17,14 +17,15 @@
 
 package org.apache.doris.cluster;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Lists;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import com.google.common.collect.Lists;
 
 public class BaseParam implements Writable {
 

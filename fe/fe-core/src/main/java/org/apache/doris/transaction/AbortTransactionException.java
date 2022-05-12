@@ -19,15 +19,15 @@ package org.apache.doris.transaction;
 
 
 public class AbortTransactionException extends TransactionException {
-    
+
     public AbortTransactionException(String msg) {
         super(msg);
     }
-    
+
     public AbortTransactionException(String msg, Throwable e) {
         super(msg, e);
     }
-    
+
     public AbortTransactionException(String msg, long transactionId) {
         super(msg, transactionId);
     }

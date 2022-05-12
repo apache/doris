@@ -93,12 +93,10 @@ public enum JoinOperator {
     }
 
     public boolean isLeftOuterJoin() {
-        return this == LEFT_OUTER_JOIN; 
+        return this == LEFT_OUTER_JOIN;
     }
 
     public boolean isRightOuterJoin() {
         return this == RIGHT_OUTER_JOIN;
     }
 }
-
-

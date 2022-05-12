@@ -27,8 +27,6 @@ import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 
-import static org.junit.Assert.assertEquals;
-
 public class BitmapValueTest {
 
     @Test
@@ -38,7 +36,7 @@ public class BitmapValueTest {
             ByteArrayOutputStream byteArrayOutput = new ByteArrayOutputStream();
             DataOutput output = new DataOutputStream(byteArrayOutput);
             Codec.encodeVarint64(value, output);
-            assertEquals(value, Codec.decodeVarint64(new DataInputStream(new ByteArrayInputStream(byteArrayOutput.toByteArray()))));
+            Assert.assertEquals(value, Codec.decodeVarint64(new DataInputStream(new ByteArrayInputStream(byteArrayOutput.toByteArray()))));
         }
     }
 

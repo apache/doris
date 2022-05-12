@@ -29,7 +29,7 @@ public class AgentTaskExecutor {
     public AgentTaskExecutor() {
 
     }
-    
+
     public static void submit(AgentBatchTask task) {
         if (task == null) {
             return;

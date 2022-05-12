@@ -29,7 +29,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -130,10 +129,10 @@ public class TupleDescriptor {
         for (SlotDescriptor slotDesc : slots) {
             if (slotDesc.getColumn() != null && slotDesc.getColumn().getName().equalsIgnoreCase(columnName)) {
                 return slotDesc;
-            }    
-        }    
+            }
+        }
         return null;
-    } 
+    }
 
     public Table getTable() {
         return table;

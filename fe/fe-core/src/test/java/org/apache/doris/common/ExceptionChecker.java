@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import com.google.common.base.Strings;
-
 import junit.framework.AssertionFailedError;
 
 public class ExceptionChecker {

@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
-
 import org.apache.doris.mysql.MysqlHandshakePacket;
 
 import com.google.common.collect.Lists;

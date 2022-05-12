@@ -207,5 +207,3 @@ public class LateralViewRef extends TableRef {
         // The reset of @lateralViewRef happens in the reset() of @relatedTableRef.
     }
 }
-
-

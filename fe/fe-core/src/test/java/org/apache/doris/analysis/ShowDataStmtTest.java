@@ -28,12 +28,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 import java.util.Arrays;
 
@@ -56,7 +55,7 @@ public class ShowDataStmtTest {
     public void setUp() throws UserException {
         auth = new PaloAuth();
 
-        
+
 
         new Expectations() {
             {
@@ -111,7 +110,7 @@ public class ShowDataStmtTest {
                 result = "192.168.1.1";
             }
         };
-        
+
 
         new Expectations() {
             {
@@ -128,7 +127,7 @@ public class ShowDataStmtTest {
                 result = true;
             }
         };
-        
+
         AccessTestUtil.fetchAdminAccess();
     }
 

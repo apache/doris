@@ -18,8 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.doris.common.io.BitmapValue;
-import java.io.ByteArrayOutputStream;
+
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;

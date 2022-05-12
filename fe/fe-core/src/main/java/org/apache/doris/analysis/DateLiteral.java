@@ -30,9 +30,13 @@ import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
+import org.joda.time.LocalDateTime;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.DateTimeFormatterBuilder;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -43,12 +47,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TimeZone;
 import java.util.regex.Pattern;
-
-import org.joda.time.DateTime;
-import org.joda.time.DateTimeZone;
-import org.joda.time.LocalDateTime;
-import org.joda.time.format.DateTimeFormatter;
-import org.joda.time.format.DateTimeFormatterBuilder;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -68,8 +66,8 @@ public class DateLiteral extends LiteralExpr {
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
-    /* 
-     * Dates containing two-digit year values are ambiguous because the century is unknown. 
+    /*
+     * Dates containing two-digit year values are ambiguous because the century is unknown.
      * MySQL interprets two-digit year values using these rules:
      * Year values in the range 70-99 are converted to 1970-1999.
      * Year values in the range 00-69 are converted to 2000-2069.
@@ -209,7 +207,7 @@ public class DateLiteral extends LiteralExpr {
             this.type = Type.DATE;
         } else {
             this.type = Type.DATETIME;
-        }            
+        }
     }
 
     public DateLiteral(long year, long month, long day) {
@@ -239,7 +237,7 @@ public class DateLiteral extends LiteralExpr {
         this.hour = dateTime.getHourOfDay();
         this.minute = dateTime.getMinuteOfHour();
         this.second = dateTime.getSecondOfMinute();
-        this.type = type;                                                            
+        this.type = type;
     }
 
     public DateLiteral(DateLiteral other) {
@@ -638,12 +636,12 @@ public class DateLiteral extends LiteralExpr {
 
     public LocalDateTime getTimeFormatter() throws AnalysisException {
         if (type.equals(Type.DATE)) {
-            return DATE_FORMATTER.parseLocalDateTime(getStringValue());                        
+            return DATE_FORMATTER.parseLocalDateTime(getStringValue());
         } else if (type.equals(Type.DATETIME)) {
             return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue());
         } else {
             throw new AnalysisException("Not support date literal type");
-        }        
+        }
     }
 
     public DateLiteral plusYears(int year) throws AnalysisException {

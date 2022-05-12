@@ -39,7 +39,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
-
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -657,4 +656,3 @@ public class TabletInvertedIndex {
         return tabletMetaMap;
     }
 }
-

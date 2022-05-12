@@ -220,4 +220,3 @@ public abstract class LoadScanNode extends ScanNode {
         planNode.setBrokerScanNode(brokerScanNode);
     }
 }
-

@@ -45,6 +45,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -52,7 +53,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.MysqlScanNode;
@@ -84,7 +84,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -258,7 +257,7 @@ public class ExportJob implements Writable {
         plan();
     }
 
-    
+
     private String genNames() {
         String names = "";
         for (SlotDescriptor slot : exportTupleDesc.getSlots()) {

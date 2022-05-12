@@ -37,7 +37,7 @@ public class CloneTask extends AgentTask {
 
     private long srcPathHash = -1;
     private long destPathHash = -1;
-    
+
     private int timeoutS;
 
     private int taskVersion = VERSION_1;

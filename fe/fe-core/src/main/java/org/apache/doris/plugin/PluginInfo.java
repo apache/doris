@@ -22,10 +22,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

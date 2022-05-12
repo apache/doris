@@ -39,14 +39,12 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class OlapTableSinkTest {
     private static final Logger LOG = LogManager.getLogger(OlapTableSinkTest.class);

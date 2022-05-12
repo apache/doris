@@ -25,7 +25,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
 
 import com.google.gson.reflect.TypeToken;
-
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;

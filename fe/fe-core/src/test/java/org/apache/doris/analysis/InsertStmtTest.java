@@ -31,18 +31,17 @@ import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
-
-import java.io.StringReader;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 public class InsertStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";

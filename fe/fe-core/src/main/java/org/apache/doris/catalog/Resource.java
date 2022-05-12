@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -28,10 +27,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -171,4 +170,3 @@ public abstract class Resource implements Writable {
         return copied;
     }
 }
-

@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TPlanNodeType;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

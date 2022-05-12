@@ -20,9 +20,9 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

@@ -55,7 +55,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -282,7 +281,7 @@ public class PaloAuth implements Writable {
             }
             return true;
         }
-        
+
         readLock();
         try {
             return userPrivTable.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
@@ -1687,4 +1686,3 @@ public class PaloAuth implements Writable {
         return sb.toString();
     }
 }
-

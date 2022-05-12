@@ -19,11 +19,10 @@ package org.apache.doris.qe;
 
 import com.google.common.collect.Multiset;
 import com.google.common.collect.TreeMultiset;
-
-import java.util.concurrent.CountDownLatch;
-
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.concurrent.CountDownLatch;
 
 public class JournalObservableTest {
     @Test
@@ -146,4 +145,3 @@ public class JournalObservableTest {
         System.out.println("success");
     }
 }
-

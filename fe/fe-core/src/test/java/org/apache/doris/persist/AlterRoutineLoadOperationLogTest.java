@@ -23,7 +23,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 

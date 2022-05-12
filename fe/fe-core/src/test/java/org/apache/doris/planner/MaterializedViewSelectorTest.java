@@ -34,21 +34,19 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.doris.thrift.TStorageType;
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Injectable;
 
 public class MaterializedViewSelectorTest {
 

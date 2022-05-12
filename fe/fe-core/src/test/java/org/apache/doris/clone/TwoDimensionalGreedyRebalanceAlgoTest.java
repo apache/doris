@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionMove;
+import org.apache.doris.common.Pair;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionMove;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

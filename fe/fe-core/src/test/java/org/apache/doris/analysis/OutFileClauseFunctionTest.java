@@ -25,13 +25,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import java.io.File;
-import java.util.UUID;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.io.File;
+import java.util.UUID;
 
 public class OutFileClauseFunctionTest {
 

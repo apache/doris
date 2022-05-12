@@ -49,7 +49,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             return this == IndexState.NORMAL;
         }
     }
-    
+
     public enum IndexExtState {
         ALL,
         VISIBLE, // index state in NORMAL

@@ -25,7 +25,6 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
