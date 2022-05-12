@@ -19,6 +19,7 @@
 
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
+
 #include <iostream>
 #include <memory>
 

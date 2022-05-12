@@ -17,26 +17,21 @@
 
 #include "vec/utils/arrow_column_to_doris_column.h"
 
+#include <arrow/array.h>
+#include <arrow/builder.h>
+#include <arrow/memory_pool.h>
+#include <arrow/record_batch.h>
+#include <arrow/status.h>
+#include <arrow/testing/gtest_util.h>
+#include <arrow/testing/util.h>
+#include <arrow/util/bit_util.h>
+
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 #include <vector>
-#include "vec/columns/column_nullable.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/runtime/vdatetime_value.h"
 
-#include <arrow/array.h>
-#include <arrow/record_batch.h>
-#include <arrow/status.h>
-
-#include <arrow/builder.h>
-#include <arrow/memory_pool.h>
-#include <arrow/testing/gtest_util.h>
-#include <arrow/testing/util.h>
-#include <arrow/util/bit_util.h>
 #include "arrow/array/array_binary.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/array/builder_base.h"
@@ -45,6 +40,11 @@
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
 #include "gutil/casts.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

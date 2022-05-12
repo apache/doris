@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/exec/vparquet_scanner.h"
+
 #include "exec/parquet_reader.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"

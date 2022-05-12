@@ -17,10 +17,6 @@
 
 #include "vec/utils/arrow_column_to_doris_column.h"
 
-#include "vec/columns/column_nullable.h"
-#include "vec/data_types/data_type_decimal.h"
-#include "vec/runtime/vdatetime_value.h"
-
 #include <arrow/array.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
@@ -32,6 +28,9 @@
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
 #include "gutil/casts.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/runtime/vdatetime_value.h"
 
 #define FOR_ARROW_TYPES(M)                            \
     M(::arrow::Type::BOOL, TYPE_BOOLEAN)              \
