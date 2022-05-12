@@ -151,11 +151,11 @@ under the License.
                     </dependencies>
                     <configuration>
                         <configLocation>check/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
                         <encoding>UTF-8</encoding>
                         <consoleOutput>true</consoleOutput>
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
-                        <excludes>**/jmockit/**/*</excludes>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
                     </configuration>
                     <executions>
