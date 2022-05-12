@@ -21,7 +21,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * The util of named expression
+ * The util of named expression.
  */
 public class NamedExpressionUtil {
     /**

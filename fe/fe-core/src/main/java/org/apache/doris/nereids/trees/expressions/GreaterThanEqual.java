@@ -21,7 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Greater than and equal expression: a >= b
+ * Greater than and equal expression: a >= b.
  */
 public class GreaterThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
         extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {

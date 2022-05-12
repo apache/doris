@@ -33,7 +33,7 @@ import org.junit.Test;
 
 
 /**
- * Comparison Predicate unit test
+ * Comparison Predicate unit test.
  */
 public class ComparisonPredicateTest {
 
