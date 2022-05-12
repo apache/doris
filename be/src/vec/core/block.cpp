@@ -618,7 +618,7 @@ void Block::update_hash(SipHash& hash) const {
 
 void Block::filter_block_internal(Block* block, const IColumn::Filter& filter,
                                   uint32_t column_to_keep) {
-    size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
+    size_t count = simd::count_not_zero(filter);
     if (count == 0) {
         for (size_t i = 0; i < column_to_keep; ++i) {
             std::move(*block->get_by_position(i).column).assume_mutable()->clear();

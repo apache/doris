@@ -196,7 +196,6 @@ public:
         this->data(place).deserialize(buf, arena);
     }
 
-    // void insert_result_into(AggregateDataPtr place, IColumn & to, Arena * arena) const override
     void insert_result_into(ConstAggregateDataPtr targetplace, IColumn& to) const override {
         auto place = const_cast<AggregateDataPtr>(targetplace);
         auto arguments = this->data(place).get_arguments(this->argument_types);

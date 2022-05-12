@@ -996,14 +996,14 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint32_t sel_pos = 0;
     const uint32_t sel_end = sel_pos + selected_size;
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = 64;
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        auto mask = simd::bytes64_mask_to_bits64_mask(ret_flags + sel_pos);
         if (0 == mask) {
             //pass
-        } else if (0xffffffff == mask) {
+        } else if (0xffffffffffffffff == mask) {
             for (uint32_t i = 0; i < SIMD_BYTES; i++) {
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }

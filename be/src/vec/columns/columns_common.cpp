@@ -33,46 +33,6 @@
 
 namespace doris::vectorized {
 
-size_t count_bytes_in_filter(const IColumn::Filter& filt) {
-    size_t count = 0;
-
-    /** NOTE: In theory, `filt` should only contain zeros and ones.
-      * But, just in case, here the condition > 0 (to signed bytes) is used.
-      * It would be better to use != 0, then this does not allow SSE2.
-      */
-
-    const Int8* pos = reinterpret_cast<const Int8*>(filt.data());
-    const Int8* end = pos + filt.size();
-
-#if defined(__SSE2__) || defined(__aarch64__) && defined(__POPCNT__)
-    const __m128i zero16 = _mm_setzero_si128();
-    const Int8* end64 = pos + filt.size() / 64 * 64;
-
-    for (; pos < end64; pos += 64) {
-        count += __builtin_popcountll(
-                static_cast<UInt64>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                        _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos)), zero16))) |
-                (static_cast<UInt64>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos + 16)), zero16)))
-                 << 16) |
-                (static_cast<UInt64>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos + 32)), zero16)))
-                 << 32) |
-                (static_cast<UInt64>(_mm_movemask_epi8(_mm_cmpgt_epi8(
-                         _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos + 48)), zero16)))
-                 << 48));
-    }
-
-    /// TODO Add duff device for tail?
-#endif
-
-    for (; pos < end; ++pos) {
-        count += *pos > 0;
-    }
-
-    return count;
-}
-
 std::vector<size_t> count_columns_size_in_selector(IColumn::ColumnIndex num_columns,
                                                    const IColumn::Selector& selector) {
     std::vector<size_t> counts(num_columns);
@@ -187,13 +147,13 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         memcpy(&res_elems[elems_size_old], &src_elems[arr_offset], arr_size * sizeof(T));
     };
 
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = 64;
     const auto filt_end_aligned = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_aligned) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
+        auto mask = simd::bytes64_mask_to_bits64_mask(filt_pos);
 
-        if (mask == 0xffffffff) {
+        if (0xFFFFFFFFFFFFFFFF == mask) {
             /// SIMD_BYTES consecutive rows pass the filter
             const auto first = offsets_pos == offsets_begin;
 

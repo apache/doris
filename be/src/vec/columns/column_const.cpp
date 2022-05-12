@@ -21,6 +21,7 @@
 #include "vec/columns/column_const.h"
 
 #include "runtime/raw_value.h"
+#include "util/simd/bits.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/sip_hash.h"
@@ -36,7 +37,8 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
 
     if (data->size() != 1) {
         LOG(FATAL) << fmt::format(
-                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.");
+                "Incorrect size of nested column in constructor of ColumnConst: {}, must be "
+                "1.");
     }
 }
 
@@ -54,7 +56,7 @@ ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) 
                                   filt.size(), s);
     }
 
-    return ColumnConst::create(data, count_bytes_in_filter(filt));
+    return ColumnConst::create(data, simd::count_not_zero(filt));
 }
 
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {

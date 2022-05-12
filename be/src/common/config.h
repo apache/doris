@@ -829,6 +829,14 @@ CONF_Int32(quick_compaction_batch_size, "10");
 // do compaction min rowsets
 CONF_Int32(quick_compaction_min_rowsets, "10");
 
+// if true, blocks are aggregated in the scanner thread to improve the parallelism of the aggregated queries.
+CONF_mBool(enable_block_aggregate_in_scanner, "false");
+
+// For block aggregate in scanner thread, if the aggregation degree of the current block
+// is less than this value, skip the current block. valid range should be [0, 1].
+// If set to 0, it means no limit.
+CONF_mDouble(block_aggregate_ratio, "0.25");
+
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");

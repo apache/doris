@@ -22,6 +22,7 @@
 #include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/olap/block_aggregator.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris {
@@ -41,9 +42,7 @@ public:
     }
 
     Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) override {
-        return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
-    }
+                                       bool* eof) override;
 
     std::vector<RowLocation> current_block_row_locations() { return _block_row_locations; }
 
@@ -80,6 +79,8 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
+    Status _agg_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
@@ -109,6 +110,8 @@ private:
     std::vector<RowLocation> _block_row_locations;
 
     ColumnPtr _delete_filter_column;
+
+    std::unique_ptr<BlockAggregator> _block_aggregator;
 };
 
 } // namespace vectorized

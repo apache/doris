@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
@@ -84,7 +85,7 @@ public:
     }
 
     ColumnPtr filter(const Filter& filt, ssize_t /*result_size_hint*/) const override {
-        return clone_dummy(count_bytes_in_filter(filt));
+        return clone_dummy(simd::count_not_zero(filt));
     }
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {

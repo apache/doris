@@ -215,6 +215,9 @@ public:
     Block clone_empty() const;
 
     Columns get_columns() const;
+
+    ColumnPtr get_column_by_position(size_t position) const { return data[position].column; }
+
     void set_columns(const Columns& columns);
     Block clone_with_columns(const Columns& columns) const;
     Block clone_without_columns() const;
@@ -327,6 +330,27 @@ public:
             DCHECK(get_by_position(i).type->equals(*rhs.get_by_position(i).type));
             auto res = get_by_position(i).column->compare_at(n, m, *(rhs.get_by_position(i).column),
                                                              nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
+    int compare_at(size_t n, size_t m, size_t num_columns, const Block& rhs, int nan_direction_hint,
+                   std::vector<uint32_t>& column_loc) const {
+        DCHECK_GE(columns(), num_columns);
+        DCHECK_GE(rhs.columns(), num_columns);
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (size_t i = 0; i < num_columns; ++i) {
+            DCHECK(get_by_position(column_loc[i])
+                           .type->equals(*rhs.get_by_position(column_loc[i]).type));
+            auto res =
+                    get_by_position(column_loc[i])
+                            .column->compare_at(n, m, *(rhs.get_by_position(column_loc[i]).column),
+                                                nan_direction_hint);
             if (res) {
                 return res;
             }
@@ -453,15 +477,14 @@ public:
                                    ->get_nested_type()
                                    ->equals(*block.get_by_position(i).type));
                     DCHECK(!block.get_by_position(i).type->is_nullable());
-                    _columns[i]->insert_range_from(*make_nullable(block.get_by_position(i).column)
-                                                            ->convert_to_full_column_if_const(),
-                                                   0, block.rows());
+                    const IColumn& src = *make_nullable(block.get_by_position(i).column)
+                                                  ->convert_to_full_column_if_const();
+                    _columns[i]->insert_range_from(src, 0, src.size());
                 } else {
-                    _columns[i]->insert_range_from(
-                            *block.get_by_position(i)
-                                     .column->convert_to_full_column_if_const()
-                                     .get(),
-                            0, block.rows());
+                    const IColumn& src = *block.get_by_position(i)
+                                                  .column->convert_to_full_column_if_const()
+                                                  .get();
+                    _columns[i]->insert_range_from(src, 0, src.size());
                 }
             }
         }

@@ -22,6 +22,7 @@
 #include "olap/olap_common.h"
 #include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/olap/vcollect_iterator.h"
 
 namespace doris::vectorized {
@@ -137,6 +138,14 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return status;
     }
 
+    if (config::enable_block_aggregate_in_scanner && _aggregation &&
+        (_tablet->keys_type() == AGG_KEYS)) {
+        _block_aggregator = std::make_unique<BlockAggregator>(
+                _tablet_schema.get(), *read_params.origin_return_columns,
+                read_params.return_columns, read_params.tablet_columns_convert_to_null_set,
+                _batch_size);
+    }
+
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
@@ -166,6 +175,49 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     return Status::OK();
+}
+
+Status BlockReader::next_block_with_aggregation(Block* block, MemPool* mem_pool,
+                                                ObjectPool* agg_pool, bool* eof) {
+    return _block_aggregator ? _agg_next_block(block, mem_pool, agg_pool, eof)
+                             : (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+}
+
+Status BlockReader::_agg_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
+                                    bool* eof) {
+    Status status;
+    while (true) {
+        if (_block_aggregator->source_exhausted()) {
+            status = (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
+            if (UNLIKELY(!status.ok())) {
+                return status;
+            }
+            if (UNLIKELY(status.precise_code() == OLAP_ERR_DATA_EOF || block->rows() == 0)) {
+                break;
+            }
+
+            _block_aggregator->update_source(block);
+
+            if (!_block_aggregator->is_do_aggregate()) {
+                return status;
+            }
+        }
+
+        _block_aggregator->aggregate();
+
+        if (!_block_aggregator->source_exhausted() && _block_aggregator->is_finish()) {
+            block->swap(*_block_aggregator->aggregate_result());
+            _block_aggregator->aggregate_reset();
+            return status;
+        }
+    }
+
+    if (_block_aggregator->has_agg_data()) {
+        block->swap(*_block_aggregator->aggregate_result());
+        return status;
+    }
+
+    return status;
 }
 
 Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,

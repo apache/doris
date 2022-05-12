@@ -363,13 +363,13 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = 64;
     const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
+        auto mask = simd::bytes64_mask_to_bits64_mask(filt_pos);
 
-        if (0xFFFFFFFF == mask) {
+        if (0xFFFFFFFFFFFFFFFF == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);
         } else {
             while (mask) {

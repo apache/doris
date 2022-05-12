@@ -203,6 +203,7 @@ set(VEC_FILES
   olap/vgeneric_iterators.cpp
   olap/vcollect_iterator.cpp
   olap/block_reader.cpp
+  olap/block_aggregator.cpp
   olap/olap_data_convertor.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
