@@ -247,7 +247,7 @@ void EngineCloneTask::_set_tablet_info(Status status, bool is_new_tablet) {
                 Status drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
                         _clone_req.tablet_id, _clone_req.schema_hash);
                 if (drop_status != Status::OK() &&
-                    drop_status != Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND)) {
+                    drop_status.precise_code() != OLAP_ERR_TABLE_NOT_FOUND) {
                     // just log
                     LOG(WARNING) << "drop stale cloned table failed! tablet id: "
                                  << _clone_req.tablet_id;

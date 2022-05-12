@@ -118,7 +118,7 @@ Status ReadOnlyFileStream::seek(PositionProvider* position) {
         res = _assure_data();
         if (OLAP_LIKELY(res.ok())) {
             // assure data will be successful in most case
-        } else if (res == Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF)) {
+        } else if (res.precise_code() == OLAP_ERR_COLUMN_STREAM_EOF) {
             VLOG_TRACE << "file stream eof.";
             return res;
         } else {

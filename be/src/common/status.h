@@ -394,7 +394,14 @@ public:
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
     bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }
-    bool is_io_error() const { return code() == TStatusCode::IO_ERROR; }
+    bool is_io_error() const {
+        auto p_code = precise_code();
+        return code() == TStatusCode::IO_ERROR ||
+               ((OLAP_ERR_IO_ERROR == p_code || OLAP_ERR_READ_UNENOUGH == p_code) &&
+                errno == EIO) ||
+               OLAP_ERR_CHECKSUM_ERROR == p_code || OLAP_ERR_FILE_DATA_ERROR == p_code ||
+               OLAP_ERR_TEST_FILE_ERROR == p_code || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == p_code;
+    }
 
     /// @return @c true iff the status indicates Uninitialized.
     bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
