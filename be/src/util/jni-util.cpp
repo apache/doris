@@ -19,7 +19,7 @@
 
 #ifdef LIBJVM
 #include <jni.h>
-#include "jni_md.h"
+#include <jni_md.h>
 #include <stdlib.h>
 
 #include "gutil/once.h"

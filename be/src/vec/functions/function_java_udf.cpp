@@ -110,7 +110,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
     for (size_t col_idx : arguments) {
         ColumnWithTypeAndName& column = block.get_by_position(col_idx);
         auto col = column.column->convert_to_full_column_if_const();
-        auto& col_type = column.type;
         if (!_argument_types[arg_idx]->equals(*column.type)) {
             return Status::InvalidArgument(strings::Substitute(
                     "$0-th input column's type $1 does not equal to required type $2", arg_idx,
@@ -119,7 +118,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         auto data_col = col;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*col)) {
             data_col = nullable->get_nested_column_ptr();
-            col_type = remove_nullable(col_type);
             auto null_col =
                     check_and_get_column<ColumnVector<UInt8>>(nullable->get_null_map_column_ptr());
             jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] =
@@ -127,15 +125,14 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
         } else {
             jni_ctx->input_nulls_buffer_ptr.get()[arg_idx] = -1;
         }
-        WhichDataType type(col_type);
-        if (type.is_string_or_fixed_string()) {
+
+        if (data_col->is_column_string()) {
             const ColumnString* str_col = assert_cast<const ColumnString*>(data_col.get());
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_chars().data());
             jni_ctx->input_offsets_ptrs.get()[arg_idx] =
                     reinterpret_cast<int64_t>(str_col->get_offsets().data());
-        } else if (type.is_int() || type.is_uint() || type.is_float() ||
-                   type.is_date_or_datetime() || type.is_decimal()) {
+        } else if (data_col->is_numeric() || data_col->is_column_decimal()) {
             jni_ctx->input_values_buffer_ptr.get()[arg_idx] =
                     reinterpret_cast<int64_t>(data_col->get_raw_data().data);
         } else {

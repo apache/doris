@@ -677,7 +677,7 @@ public class UdfExecutor {
 
     //input is the second, minute, hours, day , month and year respectively
     //and then combining all num to a 64bit value return to backend;
-    long convertDateTimeToLong(int year, int month, int day, int hour, int minute, int second, Boolean isDate) {
+    private long convertDateTimeToLong(int year, int month, int day, int hour, int minute, int second, boolean isDate) {
         long time = 0;
         time = time + year;
         time = (time << 8) + month;
