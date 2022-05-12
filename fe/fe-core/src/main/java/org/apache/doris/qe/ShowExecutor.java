@@ -60,6 +60,7 @@ import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
+import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
@@ -344,6 +345,8 @@ public class ShowExecutor {
             handleAdminDiagnoseTablet();
         } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
             handleShowCreateMaterializedView();
+        } else if (stmt instanceof ShowPolicyStmt) {
+            handleShowPolicy();
         } else {
             handleEmtpy();
         }
@@ -2203,6 +2206,11 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
+    }
+
+    public void handleShowPolicy() throws AnalysisException {
+        ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
+        resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
 
 }
