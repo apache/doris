@@ -444,8 +444,8 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? data[i].column->assume_mutable()
-                                    : data[i].type->create_column();
+        columns[i] =
+                data[i].column ? data[i].column->assume_mutable() : data[i].type->create_column();
     }
     return columns;
 }
@@ -628,7 +628,7 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
         bool ret = const_column->get_bool(0);
         if (!ret) {
             for (size_t i = 0; i < column_to_keep; ++i) {
-                block->get_by_position(i).column->assume_mutable();
+                block->get_by_position(i).column->assume_mutable()->clear();
             }
         }
     } else {
