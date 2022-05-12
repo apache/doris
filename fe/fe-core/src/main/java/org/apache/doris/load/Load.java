@@ -1047,7 +1047,7 @@ public class Load {
         if (!needInitSlotAndAnalyzeExprs) {
             return;
         }
-        Set<String> exprArgsColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        Set<String> exprSrcSlotName = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             if (importColumnDesc.isColumn()) {
                 continue;
@@ -1056,14 +1056,16 @@ public class Load {
             importColumnDesc.getExpr().collect(SlotRef.class, slots);
             for (SlotRef slot : slots) {
                 String slotColumnName = slot.getColumnName();
-                exprArgsColumns.add(slotColumnName);
+                exprSrcSlotName.add(slotColumnName);
             }
         }
+        // excludedColumns is columns that should be varchar type
         Set<String> excludedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
+            Column tblColumn = tbl.getColumn(columnName);
             String realColName;
             if (tblColumn == null || importColumnDesc.getExpr() == null) {
                 realColName = columnName;
@@ -1079,18 +1081,25 @@ public class Load {
                 if (useVectorizedLoad  && formatType == TFileFormatType.FORMAT_PARQUET
                         && tblColumn != null) {
                     // in vectorized load
-                    if (exprArgsColumns.contains(columnName)) {
+                    // example: k1 is DATETIME in source file, and INT in schema, mapping exper is k1=year(k1)
+                    // we can not determine whether to use the type in the schema or the type inferred from expr
+                    // so use varchar type as before
+                    if (exprSrcSlotName.contains(columnName)) {
                         // columns in expr args should be varchar type
                         slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                         slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                         excludedColumns.add(realColName);
+                        // example k1, k2 = k1 + 1, k1 is not nullable, k2 is nullable
+                        // so we can not determine columns in expr args whether not nullable or nullable
+                        // slot in expr args use nullable as before
+                        slotDesc.setIsNullable(true);
                     } else {
                         // columns from files like parquet files can be parsed as the type in table schema
                         slotDesc.setType(tblColumn.getType());
                         slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        // non-nullable column is allowed in vectorized load with parquet format
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
-                    // non-nullable column is allowed in vectorized load with parquet format
-                    slotDesc.setIsNullable(tblColumn.isAllowNull());
                 } else {
                     // columns default be varchar type
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
