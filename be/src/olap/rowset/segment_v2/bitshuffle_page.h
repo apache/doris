@@ -105,7 +105,7 @@ public:
         DCHECK(!_finished);
         if (_remain_element_capacity <= 0) {
             *count = 0;
-            return Status::RuntimeError("page is full.");
+            return Status::OK();
         }
         int to_add = std::min<int>(_remain_element_capacity, *count);
         int to_add_size = to_add * SIZE_OF_TYPE;
