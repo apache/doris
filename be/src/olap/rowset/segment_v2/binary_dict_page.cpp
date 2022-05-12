@@ -75,13 +75,13 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         }
 
         for (int i = 0; i < *count; ++i, ++src) {
+            if (is_page_full()) {
+                break;
+            }
             auto iter = _dictionary.find(*src);
             if (iter != _dictionary.end()) {
                 value_code = iter->second;
             } else {
-                if (_dict_builder->is_page_full()) {
-                    break;
-                }
                 Slice dict_item(src->data, src->size);
                 if (src->size > 0) {
                     char* item_mem = (char*)_pool.allocate(src->size);
