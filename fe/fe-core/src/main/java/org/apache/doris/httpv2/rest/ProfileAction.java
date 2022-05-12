@@ -24,7 +24,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,12 +31,11 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 // This class is a RESTFUL interface to get query profile.
-// It will be used in query monitor to collect profiles.   
+// It will be used in query monitor to collect profiles.
 // Usage:
 //      wget http://fe_host:fe_http_port/api/profile?query_id=123456
 @RestController

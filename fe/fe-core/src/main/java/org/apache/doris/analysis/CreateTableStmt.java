@@ -38,7 +38,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -535,7 +534,7 @@ public class CreateTableStmt extends DdlStmt {
         if (partitionDesc != null) {
             sb.append("\n").append(partitionDesc.toSql());
         }
-        
+
         if (distributionDesc != null) {
             sb.append("\n").append(distributionDesc.toSql());
         }

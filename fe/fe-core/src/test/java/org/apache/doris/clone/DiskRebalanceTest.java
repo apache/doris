@@ -31,9 +31,9 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -44,9 +44,11 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Table;
 import com.google.common.collect.Maps;
-
+import com.google.common.collect.Table;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,10 +63,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class DiskRebalanceTest {
     private static final Logger LOG = LogManager.getLogger(DiskRebalanceTest.class);
@@ -176,7 +174,7 @@ public class DiskRebalanceTest {
 
         RebalancerTestUtil.createTablet(invertedIndex, db, olapTable, "p2", TStorageMedium.HDD,
                 70000, Lists.newArrayList(10001L, 10002L, 10003L));
-        
+
         // case start
         Configurator.setLevel("org.apache.doris.clone.DiskRebalancer", Level.DEBUG);
 
@@ -256,4 +254,3 @@ public class DiskRebalanceTest {
     }
 
 }
-

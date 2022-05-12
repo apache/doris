@@ -28,10 +28,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TTabletStat;
 import org.apache.doris.thrift.TTabletStatResult;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;

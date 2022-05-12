@@ -105,7 +105,7 @@ public class ShowDataStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-        
+
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         // order by
@@ -386,4 +386,3 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 }
-

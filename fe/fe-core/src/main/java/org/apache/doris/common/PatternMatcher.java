@@ -48,19 +48,19 @@ public class PatternMatcher {
      * '%' to match any character sequence
      * '_' to master any single character.
      * So we convert '%' to '.*', and '_' to '.'
-     * 
+     *
      * eg:
      *      abc% -> abc.*
      *      ab_c -> ab.c
-     *      
+     *
      * We also need to handle escape character '\'.
      * User use '\' to escape reserved words like '%', '_', or '\' it self
-     * 
+     *
      * eg:
      *      ab\%c = ab%c
      *      ab\_c = ab_c
      *      ab\\c = ab\c
-     *      
+     *
      * We also have to ignore meaningless '\' like：'ab\c', convert it to 'abc'.
      * The following characters are not permitted:
      *   <([{^=$!|]})?*+>
@@ -86,8 +86,8 @@ public class PatternMatcher {
                         // last character of this pattern. leave this '\' as it is
                         sb.append('\\');
                         break;
-                    } 
-                    // we need to look ahead the next character 
+                    }
+                    // we need to look ahead the next character
                     // to decide ignore this '\' or treat it as escape character.
                     char nextChar = newMysqlPattern.charAt(i + 1);
                     switch (nextChar) {

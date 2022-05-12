@@ -17,6 +17,12 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.Version;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
@@ -32,13 +38,6 @@ import oshi.software.os.OSProcess;
 import oshi.software.os.OperatingSystem;
 import oshi.util.FormatUtil;
 import oshi.util.Util;
-
-import org.apache.doris.common.Version;
-import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
-
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
 import java.util.ArrayList;

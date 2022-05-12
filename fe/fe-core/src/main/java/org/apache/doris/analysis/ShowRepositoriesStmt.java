@@ -30,7 +30,7 @@ public class ShowRepositoriesStmt extends ShowStmt {
             .build();
 
     public ShowRepositoriesStmt() {
-        
+
     }
 
     @Override

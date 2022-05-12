@@ -23,7 +23,6 @@ import org.apache.doris.common.Version;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 
 import com.google.common.base.Strings;
-
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -35,16 +34,16 @@ import javax.servlet.http.HttpServletResponse;
 /**
  * Api for checking the whether the FE has been started successfully.
  * Response
- *     {
- *     	"msg": "OK",
- *     	"code": 0,
- *     	"data": {
- *     		"queryPort": 9030,
- *     		"rpcPort": 9020,
- *     		"maxReplayedJournal": 17287
- *       },
- *     	"count": 0
- *     }
+ * {
+ *   "msg": "OK",
+ *   "code": 0,
+ *   "data": {
+ *     "queryPort": 9030,
+ *     "rpcPort": 9020,
+ *     "maxReplayedJournal": 17287
+ *    },
+ *   "count": 0
+ * }
  */
 @RestController
 public class BootstrapFinishAction {

@@ -26,9 +26,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
-import org.apache.doris.rewrite.ExprRewriter;
 
 import java.util.List;
 import java.util.Set;

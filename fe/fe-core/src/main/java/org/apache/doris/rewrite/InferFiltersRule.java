@@ -31,7 +31,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,8 +38,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The function of this rule is to derive a new predicate based on the current predicate.
@@ -64,10 +63,10 @@ public class InferFiltersRule implements ExprRewriteRule {
         if (expr == null) {
             return null;
         }
-        
+
         if (!analyzer.enableInferPredicate() || clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {
             return expr;
-        } 
+        }
 
         // slotEqSlotExpr: Record existing and infer equivalent connections
         List<Expr> slotEqSlotExpr = analyzer.getOnSlotEqSlotExpr();

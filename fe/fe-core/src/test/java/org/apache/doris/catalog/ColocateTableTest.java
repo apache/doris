@@ -28,6 +28,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Multimap;
+import com.google.common.collect.Table;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -36,9 +38,6 @@ import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
-
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Table;
 
 import java.io.File;
 import java.util.List;

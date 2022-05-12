@@ -17,10 +17,10 @@
 
 package org.apache.doris.httpv2.entity;
 
-import java.util.Map;
-
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+
+import java.util.Map;
 
 public class RestResult extends RestBaseResult {
 

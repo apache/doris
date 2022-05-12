@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TStorageMedium;
+
 import org.junit.Assert;
 import org.junit.Test;
 

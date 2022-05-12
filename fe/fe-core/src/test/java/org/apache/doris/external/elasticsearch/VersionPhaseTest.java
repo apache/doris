@@ -22,15 +22,13 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
 
+import mockit.Expectations;
+import mockit.Injectable;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-
-import static org.junit.Assert.assertTrue;
 
 public class VersionPhaseTest extends EsTestCase {
 
@@ -52,7 +50,6 @@ public class VersionPhaseTest extends EsTestCase {
         VersionPhase versionPhase = new VersionPhase(client);
         ExceptionChecker.expectThrowsNoException(() -> versionPhase.preProcess(context));
         ExceptionChecker.expectThrowsNoException(() -> versionPhase.execute(context));
-        assertTrue(context.version().on(EsMajorVersion.V_6_X));
+        Assert.assertTrue(context.version().on(EsMajorVersion.V_6_X));
     }
-
 }

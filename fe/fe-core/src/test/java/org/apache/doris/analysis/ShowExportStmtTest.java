@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;

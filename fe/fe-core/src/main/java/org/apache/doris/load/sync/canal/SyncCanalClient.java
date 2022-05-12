@@ -20,10 +20,8 @@ package org.apache.doris.load.sync.canal;
 import org.apache.doris.load.sync.SyncChannel;
 
 import com.alibaba.otter.canal.client.CanalConnector;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

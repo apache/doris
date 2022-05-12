@@ -119,7 +119,7 @@ public class MarkDownParser {
         if (head != null) {
             documents.put(head, keyValues);
         }
-        
+
         checkStructure();
         return documents;
     }
@@ -170,4 +170,3 @@ public class MarkDownParser {
                 sb.toString().replaceAll("\\s+$", "\n"));
     }
 }
-

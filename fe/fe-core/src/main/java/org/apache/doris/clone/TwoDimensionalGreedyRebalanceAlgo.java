@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.common.Pair;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -135,7 +136,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // Nothing to balance: cluster is empty.
             return Lists.newArrayList();
         }
-		
+
         NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
         if (keySet.isEmpty() || keySet.last() == 0L) {
             // the number of replica on specified medium we get from getReplicaNumByBeIdAndStorageMedium() is

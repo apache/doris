@@ -29,11 +29,10 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
 import java.util.Map;
@@ -60,7 +59,7 @@ public class AuditLogBuilder extends Plugin implements AuditPlugin {
 
     public AuditLogBuilder() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditLogBuilder", PluginType.AUDIT,
-                "builtin audit logger", DigitalVersion.fromString("0.12.0"), 
+                "builtin audit logger", DigitalVersion.fromString("0.12.0"),
                 DigitalVersion.fromString("1.8.31"), AuditLogBuilder.class.getName(), null, null);
         loadAnnotationSet = Sets.newHashSet(LOAD_ANNONATION_NAMES);
         streamLoadAnnotationSet = Sets.newHashSet(STREAM_LOAD_ANNONATION_NAMES);

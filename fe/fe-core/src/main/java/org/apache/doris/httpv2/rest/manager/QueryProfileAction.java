@@ -37,7 +37,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,7 +51,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -242,13 +240,13 @@ public class QueryProfileAction extends RestBaseController {
 
     // Returns the fragments and instances for the specified query id.
     // [
-    //		{
-    //			"fragment_id":"",
-    //			"time":"",
-    //			"instance_id":[
-    //				""
-    //			]
-    //		}
+    //   {
+    //     "fragment_id":"",
+    //     "time":"",
+    //     "instance_id":[
+    //       ""
+    //     ]
+    //   }
     // ]
     @RequestMapping(path = "/profile/fragments/{query_id}", method = RequestMethod.GET)
     public Object fragments(HttpServletRequest request, HttpServletResponse response,

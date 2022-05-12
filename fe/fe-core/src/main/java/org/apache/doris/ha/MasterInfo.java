@@ -25,7 +25,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class MasterInfo implements Writable {
-    
+
     private String ip;
     private int httpPort;
     private int rpcPort;
@@ -35,7 +35,7 @@ public class MasterInfo implements Writable {
         this.httpPort = 0;
         this.rpcPort = 0;
     }
-    
+
     public MasterInfo(String ip, int httpPort, int rpcPort) {
         this.ip = ip;
         this.httpPort = httpPort;
@@ -45,23 +45,23 @@ public class MasterInfo implements Writable {
     public String getIp() {
         return this.ip;
     }
-    
+
     public void setIp(String ip) {
         this.ip = ip;
     }
-    
+
     public int getHttpPort() {
         return this.httpPort;
     }
-    
+
     public void setHttpPort(int httpPort) {
         this.httpPort = httpPort;
     }
-    
+
     public int getRpcPort() {
         return this.rpcPort;
     }
-    
+
     public void setRpcPort(int rpcPort) {
         this.rpcPort = rpcPort;
     }

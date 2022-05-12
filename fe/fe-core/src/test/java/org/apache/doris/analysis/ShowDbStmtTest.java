@@ -17,11 +17,11 @@
 
 package org.apache.doris.analysis;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+
+import org.junit.Assert;
+import org.junit.Test;
 
 public class ShowDbStmtTest {
     @Test
