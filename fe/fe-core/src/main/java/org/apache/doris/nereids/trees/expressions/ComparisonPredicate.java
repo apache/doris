@@ -24,7 +24,7 @@ import org.apache.doris.nereids.types.DataType;
 
 /**
  * Comparison predicate expression.
- * Such as: "=", "!=", "<", "<=", ">", ">=", "<=>"
+ * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
 public class ComparisonPredicate<
     LEFT_CHILD_TYPE extends Expression,

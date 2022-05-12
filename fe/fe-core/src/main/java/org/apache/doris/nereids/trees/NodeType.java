@@ -50,8 +50,7 @@ public enum NodeType {
     LESS_THAN_EQUAL,
     GREATER_THAN_EQUAL,
     NULL_SAFE_EQUAL,
-    NOT_EXPRESSION,
-
+    NOT,
     ALIAS,
 
     // pattern

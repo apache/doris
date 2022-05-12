@@ -23,7 +23,7 @@ import org.apache.doris.nereids.trees.NodeType;
 public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYPE>>
     implements UnaryExpression<Not<CHILD_TYPE>, CHILD_TYPE> {
     public Not(CHILD_TYPE child) {
-        super(NodeType.NOT_EXPRESSION, child);
+        super(NodeType.NOT, child);
     }
 
     @Override

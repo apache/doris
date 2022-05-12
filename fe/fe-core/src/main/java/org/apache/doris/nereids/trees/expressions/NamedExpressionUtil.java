@@ -24,7 +24,7 @@ public class NamedExpressionUtil {
     /**
      * Tool class for generate next ExprId.
      */
-    static final UUID JVM_ID = UUID.randomUUID();
+    private static final UUID JVM_ID = UUID.randomUUID();
     private static final AtomicLong CURRENT_ID = new AtomicLong();
 
     public static ExprId newExprId() {
