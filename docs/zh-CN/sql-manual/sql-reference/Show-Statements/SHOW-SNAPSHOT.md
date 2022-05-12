@@ -58,13 +58,13 @@ SHOW SNAPSHOT ON `repo_name`
     SHOW SNAPSHOT ON example_repo;
     ```
 
-1. 仅查看仓库 example_repo 中名称为 backup1 的备份：
+2. 仅查看仓库 example_repo 中名称为 backup1 的备份：
     
     ```sql
     SHOW SNAPSHOT ON example_repo WHERE SNAPSHOT = "backup1";
     ```
 
-1. 查看仓库 example_repo 中名称为 backup1 的备份，时间版本为 "2018-05-05-15-34-26" 的详细信息：
+3. 查看仓库 example_repo 中名称为 backup1 的备份，时间版本为 "2018-05-05-15-34-26" 的详细信息：
     
     ```sql
     SHOW SNAPSHOT ON example_repo
