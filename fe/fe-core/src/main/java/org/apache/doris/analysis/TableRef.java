@@ -627,25 +627,25 @@ public class TableRef implements ParseNode, Writable {
     /**
      * Return the table ref presentation to be used in the toSql string
      */
+    // tbl1
+    // tbl1 alias_tbl1
+    // tbl1 alias_tbl1 lateral view explode_split(k1, ",") tmp1 as e1
+    // (select xxx from xxx) t1 alias_tbl1 xxx
     public String tableRefToSql() {
-        String aliasSql = null;
-        String alias = getExplicitAlias();
-        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
-
-        // TODO(zc):
-        // List<String> path = rawPath_;
-        // if (resolvedPath_ != null) path = resolvedPath_.getFullyQualifiedRawPath();
-        // return ToSqlUtils.getPathSql(path) + ((aliasSql != null) ? " " + aliasSql : "");
-
-        // tbl1
-        // tbl1 alias_tbl1
-        // tbl1 alias_tbl1 lateral view explode_split(k1, ",") tmp1 as e1
-        String tblName = name.toSql() + ((aliasSql != null) ? " " + aliasSql : "");
+        String tblName = tableNameToSql();
         if (lateralViewRefs != null) {
             for (LateralViewRef viewRef : lateralViewRefs) {
                 tblName += " " + viewRef.toSql();
             }
         }
+        return tblName;
+    }
+
+    protected String tableNameToSql() {
+        String aliasSql = null;
+        String alias = getExplicitAlias();
+        if (alias != null) aliasSql = ToSqlUtils.getIdentSql(alias);
+        String tblName = name.toSql() + ((aliasSql != null) ? " " + aliasSql : "");
         return tblName;
     }
 

@@ -207,7 +207,7 @@ public abstract class QueryStmt extends StatementBase {
      *     (the statement is 'self-contained' with respect to correlation)
      */
     public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer)
-            throws AnalysisException {
+        throws AnalysisException {
         // Correlated tuple ids of this stmt.
         List<TupleId> correlatedTupleIds = Lists.newArrayList();
         // First correlated and absolute table refs. Used for error detection/reporting.
