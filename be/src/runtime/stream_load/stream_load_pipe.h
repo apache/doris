@@ -35,8 +35,8 @@ const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
     StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
-                   size_t min_chunk_size = 64 * 1024,
-                   int64_t total_length = -1, bool use_proto = false)
+                   size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
+                   bool use_proto = false)
             : _buffered_bytes(0),
               _proto_buffered_bytes(0),
               _max_buffered_bytes(max_buffered_bytes),

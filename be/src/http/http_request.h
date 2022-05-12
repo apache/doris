@@ -72,9 +72,7 @@ public:
     void set_handler(HttpHandler* handler) { _handler = handler; }
     HttpHandler* handler() const { return _handler; }
 
-    struct evhttp_request* get_evhttp_request() const {
-        return _ev_req;
-    }
+    struct evhttp_request* get_evhttp_request() const { return _ev_req; }
 
     void* handler_ctx() const { return _handler_ctx; }
     void set_handler_ctx(void* ctx) {
