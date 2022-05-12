@@ -704,7 +704,7 @@ IsMutable：true
 
 MasterOnly：true
 
-the threshold of cluster balance score, if a backend's load score is 10% lower than average score, this backend will be marked as LOW load, if load score is 10% higher than average score, and its capacity usedPercent is greater than the config `high_load_capacity_used_percent_threshold`, default 0.4, HIGH load will be marked
+the threshold of cluster balance score, if a backend's load score is 10% lower than average score, this backend will be marked as LOW load, if load score is 10% higher than average score, and its capacity usedPercent is greater than the config `high_load_capacity_used_percent_threshold`, default 0.5, HIGH load will be marked
 
 ### high_load_capacity_used_percent_threshold
 
