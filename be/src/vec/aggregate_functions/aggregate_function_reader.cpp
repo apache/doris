@@ -31,7 +31,7 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function("max", create_aggregate_function_max);
     register_function("min", create_aggregate_function_min);
     register_function("bitmap_union", create_aggregate_function_bitmap_union);
-    register_function("hll_union", create_aggregate_function_HLL_union<false>);
+    register_function("hll_union", create_aggregate_function_HLL_union);
 }
 
 // only replace funtion in load/reader do different agg operation.

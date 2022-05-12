@@ -30,7 +30,7 @@
 
 namespace doris::vectorized {
 
-template <bool is_nullable>
+template <bool arg_is_nullable>
 struct AggregateFunctionHLLData {
     HyperLogLog dst_hll {};
 
@@ -56,7 +56,7 @@ struct AggregateFunctionHLLData {
     void reset() { dst_hll.clear(); }
 
     void add(const IColumn* column, size_t row_num) {
-        if constexpr (is_nullable) {
+        if constexpr (arg_is_nullable) {
             auto* nullable_column = check_and_get_column<const ColumnNullable>(*column);
             if (nullable_column->is_null_at(row_num)) {
                 return;
@@ -132,7 +132,6 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
-template <bool is_nullable = false>
 AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
                                                          const DataTypes& argument_types,
                                                          const Array& parameters,

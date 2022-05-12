@@ -24,19 +24,19 @@
 
 namespace doris::vectorized {
 
-template <bool is_nullable>
+template <bool arg_is_nullable>
 AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::string& name,
                                                                  const DataTypes& argument_types,
                                                                  const Array& parameters,
                                                                  const bool result_is_nullable) {
     if (argument_types.size() == 1) {
-        return std::make_shared<AggregateFunctionPercentileApproxMerge<is_nullable>>(
+        return std::make_shared<AggregateFunctionPercentileApproxMerge<arg_is_nullable>>(
                 argument_types);
     } else if (argument_types.size() == 2) {
-        return std::make_shared<AggregateFunctionPercentileApproxTwoParams<is_nullable>>(
+        return std::make_shared<AggregateFunctionPercentileApproxTwoParams<arg_is_nullable>>(
                 argument_types);
     } else if (argument_types.size() == 3) {
-        return std::make_shared<AggregateFunctionPercentileApproxThreeParams<is_nullable>>(
+        return std::make_shared<AggregateFunctionPercentileApproxThreeParams<arg_is_nullable>>(
                 argument_types);
     }
     LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",

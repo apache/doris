@@ -241,14 +241,14 @@ struct SampData : Data {
     }
 };
 
-template <bool is_pop, typename Data, bool is_nullable>
+template <bool is_pop, typename Data, bool arg_is_nullable>
 class AggregateFunctionSampVariance
         : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>> {
+                  Data, AggregateFunctionSampVariance<is_pop, Data, arg_is_nullable>> {
 public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(
+                      Data, AggregateFunctionSampVariance<is_pop, Data, arg_is_nullable>>(
                       argument_types_, {}) {}
 
     String get_name() const override { return Data::name(); }
@@ -266,7 +266,7 @@ public:
         if constexpr (is_pop) {
             this->data(place).add(columns[0], row_num);
         } else {
-            if constexpr (is_nullable) {
+            if constexpr (arg_is_nullable) {
                 const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
                 if (!nullable_column->is_null_at(row_num)) {
                     this->data(place).add(&nullable_column->get_nested_column(), row_num);
@@ -300,19 +300,19 @@ public:
 
 //samp function it's always nullables, it's need to handle nullable column
 //so return type and add function should processing null values
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp final : public AggregateFunctionSampVariance<false, Data, is_nullable> {
+template <typename Data, bool arg_is_nullable>
+class AggregateFunctionSamp final : public AggregateFunctionSampVariance<false, Data, arg_is_nullable> {
 public:
     AggregateFunctionSamp(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
+            : AggregateFunctionSampVariance<false, Data, arg_is_nullable>(argument_types_) {}
 };
 
 //pop function have use AggregateFunctionNullBase function, so needn't processing null values
-template <typename Data, bool is_nullable>
-class AggregateFunctionPop final : public AggregateFunctionSampVariance<true, Data, is_nullable> {
+template <typename Data, bool arg_is_nullable>
+class AggregateFunctionPop final : public AggregateFunctionSampVariance<true, Data, arg_is_nullable> {
 public:
     AggregateFunctionPop(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<true, Data, is_nullable>(argument_types_) {}
+            : AggregateFunctionSampVariance<true, Data, arg_is_nullable>(argument_types_) {}
 };
 
 } // namespace doris::vectorized

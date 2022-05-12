@@ -22,37 +22,44 @@
 
 namespace doris::vectorized {
 
-template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_HLL_union_agg(const std::string& name,
                                                              const DataTypes& argument_types,
                                                              const Array& parameters,
                                                              const bool result_is_nullable) {
     assert_no_parameters(name, parameters);
     assert_arity_at_most<1>(name, argument_types);
-
-    return std::make_shared<AggregateFunctionHLLUnion<
-            AggregateFunctionHLLUnionAggImpl<AggregateFunctionHLLData<is_nullable>>>>(
-            argument_types);
+    const bool arg_is_nullable = argument_types[0]->is_nullable();
+    if (arg_is_nullable) {
+        return std::make_shared<AggregateFunctionHLLUnion<
+                AggregateFunctionHLLUnionAggImpl<AggregateFunctionHLLData<true>>>>(argument_types);
+    } else {
+        return std::make_shared<AggregateFunctionHLLUnion<
+                AggregateFunctionHLLUnionAggImpl<AggregateFunctionHLLData<false>>>>(argument_types);
+    }
 }
 
-template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_HLL_union(const std::string& name,
                                                          const DataTypes& argument_types,
                                                          const Array& parameters,
                                                          const bool result_is_nullable) {
     assert_no_parameters(name, parameters);
     assert_arity_at_most<1>(name, argument_types);
-
-    return std::make_shared<AggregateFunctionHLLUnion<
-            AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData<is_nullable>>>>(argument_types);
+    const bool arg_is_nullable = argument_types[0]->is_nullable();
+    if (arg_is_nullable) {
+        return std::make_shared<AggregateFunctionHLLUnion<
+                AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData<true>>>>(argument_types);
+    } else {
+        return std::make_shared<AggregateFunctionHLLUnion<
+                AggregateFunctionHLLUnionImpl<AggregateFunctionHLLData<false>>>>(argument_types);
+    }
 }
 
 void register_aggregate_function_HLL_union_agg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<false>);
-    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg<true>, true);
+    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg);
+    factory.register_function("hll_union_agg", create_aggregate_function_HLL_union_agg, true);
 
-    factory.register_function("hll_union", create_aggregate_function_HLL_union<false>);
-    factory.register_function("hll_union", create_aggregate_function_HLL_union<true>, true);
+    factory.register_function("hll_union", create_aggregate_function_HLL_union);
+    factory.register_function("hll_union", create_aggregate_function_HLL_union, true);
     factory.register_alias("hll_union", "hll_raw_agg");
 }
 

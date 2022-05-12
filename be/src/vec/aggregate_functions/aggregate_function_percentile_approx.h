@@ -169,7 +169,7 @@ public:
 };
 
 // only for merge
-template <bool is_nullable>
+template <bool arg_is_nullable>
 class AggregateFunctionPercentileApproxMerge : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxMerge(const DataTypes& argument_types_)
@@ -180,14 +180,14 @@ public:
     }
 };
 
-template <bool is_nullable>
+template <bool arg_is_nullable>
 class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        if constexpr (is_nullable) {
+        if constexpr (arg_is_nullable) {
             double column_data[2] = {0, 0};
 
             for (int i = 0; i < 2; ++i) {
@@ -220,14 +220,14 @@ public:
     }
 };
 
-template <bool is_nullable>
+template <bool arg_is_nullable>
 class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
 public:
     AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
             : AggregateFunctionPercentileApprox(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
-        if constexpr (is_nullable) {
+        if constexpr (arg_is_nullable) {
             double column_data[3] = {0, 0, 0};
 
             for (int i = 0; i < 3; ++i) {
