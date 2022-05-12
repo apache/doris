@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 /** NOTE HashMap could only be used for memmoveable (position independent) types.

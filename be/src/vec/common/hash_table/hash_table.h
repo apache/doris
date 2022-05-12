@@ -29,8 +29,10 @@
 #include "common/status.h"
 #include "util/runtime_profile.h"
 #include "vec/common/exception.h"
+#include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 #include "vec/common/hash_table/hash_table_key_holder.h"
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 
@@ -787,6 +789,32 @@ public:
         const auto& key = key_holder_get_key(key_holder);
         if (!emplace_if_zero(key, it, inserted, hash_value))
             emplace_non_zero(key_holder, it, inserted, hash_value);
+    }
+
+    void hash(const doris::vectorized::ColumnRawPtrs& cols,
+              std::unique_ptr<doris::vectorized::PaddedPODArray<uint64_t>>& hashes) {
+        size_t row = cols[0]->size();
+        if (cols[0]->is_nullable()) {
+            auto nullable_col = assert_cast<const doris::vectorized::ColumnNullable*>(cols[0]);
+            const auto& null_map = nullable_col->get_null_map_data();
+            tight_loop_hash(nullable_col->get_nested_column_ptr(), &null_map, hashes.get());
+        } else {
+            tight_loop_hash(cols[0], nullptr, hashes.get());
+        }
+
+        for (size_t col_id = 1; col_id < cols.size(); col_id++) {
+            auto result = std::make_unique<doris::vectorized::PaddedPODArray<uint64_t>>(row);
+            if (cols[col_id]->is_nullable()) {
+                auto nullable_col =
+                        assert_cast<const doris::vectorized::ColumnNullable*>(cols[col_id]);
+                const auto& null_map = nullable_col->get_null_map_data();
+                tight_loop_combine_hash(nullable_col->get_nested_column_ptr(), &null_map,
+                                        hashes.get(), result.get());
+            } else {
+                tight_loop_combine_hash(cols[col_id], nullptr, hashes.get(), result.get());
+            }
+            hashes.reset(result.release());
+        }
     }
 
     /// Copy the cell from another hash table. It is assumed that the cell is not zero, and also that there was no such key in the table yet.

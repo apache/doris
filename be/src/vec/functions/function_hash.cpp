@@ -21,11 +21,18 @@
 #include "vec/functions/function_hash.h"
 
 #include "util/hash_util.hpp"
+#include "vec/common/hash_table/hash.h"
 #include "vec/functions/function_variadic_arguments.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
+struct IntHash64Impl {
+    using ReturnType = UInt64;
+
+    static UInt64 apply(UInt64 x) { return int_hash64(x ^ 0x4CF2D2BAAE6DA887ULL); }
+};
+
 struct MurmurHash2Impl64 {
     static constexpr auto name = "murmurHash2_64";
     using ReturnType = UInt64;

@@ -22,6 +22,7 @@
 
 #include <type_traits>
 
+#include "vec/columns/column_nullable.h"
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 
@@ -93,6 +94,9 @@ template <typename T>
 struct DefaultHash<T, std::enable_if_t<std::is_arithmetic_v<T>>> {
     size_t operator()(T key) const { return default_hash64<T>(key); }
 };
+
+template <>
+struct DefaultHash<StringRef> : public StringRefHash {};
 
 template <typename T>
 struct HashCRC32;
@@ -200,3 +204,128 @@ template <typename T, doris::vectorized::UInt64 salt = 0>
 struct IntHash32 {
     size_t operator()(const T& key) const { return int_hash32<salt>(key); }
 };
+
+// efficient hash function that maximizes the avalanche effect and minimizes
+// bias
+// see: https://nullprogram.com/blog/2018/07/31/
+
+inline uint64_t murmurhash64(doris::vectorized::Int64 x) {
+    return x * UINT64_C(0xbf58476d1ce4e5b9);
+}
+
+inline uint64_t murmurhash32(doris::vectorized::UInt32 x) {
+    return murmurhash64(x);
+}
+
+template <class T>
+inline uint64_t Hash(T value) {
+    return murmurhash32(value);
+}
+
+inline uint64_t combine_hash(uint64_t left, uint64_t right) {
+    return left ^ right;
+}
+
+template <>
+uint64_t Hash(doris::vectorized::UInt64 val);
+
+template <>
+uint64_t Hash(doris::vectorized::Int64 val);
+
+template <>
+uint64_t Hash(doris::vectorized::Int128 val);
+
+template <>
+uint64_t Hash(doris::vectorized::Float32 val);
+
+template <>
+uint64_t Hash(doris::vectorized::Float64 val);
+
+uint64_t Hash(const char* val, size_t size);
+
+template <>
+uint64_t Hash(StringRef val);
+
+struct HashOperator {
+    static const uint64_t NULL_HASH = 0xbf58476d1ce4e5b9;
+
+    template <typename T>
+    static ALWAYS_INLINE uint64_t execute(T input, bool is_null) {
+        return is_null ? NULL_HASH : Hash<T>(input);
+    }
+};
+
+template <typename T>
+ALWAYS_INLINE void tight_loop_hash(
+        const T& __restrict col, doris::vectorized::ConstNullMapPtr __restrict null_map,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict result_data) {
+    size_t row = col->size();
+    if (null_map != nullptr) {
+        for (size_t i = 0; i < row; i++) {
+            result_data->operator[](i) =
+                    HashOperator::execute(col->get_data_at(i), null_map[i] != 0);
+        }
+    } else {
+        for (size_t i = 0; i < row; i++) {
+            result_data->operator[](i) = Hash(col->get_data_at(i));
+        }
+    }
+}
+
+template <typename T>
+ALWAYS_INLINE void tight_loop_hash(
+        const doris::vectorized::ColumnVector<T>& __restrict col,
+        doris::vectorized::ConstNullMapPtr __restrict null_map,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict result_data) {
+    size_t row = col->size();
+    if (null_map != nullptr) {
+        for (size_t i = 0; i < row; i++) {
+            result_data->operator[](i) = HashOperator::execute(col->get_data(i), null_map[i] != 0);
+        }
+    } else {
+        for (size_t i = 0; i < row; i++) {
+            result_data->operator[](i) = Hash(col->get_data(i));
+        }
+    }
+}
+
+template <typename T>
+ALWAYS_INLINE void tight_loop_combine_hash(
+        const T& __restrict col, doris::vectorized::ConstNullMapPtr __restrict null_map,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict hashes,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict result_data) {
+    size_t row = col->size();
+    if (null_map != nullptr) {
+        for (size_t i = 0; i < row; i++) {
+            uint64_t current_result_data =
+                    HashOperator::execute(col->get_data_at(i), null_map[i] != 0);
+            result_data->operator[](i) = combine_hash(hashes->operator[](i), current_result_data);
+        }
+    } else {
+        for (size_t i = 0; i < row; i++) {
+            uint64_t current_result_data = Hash(col->get_data_at(i));
+            result_data->operator[](i) = combine_hash(hashes->operator[](i), current_result_data);
+        }
+    }
+}
+
+template <typename T>
+ALWAYS_INLINE void tight_loop_combine_hash(
+        const doris::vectorized::ColumnVector<T>& __restrict col,
+        doris::vectorized::ConstNullMapPtr __restrict null_map,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict hashes,
+        doris::vectorized::PaddedPODArray<uint64_t>* __restrict result_data) {
+    size_t row = col->size();
+    if (null_map != nullptr) {
+        for (size_t i = 0; i < row; i++) {
+            uint64_t current_result_data =
+                    HashOperator::execute(col->get_data()[i], null_map[i] != 0);
+            result_data->operator[](i) = combine_hash(hashes->operator[](i), current_result_data);
+        }
+    } else {
+        for (size_t i = 0; i < row; i++) {
+            uint64_t current_result_data = Hash(col->get_data()[i]);
+            result_data->operator[](i) = combine_hash(hashes->operator[](i), current_result_data);
+        }
+    }
+}

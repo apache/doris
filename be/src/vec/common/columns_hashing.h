@@ -114,7 +114,7 @@ protected:
 template <typename Value, typename Mapped>
 struct HashMethodSerialized
         : public columns_hashing_impl::HashMethodBase<HashMethodSerialized<Value, Mapped>, Value,
-                                                      Mapped, false> {
+                                                      Mapped, false, true> {
     using Self = HashMethodSerialized<Value, Mapped>;
     using Base = columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
 
@@ -126,7 +126,7 @@ struct HashMethodSerialized
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
 protected:
-    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
+    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false, true>;
 
     ALWAYS_INLINE SerializedKeyHolder get_key_holder(size_t row, Arena& pool) const {
         return SerializedKeyHolder {

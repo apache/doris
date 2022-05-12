@@ -42,6 +42,7 @@ class VExprContext;
   */
 template <typename TData>
 struct AggregationMethodSerialized {
+    static constexpr bool need_hash_keys = true;
     using Data = TData;
     using Key = typename Data::key_type;
     using Mapped = typename Data::mapped_type;
@@ -79,6 +80,7 @@ using AggregatedDataWithStringKey = HashMapWithSavedHash<StringRef, AggregateDat
 /// FieldType is UInt8/16/32/64 for any type with corresponding bit width.
 template <typename FieldType, typename TData, bool consecutive_keys_optimization = true>
 struct AggregationMethodOneNumber {
+    static constexpr bool need_hash_keys = false;
     using Data = TData;
     using Key = typename Data::key_type;
     using Mapped = typename Data::mapped_type;
@@ -141,6 +143,7 @@ private:
 
 template <typename TData, bool has_nullable_keys_ = false>
 struct AggregationMethodKeysFixed {
+    static constexpr bool need_hash_keys = false;
     using Data = TData;
     using Key = typename Data::key_type;
     using Mapped = typename Data::mapped_type;
@@ -217,6 +220,7 @@ struct AggregationMethodKeysFixed {
 /// Single low cardinality column.
 template <typename SingleColumnMethod>
 struct AggregationMethodSingleNullableColumn : public SingleColumnMethod {
+    static constexpr bool need_hash_keys = false;
     using Base = SingleColumnMethod;
     using BaseState = typename Base::State;
 

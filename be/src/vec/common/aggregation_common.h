@@ -26,14 +26,10 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash.h"
 #include "vec/common/memcpy_small.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/uint128.h"
-
-template <>
-struct DefaultHash<StringRef> : public StringRefHash {};
 
 namespace doris::vectorized {
 

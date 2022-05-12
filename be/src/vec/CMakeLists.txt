@@ -51,6 +51,7 @@ set(VEC_FILES
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
+  common/hash_table/hash.cpp
   common/pod_array.cpp
   common/string_utils/string_utils.cpp
   core/block.cpp

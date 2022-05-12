@@ -23,6 +23,8 @@
 #include "runtime/mem_pool.h"
 #include "runtime/row_batch.h"
 #include "util/defer_op.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/pod_array_fwd.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
@@ -741,26 +743,44 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                 [&](auto&& agg_method) -> void {
                     using HashMethodType = std::decay_t<decltype(agg_method)>;
                     using AggState = typename HashMethodType::State;
+                    using DataType = std::decay_t<decltype(agg_method.data)>;
+                    using Mapped = typename HashMethodType::Mapped;
+                    using EmplaceResult = typename AggState::EmplaceResult;
                     AggState state(key_columns, _probe_key_sz, nullptr);
+                    auto get_hashes = [&]() -> std::unique_ptr<PaddedPODArray<uint64_t>> {
+                        if constexpr (HashMethodType::need_hash_keys) {
+                            auto hashes = std::make_unique<PaddedPODArray<uint64_t>>(rows);
+                            state.hash_keys(agg_method.data, hashes);
+                            return hashes;
+                        } else {
+                            return std::unique_ptr<PaddedPODArray<uint64_t>>(nullptr);
+                        }
+                    };
+                    [[maybe_unused]] auto hashes = get_hashes();
+
                     /// For all rows.
                     for (size_t i = 0; i < rows; ++i) {
+                        auto get_result = [&]() -> EmplaceResult {
+                            if constexpr (HashMethodType::need_hash_keys) {
+                                return state.emplace_key(agg_method.data, i, _agg_arena_pool,
+                                                         hashes->operator[](i));
+                            } else {
+                                return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                            }
+                        };
+                        auto result = get_result();
                         AggregateDataPtr aggregate_data = nullptr;
-
-                        auto emplace_result =
-                                state.emplace_key(agg_method.data, i, _agg_arena_pool);
-
                         /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                        if (emplace_result.is_inserted()) {
+                        if (result.is_inserted()) {
                             /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                            emplace_result.set_mapped(nullptr);
-
+                            result.set_mapped(nullptr);
                             aggregate_data = _agg_arena_pool.aligned_alloc(
                                     _total_size_of_aggregate_states, _align_aggregate_states);
                             _create_agg_status(aggregate_data);
 
-                            emplace_result.set_mapped(aggregate_data);
+                            result.set_mapped(aggregate_data);
                         } else
-                            aggregate_data = emplace_result.get_mapped();
+                            aggregate_data = result.get_mapped();
 
                         places[i] = aggregate_data;
                         assert(places[i] != nullptr);
@@ -802,25 +822,45 @@ Status AggregationNode::_execute_with_serialized_key(Block* block) {
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
+                using DataType = std::decay_t<decltype(agg_method.data)>;
+                using Mapped = typename HashMethodType::Mapped;
+                using EmplaceResult = typename AggState::EmplaceResult;
                 AggState state(key_columns, _probe_key_sz, nullptr);
+
+                auto get_hashes = [&]() -> std::unique_ptr<PaddedPODArray<uint64_t>> {
+                    if constexpr (HashMethodType::need_hash_keys) {
+                        auto hashes = std::make_unique<PaddedPODArray<uint64_t>>(rows);
+                        state.hash_keys(agg_method.data, hashes);
+                        return hashes;
+                    } else {
+                        return std::unique_ptr<PaddedPODArray<uint64_t>>(nullptr);
+                    }
+                };
+                [[maybe_unused]] auto hashes = get_hashes();
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
+                    auto get_result = [&]() -> EmplaceResult {
+                        if constexpr (HashMethodType::need_hash_keys) {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool,
+                                                     hashes->operator[](i));
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    };
+                    auto result = get_result();
                     AggregateDataPtr aggregate_data = nullptr;
-
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
-
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
+                    if (result.is_inserted()) {
                         /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-
+                        result.set_mapped(nullptr);
                         aggregate_data = _agg_arena_pool.aligned_alloc(
                                 _total_size_of_aggregate_states, _align_aggregate_states);
                         _create_agg_status(aggregate_data);
 
-                        emplace_result.set_mapped(aggregate_data);
+                        result.set_mapped(aggregate_data);
                     } else
-                        aggregate_data = emplace_result.get_mapped();
+                        aggregate_data = result.get_mapped();
 
                     places[i] = aggregate_data;
                     assert(places[i] != nullptr);
@@ -943,7 +983,6 @@ Status AggregationNode::_serialize_with_serialized_key_result(RuntimeState* stat
         }
         value_buffer_writers.emplace_back(*reinterpret_cast<ColumnString*>(value_columns[i].get()));
     }
-
     std::visit(
             [&](auto&& agg_method) -> void {
                 agg_method.init_once();
@@ -1021,25 +1060,45 @@ Status AggregationNode::_merge_with_serialized_key(Block* block) {
             [&](auto&& agg_method) -> void {
                 using HashMethodType = std::decay_t<decltype(agg_method)>;
                 using AggState = typename HashMethodType::State;
+                using DataType = std::decay_t<decltype(agg_method.data)>;
+                using Mapped = typename HashMethodType::Mapped;
+                using EmplaceResult = typename AggState::EmplaceResult;
                 AggState state(key_columns, _probe_key_sz, nullptr);
+
+                auto get_hashes = [&]() -> std::unique_ptr<PaddedPODArray<uint64_t>> {
+                    if constexpr (HashMethodType::need_hash_keys) {
+                        auto hashes = std::make_unique<PaddedPODArray<uint64_t>>(rows);
+                        state.hash_keys(agg_method.data, hashes);
+                        return hashes;
+                    } else {
+                        return std::unique_ptr<PaddedPODArray<uint64_t>>(nullptr);
+                    }
+                };
+                [[maybe_unused]] auto hashes = get_hashes();
+
                 /// For all rows.
                 for (size_t i = 0; i < rows; ++i) {
+                    auto get_result = [&]() -> EmplaceResult {
+                        if constexpr (HashMethodType::need_hash_keys) {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool,
+                                                     hashes->operator[](i));
+                        } else {
+                            return state.emplace_key(agg_method.data, i, _agg_arena_pool);
+                        }
+                    };
+                    auto result = get_result();
                     AggregateDataPtr aggregate_data = nullptr;
-
-                    auto emplace_result = state.emplace_key(agg_method.data, i, _agg_arena_pool);
-
                     /// If a new key is inserted, initialize the states of the aggregate functions, and possibly something related to the key.
-                    if (emplace_result.is_inserted()) {
+                    if (result.is_inserted()) {
                         /// exception-safety - if you can not allocate memory or create states, then destructors will not be called.
-                        emplace_result.set_mapped(nullptr);
-
+                        result.set_mapped(nullptr);
                         aggregate_data = _agg_arena_pool.aligned_alloc(
                                 _total_size_of_aggregate_states, _align_aggregate_states);
                         _create_agg_status(aggregate_data);
 
-                        emplace_result.set_mapped(aggregate_data);
+                        result.set_mapped(aggregate_data);
                     } else
-                        aggregate_data = emplace_result.get_mapped();
+                        aggregate_data = result.get_mapped();
 
                     places[i] = aggregate_data;
                     assert(places[i] != nullptr);
