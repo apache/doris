@@ -22,8 +22,8 @@ import org.apache.doris.nereids.trees.NodeType;
 /**
  * Abstract class for all slot in expression.
  */
-public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>>
-    extends NamedExpression<EXPR_TYPE> implements LeafExpression<EXPR_TYPE> {
+public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
+        implements LeafExpression<EXPR_TYPE> {
 
     public Slot(NodeType type) {
         super(type);

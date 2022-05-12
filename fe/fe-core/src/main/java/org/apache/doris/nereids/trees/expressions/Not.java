@@ -20,8 +20,11 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
+/**
+ * Not expression: not a
+ */
 public class Not<CHILD_TYPE extends Expression> extends Expression<Not<CHILD_TYPE>>
-    implements UnaryExpression<Not<CHILD_TYPE>, CHILD_TYPE> {
+        implements UnaryExpression<Not<CHILD_TYPE>, CHILD_TYPE> {
     public Not(CHILD_TYPE child) {
         super(NodeType.NOT, child);
     }

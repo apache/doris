@@ -20,8 +20,12 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
+/**
+ * Null safe equal expression: a <=> b
+ * Unlike normal equal to expression, null <=> null is true
+ */
 public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
     /**
      * Constructor of Null Safe Equal ComparisonPredicate.
      *

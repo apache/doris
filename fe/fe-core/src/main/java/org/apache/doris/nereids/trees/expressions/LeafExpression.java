@@ -22,6 +22,5 @@ import org.apache.doris.nereids.trees.LeafNode;
 /**
  * Interface for all expression that have no child.
  */
-public interface LeafExpression<EXPR_TYPE extends LeafExpression<EXPR_TYPE>>
-    extends LeafNode<EXPR_TYPE> {
+public interface LeafExpression<EXPR_TYPE extends LeafExpression<EXPR_TYPE>> extends LeafNode<EXPR_TYPE> {
 }

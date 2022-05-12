@@ -31,6 +31,10 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
+
+/**
+ * Comparison Predicate unit test
+ */
 public class ComparisonPredicateTest {
 
     @Mocked

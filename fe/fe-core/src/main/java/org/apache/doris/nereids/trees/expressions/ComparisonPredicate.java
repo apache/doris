@@ -26,12 +26,9 @@ import org.apache.doris.nereids.types.DataType;
  * Comparison predicate expression.
  * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public class ComparisonPredicate<
-    LEFT_CHILD_TYPE extends Expression,
-    RIGHT_CHILD_TYPE extends Expression>
-    extends Expression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>>
-    implements BinaryExpression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-    LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends Expression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>> implements
+        BinaryExpression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     /**
      * Constructor of ComparisonPredicate.

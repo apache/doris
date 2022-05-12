@@ -27,9 +27,8 @@ import java.util.List;
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias<CHILD_TYPE extends Expression>
-    extends NamedExpression<Alias<CHILD_TYPE>>
-    implements UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE> {
+public class Alias<CHILD_TYPE extends Expression> extends NamedExpression<Alias<CHILD_TYPE>>
+        implements UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE> {
 
     private final ExprId exprId;
     private final String name;

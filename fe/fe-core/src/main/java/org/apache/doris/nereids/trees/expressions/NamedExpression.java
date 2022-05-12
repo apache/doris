@@ -23,14 +23,11 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Expression in Nereids that having name.
  */
-public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>>
-    extends Expression<EXPR_TYPE> {
+public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>> extends Expression<EXPR_TYPE> {
 
     public NamedExpression(NodeType type, Expression... children) {
         super(type, children);

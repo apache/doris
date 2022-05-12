@@ -20,6 +20,9 @@ package org.apache.doris.nereids.trees.expressions;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * The util of named expression
+ */
 public class NamedExpressionUtil {
     /**
      * Tool class for generate next ExprId.

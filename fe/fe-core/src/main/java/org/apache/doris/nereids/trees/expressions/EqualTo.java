@@ -20,8 +20,11 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
+/**
+ * Equal to expression: a = b
+ */
 public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
-    extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
         super(NodeType.EQUAL_TO, left, right);
