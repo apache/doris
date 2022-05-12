@@ -130,11 +130,10 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
             }
         }
         size_t cursor_in_mutableblock = _input_mutable_block.rows();
-        size_t oldsize = _input_mutable_block.allocated_bytes();
         _input_mutable_block.add_rows(block, row_pos, num_rows);
-        size_t newsize = _input_mutable_block.allocated_bytes();
-        _mem_usage += newsize - oldsize;
-        _mem_tracker->consume(newsize - oldsize);
+        size_t input_size = block->allocated_bytes() * num_rows / block->rows(); 
+        _mem_usage += input_size;
+        _mem_tracker->consume(input_size);
         // when new data inserted, the mem_usage of memtable should be re-shrunk again.
         _is_shrunk_by_agg = false;
 
@@ -283,9 +282,13 @@ void MemTable::_collect_vskiplist_to_output(bool final) {
             idx++;
         }
         if (!final) {
+            size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
+            _mem_tracker->consume(shrunked_after_agg - _mem_usage);
+            _mem_usage = shrunked_after_agg;
             _input_mutable_block.swap(_output_mutable_block);
             //TODO(weixang):opt here.
-            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&in_block);
+            std::unique_ptr<vectorized::Block> empty_input_block = std::move(in_block.create_same_struct_block(0));
+            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
             _output_mutable_block.clear_column_data();
         }
     }
@@ -297,12 +300,7 @@ void MemTable::shrink_memtable_by_agg() {
         if (_is_shrunk_by_agg) {
             return;
         }
-        size_t old_size = _input_mutable_block.allocated_bytes();
         _collect_vskiplist_to_output(false);
-        size_t new_size = _input_mutable_block.allocated_bytes();
-        // shrink mem usage of memetable after agged.
-        _mem_usage += new_size - old_size;
-        _mem_tracker->consume(new_size - old_size);
         _is_shrunk_by_agg = true;
     }
 }
