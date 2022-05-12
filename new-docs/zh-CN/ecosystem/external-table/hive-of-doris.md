@@ -91,20 +91,20 @@ PROPERTIES (
 
 支持的 Hive 列类型与 Doris 对应关系如下表：
 
-|   Hive    |  Doris   |             描述              |
-|:---------:|:--------:| :-------------------------------: |
-|  BOOLEAN  | BOOLEAN  |                         |
-|   CHAR    |   CHAR   |            当前仅支持UTF8编码            |
-|  VARCHAR  | VARCHAR  |       当前仅支持UTF8编码       |
-|  TINYINT  | TINYINT  |  |
-| SMALLINT  | SMALLINT |  |
-|    INT    |   INT    |  |
-|  BIGINT   |  BIGINT  |  |
-|   FLOAT   |  FLOAT   |                                   |
-|  DOUBLE   |  DOUBLE  |  |
-|  DECIMAL  | DECIMAL  |  |
-|   DATE    |   DATE   |                                   |
-| TIMESTAMP | DATETIME | Timestamp 转成 Datetime 会损失精度 |
+|  Hive  | Doris  |             描述              |
+| :------: | :----: | :-------------------------------: |
+|   BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            当前仅支持UTF8编码            |
+|   VARCHAR | VARCHAR |       当前仅支持UTF8编码       |
+|   TINYINT   | TINYINT |  |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   FLOAT   |  FLOAT  |                                   |
+|   DOUBLE  | DOUBLE |  |
+|   DECIMAL  | DECIMAL |  |
+|   DATE   |  DATE  |                                   |
+|   TIMESTAMP  | DATETIME | Timestamp 转成 Datetime 会损失精度 |
 |  BINARY   |  BITMAP  |  |
 
 **注意：**
