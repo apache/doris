@@ -2747,6 +2747,10 @@ show_param ::=
     {:
         RESULT = new ShowLoadStmt(db, parser.where, orderByClause, limitClause);
     :}
+    | KW_LOAD KW_ALL opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowLoadStmt(true, parser.where, orderByClause, limitClause);
+    :}
     /* Show stream load statement */
     | KW_STREAM KW_LOAD opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:

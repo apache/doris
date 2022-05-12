@@ -187,7 +187,9 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -993,21 +995,41 @@ public class ShowExecutor {
         ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
 
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDbOrAnalysisException(showStmt.getDbName());
-        long dbId = db.getId();
+        List<Database> dbList=null;
+
+        if(showStmt.getIsAll()){
+            if(ctx.getCurrentUserIdentity().getQualifiedUser().equals("root")){
+                dbList = catalog.getFullNameToDb().values().stream().filter(data -> data.getId() != 0&&!data.getFullName().equals(data.getClusterName()+":information_schema")).collect(Collectors.toList());
+            }else{
+                throw new AnalysisException("The current user has no permission, and the root user is required to execute SHOW LOAD ALL.");
+            }
+        }else{
+            dbList=new ArrayList<>();
+            dbList.add(catalog.getDbOrAnalysisException(showStmt.getDbName()));
+        }
 
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
-        List<List<Comparable>> loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(),
-                                                                    showStmt.getLabelValue(),
-                                                                    showStmt.isAccurateMatch(),
-                                                                    showStmt.getStates());
+        List<List<Comparable>> loadInfos =new LinkedList<>();
         Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
                 .map(entity -> entity.name())
                 .collect(Collectors.toSet());
-        loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(dbId, showStmt.getLabelValue(),
-                                                                      showStmt.isAccurateMatch(),
-                                                                      statesValue));
+
+        for (Database database : dbList) {
+            try {
+                loadInfos.addAll(load.getLoadJobInfosByDb(database.getId(), database.getFullName(),
+                        showStmt.getLabelValue(),
+                        showStmt.isAccurateMatch(),
+                        showStmt.getStates()));
+
+                loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(database.getId(), showStmt.getLabelValue(),
+                        showStmt.isAccurateMatch(),
+                        statesValue));
+            } catch (AnalysisException e) {
+                LOG.error("show load all/database info failed,get load info error,dbName is: {},dbId is: {},msg: {}", database.getFullName(), database.getId(), e.getMessage());
+                throw new AnalysisException("show load all/database info failed,get load info error,dbName is: " + database.getFullName() + ", dbId is: " + database.getId() + ", msg: " + e.getMessage());
+            }
+        }
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();

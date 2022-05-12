@@ -38,7 +38,7 @@ grammar:
 
 ```sql
 SHOW LOAD
-[FROM db_name]
+[FROM db_name | ALL]
 [
    WHERE
    [LABEL [ = "your_label" | LIKE "label_matcher"]]
@@ -52,19 +52,21 @@ illustrate:
 
 1. If db_name is not specified, the current default db is used
 
-2. If LABEL LIKE is used, it will match import tasks whose label contains label_matcher
+2. Only one of db_name and ALL can be selected. When ALL is used (currently supported by root user), the import tasks of all dbs in the cluster will be queried
 
-3. If LABEL = is used, it will match the specified label exactly
+3. If LABEL LIKE is used, it will match import tasks whose label contains label_matcher
 
-4. If STATE is specified, matches the LOAD state
+4. If LABEL = is used, it will match the specified label exactly
 
-5. You can use ORDER BY to sort on any combination of columns
+5. If STATE is specified, matches the LOAD state
 
-6. If LIMIT is specified, limit matching records are displayed. Otherwise show all
+6. You can use ORDER BY to sort on any combination of columns
 
-7. If OFFSET is specified, the query results are displayed starting at offset offset. By default the offset is 0.
+7. If LIMIT is specified, limit matching records are displayed. Otherwise show all
 
-8. If you are using broker/mini load, the connections in the URL column can be viewed using the following command:
+8. If OFFSET is specified, the query results are displayed starting at offset offset. By default the offset is 0.
+
+9. If you are using broker/mini load, the connections in the URL column can be viewed using the following command:
 
    ```sql
    SHOW LOAD WARNINGS ON 'url'
@@ -77,33 +79,39 @@ illustrate:
    ```sql
    SHOW LOAD;
    ````
+   
+2. Show all import tasks of all db (executed by root user)
 
-2. Display the import tasks of the specified db, the label contains the string "2014_01_02", and display the oldest 10
+    ```sql
+    SHOW LOAD ALL;
+    ```
+
+3. Display the import tasks of the specified db, the label contains the string "2014_01_02", and display the oldest 10
 
    ```sql
    SHOW LOAD FROM example_db WHERE LABEL LIKE "2014_01_02" LIMIT 10;
    ````
 
-3. Display the import tasks of the specified db, specify the label as "load_example_db_20140102" and sort by LoadStartTime in descending order
+4. Display the import tasks of the specified db, specify the label as "load_example_db_20140102" and sort by LoadStartTime in descending order
 
    ```sql
    SHOW LOAD FROM example_db WHERE LABEL = "load_example_db_20140102" ORDER BY LoadStartTime DESC;
    ````
 
-4. Display the import task of the specified db, specify the label as "load_example_db_20140102", the state as "loading", and sort by LoadStartTime in descending order
+5. Display the import task of the specified db, specify the label as "load_example_db_20140102", the state as "loading", and sort by LoadStartTime in descending order
 
    ```sql
    SHOW LOAD FROM example_db WHERE LABEL = "load_example_db_20140102" AND STATE = "loading" ORDER BY LoadStartTime DESC;
    ````
 
-5. Display the import tasks of the specified db and sort them in descending order by LoadStartTime, and display 10 query results starting from offset 5
+6. Display the import tasks of the specified db and sort them in descending order by LoadStartTime, and display 10 query results starting from offset 5
 
    ```sql
    SHOW LOAD FROM example_db ORDER BY LoadStartTime DESC limit 5,10;
    SHOW LOAD FROM example_db ORDER BY LoadStartTime DESC limit 10 offset 5;
    ````
 
-6. Small batch import is a command to check the import status
+7. Small batch import is a command to check the import status
 
    ````
    curl --location-trusted -u {user}:{passwd} http://{hostname}:{port}/api/{database}/_load_info?label={labelname}
@@ -111,7 +119,7 @@ illustrate:
 
 ### Keywords
 
-    SHOW, LOAD
+    SHOW, LOAD, ALL
 
 ### Best Practice
 

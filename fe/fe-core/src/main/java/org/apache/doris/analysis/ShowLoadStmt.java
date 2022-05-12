@@ -48,6 +48,7 @@ public class ShowLoadStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowLoadStmt.class);
 
     private String dbName;
+    private boolean isAll;
     private Expr whereClause;
     private LimitElement limitElement;
     private List<OrderByElement> orderByElements;
@@ -61,6 +62,17 @@ public class ShowLoadStmt extends ShowStmt {
     public ShowLoadStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.dbName = db;
         this.whereClause = labelExpr;
+        this.isAll=false;
+        this.orderByElements = orderByElements;
+        this.limitElement = limitElement;
+
+        this.labelValue = null;
+        this.stateValue = null;
+        this.isAccurateMatch = false;
+    }
+    public ShowLoadStmt(boolean isAll, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+        this.isAll=isAll;
+        this.whereClause = labelExpr;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
 
@@ -71,6 +83,9 @@ public class ShowLoadStmt extends ShowStmt {
 
     public String getDbName() {
         return dbName;
+    }
+    public boolean getIsAll() {
+        return isAll;
     }
 
     public ArrayList<OrderByPair> getOrderByPairs() {
@@ -117,13 +132,15 @@ public class ShowLoadStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        if (Strings.isNullOrEmpty(dbName)) {
-            dbName = analyzer.getDefaultDb();
+        if(!isAll){
             if (Strings.isNullOrEmpty(dbName)) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+                dbName = analyzer.getDefaultDb();
+                if (Strings.isNullOrEmpty(dbName)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+                }
+            } else {
+                dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // analyze where clause if not null
@@ -256,13 +273,16 @@ public class ShowLoadStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW LOAD ");
-        if (!Strings.isNullOrEmpty(dbName)) {
-            sb.append("FROM `").append(dbName).append("`");
+        if(isAll){
+            sb.append("SHOW LOAD ALL ");
+        }else{
+            if (!Strings.isNullOrEmpty(dbName)) {
+                sb.append("SHOW LOAD FROM `").append(dbName).append("` ");
+            }
         }
 
         if (whereClause != null) {
-            sb.append(" WHERE ").append(whereClause.toSql());
+            sb.append("WHERE ").append(whereClause.toSql());
         }
 
         // Order By clause
