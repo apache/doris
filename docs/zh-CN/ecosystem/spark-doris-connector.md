@@ -98,7 +98,7 @@ sh build.sh 3.1.2 2.12 ## spark 3.1.2, scala 2.12
 ```
 > 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 spark 和 scala 的版本。因为 tag 源码中的版本是固定的。
 
-编译成功后，会在 `output/` 目录下生成文件 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
+编译成功后，会在 `output/` 目录下生成文件 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中Link：[apache/incubator-doris#9486](https://github.com/apache/incubator-doris/discussions/9486)。
 
 ## 使用Maven管理
 
@@ -161,6 +161,21 @@ val dorisSparkRDD = sc.dorisRDD(
 
 dorisSparkRDD.collect()
 ```
+
+#### pySpark
+
+```scala
+dorisSparkDF = spark.read.format("doris")
+.option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+.option("user", "$YOUR_DORIS_USERNAME")
+.option("password", "$YOUR_DORIS_PASSWORD")
+.load()
+# show 5 lines data 
+dorisSparkDF.show(5)
+```
+
+
 
 ### 写入
 
