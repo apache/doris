@@ -337,7 +337,9 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             columnDescs = new ImportColumnDescs();
             if (routineLoadDesc.getColumnsInfo() != null) {
                 ImportColumnsStmt columnsStmt = routineLoadDesc.getColumnsInfo();
-                columnDescs.descs.addAll(columnsStmt.getColumns());
+                if (columnsStmt.getColumns() != null) {
+                    columnDescs.descs.addAll(columnsStmt.getColumns());
+                }
             }
             if (routineLoadDesc.getPrecedingFilter() != null) {
                 precedingFilter = routineLoadDesc.getPrecedingFilter().getExpr();
