@@ -461,7 +461,7 @@ public:
                 return res;
             }
             res = _reader.seek(positions);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek int stream. res = " << res;
                 return res;
             }
@@ -474,7 +474,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -505,7 +505,7 @@ public:
         }
         _stats->bytes_read += sizeof(T) * size;
 
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
         return res;
@@ -558,7 +558,7 @@ public:
                 return res;
             }
             res = _reader.seek(positions);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to read fixed string stream. res = " << res;
                 return res;
             }
@@ -570,7 +570,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -622,7 +622,7 @@ public:
                 return res;
             }
             res = _reader.seek(position);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek varchar stream. res = " << res;
                 return res;
             }
@@ -635,7 +635,7 @@ public:
     virtual Status next_vector(ColumnVector* column_vector, uint32_t size, MemPool* mem_pool) {
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -706,7 +706,7 @@ public:
                 return res;
             }
             res = _data_stream->seek(position);
-            if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+            if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
                 LOG(WARNING) << "fail to seek float stream. res = " << res;
                 return res;
             }
@@ -732,7 +732,7 @@ public:
 
         Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
         if (!res.ok()) {
-            if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+            if (OLAP_ERR_DATA_EOF == res.precise_code()) {
                 _eof = true;
             }
             return res;
@@ -764,7 +764,7 @@ public:
         }
         _stats->bytes_read += sizeof(FLOAT_TYPE) * size;
 
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
 

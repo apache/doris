@@ -217,16 +217,6 @@ private:
     static __thread char _buf[BUF_SIZE];
 };
 
-inline bool is_io_error(Status status) {
-    return (((Status::OLAPInternalError(OLAP_ERR_IO_ERROR) == status ||
-              Status::OLAPInternalError(OLAP_ERR_READ_UNENOUGH) == status) &&
-             errno == EIO) ||
-            Status::OLAPInternalError(OLAP_ERR_CHECKSUM_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_FILE_DATA_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_TEST_FILE_ERROR) == status ||
-            Status::OLAPInternalError(OLAP_ERR_ROWBLOCK_READ_INFO_ERROR) == status);
-}
-
 #define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出

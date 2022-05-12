@@ -47,7 +47,7 @@ Status RowsetMetaManager::get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
     std::string value;
     Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
-    if (s == Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND)) {
+    if (s.precise_code() == OLAP_ERR_META_KEY_NOT_FOUND) {
         std::string error_msg = "rowset id:" + key + " not found.";
         LOG(WARNING) << error_msg;
         return Status::OLAPInternalError(OLAP_ERR_META_KEY_NOT_FOUND);
