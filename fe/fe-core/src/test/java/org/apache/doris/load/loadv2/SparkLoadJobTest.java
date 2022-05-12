@@ -78,6 +78,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Test for SparkLoadJobTest.
+ **/
 public class SparkLoadJobTest {
     private long dbId;
     private String dbName;
@@ -98,6 +101,9 @@ public class SparkLoadJobTest {
     private long backendId;
     private int schemaHash;
 
+    /**
+     * Init.
+     **/
     @Before
     public void setUp() {
         dbId = 1L;
@@ -205,16 +211,19 @@ public class SparkLoadJobTest {
         };
 
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc,
+                new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.execute();
 
         Assert.assertEquals(JobState.PENDING, job.getState());
     }
 
     @Test
-    public void testOnPendingTaskFinished(@Mocked Catalog catalog, @Injectable String originStmt) throws MetaNotFoundException {
+    public void testOnPendingTaskFinished(@Mocked Catalog catalog, @Injectable String originStmt)
+            throws MetaNotFoundException {
         ResourceDesc resourceDesc = new ResourceDesc(resourceName, Maps.newHashMap());
-        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, resourceDesc,
+                new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         SparkPendingTaskAttachment attachment = new SparkPendingTaskAttachment(pendingTaskId);
         attachment.setAppId(appId);
         attachment.setOutputPath(etlOutputPath);
@@ -233,7 +242,8 @@ public class SparkLoadJobTest {
         sparkConfigs.put("spark.master", "yarn");
         sparkConfigs.put("spark.submit.deployMode", "cluster");
         sparkConfigs.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
-        SparkLoadJob job = new SparkLoadJob(dbId, label, null, new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
+        SparkLoadJob job = new SparkLoadJob(dbId, label, null,
+                new OriginStatement(originStmt, 0), new UserIdentity("root", "0.0.0.0"));
         job.state = JobState.ETL;
         job.setMaxFilterRatio(0.15);
         job.transactionId = transactionId;
@@ -498,18 +508,20 @@ public class SparkLoadJobTest {
                 result = resourceMgr;
                 resourceMgr.getResource(anyString);
                 result = sparkResource;
+                Catalog.getCurrentCatalogJournalVersion();
+                result = FeMetaVersion.VERSION_CURRENT;
             }
         };
 
         String label = "label1";
         ResourceDesc resourceDesc = new ResourceDesc("my_spark", Maps.newHashMap());
-        String oriStmt = "LOAD LABEL db1.label1\n" +
-                "(\n" +
-                "DATA INFILE(\"hdfs://127.0.0.1:8000/user/palo/data/input/file\")\n" +
-                "INTO TABLE `my_table`\n" +
-                "WHERE k1 > 10\n" +
-                ")\n" +
-                "WITH RESOURCE 'my_spark';";
+        String oriStmt = "LOAD LABEL db1.label1\n"
+                + "(\n"
+                + "DATA INFILE(\"hdfs://127.0.0.1:8000/user/palo/data/input/file\")\n"
+                + "INTO TABLE `my_table`\n"
+                + "WHERE k1 > 10\n"
+                + ")\n"
+                + "WITH RESOURCE 'my_spark';";
         OriginStatement originStmt = new OriginStatement(oriStmt, 0);
         UserIdentity userInfo = UserIdentity.ADMIN;
         SparkLoadJob sparkLoadJob = new SparkLoadJob(dbId, label, resourceDesc, originStmt, userInfo);
@@ -524,13 +536,10 @@ public class SparkLoadJobTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         sparkLoadJob.write(dos);
-
         dos.flush();
         dos.close();
-
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-
         SparkLoadJob sparkLoadJob2 = (SparkLoadJob) SparkLoadJob.read(dis);
         Assert.assertEquals("my_spark", sparkLoadJob2.getResourceName());
         Assert.assertEquals(label, sparkLoadJob2.getLabel());

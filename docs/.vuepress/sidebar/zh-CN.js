@@ -633,6 +633,7 @@ module.exports = [
                   "CREATE-FUNCTION",
                   "CREATE-INDEX",
                   "CREATE-MATERIALIZED-VIEW",
+                  "CREATE-POLICY",
                   "CREATE-RESOURCE",
                   "CREATE-SQL-BLOCK-RULE",
                   "CREATE-TABLE-LIKE",
