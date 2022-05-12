@@ -23,17 +23,17 @@ suite("test_case_when") {
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName}
         (
-            dt DATE NOT NULL COMMENT "消费日期",
-            hour_time INT NOT NULL COMMENT "小时",
-            merchant_id INT NOT NULL COMMENT "商户id",
-            channel_id char(5) NOT NULL COMMENT "渠道编码",
-            station_type char(5) NULL COMMENT "站点类型",
-            station_name varchar(55) NULL COMMENT "站点名",
-            source char(5) NULL COMMENT "来源",
-            passenger_flow BIGINT SUM DEFAULT '1' COMMENT "客流量",
-            user_id bitmap BITMAP_UNION COMMENT "用户id集合",
-            price BIGINT SUM COMMENT "金额",
-            discount BIGINT SUM COMMENT "折扣后金额"
+            dt DATE NOT NULL ,
+            hour_time INT NOT NULL ,
+            merchant_id INT NOT NULL ,
+            channel_id char(5) NOT NULL ,
+            station_type char(5) NULL ,
+            station_name varchar(55) NULL ,
+            source char(5) NULL ,
+            passenger_flow BIGINT SUM DEFAULT '1' ,
+            user_id bitmap BITMAP_UNION ,
+            price BIGINT SUM ,
+            discount BIGINT SUM 
         )
         AGGREGATE KEY(dt,hour_time, merchant_id,channel_id,station_type,station_name,`source`)
         DISTRIBUTED BY HASH(dt,hour_time,merchant_id,channel_id) BUCKETS 1
