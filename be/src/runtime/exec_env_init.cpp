@@ -94,8 +94,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _extdatasource_client_cache =
-            new ExtDataSourceServiceClientCache(config::max_client_cache_size_per_host);
     _task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
     _thread_mgr = new ThreadResourceMgr();
     if (config::doris_enable_scanner_thread_pool_per_disk &&
@@ -147,7 +145,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
     _broker_client_cache->init_metrics("broker");
-    _extdatasource_client_cache->init_metrics("extdatasource");
     _result_mgr->init();
     _cgroups_mgr->init_cgroups();
     _etl_job_mgr->init();
@@ -322,7 +319,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_scan_thread_pool);
     SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
-    SAFE_DELETE(_extdatasource_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_mgr);
