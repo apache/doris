@@ -90,7 +90,10 @@ Status VParquetScanner::_init_arrow_batch_if_necessary() {
     // 1. init batch if first time
     // 2. reset reader if end of file
     Status status;
-    if (!_scanner_eof || _batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
+    if (_scanner_eof) {
+        return Status::EndOfFile("EOF");
+    }
+    if (_batch == nullptr || _arrow_batch_cur_idx >= _batch->num_rows()) {
         return _next_arrow_batch();
     }
     return status;
