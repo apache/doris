@@ -137,8 +137,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (cid < num_key_columns) {
             short_key_columns.push_back(converted_result.second);
         }
-        _column_writers[cid]->append(converted_result.second->get_nullmap(),
-                                     converted_result.second->get_data(), num_rows);
+        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
+                                                     converted_result.second->get_data(),
+                                                     num_rows));
     }
 
     // create short key indexes
