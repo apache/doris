@@ -353,7 +353,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     Slice* slice = _slice.data();
     size_t string_length;
     size_t string_offset = *(offset_cur - 1);
-    size_t slice_size = _length;
+    [[maybe_unused]] size_t slice_size = _length;
     if (_nullmap) {
         const UInt8* nullmap_cur = _nullmap + _row_pos;
         while (offset_cur != offset_end) {
