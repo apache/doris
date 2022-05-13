@@ -64,7 +64,7 @@ public class DropFunctionStmt extends DdlStmt {
         return stringBuilder.toString();
     }
 
-    @Override 
+    @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_WITH_SYNC;
     }

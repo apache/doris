@@ -22,10 +22,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 public class AdminSetConfigStmtTest extends TestWithFeService {
     @Test
@@ -39,18 +37,18 @@ public class AdminSetConfigStmtTest extends TestWithFeService {
     public void testUnknownConfig() throws Exception {
         String stmt = "admin set frontend config(\"unknown_config\" = \"unknown\");";
         AdminSetConfigStmt adminSetConfigStmt = (AdminSetConfigStmt) parseAndAnalyzeStmt(stmt);
-        DdlException exception = assertThrows(DdlException.class,
+        DdlException exception = Assertions.assertThrows(DdlException.class,
             () -> Catalog.getCurrentCatalog().setConfig(adminSetConfigStmt));
-        assertEquals("errCode = 2, detailMessage = Config 'unknown_config' does not exist",
+        Assertions.assertEquals("errCode = 2, detailMessage = Config 'unknown_config' does not exist",
             exception.getMessage());
     }
 
     @Test
     public void testEmptyConfig() {
         AnalysisException exception =
-            assertThrows(AnalysisException.class,
-                () -> parseAndAnalyzeStmt("admin set frontend config;"));
-        assertEquals("errCode = 2, detailMessage = config parameter size is not equal to 1",
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> parseAndAnalyzeStmt("admin set frontend config;"));
+        Assertions.assertEquals("errCode = 2, detailMessage = config parameter size is not equal to 1",
             exception.getMessage());
     }
 }

@@ -19,11 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 
-import org.junit.Assert;
-import org.junit.Test;
-
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class BetweenPredicateTest {
     @Mocked Analyzer analyzer;

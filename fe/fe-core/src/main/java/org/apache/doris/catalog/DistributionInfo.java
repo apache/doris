@@ -24,7 +24,6 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
@@ -45,7 +44,7 @@ public abstract class DistributionInfo implements Writable {
     protected String typeStr;
     @SerializedName(value = "type")
     protected DistributionInfoType type;
-    
+
     public DistributionInfo() {
         // for persist
     }

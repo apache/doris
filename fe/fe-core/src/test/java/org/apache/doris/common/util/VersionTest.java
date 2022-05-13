@@ -17,10 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
+import org.junit.Assert;
 import org.junit.Test;
 
 public class VersionTest {
@@ -30,24 +27,24 @@ public class VersionTest {
         DigitalVersion v = new DigitalVersion(1100000);
 
         System.out.println(v);
-        assertEquals(1, v.major);
-        assertEquals(10, v.minor);
-        assertEquals(0, v.revision);
+        Assert.assertEquals(1, v.major);
+        Assert.assertEquals(10, v.minor);
+        Assert.assertEquals(0, v.revision);
 
         DigitalVersion s = new DigitalVersion((byte) 50, (byte) 2, (byte) 3);
-        assertEquals(50020300, s.id);
+        Assert.assertEquals(50020300, s.id);
 
-        assertTrue(s.onOrAfter(v));
-        assertFalse(s.before(v));
+        Assert.assertTrue(s.onOrAfter(v));
+        Assert.assertFalse(s.before(v));
 
         DigitalVersion vs = new DigitalVersion((byte) 1, (byte) 10, (byte) 0);
-        assertEquals(vs, v);
+        Assert.assertEquals(vs, v);
     }
 
     @Test
     public void testFromString() {
         try {
-            assertEquals(1060000, DigitalVersion.fromString("1.6.0.123.123").id);
+            Assert.assertEquals(1060000, DigitalVersion.fromString("1.6.0.123.123").id);
         } catch (IllegalArgumentException e) {
             e.printStackTrace();
         }
@@ -55,22 +52,22 @@ public class VersionTest {
         try {
             DigitalVersion.fromString("");
         } catch (Exception e) {
-            assertTrue(e instanceof IllegalArgumentException);
-            assertTrue(e.getMessage().contains("Illegal empty version"));
+            Assert.assertTrue(e instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getMessage().contains("Illegal empty version"));
         }
 
         try {
             DigitalVersion.fromString("1.6123123.123");
         } catch (Exception e) {
-            assertTrue(e instanceof IllegalArgumentException);
-            assertTrue(e.getMessage().contains("Illegal version format"));
+            Assert.assertTrue(e instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getMessage().contains("Illegal version format"));
         }
 
         try {
             DigitalVersion.fromString("a.b.c");
         } catch (Exception e) {
-            assertTrue(e instanceof IllegalArgumentException);
-            assertTrue(e.getMessage().contains("Illegal version format"));
+            Assert.assertTrue(e instanceof IllegalArgumentException);
+            Assert.assertTrue(e.getMessage().contains("Illegal version format"));
         }
     }
 }

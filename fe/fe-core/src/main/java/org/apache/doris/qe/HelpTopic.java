@@ -103,4 +103,3 @@ public class HelpTopic implements HelpObjectIface {
         return "name: " + name + ", desc: " + description;
     }
 }
-

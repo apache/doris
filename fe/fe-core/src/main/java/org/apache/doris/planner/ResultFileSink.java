@@ -17,10 +17,10 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -52,7 +52,7 @@ public class ResultFileSink extends DataSink {
                 outFileClause.getBrokerDesc().getStorageType();
     }
 
-    //gen header names 
+    //gen header names
     private String genNames(ArrayList<String> headerNames, String columnSeparator, String lineDelimiter) {
         String names = "";
         for (String name : headerNames) {

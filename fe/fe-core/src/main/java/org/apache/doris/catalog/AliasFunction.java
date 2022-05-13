@@ -35,7 +35,6 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -281,7 +280,7 @@ public class AliasFunction extends Function {
 
     /**
      * set slotRef label to column name
-     * 
+     *
      * @param expr
      */
     private void setSlotRefLabel(Expr expr) {

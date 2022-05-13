@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 

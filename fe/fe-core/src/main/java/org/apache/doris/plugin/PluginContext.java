@@ -44,4 +44,3 @@ public class PluginContext {
         return feIdentity;
     }
 }
-

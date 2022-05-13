@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import org.apache.doris.catalog.Catalog;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.commons.io.IOUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

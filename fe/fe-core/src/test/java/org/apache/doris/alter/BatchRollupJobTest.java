@@ -32,7 +32,6 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;

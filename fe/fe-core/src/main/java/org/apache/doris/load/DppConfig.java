@@ -373,7 +373,7 @@ public class DppConfig implements Writable {
         } else {
             out.writeBoolean(false);
         }
-        
+
         if (priority == null) {
             priority = TPriority.NORMAL;
         }

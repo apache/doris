@@ -88,9 +88,9 @@ public class GlobalPrivEntry extends PrivEntry {
      * | localhost | root     | ...
      * | localhost |          | ...
      * +-----------+----------+-
-     * 
+     *
      * will be sorted like:
-     * 
+     *
      * +-----------+----------+-
      * | Host      | User     | ...
      * +-----------+----------+-
@@ -99,7 +99,7 @@ public class GlobalPrivEntry extends PrivEntry {
      * | %         | jeffrey  | ...
      * | %         | root     | ...
      * +-----------+----------+-
-     * 
+     *
      * https://dev.mysql.com/doc/refman/8.0/en/connection-access.html
      */
     @Override

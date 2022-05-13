@@ -19,7 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.thrift.TUnit;
 
-// Counter means indicators field. The counter's name is key, the counter itself is value.  
+// Counter means indicators field. The counter's name is key, the counter itself is value.
 public class Counter {
     private volatile long value;
     private volatile int type;

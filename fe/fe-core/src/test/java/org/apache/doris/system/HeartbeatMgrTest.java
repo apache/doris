@@ -17,7 +17,6 @@
 
 package org.apache.doris.system;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.GenericPool;
@@ -36,14 +35,14 @@ import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.thrift.TException;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class HeartbeatMgrTest {
 

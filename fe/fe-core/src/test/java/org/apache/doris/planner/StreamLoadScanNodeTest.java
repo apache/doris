@@ -45,17 +45,15 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class StreamLoadScanNodeTest {
     private static final Logger LOG = LogManager.getLogger(StreamLoadScanNodeTest.class);
@@ -165,7 +163,7 @@ public class StreamLoadScanNodeTest {
 
         return columns;
     }
-    
+
     private StreamLoadScanNode getStreamLoadScanNode(TupleDescriptor dstDesc, TStreamLoadPutRequest request)
             throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
@@ -331,7 +329,7 @@ public class StreamLoadScanNodeTest {
                 slot.setIsNullable(false);
             }
         }
-        
+
         new Expectations() {
             {
                 catalog.getFunction((Function) any, (Function.CompareMode) any);
@@ -866,4 +864,3 @@ public class StreamLoadScanNodeTest {
         scanNode.toThrift(planNode);
     }
 }
-

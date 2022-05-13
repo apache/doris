@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -513,8 +512,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     //        private final FunctionOperator functionOp;
     //        private final FunctionOperator filterFunctionOp;
     //
-    //        private Operator(String description, 
-    //                         FunctionOperator functionOp, 
+    //        private Operator(String description,
+    //                         FunctionOperator functionOp,
     //                         FunctionOperator filterFunctionOp) {
     //            this.description = description;
     //            this.functionOp = functionOp;

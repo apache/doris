@@ -49,7 +49,7 @@ public class PartitionName {
      * 2. t1    AS t2       ==> t1    AS t2
      * 3. t1.p1             ==> t1.p1 AS t1.p1
      * 4. t1.p1 AS t2.p1    ==> t1.p1 AS t2.p1
-     * 
+     *
      * ERR:
      * 1. t1    AS t1.p1
      * 2. t1.p1 AS t1

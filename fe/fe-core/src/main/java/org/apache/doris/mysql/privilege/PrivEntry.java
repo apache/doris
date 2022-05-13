@@ -108,7 +108,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     public PrivBitSet getPrivSet() {
         return privSet;
     }
-    
+
     public void setPrivSet(PrivBitSet privSet) {
         this.privSet = privSet;
     }
@@ -116,7 +116,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     public boolean isSetByDomainResolver() {
         return isSetByDomainResolver;
     }
-    
+
     public void setSetByDomainResolver(boolean isSetByDomainResolver) {
         this.isSetByDomainResolver = isSetByDomainResolver;
     }
@@ -138,7 +138,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
     /*
      * It's a bit complicated when persisting instance which its class has derived classes.
      * eg: A (top class) -> B (derived) -> C (derived)
-     * 
+     *
      * Write process:
      * C.write()
      *      |
@@ -153,15 +153,15 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
      *                                      --- write B's self members      --- write class name (if not write before)
      *                                                                      |
      *                                                                      --- write A's self members
-     *                                                                                                                                               
+     *
      * So the final write order is:
      *      1. C's class name
      *      2. A's self members
      *      3. B's self members
      *      4. C's self members
-     *      
+     *
      * In case that class name should only be wrote once, we use isClassNameWrote flag.
-     * 
+     *
      * Read process:
      * static A.read()
      *      |
@@ -174,13 +174,13 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
      *          --- read C's self members   --- super.readFields() --> A.readFields()
      *                                      |                           |
      *                                      --- read B's self members   --- read A's self members
-     *                                      
+     *
      *  So the final read order is:
      *      1. C's class name
      *      2. A's self members
      *      3. B's self members
      *      4. C's self members
-     *      
+     *
      *  Which is same as Write order.
      */
     public static PrivEntry read(DataInput in) throws IOException {

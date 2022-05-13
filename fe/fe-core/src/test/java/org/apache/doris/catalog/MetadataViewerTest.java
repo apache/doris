@@ -24,7 +24,8 @@ import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -34,14 +35,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 public class MetadataViewerTest {
-    
+
     private static Method getTabletStatusMethod;
     private static Method getTabletDistributionMethod;
-    
+
     @Mocked
     private Catalog catalog;
 

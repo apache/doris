@@ -59,7 +59,7 @@ public class IOUtils {
 
     /**
      * Copies from one stream to another.
-     * 
+     *
      * @param in
      *            InputStream to read from
      * @param out
@@ -117,7 +117,7 @@ public class IOUtils {
 
     /**
      * Copies from one stream to another.
-     * 
+     *
      * @param in
      *            InputStream to read from
      * @param out
@@ -155,7 +155,7 @@ public class IOUtils {
 
     /**
      * Reads len bytes in a loop.
-     * 
+     *
      * @param in
      *            The InputStream to read from
      * @param buf
@@ -184,7 +184,7 @@ public class IOUtils {
 
     /**
      * Similar to readFully(). Skips bytes in a loop.
-     * 
+     *
      * @param in
      *            The InputStream to skip bytes from
      * @param len
@@ -207,7 +207,7 @@ public class IOUtils {
     /**
      * Close the Closeable objects and <b>ignore</b> any {@link IOException} or
      * null pointers. Must only be used for cleanup in exception handlers.
-     * 
+     *
      * @param log
      *            the log to record problems to at debug level. Can be null.
      * @param closeables
@@ -230,7 +230,7 @@ public class IOUtils {
     /**
      * Closes the stream ignoring {@link IOException}. Must only be called in
      * cleaning up from exception handlers.
-     * 
+     *
      * @param stream
      *            the Stream to close
      */
@@ -240,7 +240,7 @@ public class IOUtils {
 
     /**
      * Closes the socket ignoring {@link IOException}
-     * 
+     *
      * @param sock
      *            the Socket to close
      */

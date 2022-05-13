@@ -24,7 +24,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -87,7 +86,7 @@ public class ColumnGsonSerializationTest {
 
         Assert.assertEquals(c1, readC1);
     }
-    
+
     @Test
     public void testSerializeColumnList() throws IOException, AnalysisException {
         // 1. Write objects to file

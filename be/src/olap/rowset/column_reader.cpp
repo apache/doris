@@ -120,7 +120,7 @@ Status StringColumnDirectReader::seek(PositionProvider* position) {
 
     // All strings in segment may be empty, so the data stream is EOF and
     // and length stream is not EOF.
-    if (res.ok() || Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) == res) {
+    if (res.ok() || OLAP_ERR_COLUMN_STREAM_EOF == res.precise_code()) {
         res = _length_reader->seek(position);
     }
 
@@ -383,7 +383,7 @@ Status StringColumnDictionaryReader::next(char* buffer, uint32_t* length) {
     Status res = _data_reader->next(&value);
     // 错误或是EOF
     if (!res.ok()) {
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
 
@@ -799,7 +799,7 @@ Status TinyColumnReader::seek(PositionProvider* positions) {
             return res;
         }
         res = _data_reader->seek(positions);
-        if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+        if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
             LOG(WARNING) << "fail to seek tinyint stream. res = " << res;
             return res;
         }
@@ -817,7 +817,7 @@ Status TinyColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
                                      MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
         return res;
@@ -844,7 +844,7 @@ Status TinyColumnReader::next_vector(ColumnVector* column_vector, uint32_t size,
     }
     _stats->bytes_read += size;
 
-    if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+    if (OLAP_ERR_DATA_EOF == res.precise_code()) {
         _eof = true;
     }
 
@@ -929,13 +929,13 @@ Status DecimalColumnReader::seek(PositionProvider* positions) {
             return res;
         }
         res = _int_reader->seek(positions);
-        if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+        if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
             LOG(WARNING) << "fail to seek int stream of decimal. res = " << res;
             return res;
         }
 
         res = _frac_reader->seek(positions);
-        if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+        if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
             LOG(WARNING) << "fail to seek frac stream of decimal. res = " << res;
             return res;
         }
@@ -966,7 +966,7 @@ Status DecimalColumnReader::next_vector(ColumnVector* column_vector, uint32_t si
                                         MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
         return res;
@@ -1093,13 +1093,13 @@ Status LargeIntColumnReader::seek(PositionProvider* positions) {
         }
 
         res = _high_reader->seek(positions);
-        if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+        if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
             LOG(WARNING) << "fail to seek high int stream of largeint. res = " << res;
             return res;
         }
 
         res = _low_reader->seek(positions);
-        if (!res.ok() && Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) != res) {
+        if (!res.ok() && OLAP_ERR_COLUMN_STREAM_EOF != res.precise_code()) {
             LOG(WARNING) << "fail to seek low int stream of largeint. res = " << res;
             return res;
         }
@@ -1128,7 +1128,7 @@ Status LargeIntColumnReader::next_vector(ColumnVector* column_vector, uint32_t s
                                          MemPool* mem_pool) {
     Status res = ColumnReader::next_vector(column_vector, size, mem_pool);
     if (!res.ok()) {
-        if (Status::OLAPInternalError(OLAP_ERR_DATA_EOF) == res) {
+        if (OLAP_ERR_DATA_EOF == res.precise_code()) {
             _eof = true;
         }
         return res;

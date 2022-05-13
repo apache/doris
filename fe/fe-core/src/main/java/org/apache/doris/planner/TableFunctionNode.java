@@ -180,4 +180,3 @@ public class TableFunctionNode extends PlanNode {
         }
     }
 }
-

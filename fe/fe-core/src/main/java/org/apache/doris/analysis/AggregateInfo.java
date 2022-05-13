@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TPartitionType;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -156,7 +155,7 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public List<Expr> getPartitionExprs() { return partitionExprs_; }
     public void setPartitionExprs(List<Expr> exprs) { partitionExprs_ = exprs; }
-    
+
     /**
      * Creates complete AggregateInfo for groupingExprs and aggExprs, including
      * aggTupleDesc and aggTupleSMap. If parameter tupleDesc != null, sets aggTupleDesc to
@@ -188,12 +187,12 @@ public final class AggregateInfo extends AggregateInfoBase {
         // aggregation algorithm includes two kinds:one stage aggregation, tow stage aggregation.
         // for case:
         // 1: if aggExprs don't have distinct or have multi distinct , create aggregate info for
-        // one stage aggregation. 
+        // one stage aggregation.
         // 2: if aggExprs have one distinct , create aggregate info for two stage aggregation
         boolean isMultiDistinct = result.estimateIfContainsMultiDistinct(distinctAggExprs);
-        if (distinctAggExprs.isEmpty() 
+        if (distinctAggExprs.isEmpty()
                || isMultiDistinct) {
-            // It is used to map new aggr expr to old expr to help create an external 
+            // It is used to map new aggr expr to old expr to help create an external
             // reference to the aggregation node tuple
             result.setIsMultiDistinct(isMultiDistinct);
             if (tupleDesc == null) {
@@ -223,9 +222,9 @@ public final class AggregateInfo extends AggregateInfoBase {
      * @param distinctAggExprs
      * @return
      */
-    public static boolean estimateIfContainsMultiDistinct(List<FunctionCallExpr> distinctAggExprs) 
+    public static boolean estimateIfContainsMultiDistinct(List<FunctionCallExpr> distinctAggExprs)
       throws AnalysisException {
-        
+
         if (distinctAggExprs == null || distinctAggExprs.size() <= 0) {
             return false;
         }
@@ -255,7 +254,7 @@ public final class AggregateInfo extends AggregateInfoBase {
             if (!Expr.equalLists(expr0Children, exprIChildren)) {
                 if (exprIChildren.size() > 1 || expr0Children.size() > 1) {
                     throw new AnalysisException("The query contains multi count distinct or "
-                            + "sum distinct, each can't have multi columns.");   
+                            + "sum distinct, each can't have multi columns.");
                 }
                 hasMultiDistinct = true;
             }
@@ -316,7 +315,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         // add DISTINCT parameters to grouping exprs
         if (!isMultiDistinct_) {
             groupingExprs_.addAll(expr0Children);
-        } 
+        }
 
         // remove DISTINCT aggregate functions from aggExprs
         aggregateExprs_.removeAll(distinctAggExprs);
@@ -572,7 +571,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     aggExpr = new FunctionCallExpr(inputExpr.getFnName(), Lists.newArrayList(aggExprParam));
                 }
             } else {
-                // multi distinct can't run here    
+                // multi distinct can't run here
                 Preconditions.checkState(false);
             }
             secondPhaseAggExprs.add(aggExpr);
@@ -755,7 +754,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         materializedSlots_.clear();
         List<Expr> exprs = Lists.newArrayList();
         exprs.addAll(groupingExprs_);
-        
+
         int aggregateExprsSize = aggregateExprs_.size();
         int groupExprsSize = groupingExprs_.size();
         boolean isDistinctAgg = isDistinctAgg();
@@ -769,14 +768,14 @@ public final class AggregateInfo extends AggregateInfoBase {
                 slotDesc.setIsMaterialized(true);
                 intermediateSlotDesc.setIsMaterialized(true);
             }
-            
+
             if (!slotDesc.isMaterialized()) continue;
-            
+
             intermediateSlotDesc.setIsMaterialized(true);
             exprs.add(functionCallExpr);
             materializedSlots_.add(i);
         }
-        
+
         List<Expr> resolvedExprs = Expr.substituteList(exprs, smap, analyzer, false);
         analyzer.materializeSlots(resolvedExprs);
 

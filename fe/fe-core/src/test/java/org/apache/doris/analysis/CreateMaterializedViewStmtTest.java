@@ -32,17 +32,15 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class CreateMaterializedViewStmtTest {
 
@@ -1279,4 +1277,3 @@ public class CreateMaterializedViewStmtTest {
         Assert.assertEquals(5, ((ScalarType)mvColumnItem3.getType()).getLength());
     }
 }
-

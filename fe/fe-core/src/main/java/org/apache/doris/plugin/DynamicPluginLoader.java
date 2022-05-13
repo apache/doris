@@ -152,7 +152,7 @@ public class DynamicPluginLoader extends PluginLoader {
     /**
      * reload plugin if plugin has already been installed, else will re-install.
      * Notice that this method will create a new instance of plugin.
-     * 
+     *
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {

@@ -38,7 +38,7 @@ public class ReplacePartitionClause extends AlterTableClause {
     // "isStrictMode" is got from property "strict_range", and default is true.
     // If true, when replacing partition, the range of partitions must same as the range of temp partitions.
     private boolean isStrictRange;
-    
+
     // "useTempPartitionName" is got from property "use_temp_partition_name", and default is false.
     // If false, after replacing, the replaced partition's name will remain unchanged.
     // Otherwise, the replaced partition's name will be the temp partitions name.

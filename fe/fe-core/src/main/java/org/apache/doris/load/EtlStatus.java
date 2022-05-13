@@ -34,7 +34,7 @@ import java.util.Map.Entry;
 
 public class EtlStatus implements Writable {
     public static final String DEFAULT_TRACKING_URL = FeConstants.null_string;
-    
+
     private TEtlState state;
     private String trackingUrl;
     private Map<String, String> stats;
@@ -162,7 +162,7 @@ public class EtlStatus implements Writable {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, state.name());
         Text.writeString(out, trackingUrl);
-        
+
         int statsCount = (stats == null) ? 0 : stats.size();
         out.writeInt(statsCount);
         for (Map.Entry<String, String> entry : stats.entrySet()) {
@@ -195,18 +195,18 @@ public class EtlStatus implements Writable {
             counters.put(key, value);
         }
     }
-    
+
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof EtlStatus)) {
             return false;
         }
-        
+
         EtlStatus etlTaskStatus = (EtlStatus) obj;
-        
+
         // Check stats
         if (etlTaskStatus.stats == null) {
             return false;
@@ -223,7 +223,7 @@ public class EtlStatus implements Writable {
                 return false;
             }
         }
-        
+
         // Check counters
         if (etlTaskStatus.counters == null) {
             return false;
@@ -240,7 +240,7 @@ public class EtlStatus implements Writable {
                 return false;
             }
         }
-        
+
         return state.equals(etlTaskStatus.state) && trackingUrl.equals(etlTaskStatus.trackingUrl);
     }
 }

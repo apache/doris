@@ -114,5 +114,3 @@ public class StructField {
         return otherStructField.name.equals(name) && otherStructField.type.equals(type);
     }
 }
-
-

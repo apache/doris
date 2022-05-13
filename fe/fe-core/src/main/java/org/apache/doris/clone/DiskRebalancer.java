@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.clone.SchedException.Status;
-import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.BalanceType;
+import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -208,7 +207,7 @@ public class DiskRebalancer extends Rebalancer {
                     tabletCtx.setTempSrc(replica);
                     tabletCtx.setTag(clusterStat.getTag());
                     if (prioBackends.containsKey(beStat.getBeId())) {
-                        // priority of balance task of prio BE is NORMAL 
+                        // priority of balance task of prio BE is NORMAL
                         tabletCtx.setOrigPriority(Priority.NORMAL);
                     } else {
                         // balance task's default priority is LOW

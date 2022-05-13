@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import com.google.gson.Gson;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -34,14 +33,14 @@ public class QueryDetailQueueTest {
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         List<QueryDetail> queryDetails = QueryDetailQueue.getQueryDetails(eventTime);
-        Assert.assertTrue(queryDetails.size() == 0); 
+        Assert.assertTrue(queryDetails.size() == 0);
 
         queryDetails = QueryDetailQueue.getQueryDetails(eventTime - 1);
-        Assert.assertTrue(queryDetails.size() == 1); 
+        Assert.assertTrue(queryDetails.size() == 1);
 
         Gson gson = new Gson();
         String json_string = gson.toJson(queryDetails);
-        String query_detail_string = "[{\"eventTime\":1592208814796," 
+        String query_detail_string = "[{\"eventTime\":1592208814796,"
                                      + "\"queryId\":\"219a2d5443c542d4-8fc938db37c892e3\","
                                      + "\"startTime\":1592208814796,\"endTime\":-1,\"latency\":-1,"
                                      + "\"state\":\"RUNNING\",\"database\":\"testDb\","
@@ -55,10 +54,10 @@ public class QueryDetailQueueTest {
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         queryDetails = QueryDetailQueue.getQueryDetails(eventTime);
-        Assert.assertTrue(queryDetails.size() == 1); 
+        Assert.assertTrue(queryDetails.size() == 1);
 
         json_string = gson.toJson(queryDetails);
-        query_detail_string = "[{\"eventTime\":1592208814797," 
+        query_detail_string = "[{\"eventTime\":1592208814797,"
                               + "\"queryId\":\"219a2d5443c542d4-8fc938db37c892e3\","
                               + "\"startTime\":1592208814796,\"endTime\":1592208814797,"
                               + "\"latency\":1,\"state\":\"FINISHED\",\"database\":\"testDb\","

@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import lombok.Getter;
-import lombok.Setter;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Counter;
@@ -28,7 +26,8 @@ import org.apache.doris.thrift.TUnit;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 

@@ -25,12 +25,10 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class PlannerTest extends TestWithFeService {
 
@@ -436,7 +434,7 @@ public class PlannerTest extends TestWithFeService {
         String createTbl1 = "create table db1.tbl1(k1 string, k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1')";
         AnalysisException exception =
-            assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(createTbl1));
-        assertTrue(exception.getMessage().contains("String Type should not be used in key column[k1]."));
+            Assertions.assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(createTbl1));
+        Assertions.assertTrue(exception.getMessage().contains("String Type should not be used in key column[k1]."));
     }
 }

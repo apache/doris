@@ -45,6 +45,7 @@ import java.net.InetAddress;
 import java.net.URISyntaxException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileLock;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.PrivilegedExceptionAction;
@@ -288,10 +289,13 @@ public class FileSystemManager {
                         tmpFilePath ="/tmp/." +
                                 principal.replace('/', '_') +
                                 "_" + Long.toString(currentTime) +
-                                "_" + Integer.toString(randNumber);
+                                "_" + Integer.toString(randNumber) +
+                                "_" + Thread.currentThread().getId();
                         logger.info("create kerberos tmp file" + tmpFilePath);
                         FileOutputStream fileOutputStream = new FileOutputStream(tmpFilePath);
+                        FileLock lock = fileOutputStream.getChannel().lock();
                         fileOutputStream.write(base64decodedBytes);
+                        lock.release();
                         fileOutputStream.close();
                         keytab = tmpFilePath;
                     } else {
