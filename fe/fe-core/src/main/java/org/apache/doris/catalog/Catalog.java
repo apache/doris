@@ -4120,25 +4120,26 @@ public class Catalog {
         // check hudi properties in create stmt.
         HudiUtils.validateCreatTable(hudiTable);
         // check hudi table whether exists in hive database
-        HiveMetaStoreClient hiveMetaStoreClient =
-                HiveMetaStoreClientHelper.getClient(hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
+        String metastoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
+        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
         if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient,
                 hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
             throw new DdlException(String.format("Table [%s] dose not exist in Hive Metastore.",
                     hudiTable.getHmsTableIdentifer()));
         }
-        org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(hudiTable.getHmsDatabaseName(),
-                hudiTable.getHmsTableName(),
-                hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS));
-        if(!HudiUtils.isHudiTable(hiveTable)) {
+        org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(
+            hudiTable.getHmsDatabaseName(),
+            hudiTable.getHmsTableName(),
+            metastoreUris);
+        if (!HudiUtils.isHudiTable(hiveTable)) {
             throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
         }
         // after support snapshot query for mor, we should remove the check.
-        if(HudiUtils.isHudiRealtimeTable(hiveTable)) {
+        if (HudiUtils.isHudiRealtimeTable(hiveTable)) {
             throw new DdlException(String.format("Can not support hudi realtime table.", hudiTable.getHmsTableName()));
         }
         // check table's schema when user specify the schema
-        if(!hudiTable.getFullSchema().isEmpty()) {
+        if (!hudiTable.getFullSchema().isEmpty()) {
             HudiUtils.validateColumns(hudiTable, hiveTable);
         }
         // check hive table if exists in doris database
