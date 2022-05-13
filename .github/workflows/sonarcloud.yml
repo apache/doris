@@ -19,7 +19,10 @@
 name: Code Quality Analysis
 
 on:
-  pull_request_target:
+  push:
+    branches:
+      - master
+  pull_request:
     types: [opened, synchronize, reopened]
 
 
@@ -34,7 +37,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          ref: "refs/pull/${{ github.event.number }}/merge"
           fetch-depth: 0
 
       - name: Changed Java Files
