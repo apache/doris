@@ -105,7 +105,7 @@ PROPERTIES (
 |   DECIMAL  | DECIMAL |  |
 |   DATE   |  DATE  |                                   |
 |   TIMESTAMP  | DATETIME | Timestamp 转成 Datetime 会损失精度 |
-|  BINARY   |  BITMAP  |  |
+|   BINARY   |  BITMAP  |  |
 
 **注意：**
 - Hive 表 Schema 变更**不会自动同步**，需要在 Doris 中重建 Hive 外表。
