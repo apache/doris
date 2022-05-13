@@ -105,7 +105,7 @@ The supported Hive column types correspond to Doris in the following table.
 |   DECIMAL  | DECIMAL |  |
 |   DATE   |  DATE  |                                   |
 |   TIMESTAMP  | DATETIME | Timestamp to Datetime will lose precision |
-|  BINARY   |  BITMAP  |  |
+|   BINARY   |  BITMAP  |  |
 
 **Note:** 
 - Hive table Schema changes **are not automatically synchronized** and require rebuilding the Hive external table in Doris.
