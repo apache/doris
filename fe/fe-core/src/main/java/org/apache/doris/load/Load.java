@@ -1066,7 +1066,7 @@ public class Load {
             String columnName = importColumnDesc.getColumnName();
             Column tblColumn = tbl.getColumn(columnName);
             String realColName;
-            if (tblColumn == null || importColumnDesc.getExpr() == null) {
+            if (tblColumn == null || tblColumn.getName() == null || importColumnDesc.getExpr() == null) {
                 realColName = columnName;
             } else {
                 realColName = tblColumn.getName();
