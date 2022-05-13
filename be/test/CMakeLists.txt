@@ -86,7 +86,6 @@ set(EXEC_TEST_FILES
     # exec/schema_scanner/schema_collations_scanner_test.cpp
     # exec/schema_scanner/schema_charsets_scanner_test.cpp
     # exec/broker_reader_test.cpp
-    # exec/es_scan_node_test.cpp
 )
 
 if(DEFINED DORIS_WITH_LZO)

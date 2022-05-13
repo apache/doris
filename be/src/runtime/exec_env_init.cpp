@@ -20,7 +20,6 @@
 #include "common/logging.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
 #include "olap/segment_loader.h"
