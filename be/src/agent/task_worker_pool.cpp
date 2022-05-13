@@ -996,7 +996,8 @@ Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& re
         if (src_storage_medium == storage_medium) {
             LOG(INFO) << "tablet is already on specified storage medium. "
                       << "storage_medium=" << storage_medium;
-            return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
+            // it's ok to fe, and ignore unnecessary error printing
+            return Status::OK();
         }
         // get a random store of specified storage medium
         auto stores = StorageEngine::instance()->get_stores_for_create_tablet(storage_medium);
@@ -1010,7 +1011,7 @@ Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& re
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
         LOG(INFO) << "tablet is already on specified path. "
                   << "path=" << tablet->data_dir()->path();
-        // it's ok to ignore unnecessary error printing
+        // it's ok to fe, and ignore unnecessary error printing
         return Status::OK();
     }
 
