@@ -266,6 +266,7 @@ FE_MODULES=$(IFS=, ; echo "${modules[*]}")
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
+    if [ -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then rm -f ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ; fi
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
