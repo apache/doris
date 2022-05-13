@@ -23,8 +23,6 @@ public class DeriveFactory {
 
     public BaseStatsDerive getStatsDerive(PlanNode.NodeType nodeType) {
         switch (nodeType) {
-            case OLAP_SCAN_NODE:
-                return new OlapScanStatsDerive();
             case AGG_NODE:
                 return new AggStatsDerive();
             case ANALYTIC_EVAL_NODE:

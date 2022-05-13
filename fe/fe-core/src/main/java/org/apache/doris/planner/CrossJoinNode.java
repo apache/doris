@@ -42,7 +42,7 @@ public class CrossJoinNode extends PlanNode {
 
     public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "CROSS JOIN", NodeType.CROSS_JOIN_NODE);
-        this.innerRef_ = innerRef;
+        this.innerRef = innerRef;
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
         tblRefIds.addAll(outer.getTblRefIds());
