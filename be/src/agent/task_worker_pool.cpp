@@ -1010,7 +1010,8 @@ Status TaskWorkerPool::_check_migrate_request(const TStorageMediumMigrateReq& re
     if (tablet->data_dir()->path() == (*dest_store)->path()) {
         LOG(INFO) << "tablet is already on specified path. "
                   << "path=" << tablet->data_dir()->path();
-        return Status::OLAPInternalError(OLAP_REQUEST_FAILED);
+        // it's ok to ignore unnecessary error printing
+        return Status::OK();
     }
 
     // check disk capacity
