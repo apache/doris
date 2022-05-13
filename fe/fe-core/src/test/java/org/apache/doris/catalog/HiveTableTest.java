@@ -21,6 +21,7 @@ import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -53,7 +54,8 @@ public class HiveTableTest {
     public void testNormal() throws DdlException {
         HiveTable table = new HiveTable(1000, "hive_table", columns, properties);
         Assert.assertEquals(String.format("%s.%s", hiveDb, hiveTable), table.getHiveDbTable());
-        Assert.assertEquals(1, table.getHiveProperties().size());
+        // HiveProperties={hadoop.security.authentication=simple, hive.metastore.uris=thrift://127.0.0.1:9083}
+        Assert.assertEquals(2, table.getHiveProperties().size());
     }
 
     @Test(expected = DdlException.class)
