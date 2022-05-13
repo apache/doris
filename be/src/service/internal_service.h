@@ -30,8 +30,7 @@ namespace doris {
 
 class ExecEnv;
 
-template <typename T>
-class PInternalServiceImpl : public T {
+class PInternalServiceImpl : public PBackendService {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
     virtual ~PInternalServiceImpl();
@@ -62,6 +61,11 @@ public:
     void tablet_writer_add_batch(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBatchRequest* request,
                                  PTabletWriterAddBatchResult* response,
+                                 google::protobuf::Closure* done) override;
+
+    void tablet_writer_add_block(google::protobuf::RpcController* controller,
+                                 const PTabletWriterAddBlockRequest* request,
+                                 PTabletWriterAddBlockResult* response,
                                  google::protobuf::Closure* done) override;
 
     void tablet_writer_cancel(google::protobuf::RpcController* controller,

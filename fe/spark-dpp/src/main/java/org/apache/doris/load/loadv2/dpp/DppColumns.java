@@ -20,15 +20,15 @@ package org.apache.doris.load.loadv2.dpp;
 import com.google.common.base.Preconditions;
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.Objects;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+import java.util.Objects;
 
 // DppColumns is used to store the
 class DppColumns implements Comparable<DppColumns>, Serializable {
-    public List<Object> columns = new ArrayList<Object>();;
+    public List<Object> columns = new ArrayList<Object>();
 
     public DppColumns(List<Object> keys){
         this.columns = keys;

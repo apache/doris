@@ -412,7 +412,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
             }
             size_t val_size = val.length();
             Status rst;
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
+            char* buffer =
+                    reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size, &rst));
             if (UNLIKELY(buffer == nullptr)) {
                 std::string details = strings::Substitute(
                         ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");

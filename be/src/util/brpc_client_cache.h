@@ -66,7 +66,7 @@ public:
     std::shared_ptr<T> get_client(const std::string& host_port) {
         std::shared_ptr<T> stub_ptr;
         auto get_value = [&stub_ptr](typename StubMap<T>::mapped_type& v) { stub_ptr = v; };
-        if(LIKELY(_stub_map.if_contains(host_port, get_value))) {
+        if (LIKELY(_stub_map.if_contains(host_port, get_value))) {
             return stub_ptr;
         }
 
@@ -88,9 +88,8 @@ public:
         }
         auto stub = std::make_shared<T>(channel.release(),
                                         google::protobuf::Service::STUB_OWNS_CHANNEL);
-        _stub_map.try_emplace_l(host_port,
-                                [&stub](typename StubMap<T>::mapped_type& v) { stub = v; },
-                                stub);
+        _stub_map.try_emplace_l(
+                host_port, [&stub](typename StubMap<T>::mapped_type& v) { stub = v; }, stub);
         return stub;
     }
 

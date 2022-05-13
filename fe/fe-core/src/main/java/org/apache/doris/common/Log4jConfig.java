@@ -20,7 +20,6 @@ package org.apache.doris.common;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LoggerContext;
 import org.apache.logging.log4j.core.config.ConfigurationSource;
@@ -32,7 +31,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.Map;
 
-// 
+//
 // don't use trace. use INFO, WARN, ERROR, FATAL
 //
 public class Log4jConfig extends XmlConfiguration {
@@ -42,11 +41,11 @@ public class Log4jConfig extends XmlConfiguration {
             "\n<!-- Auto Generated. DO NOT MODIFY IT! -->\n" +
             "<Configuration status=\"info\" packages=\"org.apache.doris.common\">\n" +
             "  <Appenders>\n" +
-            "    <Console name=\"Console\" target=\"SYSTEM_OUT\">" + 
+            "    <Console name=\"Console\" target=\"SYSTEM_OUT\">" +
             "      <PatternLayout charset=\"UTF-8\">\n" +
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
             "      </PatternLayout>\n" +
-            "    </Console>" + 
+            "    </Console>" +
             "    <RollingFile name=\"Sys\" fileName=\"${sys_log_dir}/fe.log\" filePattern=\"${sys_log_dir}/fe.log.${sys_file_pattern}-%i\">\n" +
             "      <PatternLayout charset=\"UTF-8\">\n" +
             "        <Pattern>%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid) [%C{1}.%M():%L] %m%n</Pattern>\n" +
@@ -97,7 +96,7 @@ public class Log4jConfig extends XmlConfiguration {
             "    <Root level=\"${sys_log_level}\">\n" +
             "      <AppenderRef ref=\"Sys\"/>\n" +
             "      <AppenderRef ref=\"SysWF\" level=\"WARN\"/>\n" +
-            "      <AppenderRef ref=\"Console\"/>\n" +
+            "      <!--REPLACED BY Console Logger-->\n" +
             "    </Root>\n" +
             "    <Logger name=\"audit\" level=\"ERROR\" additivity=\"false\">\n" +
             "      <AppenderRef ref=\"Auditfile\"/>\n" +
@@ -116,6 +115,12 @@ public class Log4jConfig extends XmlConfiguration {
     public static String confDir;
     // custom conf dir
     public static String customConfDir;
+    // Doris uses both system.out and log4j to print log messages.
+    // This variable is used to check whether to add console appender to loggers.
+    //     If doris is running under daemon mode, then this variable == false, and console logger will not be added.
+    //     If doris is not running under daemon mode, then this variable == true, and console logger will be added to
+    //     loggers, all logs will be printed to console.
+    public static boolean foreground = false;
 
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplate;
@@ -167,6 +172,12 @@ public class Log4jConfig extends XmlConfiguration {
         newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->",
                 sb.toString());
 
+        if (foreground) {
+            StringBuilder consoleLogger = new StringBuilder();
+            consoleLogger.append("<AppenderRef ref=\"Console\"/>\n");
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll("<!--REPLACED BY Console Logger-->",
+                    consoleLogger.toString());
+        }
         Map<String, String> properties = Maps.newHashMap();
         properties.put("sys_log_dir", sysLogDir);
         properties.put("sys_file_pattern", sysLogRollPattern);

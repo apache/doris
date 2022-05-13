@@ -14,8 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#ifndef DORIS_BE_SRC_OLAP_QUANTILE_STATE_H
-#define DORIS_BE_SRC_OLAP_QUANTILE_STATE_H
+
+#pragma once
 
 #include <memory>
 #include <string>
@@ -67,5 +67,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_QUANTILE_STATE_H

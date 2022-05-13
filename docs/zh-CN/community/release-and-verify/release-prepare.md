@@ -65,10 +65,10 @@ Apache 项目的版本发布主要有以下三种形式：
     2. 将需要发布的内容上传至 [Apache Dev SVN 仓库](https://dist.apache.org/repos/dist/dev/incubator/doris)
     3. 其他 Convenience Binaries 的准备（如上传到 [Maven Staging 仓库](https://repository.apache.org/#stagingRepositories)）
 4. 社区发布投票流程
-	2. 在 [Doris 社区 Dev 邮件组](dev@doris.apache.org)发起投票。
+	2. 在 Doris 社区 Dev 邮件组(**dev@doris.apache.org**)发起投票。
 	3. 投票通过后，在 Doris 社区发 Result 邮件。
 	4. 如果是孵化项目（Incuator Project）还需：
-	   1. 在 [Incubator General 邮件组](general@incubator.apache.org) 发起投票。
+	   1. 在 Incubator General 邮件组(**general@incubator.apache.org**) 发起投票。
 	   2. 发 Result 邮件到 general@incubator.apache.org。
 5. 完成工作
 	1. 上传签名的软件包到 [Apache Release 仓库](https://dist.apache.org/repos/dist/release/incubator/doris)，并生成相关链接。

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_DATETIME_VALUE_H
-#define DORIS_BE_RUNTIME_DATETIME_VALUE_H
+#pragma once
 
 #include <re2/re2.h>
 #include <stdint.h>
@@ -31,6 +30,7 @@
 #include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 enum TimeUnit {
@@ -566,9 +566,9 @@ public:
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
-    friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt); 
+    friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt);
     friend void doris::vectorized::VecDateTimeValue::convert_dt_to_vec_dt(DateTimeValue* dt);
-    
+
     void from_packed_time(int64_t packed_time) {
         _microsecond = packed_time % (1LL << 24);
         int64_t ymdhms = packed_time >> 24;
@@ -677,5 +677,3 @@ struct hash<doris::DateTimeValue> {
     size_t operator()(const doris::DateTimeValue& v) const { return doris::hash_value(v); }
 };
 } // namespace std
-
-#endif

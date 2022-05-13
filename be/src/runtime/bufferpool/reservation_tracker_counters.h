@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
-#define DORIS_BE_RUNTIME_RESERVATION_TRACKER_COUNTERS_H
+#pragma once
 
 #include "util/runtime_profile.h"
 
@@ -37,5 +36,3 @@ struct ReservationTrackerCounters {
     RuntimeProfile::Counter* reservation_limit;
 };
 } // namespace doris
-
-#endif

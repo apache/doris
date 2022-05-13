@@ -72,7 +72,7 @@ public class JobsProcDir implements ProcDirInterface {
         } else if (jobTypeName.equals(DELETE)) {
             return new DeleteInfoProcDir(catalog.getDeleteHandler(), catalog.getLoadInstance(), db.getId());
         } else if (jobTypeName.equals(ROLLUP)) {
-            return new RollupProcDir(catalog.getRollupHandler(), db);
+            return new RollupProcDir(catalog.getMaterializedViewHandler(), db);
         } else if (jobTypeName.equals(SCHEMA_CHANGE)) {
             return new SchemaChangeProcDir(catalog.getSchemaChangeHandler(), db);
         } else if (jobTypeName.equals(EXPORT)) {
@@ -119,7 +119,7 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // rollup
-        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getRollupHandler();
+        MaterializedViewHandler materializedViewHandler = Catalog.getCurrentCatalog().getMaterializedViewHandler();
         pendingNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
         runningNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
                 + materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);

@@ -29,7 +29,6 @@ namespace doris {
 // blocking queues by Offer(). Each item is processed by a single user-supplied method.
 class PriorityWorkStealingThreadPool : public PriorityThreadPool {
 public:
-
     // Creates a new thread pool and start num_threads threads.
     //  -- num_threads: how many threads are part of this pool
     //  -- num_queues: how many queues are part of this pool
@@ -46,8 +45,8 @@ public:
             _work_queues.emplace_back(std::make_shared<BlockingPriorityQueue<Task>>(queue_size));
         }
         for (int i = 0; i < num_threads; ++i) {
-            _threads.create_thread(
-                    std::bind<void>(std::mem_fn(&PriorityWorkStealingThreadPool::work_thread), this, i));
+            _threads.create_thread(std::bind<void>(
+                    std::mem_fn(&PriorityWorkStealingThreadPool::work_thread), this, i));
         }
     }
 
@@ -62,9 +61,7 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    bool offer(Task task) override {
-        return _work_queues[task.queue_id]->blocking_put(task);
-    }
+    bool offer(Task task) override { return _work_queues[task.queue_id]->blocking_put(task); }
 
     bool offer(WorkFunction func) override {
         PriorityThreadPool::Task task = {0, func, 0};
@@ -119,7 +116,8 @@ private:
             // avoid blocking get
             bool is_other_queues_empty = true;
             // steal work in round-robin if nothing to do
-            while (_work_queues[queue_id]->get_size() == 0 && queue_id != steal_queue_id && !is_shutdown()) {
+            while (_work_queues[queue_id]->get_size() == 0 && queue_id != steal_queue_id &&
+                   !is_shutdown()) {
                 if (_work_queues[steal_queue_id]->non_blocking_get(&task)) {
                     is_other_queues_empty = false;
                     task.work_function();
@@ -129,7 +127,9 @@ private:
             if (queue_id == steal_queue_id) {
                 steal_queue_id = (steal_queue_id + 1) % _work_queues.size();
             }
-            if (is_other_queues_empty && _work_queues[queue_id]->blocking_get(&task, config::doris_blocking_priority_queue_wait_timeout_ms)) {
+            if (is_other_queues_empty &&
+                _work_queues[queue_id]->blocking_get(
+                        &task, config::doris_blocking_priority_queue_wait_timeout_ms)) {
                 task.work_function();
             }
             if (_work_queues[queue_id]->get_size() == 0) {

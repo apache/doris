@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIG_H
-#define DORIS_BE_SRC_COMMON_CONFIG_H
+#pragma once
 
 #include "configbase.h"
 
@@ -240,6 +239,8 @@ CONF_Bool(enable_low_cardinality_optimize, "false");
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
+// whether enable vectorized compaction
+CONF_Bool(enable_vectorized_compaction, "true");
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
@@ -735,8 +736,9 @@ CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
 CONF_Validator(string_type_length_soft_limit_bytes,
                [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+// used for olap scanner to save memory, when the size of unused_object_pool
+// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
+CONF_Int32(object_pool_buffer_size, "100");
 } // namespace config
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIG_H

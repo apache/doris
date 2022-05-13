@@ -21,13 +21,8 @@
 
 namespace doris::vectorized {
 
-VExplodeTableFunction::VExplodeTableFunction(bool is_outer) {
-    _is_outer = is_outer;
-    if (_is_outer) {
-        _fn_name = "vexplode_outer";
-    } else {
-        _fn_name = "vexplode";
-    }
+VExplodeTableFunction::VExplodeTableFunction() {
+    _fn_name = "vexplode";
 }
 
 Status VExplodeTableFunction::process_init(vectorized::Block* block) {

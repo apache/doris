@@ -35,7 +35,8 @@ void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data
 }
 
 Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta) {
-    CHECK(_page_builder->count() > 0) << "no entry has been added, filepath=" << wblock->path_desc().filepath;
+    CHECK(_page_builder->count() > 0)
+            << "no entry has been added, filepath=" << wblock->path_desc().filepath;
     meta->set_type(ORDINAL_INDEX);
     BTreeMetaPB* root_page_meta = meta->mutable_ordinal_index()->mutable_root_page();
 

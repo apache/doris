@@ -70,7 +70,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1358,7 +1357,7 @@ public class SingleNodePlanner {
                 }
                 unionNode.setTblRefIds(Lists.newArrayList(inlineViewRef.getId()));
                 unionNode.addConstExprList(selectStmt.getBaseTblResultExprs());
-                //set outputSmap to substitute literal in outputExpr 
+                //set outputSmap to substitute literal in outputExpr
                 unionNode.setOutputSmap(inlineViewRef.getSmap());
                 unionNode.init(analyzer);
                 return unionNode;
@@ -1683,7 +1682,7 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
+                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(),
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
@@ -1725,7 +1724,6 @@ public class SingleNodePlanner {
         scanNodeList.add(scanNode);
 
         scanNode.init(analyzer);
-
         return scanNode;
     }
 
@@ -2013,7 +2011,7 @@ public class SingleNodePlanner {
         List<Expr> conjuncts = analyzer.getUnassignedConjuncts(setOperationStmt.getTupleId().asList());
         // TODO chenhao
         // Because Conjuncts can't be assigned to UnionNode and Palo's fe can't evaluate conjuncts,
-        // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant 
+        // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant
         // Select.
         boolean hasConstantOp = false;
         if (!setOperationStmt.hasAnalyticExprs()) {
@@ -2289,7 +2287,7 @@ public class SingleNodePlanner {
     }
 
     private void pushDownPredicatesPastSort(Analyzer analyzer, SelectStmt stmt) throws AnalysisException {
-        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed. 
+        // TODO chenhao, remove isEvaluateOrderBy when SubQuery's default limit is removed.
         if (stmt.evaluateOrderBy() || stmt.getLimit() >= 0 || stmt.getOffset() > 0 || stmt.getSortInfo() == null) {
             return;
         }
@@ -2370,7 +2368,7 @@ public class SingleNodePlanner {
                 // if grouping set is given and column is not in all grouping set list
                 // we cannot push the predicate since the column value can be null
                 if (stmt.getGroupByClause() == null) {
-                    //group by clause may be null when distinct grouping. 
+                    //group by clause may be null when distinct grouping.
                     //eg: select distinct c from ( select distinct c from table) t where c > 1;
                     continue;
                 }

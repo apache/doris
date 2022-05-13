@@ -134,10 +134,8 @@ void StorageEngine::_fd_cache_clean_callback() {
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval))) {
         interval = config::cache_clean_interval;
         if (interval <= 0) {
-            OLAP_LOG_WARNING(
-                    "config of file descriptor clean interval is illegal: [%d], "
-                    "force set to 3600",
-                    interval);
+            LOG(WARNING) << "config of file descriptor clean interval is illegal: [" << interval
+                         << "], force set to 3600 ";
             interval = 3600;
         }
 
@@ -153,8 +151,8 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
     uint32_t min_interval = config::min_garbage_sweep_interval;
 
     if (!(max_interval >= min_interval && min_interval > 0)) {
-        OLAP_LOG_WARNING("garbage sweep interval config is illegal: [max=%d min=%d].", max_interval,
-                         min_interval);
+        LOG(WARNING) << "garbage sweep interval config is illegal: [max=" << max_interval
+                     << " min=" << min_interval << "].";
         min_interval = 1;
         max_interval = max_interval >= min_interval ? max_interval : min_interval;
         LOG(INFO) << "force reset garbage sweep interval. "
@@ -182,7 +180,7 @@ void StorageEngine::_garbage_sweeper_thread_callback() {
         Status res = start_trash_sweep(&usage);
         if (!res.ok()) {
             LOG(WARNING) << "one or more errors occur when sweep trash."
-                     << "see previous message for detail. err code=" << res;
+                         << "see previous message for detail. err code=" << res;
             // do nothing. continue next loop.
         }
     }
@@ -589,10 +587,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
-            return Status::InternalError(strings::Substitute(
-                        "failed to prepare compaction task and calculate permits, tablet_id=$0, compaction_type=$1, "
-                        "permit=$2, current_permit=$3, status=$4",
-                        tablet->tablet_id(), compaction_type, permits, _permit_limiter.usage(), st.get_error_msg()));
+            return Status::InternalError(
+                    strings::Substitute("failed to prepare compaction task and calculate permits, "
+                                        "tablet_id=$0, compaction_type=$1, "
+                                        "permit=$2, current_permit=$3, status=$4",
+                                        tablet->tablet_id(), compaction_type, permits,
+                                        _permit_limiter.usage(), st.get_error_msg()));
         }
         return st;
     }

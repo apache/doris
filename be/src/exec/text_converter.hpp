@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
-#define DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
+#pragma once
+
 #include <sql.h>
 
 #include <boost/algorithm/string.hpp>
@@ -34,6 +34,7 @@
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 // Note: this function has a codegen'd version.  Changing this function requires
@@ -186,7 +187,8 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
     // Parse the raw-text data. Translate the text string to internal format.
     switch (slot_desc->type().type) {
     case TYPE_HLL: {
-        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(HyperLogLog(Slice(data, len)));
+        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(
+                HyperLogLog(Slice(data, len)));
         break;
     }
     case TYPE_VARCHAR:
@@ -298,5 +300,3 @@ inline bool TextConverter::write_column(const SlotDescriptor* slot_desc,
 }
 
 } // namespace doris
-
-#endif

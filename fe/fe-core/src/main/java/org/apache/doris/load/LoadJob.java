@@ -42,7 +42,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,7 +91,7 @@ public class LoadJob implements Writable {
     // progress has two functions at ETL stage:
     // 1. when progress < 100, it indicates ETL progress
     // 2. set progress = 100 ONLY when ETL progress is completely done
-    // 
+    //
     // when at LOADING stage, use it normally (as real progress)
     private int progress;
 
@@ -489,7 +488,6 @@ public class LoadJob implements Writable {
     public void setHadoopEtlJobId(String etlJobId) {
         if (etlJobType == EtlJobType.HADOOP) {
             ((HadoopEtlJobInfo) etlJobInfo).setEtlJobId(etlJobId);
-            ;
         }
     }
 
@@ -861,7 +859,7 @@ public class LoadJob implements Writable {
 
         boolean deleteFlag = false;
         deleteFlag = in.readBoolean();
-        
+
         state = JobState.valueOf(Text.readString(in));
         progress = in.readInt();
         createTimeMs = in.readLong();
@@ -964,7 +962,7 @@ public class LoadJob implements Writable {
                 } else {
                     Operator op = Operator.valueOf(opStr);
                     String value = Text.readString(in);
-                    BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key), 
+                    BinaryPredicate predicate = new BinaryPredicate(op, new SlotRef(null, key),
                             new StringLiteral(value));
                     conditions.add(predicate);
                 }

@@ -119,4 +119,3 @@ public class StructType extends Type {
         return toSql(0);
     }
 }
-

@@ -35,9 +35,9 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
-#include "runtime/thread_context.h"
 
 using apache::thrift::ThriftDebugString;
 using std::list;
@@ -54,7 +54,9 @@ EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTablet
           _res_status(res_status) {
     _download_status = Status::OK();
     _mem_tracker = MemTracker::create_tracker(
-            -1, fmt::format("{}: {}", _push_req.push_type, std::to_string(_push_req.tablet_id)),
+            -1,
+            fmt::format("EngineBatchLoadTask:pushType={}:tabletId={}", _push_req.push_type,
+                        std::to_string(_push_req.tablet_id)),
             StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
 }
 
@@ -72,7 +74,7 @@ Status EngineBatchLoadTask::execute() {
                 status = _process();
                 // Internal error, need retry
                 if (!status.ok()) {
-                    OLAP_LOG_WARNING("push internal error, need retry.signature: %ld", _signature);
+                    LOG(WARNING) << "push internal error, need retry.signature: " << _signature;
                     retry_time += 1;
                 } else {
                     break;
@@ -82,7 +84,8 @@ Status EngineBatchLoadTask::execute() {
     } else if (_push_req.push_type == TPushType::DELETE) {
         Status delete_data_status = _delete_data(_push_req, _tablet_infos);
         if (delete_data_status != Status::OK()) {
-            LOG(WARNING) << "delete data failed. status:" << delete_data_status << " signature:" << _signature;
+            LOG(WARNING) << "delete data failed. status:" << delete_data_status
+                         << " signature:" << _signature;
             status = delete_data_status;
         }
     } else {
@@ -102,8 +105,7 @@ Status EngineBatchLoadTask::_init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id,
-                                                                     _push_req.schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
@@ -259,7 +261,7 @@ Status EngineBatchLoadTask::_process() {
         Status push_status = _push(_push_req, _tablet_infos);
         time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
-        if (push_status == Status::OLAPInternalError(OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST)) {
+        if (push_status.precise_code() == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             status = Status::OK();
         } else if (push_status != Status::OK()) {
             status = push_status;
@@ -277,7 +279,7 @@ Status EngineBatchLoadTask::_process() {
 }
 
 Status EngineBatchLoadTask::_push(const TPushReq& request,
-                                      std::vector<TTabletInfo>* tablet_info_vec) {
+                                  std::vector<TTabletInfo>* tablet_info_vec) {
     Status res = Status::OK();
     LOG(INFO) << "begin to process push. "
               << " transaction_id=" << request.transaction_id << " tablet_id=" << request.tablet_id
@@ -289,8 +291,8 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
@@ -339,7 +341,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
 }
 
 Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
-                                             std::vector<TTabletInfo>* tablet_info_vec) {
+                                         std::vector<TTabletInfo>* tablet_info_vec) {
     VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
@@ -351,11 +353,10 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
     }
 
     // 1. Get all tablets with same tablet_id
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id
-                     << ", schema_hash=" << request.schema_hash;
+        LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
@@ -370,7 +371,7 @@ Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
 
     if (!res.ok()) {
         LOG(WARNING) << "fail to push empty version for delete data. "
-                    << "res=" << res << "tablet=" << tablet->full_name();
+                     << "res=" << res << "tablet=" << tablet->full_name();
         DorisMetrics::instance()->delete_requests_failed->increment(1);
         return res;
     }

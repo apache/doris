@@ -17,8 +17,6 @@
 
 package org.apache.doris.alter;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
@@ -65,8 +63,6 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
-
-import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -161,9 +157,9 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
 
         MaterializedIndex baseIndex = testPartition.getBaseIndex();
-        assertEquals(IndexState.NORMAL, baseIndex.getState());
-        assertEquals(PartitionState.NORMAL, testPartition.getState());
-        assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+        Assert.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assert.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         Tablet baseTablet = baseIndex.getTablets().get(0);
         List<Replica> replicas = baseTablet.getReplicas();
@@ -171,15 +167,15 @@ public class SchemaChangeJobV2Test {
         Replica replica2 = replicas.get(1);
         Replica replica3 = replicas.get(2);
 
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
-        assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(-1, replica2.getLastFailedVersion());
-        assertEquals(-1, replica3.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assert.assertEquals(-1, replica1.getLastFailedVersion());
+        Assert.assertEquals(-1, replica2.getLastFailedVersion());
+        Assert.assertEquals(-1, replica3.getLastFailedVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
 
         // runPendingJob
         schemaChangeHandler.runAfterCatalogReady();
@@ -237,9 +233,9 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
 
         MaterializedIndex baseIndex = testPartition.getBaseIndex();
-        assertEquals(IndexState.NORMAL, baseIndex.getState());
-        assertEquals(PartitionState.NORMAL, testPartition.getState());
-        assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+        Assert.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assert.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         Tablet baseTablet = baseIndex.getTablets().get(0);
         List<Replica> replicas = baseTablet.getReplicas();
@@ -247,15 +243,15 @@ public class SchemaChangeJobV2Test {
         Replica replica2 = replicas.get(1);
         Replica replica3 = replicas.get(2);
 
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
-        assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(-1, replica2.getLastFailedVersion());
-        assertEquals(-1, replica3.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assert.assertEquals(-1, replica1.getLastFailedVersion());
+        Assert.assertEquals(-1, replica2.getLastFailedVersion());
+        Assert.assertEquals(-1, replica3.getLastFailedVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
 
         // runPendingJob
         replica1.setState(Replica.ReplicaState.DECOMMISSION);

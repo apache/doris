@@ -19,6 +19,9 @@ package org.apache.doris.http;
 
 import org.apache.doris.thrift.TQueryPlanInfo;
 
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.json.simple.JSONArray;
@@ -30,10 +33,6 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.Base64;
-
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
@@ -48,7 +47,7 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
     }
     @Test
     public void testQueryPlanAction() throws IOException, TException {
-        RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }");
+        RequestBody body = RequestBody.create("{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }", JSON);
         Request request = new Request.Builder()
                 .post(body)
                 .addHeader("Authorization", rootAuth)
@@ -67,8 +66,6 @@ public class TableQueryPlanActionTest extends DorisHttpTestCase {
             Assert.assertNotNull(tabletObject.get("routings"));
             Assert.assertEquals(3, ((JSONArray) tabletObject.get("routings")).size());
             Assert.assertEquals(testStartVersion, (long) tabletObject.get("version"));
-            Assert.assertEquals(testSchemaHash, (long) tabletObject.get("schemaHash"));
-
         }
         String queryPlan = (String) ((JSONObject) jsonObject.get("data")).get("opaqued_query_plan");
         Assert.assertNotNull(queryPlan);

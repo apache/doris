@@ -20,19 +20,49 @@
 
 #pragma once
 
+#include <libdivide.h>
+
+#include <type_traits>
+
+#include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
+#include "vec/functions/function_binary_arithmetic.h"
 
 namespace doris::vectorized {
 
 template <typename A, typename B>
 struct DivideIntegralImpl {
     using ResultType = typename NumberTraits::ResultOfIntegerDivision<A, B>::Type;
+    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
 
     template <typename Result = ResultType>
-    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
-        null_map[index] = b == 0;
-        return a / (b + null_map[index]);
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename ColumnVector<Result>::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+        UInt8 is_null = b == 0;
+        memset(null_map.data(), is_null, size);
+
+        if (!is_null) {
+            if constexpr (!std::is_floating_point_v<A> && !std::is_same_v<A, Int128> &&
+                          !std::is_same_v<A, Int8> && !std::is_same_v<A, UInt8>) {
+                for (size_t i = 0; i < size; i++) {
+                    c[i] = a[i] / libdivide::divider<A>(b);
+                }
+            } else {
+                for (size_t i = 0; i < size; i++) {
+                    c[i] = a[i] / b;
+                }
+            }
+        }
+    }
+
+    template <typename Result = ResultType>
+    static inline Result apply(A a, B b, UInt8& is_null) {
+        is_null = b == 0;
+        return a / (b + is_null);
     }
 };
 

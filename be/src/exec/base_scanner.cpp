@@ -57,7 +57,8 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _read_timer(nullptr),
           _materialize_timer(nullptr),
           _success(false),
-          _scanner_eof(false) {}
+          _scanner_eof(false) {
+}
 
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());
@@ -106,10 +107,18 @@ Status BaseScanner::init_expr_ctxes() {
 
     // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
-        RETURN_IF_ERROR(
-                Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
-        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
-        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        if (_state->enable_vectorized_exec()) {
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
+                    _state->obj_pool(), _pre_filter_texprs, &_vpre_filter_ctxs));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_vpre_filter_ctxs, _state, *_row_desc,
+                                                       _mem_tracker));
+            RETURN_IF_ERROR(vectorized::VExpr::open(_vpre_filter_ctxs, _state));
+        } else {
+            RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
+                                                    &_pre_filter_ctxs));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        }
     }
 
     // Construct dest slots information
@@ -132,11 +141,22 @@ Status BaseScanner::init_expr_ctxes() {
                << ", name=" << slot_desc->col_name();
             return Status::InternalError(ss.str());
         }
-        ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
-        RETURN_IF_ERROR(ctx->open(_state));
-        _dest_expr_ctx.emplace_back(ctx);
+
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_vexpr_ctx.emplace_back(ctx);
+        } else {
+            ExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_expr_ctx.emplace_back(ctx);
+        }
+
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -155,7 +175,18 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
+Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
+    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
+    if (_success) {
+        free_expr_local_allocations();
+        *fill_tuple = true;
+    } else {
+        *fill_tuple = false;
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     // filter src tuple by preceding filter first
     if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
         _counter->num_rows_unselected++;
@@ -271,6 +302,10 @@ void BaseScanner::free_expr_local_allocations() {
 void BaseScanner::close() {
     if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
+    }
+
+    if (_state->enable_vectorized_exec() && !_vpre_filter_ctxs.empty()) {
+        vectorized::VExpr::close(_vpre_filter_ctxs, _state);
     }
 }
 

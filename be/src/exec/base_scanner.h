@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -32,6 +32,11 @@ class RowDescriptor;
 class MemTracker;
 class RuntimeState;
 class ExprContext;
+
+namespace vectorized {
+class IColumn;
+using MutableColumnPtr = IColumn::MutablePtr;
+} // namespace vectorized
 
 // The counter will be passed to each scanner.
 // Note that this struct is not thread safe.
@@ -47,23 +52,34 @@ class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-    virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
+    virtual ~BaseScanner() {
+        Expr::close(_dest_expr_ctx, _state);
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
+        }
+    };
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool *fill_tuple) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
+
+    // Get next block
+    virtual Status get_next(vectorized::Block* block, bool* eof) {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
     virtual void close() = 0;
-    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
+    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+
 protected:
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
@@ -84,6 +100,9 @@ protected:
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
+    // for vectorized
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -106,8 +125,9 @@ protected:
     // Used to record whether a row of data is successfully read.
     bool _success = false;
     bool _scanner_eof = false;
+
+private:
+    Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 
 } /* namespace doris */
-
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

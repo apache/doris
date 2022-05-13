@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_ODBC_TABLE_SINK_H
-#define DORIS_BE_RUNTIME_ODBC_TABLE_SINK_H
+#pragma once
 
 #include <vector>
 
@@ -37,7 +36,7 @@ class ExprContext;
 class OdbcTableSink : public DataSink {
 public:
     OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs);
+                  const std::vector<TExpr>& t_exprs);
 
     virtual ~OdbcTableSink();
 
@@ -55,9 +54,7 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status);
 
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
 private:
     ObjectPool* _pool;
@@ -75,5 +72,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

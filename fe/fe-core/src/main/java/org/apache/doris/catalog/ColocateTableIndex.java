@@ -36,7 +36,6 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,7 +109,7 @@ public class ColocateTableIndex implements Writable {
             result = 31 * result + grpId.hashCode();
             return result;
         }
-        
+
         @Override
         public String toString() {
             return dbId + "." + grpId;

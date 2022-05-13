@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
+#pragma once
 
 #include <cassert>
 #include <cstdio>
@@ -117,4 +116,3 @@ private:
 };
 
 } // namespace doris
-#endif

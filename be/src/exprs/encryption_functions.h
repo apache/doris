@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_ENCRYPTION_FUNCTIONS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -44,10 +43,10 @@ static StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
         {"AES_256_CTR", AES_256_CTR},       {"AES_128_OFB", AES_128_OFB},
         {"AES_192_OFB", AES_192_OFB},       {"AES_256_OFB", AES_256_OFB}};
 static StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {{"SM4_128_ECB", SM4_128_ECB},
-                                                     {"SM4_128_CBC", SM4_128_CBC},
-                                                     {"SM4_128_CFB128", SM4_128_CFB128},
-                                                     {"SM4_128_OFB", SM4_128_OFB},
-                                                     {"SM4_128_CTR", SM4_128_CTR}};
+                                                            {"SM4_128_CBC", SM4_128_CBC},
+                                                            {"SM4_128_CFB128", SM4_128_CFB128},
+                                                            {"SM4_128_OFB", SM4_128_OFB},
+                                                            {"SM4_128_CTR", SM4_128_CTR}};
 class EncryptionFunctions {
 public:
     static void init();
@@ -98,5 +97,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

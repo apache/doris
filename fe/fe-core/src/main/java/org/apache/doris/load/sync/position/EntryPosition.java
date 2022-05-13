@@ -18,7 +18,6 @@
 package org.apache.doris.load.sync.position;
 
 import com.alibaba.otter.canal.protocol.CanalEntry;
-
 import com.google.common.base.Strings;
 
 public class EntryPosition {

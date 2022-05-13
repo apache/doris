@@ -22,16 +22,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
-import com.google.common.collect.Maps;
-
-import java.util.List;
-import java.util.Map;
-
 import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
 
 public class UpdateManagerTest {
 

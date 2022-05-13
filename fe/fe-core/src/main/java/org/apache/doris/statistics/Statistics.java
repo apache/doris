@@ -38,25 +38,25 @@ public class Statistics {
 
     private Map<Long, TableStats> idToTableStats = Maps.newConcurrentMap();
 
-    public void updateTableStats(long tableId, Map<String, String> statsNameToValue)
+    public void updateTableStats(long tableId, Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
             tableStats = new TableStats();
             idToTableStats.put(tableId, tableStats);
         }
-        tableStats.updateTableStats(statsNameToValue);
+        tableStats.updateTableStats(statsTypeToValue);
     }
 
     public void updateColumnStats(long tableId, String columnName, Type columnType,
-                                  Map<String, String> statsNameToValue)
+                                  Map<StatsType, String> statsTypeToValue)
             throws AnalysisException {
         TableStats tableStats = idToTableStats.get(tableId);
         if (tableStats == null) {
             tableStats = new TableStats();
             idToTableStats.put(tableId, tableStats);
         }
-        tableStats.updateColumnStats(columnName, columnType, statsNameToValue);
+        tableStats.updateColumnStats(columnName, columnType, statsTypeToValue);
     }
 
     public TableStats getTableStats(long tableId) {
@@ -69,5 +69,18 @@ public class Statistics {
             return null;
         }
         return tableStats.getNameToColumnStats();
+    }
+
+    // TODO: mock statistics need to be removed in the future
+    public void mockTableStatsWithRowCount(long tableId, long rowCount) {
+        TableStats tableStats = idToTableStats.get(tableId);
+        if (tableStats == null) {
+            tableStats = new TableStats();
+            idToTableStats.put(tableId, tableStats);
+        }
+
+        if (tableStats.getRowCount() != rowCount) {
+            tableStats.setRowCount(rowCount);
+        }
     }
 }

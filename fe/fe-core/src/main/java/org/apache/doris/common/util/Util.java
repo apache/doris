@@ -22,12 +22,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedReader;
 import java.io.DataInput;
@@ -77,7 +76,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
         TYPE_STRING_MAP.put(PrimitiveType.NULL_TYPE, "null");
     }
-    
+
     private static class CmdWorker extends Thread {
         private final Process process;
         private Integer exitValue;
@@ -159,7 +158,7 @@ public class Util {
                 exitValue = cmdWorker.getExitValue();
                 if (exitValue == null) {
                     // if we get this far then we never got an exit value from the worker thread
-                    // as a result of a timeout 
+                    // as a result of a timeout
                     LOG.warn("exec command [{}] timed out.", cmd);
                     exitValue = -1;
                 }
@@ -182,7 +181,7 @@ public class Util {
 
         return result;
     }
-    
+
     public static List<String> shellSplit(CharSequence string) {
         List<String> tokens = new ArrayList<String>();
         boolean escaping = false;
@@ -225,11 +224,11 @@ public class Util {
         }
         return sb.toString();
     }
-    
+
     public static int generateSchemaHash() {
         return Math.abs(new Random().nextInt());
     }
-    
+
     /**
      * Chooses k unique random elements from a population sequence
      */
@@ -241,7 +240,7 @@ public class Util {
         Collections.shuffle(population);
         return population.subList(0, kNum);
     }
-    
+
     /**
      * Delete directory and all contents in this directory
      */
@@ -326,7 +325,7 @@ public class Util {
         if (Strings.isNullOrEmpty(valStr)) {
             return defaultVal;
         }
-        
+
         long result = defaultVal;
         try {
             result = Long.valueOf(valStr);
@@ -416,7 +415,7 @@ public class Util {
 
         return result;
     }
-    
+
     // return the ordinal string of an Integer
     public static String ordinal(int i) {
         switch (i % 100) {
@@ -457,4 +456,3 @@ public class Util {
         return s;
     }
 }
-

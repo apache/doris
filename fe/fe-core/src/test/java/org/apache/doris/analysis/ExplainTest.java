@@ -22,9 +22,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.UUID;
 
 
 public class ExplainTest {
@@ -77,6 +74,13 @@ public class ExplainTest {
 
     public void testExplainInsertInto() throws Exception {
         String sql = "explain insert into test_explain.explain_t1 select * from test_explain.explain_t2";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, false);
+        System.out.println(explainString);
+        Assert.assertFalse(explainString.contains("CAST"));
+    }
+
+    public void testExplainVerboseInsertInto() throws Exception {
+        String sql = "explain verbose insert into test_explain.explain_t1 select * from test_explain.explain_t2";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("CAST"));

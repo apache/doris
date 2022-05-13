@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SERVICE_BACKEND_SERVICE_H
-#define DORIS_BE_SERVICE_BACKEND_SERVICE_H
+#pragma once
 
 #include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
@@ -156,6 +155,8 @@ public:
 
     virtual void clean_trash() override;
 
+    virtual void check_storage_format(TCheckStorageFormatResult& result) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
     ExecEnv* _exec_env;
@@ -163,5 +164,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SERVICE_BACKEND_SERVICE_H

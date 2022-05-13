@@ -110,6 +110,69 @@ under the License.
                         </execution>
                     </executions>
                 </plugin>
+                <plugin>
+                    <groupId>com.diffplug.spotless</groupId>
+                    <artifactId>spotless-maven-plugin</artifactId>
+                    <version>2.22.2</version>
+                    <configuration>
+                        <java>
+                            <excludes>
+                                <exclude>**/jmockit/**/*</exclude>
+                            </excludes>
+                            <endWithNewline />
+                            <trimTrailingWhitespace />
+                            <indent>
+                                <spaces>true</spaces>
+                                <spacesPerTab>4</spacesPerTab>
+                            </indent>
+                            <licenseHeader>
+                                <file>check/checkstyle/checkstyle-apache-header.txt</file>
+                                <delimiter>\npackage</delimiter>
+                            </licenseHeader>
+                            <importOrder>
+                                <order>\\#,org.apache.doris,,java</order>
+                            </importOrder>
+                            <removeUnusedImports />
+                            <encoding>UTF-8</encoding>
+                            <lineEndings>UNIX</lineEndings>
+                        </java>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>3.1.2</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>9.3</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <configLocation>check/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
+                        <encoding>UTF-8</encoding>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <linkXRef>false</linkXRef>
+                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>validate</id>
+                            <phase>validate</phase>
+                            <goals>
+                                <goal>check</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.sonarsource.scanner.maven</groupId>
+                    <artifactId>sonar-maven-plugin</artifactId>
+                    <version>3.9.1.2184</version>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
@@ -125,7 +188,9 @@ under the License.
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
-        
+        <sonar.organization>apache</sonar.organization>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-codec.version>1.9</commons-codec.version>
@@ -147,7 +212,7 @@ under the License.
         <joda-time.version>2.10.1</joda-time.version>
         <commons-io.version>2.6</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
-        <junit.version>4.12</junit.version>
+        <junit.version>5.8.2</junit.version>
         <thrift.version>0.13.0</thrift.version>
         <log4j2.version>2.17.2</log4j2.version>
         <metrics-core.version>4.0.2</metrics-core.version>
@@ -243,6 +308,10 @@ under the License.
                 </repository>
             </repositories>
             <pluginRepositories>
+                <pluginRepository>
+                    <id>central</id>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </pluginRepository>
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>cloudera-public</id>
@@ -395,10 +464,17 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/junit/junit -->
+            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
             <dependency>
-                <groupId>junit</groupId>
-                <artifactId>junit</artifactId>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
+            <dependency>
+                <groupId>org.junit.vintage</groupId>
+                <artifactId>junit-vintage-engine</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
@@ -459,19 +535,16 @@ under the License.
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-netty-shaded</artifactId>
                 <version>${grpc.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-protobuf</artifactId>
                 <version>${grpc.version}</version>
-                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-stub</artifactId>
                 <version>${grpc.version}</version>
-                <scope>provided</scope>
             </dependency>
             <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
             <dependency>
@@ -866,10 +939,6 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>3.1.0</version>
-                <configuration>
-                    <configLocation>checkstyle.xml</configLocation>
-                </configuration>
             </plugin>
         </plugins>
     </reporting>

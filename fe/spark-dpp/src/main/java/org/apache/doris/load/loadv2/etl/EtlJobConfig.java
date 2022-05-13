@@ -84,7 +84,7 @@ import java.util.Map;
                 "partitionType": "RANGE",
                 "partitionColumnRefs": ["k1"],
                 "distributionColumnRefs": ["k2"],
- 	            "partitions": [{
+                 "partitions": [{
                     "partitionId": 10020,
                     "startKeys": [-100],
                     "endKeys": [10],

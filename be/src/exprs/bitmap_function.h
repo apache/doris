@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -87,9 +86,9 @@ public:
     static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
     static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
-                                     const StringVal* bitmap_strs);
+                                      const StringVal* bitmap_strs);
 
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
@@ -156,4 +155,3 @@ public:
                                                                  const StringVal& src);
 };
 } // namespace doris
-#endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

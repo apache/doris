@@ -28,7 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -142,4 +141,3 @@ public class AbstractBackupStmt extends DdlStmt {
         return timeoutMs;
     }
 }
-

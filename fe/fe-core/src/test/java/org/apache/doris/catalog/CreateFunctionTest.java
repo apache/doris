@@ -96,7 +96,7 @@ public class CreateFunctionTest {
                 "\"close_fn\" = \"_ZN9doris_udf11AddUdfCloseEPNS_15FunctionContextENS0_18FunctionStateScopeE\",\n" +
                 "\"object_file\" = \"http://127.0.0.1:8008/libcmy_udf.so\"\n" +
                 ");";
-        
+
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) UtFrameUtils.parseAndAnalyzeStmt(createFuncStr, ctx);
         Catalog.getCurrentCatalog().createFunction(createFunctionStmt);
 

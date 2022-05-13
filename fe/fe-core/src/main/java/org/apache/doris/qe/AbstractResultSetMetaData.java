@@ -17,8 +17,9 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.Column;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 

@@ -21,16 +21,16 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TStorageMedium;
 
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class DiskInfoTest {
 

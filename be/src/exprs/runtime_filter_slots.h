@@ -53,7 +53,7 @@ public:
             consumer_filter->signal();
         };
 
-        auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string &msg) {
+        auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
             runtime_filter->set_ignored();
             runtime_filter->set_ignored_msg(msg);
             runtime_filter->publish();
@@ -78,7 +78,8 @@ public:
                 return d1.type < d2.type;
             }
         };
-        std::sort(sorted_runtime_filter_descs.begin(), sorted_runtime_filter_descs.end(), compare_desc);
+        std::sort(sorted_runtime_filter_descs.begin(), sorted_runtime_filter_descs.end(),
+                  compare_desc);
 
         for (auto& filter_desc : sorted_runtime_filter_descs) {
             IRuntimeFilter* runtime_filter = nullptr;
@@ -94,7 +95,8 @@ public:
 
             bool is_in_filter = (runtime_filter->type() == RuntimeFilterType::IN_FILTER);
 
-            if (over_max_in_num && runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            if (over_max_in_num &&
+                runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
                 runtime_filter->change_to_bloom_filter();
             }
 
@@ -110,25 +112,28 @@ public:
                 bool exists_in_filter = has_in_filter[runtime_filter->expr_order()];
                 if (is_in_filter && over_max_in_num) {
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                              << " ignore runtime filter(in filter id " << filter_desc.filter_id
-                              << ") because: in_num(" << hash_table_size
-                              << ") >= max_in_num(" << max_in_num << ")";
+                               << " ignore runtime filter(in filter id " << filter_desc.filter_id
+                               << ") because: in_num(" << hash_table_size << ") >= max_in_num("
+                               << max_in_num << ")";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 } else if (!is_in_filter && exists_in_filter) {
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
                     // because in filter is exactly filter, so it is enough to filter data
                     VLOG_DEBUG << "fragment instance " << print_id(state->fragment_instance_id())
-                              << " ignore runtime filter(" << to_string(runtime_filter->type())
-                              << " id " << filter_desc.filter_id
-                              << ") because: already exists in filter";
+                               << " ignore runtime filter(" << to_string(runtime_filter->type())
+                               << " id " << filter_desc.filter_id
+                               << ") because: already exists in filter";
                     ignore_local_filter(filter_desc.filter_id);
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
 #ifdef VLOG_DEBUG_IS_ON
-                std::string msg = fmt::format("fragment instance {} ignore runtime filter(in filter id {}) because: in_num({}) >= max_in_num({})",
-                                              print_id(state->fragment_instance_id()), filter_desc.filter_id, hash_table_size, max_in_num);
+                std::string msg = fmt::format(
+                        "fragment instance {} ignore runtime filter(in filter id {}) because: "
+                        "in_num({}) >= max_in_num({})",
+                        print_id(state->fragment_instance_id()), filter_desc.filter_id,
+                        hash_table_size, max_in_num);
                 ignore_remote_filter(runtime_filter, msg);
 #else
                 ignore_remote_filter(runtime_filter, "ignored");
@@ -136,8 +141,9 @@ public:
                 continue;
             }
 
-            if ((runtime_filter->type() == RuntimeFilterType::IN_FILTER)
-                || (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER && !over_max_in_num)) {
+            if ((runtime_filter->type() == RuntimeFilterType::IN_FILTER) ||
+                (runtime_filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
+                 !over_max_in_num)) {
                 has_in_filter[runtime_filter->expr_order()] = true;
             }
             _runtime_filters[runtime_filter->expr_order()].push_back(runtime_filter);

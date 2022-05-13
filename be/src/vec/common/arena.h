@@ -29,11 +29,9 @@
 #if __has_include(<sanitizer/asan_interface.h>)
 #include <sanitizer/asan_interface.h>
 #endif
+#include "gutil/dynamic_annotations.h"
 #include "vec/common/allocator.h"
 #include "vec/common/memcpy_small.h"
-
-#include "gutil/dynamic_annotations.h"
-
 
 namespace doris::vectorized {
 
@@ -60,7 +58,6 @@ private:
         Chunk* prev;
 
         Chunk(size_t size_, Chunk* prev_) {
-
             begin = reinterpret_cast<char*>(Allocator<false>::alloc(size_));
             pos = begin;
             end = begin + size_ - pad_right;
@@ -251,7 +248,8 @@ public:
         return res;
     }
 
-    char* aligned_realloc(const char* old_data, size_t old_size, size_t new_size, size_t alignment) {
+    char* aligned_realloc(const char* old_data, size_t old_size, size_t new_size,
+                          size_t alignment) {
         char* res = aligned_alloc(new_size, alignment);
         if (old_data) {
             memcpy(res, old_data, old_size);

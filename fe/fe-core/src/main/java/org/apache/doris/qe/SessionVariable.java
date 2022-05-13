@@ -165,7 +165,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
@@ -221,19 +221,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -275,7 +275,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // The number of seconds the server waits for activity on a noninteractive connection before closing it.
     @VariableMgr.VarAttr(name = WAIT_TIMEOUT)
-    public int waitTimeout = 28800;
+    public int waitTimeoutS = 28800;
 
     // The number of seconds to wait for a block to be written to a connection before aborting the write
     @VariableMgr.VarAttr(name = NET_WRITE_TIMEOUT)
@@ -422,7 +422,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean disableJoinReorder = false;
 
     @VariableMgr.VarAttr(name = ENABLE_INFER_PREDICATE)
-    private boolean enableInferPredicate = false;
+    private boolean enableInferPredicate = true;
 
     @VariableMgr.VarAttr(name = SQL_QUOTE_SHOW_CREATE)
     public boolean sqlQuoteShowCreate = true;
@@ -438,7 +438,7 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = false;
 
@@ -466,7 +466,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getWaitTimeoutS() {
-        return waitTimeout;
+        return waitTimeoutS;
     }
 
     public long getSqlMode() {
@@ -482,7 +482,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
-    
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -490,11 +490,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isTransactionReadonly() {
         return transactionReadonly;
     }
-    
+
     public String getTransactionIsolation() {
         return transactionIsolation;
     }
-    
+
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -549,10 +549,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getInteractiveTimeout() {
         return interactiveTimeout;
-    }
-
-    public int getWaitTimeout() {
-        return waitTimeout;
     }
 
     public int getNetWriteTimeout() {
@@ -1125,4 +1121,3 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
-

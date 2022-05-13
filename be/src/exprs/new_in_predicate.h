@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_NEW_IN_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_NEW_IN_PREDICATE_H
+#pragma once
 
 #include <string>
 
@@ -323,8 +322,8 @@ private:
     /// The templated function that provides the implementation for all the In() and NotIn()
     /// functions.
     template <typename T, typename SetType, bool not_in, Strategy strategy>
-    static doris_udf::BooleanVal templated_in(doris_udf::FunctionContext* context,
-                                                     const T& val, int num_args, const T* args);
+    static doris_udf::BooleanVal templated_in(doris_udf::FunctionContext* context, const T& val,
+                                              int num_args, const T* args);
 
     /// Initializes an SetLookupState in ctx.
     template <typename T, typename SetType>
@@ -344,5 +343,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

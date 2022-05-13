@@ -87,7 +87,6 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -118,7 +117,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
     public final Map<Long, AlterJobV2> runnableSchemaChangeJobV2 = Maps.newConcurrentMap();
 
-    public int cycle_count = 0;
+    public int cycleCount = 0;
 
     public SchemaChangeHandler() {
         super("schema change", Config.default_schema_change_scheduler_interval_millisecond);
@@ -1114,7 +1113,7 @@ public class SchemaChangeHandler extends AlterHandler {
         schemaChangeJob.setStorageFormat(storageFormat);
 
         // begin checking each table
-        // ATTN: DO NOT change any meta in this loop 
+        // ATTN: DO NOT change any meta in this loop
         long tableId = olapTable.getId();
         Map<Long, Short> indexIdToShortKeyColumnCount = Maps.newHashMap();
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
@@ -1391,13 +1390,13 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (cycle_count >= CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB) {
+        if (cycleCount >= CYCLE_COUNT_TO_CHECK_EXPIRE_SCHEMA_CHANGE_JOB) {
             clearFinishedOrCancelledSchemaChangeJobV2();
             super.runAfterCatalogReady();
-            cycle_count = 0;
+            cycleCount = 0;
         }
         runAlterJobV2();
-        cycle_count++;
+        cycleCount++;
     }
 
     private void runAlterJobV2() {
@@ -1868,11 +1867,10 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    protected void addAlterJobV2(AlterJobV2 alterJob) {
+    public void addAlterJobV2(AlterJobV2 alterJob) {
         super.addAlterJobV2(alterJob);
         runnableSchemaChangeJobV2.put(alterJob.getJobId(), alterJob);
     }
-
 
     private void clearFinishedOrCancelledSchemaChangeJobV2() {
         Iterator<Map.Entry<Long, AlterJobV2>> iterator = runnableSchemaChangeJobV2.entrySet().iterator();

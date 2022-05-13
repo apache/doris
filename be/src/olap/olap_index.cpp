@@ -52,7 +52,7 @@ MemIndex::~MemIndex() {
 }
 
 Status MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row_block,
-                                  bool use_cache) {
+                              bool use_cache) {
     Status res = Status::OK();
 
     SegmentMetaInfo meta;
@@ -315,7 +315,7 @@ Status MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row
 }
 
 Status MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
-                          std::vector<TabletColumn>* short_key_columns) {
+                      std::vector<TabletColumn>* short_key_columns) {
     if (short_key_columns == nullptr) {
         LOG(WARNING) << "fail to init MemIndex, nullptr short key columns.";
         return Status::OLAPInternalError(OLAP_ERR_INDEX_LOAD_ERROR);
@@ -391,8 +391,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
         VLOG_NOTICE << "show result offset. seg_off=" << offset.segment
                     << ", off=" << offset.offset;
     } catch (...) {
-        OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
-                         k.to_string().c_str(), find_last);
+        LOG(WARNING) << "fail to compare value in memindex. [cursor='" << k.to_string()
+                     << "' find_last=" << find_last << "]";
         return end();
     }
 
@@ -469,18 +469,17 @@ Status MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const 
     return Status::OK();
 }
 
-Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos,
-                                            RowBlockPosition* rbp) const {
+Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
     if (zero_num_rows()) {
         return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
-        OLAP_LOG_WARNING(
-                "fail to get RowBlockPosition from OLAPIndexOffset. "
-                "[IndexOffset={segment=%u offset=%u} segment_count=%lu items_count=%lu]",
-                pos.segment, pos.offset, segment_count(),
-                pos.segment < segment_count() ? _meta[pos.segment].count() : 0);
+        LOG(WARNING) << "fail to get RowBlockPosition from OLAPIndexOffset. "
+                        "[IndexOffset={segment="
+                     << pos.segment << " offset=" << pos.offset
+                     << "} segment_count=" << segment_count() << " items_count="
+                     << (pos.segment < segment_count() ? _meta[pos.segment].count() : 0) << "]";
         return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 

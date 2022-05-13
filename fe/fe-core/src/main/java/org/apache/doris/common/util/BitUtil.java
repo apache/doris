@@ -36,4 +36,3 @@ public class BitUtil {
         return (val + (factor - 1)) & ~(factor - 1);
     }
 }
-

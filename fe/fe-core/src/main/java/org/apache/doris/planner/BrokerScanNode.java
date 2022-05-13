@@ -34,9 +34,9 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -54,13 +54,12 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -138,7 +137,14 @@ public class BrokerScanNode extends LoadScanNode {
 
     public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
                           List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName);
+        super(id, destTupleDesc, planNodeName, NodeType.BROKER_SCAN_NODE);
+        this.fileStatusesList = fileStatusesList;
+        this.filesAdded = filesAdded;
+    }
+
+    public BrokerScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
+                          List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded, NodeType nodeType) {
+        super(id, destTupleDesc, planNodeName, nodeType);
         this.fileStatusesList = fileStatusesList;
         this.filesAdded = filesAdded;
     }
@@ -240,8 +246,8 @@ public class BrokerScanNode extends LoadScanNode {
      */
     private void initColumns(ParamCreateContext context) throws UserException {
         context.srcTupleDescriptor = analyzer.getDescTbl().createTupleDescriptor();
-        context.slotDescByName = Maps.newHashMap();
-        context.exprMap = Maps.newHashMap();
+        context.slotDescByName = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        context.exprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
         // for load job, column exprs is got from file group
         // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"
@@ -413,7 +419,9 @@ public class BrokerScanNode extends LoadScanNode {
                 // csv/csv_with_name/csv_with_names_and_types treat as csv format
             } else if (fileFormat.toLowerCase().equals(FeConstants.csv)
                     || fileFormat.toLowerCase().equals(FeConstants.csv_with_names)
-                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)) {
+                    || fileFormat.toLowerCase().equals(FeConstants.csv_with_names_and_types)
+                    // TODO: Add TEXTFILE to TFileFormatType to Support hive text file format.
+                    || fileFormat.toLowerCase().equals(FeConstants.text)) {
                 return TFileFormatType.FORMAT_CSV_PLAIN;
             } else {
                 throw new UserException("Not supported file format: " + fileFormat);
@@ -472,7 +480,7 @@ public class BrokerScanNode extends LoadScanNode {
             TBrokerFileStatus fileStatus = fileStatuses.get(i);
             long leftBytes = fileStatus.size - curFileOffset;
             long tmpBytes = curInstanceBytes + leftBytes;
-            //header_type 
+            //header_type
             String header_type = getHeaderType(context.fileGroup.getFileFormat());
             TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
             List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
@@ -499,7 +507,12 @@ public class BrokerScanNode extends LoadScanNode {
                 } else {
                     TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(curFileOffset, fileStatus, formatType,
                             leftBytes, columnsFromPath, numberOfColumnsFromFile, brokerDesc, header_type);
-                    rangeDesc.setHdfsParams(tHdfsParams);
+                    if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                        rangeDesc.hdfs_params.setFsName(fsName);
+                    } else if (rangeDesc.hdfs_params == null) {
+                        rangeDesc.setHdfsParams(tHdfsParams);
+                    }
+
                     rangeDesc.setReadByColumnDef(true);
                     brokerScanRange(curLocations).addToRanges(rangeDesc);
                     curFileOffset = 0;
@@ -522,7 +535,12 @@ public class BrokerScanNode extends LoadScanNode {
                     rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                     rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                 }
-                rangeDesc.setHdfsParams(tHdfsParams);
+                if (rangeDesc.hdfs_params != null && rangeDesc.hdfs_params.getFsName() == null) {
+                    rangeDesc.hdfs_params.setFsName(fsName);
+                } else if (rangeDesc.hdfs_params == null) {
+                    rangeDesc.setHdfsParams(tHdfsParams);
+                }
+
                 rangeDesc.setReadByColumnDef(true);
                 brokerScanRange(curLocations).addToRanges(rangeDesc);
                 curFileOffset = 0;
@@ -614,6 +632,3 @@ public class BrokerScanNode extends LoadScanNode {
         return output.toString();
     }
 }
-
-
-

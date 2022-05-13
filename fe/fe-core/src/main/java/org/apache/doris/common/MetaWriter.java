@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.io.CountingDataOutputStream;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,14 +93,15 @@ public class MetaWriter {
 
     public static void write(File imageFile, Catalog catalog) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
-        LOG.info("start save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
-
+        LOG.info("start to save image to {}. is ckpt: {}", imageFile.getAbsolutePath(), Catalog.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
+        // MetaHeader should use output stream in the future.
         long startPosition = MetaHeader.write(imageFile);
         List<MetaIndex> metaIndices = Lists.newArrayList();
+        FileOutputStream imageFileOut = new FileOutputStream(imageFile, true);
         try (CountingDataOutputStream dos = new CountingDataOutputStream(new BufferedOutputStream(
-                new FileOutputStream(imageFile, true)), startPosition)) {
+                imageFileOut), startPosition)) {
             writer.setDelegate(dos, metaIndices);
             long replayedJournalId = catalog.getReplayedJournalId();
             checksum.setRef(writer.doWork("header", () -> catalog.saveHeader(dos, replayedJournalId, checksum.getRef())));
@@ -128,6 +128,8 @@ public class MetaWriter {
             checksum.setRef(writer.doWork("plugins", () -> catalog.savePlugins(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("deleteHandler", () -> catalog.saveDeleteHandler(dos, checksum.getRef())));
             checksum.setRef(writer.doWork("sqlBlockRule", () -> catalog.saveSqlBlockRule(dos, checksum.getRef())));
+            checksum.setRef(writer.doWork("policy", () -> catalog.savePolicy(dos, checksum.getRef())));
+            imageFileOut.getChannel().force(true);
         }
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 

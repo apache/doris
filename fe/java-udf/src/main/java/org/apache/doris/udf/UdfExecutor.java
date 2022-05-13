@@ -17,13 +17,13 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.thrift.TPrimitiveType;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;

@@ -18,10 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.thrift.TExprNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Class representing a [NOT] EXISTS predicate.
@@ -58,6 +58,7 @@ public class ExistsPredicate extends Predicate {
     @Override
     public Expr clone() { return new ExistsPredicate(this); }
 
+    @Override
     public String toSqlImpl() {
         StringBuilder strBuilder = new StringBuilder();
         if (notExists) {
@@ -70,8 +71,19 @@ public class ExistsPredicate extends Predicate {
     }
 
     @Override
+    public String toDigestImpl() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (notExists) {
+            strBuilder.append("NOT ");
+
+        }
+        strBuilder.append("EXISTS ");
+        strBuilder.append(getChild(0).toDigest());
+        return strBuilder.toString();
+    }
+
+    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(notExists);
     }
 }
-

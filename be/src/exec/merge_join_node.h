@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
+#pragma once
 
 #include <string>
 #include <thread>
@@ -66,10 +65,7 @@ private:
         bool is_eos;
         TupleRow* current_row;
         ChildReaderContext(const RowDescriptor& desc, int batch_size)
-                : batch(desc, batch_size),
-                  row_idx(0),
-                  is_eos(false),
-                  current_row(nullptr) {}
+                : batch(desc, batch_size), row_idx(0), is_eos(false), current_row(nullptr) {}
     };
     // _left_batch must be cleared before calling get_next().  used cache child(0)'s data
     // _right_batch must be cleared before calling get_next().  used cache child(1)'s data
@@ -97,5 +93,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

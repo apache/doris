@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/config.h"
 #include "env/env.h"
+
+#include "common/config.h"
 #include "env/env_posix.h"
 
 namespace doris {
@@ -24,7 +25,7 @@ namespace doris {
 std::shared_ptr<PosixEnv> Env::_posix_env(new PosixEnv());
 
 // Default Posix Env
-Env *Env::Default() {
+Env* Env::Default() {
     return _posix_env.get();
 }
 

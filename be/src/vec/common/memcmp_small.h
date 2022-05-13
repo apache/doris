@@ -49,7 +49,8 @@ inline int cmp(T a, T b) {
 /** Variant when memory regions may have different sizes.
   */
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
+inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
+                                         size_t b_size) {
     size_t min_size = std::min(a_size, b_size);
 
     for (size_t offset = 0; offset < min_size; offset += 16) {
@@ -97,7 +98,7 @@ inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t si
   */
 template <typename Char>
 inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                         size_t b_size) {
+                                            size_t b_size) {
     if (a_size != b_size) return false;
 
     for (size_t offset = 0; offset < a_size; offset += 16) {
@@ -183,7 +184,8 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 #include <cstring>
 
 template <typename Char>
-inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, size_t b_size) {
+inline int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
+                                         size_t b_size) {
     if (auto res = memcmp(a, b, std::min(a_size, b_size)))
         return res;
     else
@@ -197,7 +199,7 @@ inline int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t si
 
 template <typename Char>
 inline bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b,
-                                         size_t b_size) {
+                                            size_t b_size) {
     return a_size == b_size && 0 == memcmp(a, b, a_size);
 }
 

@@ -14,8 +14,8 @@
 
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -202,11 +202,10 @@ struct FilePathDesc {
     // REMOTE_CACHE is the local cache path for remote path, if a data_dir is REMOTE_CACHE,
     // it means the tablet in it will be set as a remote path.
     static bool is_remote(TStorageMedium::type checked_storage_medium) {
-        return checked_storage_medium == TStorageMedium::S3 || checked_storage_medium == TStorageMedium::REMOTE_CACHE;
+        return checked_storage_medium == TStorageMedium::S3 ||
+               checked_storage_medium == TStorageMedium::REMOTE_CACHE;
     }
-    bool is_remote() const {
-        return is_remote(storage_medium);
-    }
+    bool is_remote() const { return is_remote(storage_medium); }
 };
 
 class FilePathDescStream {

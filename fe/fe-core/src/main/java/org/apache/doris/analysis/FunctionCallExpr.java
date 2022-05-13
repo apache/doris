@@ -48,7 +48,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,7 +84,7 @@ public class FunctionCallExpr extends Expr {
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
-    // use to record the num of json_object parameters 
+    // use to record the num of json_object parameters
     private int originChildSize;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
@@ -287,6 +286,61 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
             fnName.getFunction().equalsIgnoreCase("json_array") ||
             fnName.getFunction().equalsIgnoreCase("json_object")) {
+            return forJSON(sb.toString());
+        }
+        return sb.toString();
+    }
+
+    private String paramsToDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("(");
+
+        if (fnParams.isStar()) {
+            sb.append("*");
+        }
+        if (fnParams.isDistinct()) {
+            sb.append("DISTINCT ");
+        }
+        int len = children.size();
+        List<String> result = Lists.newArrayList();
+        if (fnName.getFunction().equalsIgnoreCase("json_array") ||
+                fnName.getFunction().equalsIgnoreCase("json_object")) {
+            len = len - 1;
+        }
+        if (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                fnName.getFunction().equalsIgnoreCase("sm4_encrypt")) {
+            len = len - 1;
+        }
+        for (int i = 0; i < len; ++i) {
+            if (i == 1 && (fnName.getFunction().equalsIgnoreCase("aes_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("aes_encrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_decrypt") ||
+                    fnName.getFunction().equalsIgnoreCase("sm4_encrypt"))) {
+                result.add("\'***\'");
+            } else {
+                result.add(children.get(i).toDigest());
+            }
+        }
+        sb.append(Joiner.on(", ").join(result)).append(")");
+        return sb.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        Expr expr;
+        if (originStmtFnExpr != null) {
+            expr = originStmtFnExpr;
+        } else {
+            expr = this;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(((FunctionCallExpr) expr).fnName);
+        sb.append(paramsToDigest());
+        if (fnName.getFunction().equalsIgnoreCase("json_quote") ||
+                fnName.getFunction().equalsIgnoreCase("json_array") ||
+                fnName.getFunction().equalsIgnoreCase("json_object")) {
             return forJSON(sb.toString());
         }
         return sb.toString();
@@ -1166,4 +1220,3 @@ public class FunctionCallExpr extends Expr {
         return result.toString();
     }
 }
-

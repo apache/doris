@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -14,17 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.rewrite;
 
 import org.apache.doris.common.FeConstants;
-
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -299,4 +296,25 @@ public class InferFiltersRuleTest {
         Assert.assertTrue(planString.contains("`tb2`.`k1` >= 1"));
         Assert.assertTrue(planString.contains("`tb2`.`k1` <= 2"));
     }
+
+    @Test
+    public void testOnAndWhere2TablesLeftJoin() throws Exception {
+        SessionVariable sessionVariable = dorisAssert.getSessionVariable();
+        sessionVariable.setEnableInferPredicate(true);
+        Assert.assertTrue(sessionVariable.isEnableInferPredicate());
+        String query = "select * from tb1 left join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
+    }
+
+    @Test
+    public void testOnAndWhere2TablesInnerJoin() throws Exception {
+        SessionVariable sessionVariable = dorisAssert.getSessionVariable();
+        sessionVariable.setEnableInferPredicate(true);
+        Assert.assertTrue(sessionVariable.isEnableInferPredicate());
+        String query = "select * from tb1 inner join tb2 on tb1.k1 = tb2.k1 where tb2.k1 = 1";
+        String planString = dorisAssert.query(query).explainQuery();
+        Assert.assertTrue(planString.contains("`tb1`.`k1` = 1"));
+    }
+
 }

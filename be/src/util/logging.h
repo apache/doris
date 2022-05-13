@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_LOGGING_H
-#define DORIS_BE_SRC_COMMON_UTIL_LOGGING_H
+#pragma once
 
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
@@ -25,8 +24,8 @@
 #include <string>
 
 #include "common/logging.h"
-#include "util/uid_util.h"
 #include "gutil/walltime.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -111,9 +110,7 @@ class TaggableLogger {
 public:
     TaggableLogger(std::ostream& _stream) : _stream(_stream), _tags(nullptr) {};
 
-    ~TaggableLogger() {
-        flush();
-    }
+    ~TaggableLogger() { flush(); }
 
     void flush();
 
@@ -141,8 +138,10 @@ private:
         const std::string value;
         Tags* next;
 
-        Tags(const std::string& key, const std::string& value, Tags* next) : key(key), value(value), next(next) {}
-        Tags(const std::string& key, std::string&& value, Tags* next) : key(key), value(std::move(value)), next(next) {}
+        Tags(const std::string& key, const std::string& value, Tags* next)
+                : key(key), value(value), next(next) {}
+        Tags(const std::string& key, std::string&& value, Tags* next)
+                : key(key), value(std::move(value)), next(next) {}
     };
 
     Tags* _tags;
@@ -151,9 +150,7 @@ public:
     // add tag method here
     const static std::string QUERY_ID;
 
-    TaggableLogger& query_id(const std::string& query_id) {
-        return tag(QUERY_ID, query_id);
-    }
+    TaggableLogger& query_id(const std::string& query_id) { return tag(QUERY_ID, query_id); }
 
     TaggableLogger& query_id(const TUniqueId& query_id) {
         return tag(QUERY_ID, print_id(query_id));
@@ -179,5 +176,3 @@ public:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_UTIL_LOGGING_H

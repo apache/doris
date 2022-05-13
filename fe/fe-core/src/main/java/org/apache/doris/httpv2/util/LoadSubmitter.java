@@ -19,16 +19,16 @@ package org.apache.doris.httpv2.util;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.httpv2.rest.UploadAction;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -136,19 +136,15 @@ public class LoadSubmitter {
             return file;
         }
 
-        private Backend selectOneBackend() throws DdlException {
-            SystemInfoService.BeAvailablePredicate beAvailablePredicate =
-                    new SystemInfoService.BeAvailablePredicate(false, false, true);
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMediumAndTag(
-                    1, beAvailablePredicate, false,
-                    SystemInfoService.DEFAULT_CLUSTER, null, null);
-            if (backendIds == null) {
-                throw new DdlException("No alive backend");
+        private Backend selectOneBackend() throws LoadException {
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            if (backendIds.isEmpty()) {
+                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }
-
             Backend backend = Catalog.getCurrentSystemInfo().getBackend(backendIds.get(0));
             if (backend == null) {
-                throw new DdlException("No alive backend");
+                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }
             return backend;
         }

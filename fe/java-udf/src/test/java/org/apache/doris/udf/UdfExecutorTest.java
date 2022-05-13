@@ -17,7 +17,17 @@
 
 package org.apache.doris.udf;
 
-import org.apache.doris.thrift.*;
+import org.apache.doris.thrift.TFunction;
+import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.thrift.TFunctionName;
+import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
+import org.apache.doris.thrift.TPrimitiveType;
+import org.apache.doris.thrift.TScalarFunction;
+import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
+import org.apache.doris.thrift.TTypeNodeType;
+
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.Test;

@@ -26,11 +26,10 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/runtime_filter.h"
-#include "util/time.h"
-#include "util/uid_util.h"
-// defination for TRuntimeFilterDesc
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "util/time.h"
+#include "util/uid_util.h"
 
 namespace doris {
 class TUniqueId;

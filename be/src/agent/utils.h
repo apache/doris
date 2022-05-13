@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_UTILS_H
-#define DORIS_BE_SRC_AGENT_UTILS_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/FrontendService.h"
@@ -29,7 +28,7 @@ namespace doris {
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient(){};
+    virtual ~MasterServerClient() {};
 
     // Report finished task to the master server
     //
@@ -59,8 +58,8 @@ private:
 
 class AgentUtils {
 public:
-    AgentUtils(){};
-    virtual ~AgentUtils(){};
+    AgentUtils() {};
+    virtual ~AgentUtils() {};
 
     // Execute shell cmd
     virtual bool exec_cmd(const std::string& command, std::string* errmsg,
@@ -75,4 +74,3 @@ private:
 }; // class AgentUtils
 
 } // namespace doris
-#endif // DORIS_BE_SRC_AGENT_UTILS_H

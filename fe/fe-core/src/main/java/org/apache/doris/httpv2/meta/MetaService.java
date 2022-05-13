@@ -29,22 +29,21 @@ import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.system.Frontend;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class MetaService extends RestBaseController {
@@ -111,7 +110,7 @@ public class MetaService extends RestBaseController {
         try {
             Storage currentStorageInfo = new Storage(imageDir.getAbsolutePath());
             StorageInfo storageInfo = new StorageInfo(currentStorageInfo.getClusterID(),
-                    currentStorageInfo.getImageSeq(), currentStorageInfo.getEditsSeq());
+                    currentStorageInfo.getLatestImageSeq(), currentStorageInfo.getEditsSeq());
             return ResponseEntityBuilder.ok(storageInfo);
         } catch (IOException e) {
             return ResponseEntityBuilder.internalError(e.getMessage());

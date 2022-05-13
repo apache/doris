@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/descriptors.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
-#define DORIS_BE_RUNTIME_DESCRIPTORS_H
+#pragma once
 
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
@@ -60,16 +59,16 @@ class PSlotDescriptor;
 // This is more efficient than branching to check if the slot is non-nullable.
 struct NullIndicatorOffset {
     int byte_offset;
-    uint8_t bit_mask;   // to extract null indicator
-    int8_t  bit_offset; // only used to serialize, from 1 to 8, invalid null value
-                        // bit_offset is -1.
+    uint8_t bit_mask;  // to extract null indicator
+    int8_t bit_offset; // only used to serialize, from 1 to 8, invalid null value
+                       // bit_offset is -1.
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
             : byte_offset(byte_offset),
               bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
               bit_offset(bit_offset_) {
-              DCHECK_LE(bit_offset_, 8);
-              }
+        DCHECK_LE(bit_offset_, 8);
+    }
 
     bool equals(const NullIndicatorOffset& o) const {
         return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
@@ -234,6 +233,7 @@ public:
     const std::string port() const { return _port; }
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
+    const std::string charset() const { return _charset; }
 
 private:
     std::string _mysql_db;
@@ -242,6 +242,7 @@ private:
     std::string _port;
     std::string _user;
     std::string _passwd;
+    std::string _charset;
 };
 
 class ODBCTableDescriptor : public TableDescriptor {
@@ -476,5 +477,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

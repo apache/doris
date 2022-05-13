@@ -67,6 +67,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
+#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vcross_join_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/ves_http_scan_node.h"
@@ -392,6 +393,7 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::SELECT_NODE:
         case TPlanNodeType::REPEAT_NODE:
         case TPlanNodeType::TABLE_FUNCTION_NODE:
+        case TPlanNodeType::BROKER_SCAN_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -555,7 +557,11 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
-        *node = pool->add(new BrokerScanNode(pool, tnode, descs));
+        if (state->enable_vectorized_exec()) {
+            *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
+        } else {
+            *node = pool->add(new BrokerScanNode(pool, tnode, descs));
+        }
         return Status::OK();
 
     case TPlanNodeType::REPEAT_NODE:

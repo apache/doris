@@ -77,7 +77,7 @@ const char* DataTypeBitMap::deserialize(const char* buf, IColumn* column) const 
     buf += sizeof(size_t) * row_num;
     // deserialize each bitmap
     data.resize(row_num);
-    for (int i = 0; i < row_num ; ++i) {
+    for (int i = 0; i < row_num; ++i) {
         data[i].deserialize(buf);
         buf += bitmap_size_array[i];
     }
@@ -105,8 +105,9 @@ void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& b
 }
 
 void DataTypeBitMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-        doris::vectorized::BufferWritable& ostr) const {
-    auto& data = const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
+                               doris::vectorized::BufferWritable& ostr) const {
+    auto& data =
+            const_cast<BitmapValue&>(assert_cast<const ColumnBitmap&>(column).get_element(row_num));
     std::string result(data.getSizeInBytes(), '0');
     data.write((char*)result.data());
 

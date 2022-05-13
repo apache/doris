@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_RUNTIME_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_RUNTIME_PREDICATE_H
+#pragma once
 
 #include <condition_variable>
 #include <list>
@@ -76,8 +75,12 @@ inline std::string to_string(RuntimeFilterType type) {
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
-    RuntimeFilterParams() : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
-              bloom_filter_size(-1), max_in_num(0), filter_id(0), fragment_instance_id(0, 0) {}
+    RuntimeFilterParams()
+            : filter_type(RuntimeFilterType::UNKNOWN_FILTER),
+              bloom_filter_size(-1),
+              max_in_num(0),
+              filter_id(0),
+              fragment_instance_id(0, 0) {}
 
     RuntimeFilterType filter_type;
     PrimitiveType column_return_type;
@@ -91,7 +94,7 @@ struct RuntimeFilterParams {
 struct UpdateRuntimeFilterParams {
     const PPublishFilterRequest* request;
     const char* data;
-    ObjectPool *pool;
+    ObjectPool* pool;
 };
 
 struct MergeRuntimeFilterParams {
@@ -123,10 +126,9 @@ public:
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeState* state, ObjectPool* pool,
-                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
-                         const RuntimeFilterRole role, int node_id,
-                         IRuntimeFilter** res);
+    static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
+                         const TQueryOptions* query_options, const RuntimeFilterRole role,
+                         int node_id, IRuntimeFilter** res);
 
     // insert data to build filter
     // only used for producer
@@ -177,10 +179,8 @@ public:
     void signal();
 
     // init filter with desc
-    Status init_with_desc(const TRuntimeFilterDesc* desc,
-                          const TQueryOptions* options,
-                          UniqueId fragment_id = UniqueId(0, 0),
-                          int node_id = -1);
+    Status init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
+                          UniqueId fragment_id = UniqueId(0, 0), int node_id = -1);
 
     // serialize _wrapper to protobuf
     Status serialize(PMergeFilterRequest* request, void** data, int* len);
@@ -202,7 +202,7 @@ public:
     // for ut
     bool is_ignored() { return _is_ignored; }
 
-    void set_ignored_msg(std::string &msg) { _ignored_msg = msg; }
+    void set_ignored_msg(std::string& msg) { _ignored_msg = msg; }
 
     // for ut
     bool is_bloomfilter();
@@ -305,5 +305,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

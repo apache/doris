@@ -66,7 +66,7 @@ struct LikeSearchState {
 };
 
 using LikeFn = std::function<doris::Status(LikeSearchState* state, const StringValue&,
-                                            const StringValue&, unsigned char*)>;
+                                           const StringValue&, unsigned char*)>;
 
 struct LikeState {
     LikeSearchState search_state;
@@ -85,6 +85,7 @@ public:
                         size_t result, size_t /*input_rows_count*/) override;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
 protected:
     Status vector_vector(const ColumnString::Chars& values,
                          const ColumnString::Offsets& value_offsets,
@@ -115,6 +116,7 @@ public:
     String get_name() const override { return name; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
 private:
     static Status like_fn(LikeSearchState* state, const StringValue& val,
                           const StringValue& pattern, unsigned char* result);
@@ -137,6 +139,7 @@ public:
     String get_name() const override { return name; }
 
     Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
 private:
     static Status regexp_fn(LikeSearchState* state, const StringValue& val,
                             const StringValue& pattern, unsigned char* result);

@@ -21,8 +21,8 @@
 #include "vec/data_types/data_type_date.h"
 
 #include "runtime/datetime_value.h"
-#include "vec/columns/columns_number.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/columns_number.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 bool DataTypeDate::equals(const IDataType& rhs) const {
@@ -31,8 +31,9 @@ bool DataTypeDate::equals(const IDataType& rhs) const {
 
 std::string DataTypeDate::to_string(const IColumn& column, size_t row_num) const {
     Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                             .get_data()[row_num];
-    doris::vectorized::VecDateTimeValue value = binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+                            .get_data()[row_num];
+    doris::vectorized::VecDateTimeValue value =
+            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
     std::stringstream ss;
     // Year
     uint32_t temp = value.year() / 100;
@@ -46,10 +47,11 @@ std::string DataTypeDate::to_string(const IColumn& column, size_t row_num) const
     return ss.str();
 }
 
-void DataTypeDate::to_string(const IColumn & column, size_t row_num, BufferWritable & ostr) const {
+void DataTypeDate::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     Int64 int_val = assert_cast<const ColumnInt64&>(*column.convert_to_full_column_if_const().get())
-                             .get_data()[row_num];
-    doris::vectorized::VecDateTimeValue value = binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
+                            .get_data()[row_num];
+    doris::vectorized::VecDateTimeValue value =
+            binary_cast<Int64, doris::vectorized::VecDateTimeValue>(int_val);
 
     char buf[64];
     char* pos = value.to_string(buf);

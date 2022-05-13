@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_TASK_WORKER_POOL_H
-#define DORIS_BE_SRC_TASK_WORKER_POOL_H
+#pragma once
 
 #include <atomic>
 #include <deque>
@@ -199,16 +198,19 @@ private:
     Status _get_tablet_info(const TTabletId tablet_id, const TSchemaHash schema_hash,
                             int64_t signature, TTabletInfo* tablet_info);
 
-    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id, bool overwrite);
+    Status _move_dir(const TTabletId tablet_id, const std::string& src, int64_t job_id,
+                     bool overwrite);
 
     Status _check_migrate_request(const TStorageMediumMigrateReq& req, TabletSharedPtr& tablet,
-                                      DataDir** dest_store);
+                                  DataDir** dest_store);
 
     // random sleep 1~second seconds
     void _random_sleep(int second);
 
     void _storage_medium_migrate_v2(const TAgentTaskRequest& agent_task_req, int64_t signature,
-            const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
+                                    const TTaskType::type task_type,
+                                    TFinishTaskRequest* finish_task_request);
+
 private:
     std::string _name;
 
@@ -247,4 +249,3 @@ private:
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
 }; // class TaskWorkerPool
 } // namespace doris
-#endif // DORIS_BE_SRC_TASK_WORKER_POOL_H

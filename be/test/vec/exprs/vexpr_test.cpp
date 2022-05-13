@@ -79,11 +79,7 @@ TEST(TEST_VEXPR, ABSTEST) {
     int ts = -1;
     context->execute(&block, &ts);
 
-    FunctionContext* fun_ct = context->fn_context(0);
     context->close(&runtime_stat);
-    if (fun_ct) {
-        delete fun_ct;
-    }
 }
 
 TEST(TEST_VEXPR, ABSTEST2) {
@@ -128,12 +124,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     auto block = row_batch.convert_to_vec_block();
     int ts = -1;
     context->execute(&block, &ts);
-
-    FunctionContext* fun_ct = context->fn_context(0);
     context->close(&runtime_stat);
-    if (fun_ct) {
-        delete fun_ct;
-    }
 }
 
 namespace doris {

@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -197,7 +198,7 @@ public class GenericPoolTest {
         @Override
         public long getTrashUsedCapacity() throws TException {
             // TODO Auto-generated method stub
-            return 0l;
+            return 0L;
         }
 
         @Override
@@ -241,6 +242,11 @@ public class GenericPoolTest {
         @Override
         public void cleanTrash() throws TException {
             // TODO Auto-generated method stub
+        }
+
+        @Override
+        public TCheckStorageFormatResult checkStorageFormat() throws TException {
+            return new TCheckStorageFormatResult();
         }
     }
 

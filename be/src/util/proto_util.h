@@ -25,7 +25,8 @@ namespace doris {
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
 template <typename Params, typename Closure>
-inline void request_row_batch_transfer_attachment(Params* brpc_request, const std::string& tuple_data, Closure* closure) {
+inline void request_row_batch_transfer_attachment(Params* brpc_request,
+                                                  const std::string& tuple_data, Closure* closure) {
     auto row_batch = brpc_request->mutable_row_batch();
     row_batch->set_tuple_data("");
     brpc_request->set_transfer_by_attachment(true);
@@ -38,7 +39,8 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request, const st
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
 template <typename Params, typename Closure>
-inline void request_block_transfer_attachment(Params* brpc_request, const std::string& column_values, Closure* closure) {
+inline void request_block_transfer_attachment(Params* brpc_request,
+                                              const std::string& column_values, Closure* closure) {
     auto block = brpc_request->mutable_block();
     block->set_column_values("");
     brpc_request->set_transfer_by_attachment(true);
@@ -49,7 +51,8 @@ inline void request_block_transfer_attachment(Params* brpc_request, const std::s
 
 // Controller Attachment transferred to RowBatch in ProtoBuf Request.
 template <typename Params>
-inline void attachment_transfer_request_row_batch(const Params* brpc_request, brpc::Controller* cntl) {
+inline void attachment_transfer_request_row_batch(const Params* brpc_request,
+                                                  brpc::Controller* cntl) {
     Params* req = const_cast<Params*>(brpc_request);
     if (req->has_row_batch() && req->transfer_by_attachment()) {
         auto rb = req->mutable_row_batch();

@@ -238,7 +238,6 @@ StringVal AggregateFunctions::percentile_serialize(FunctionContext* ctx, const S
 }
 
 DoubleVal AggregateFunctions::percentile_finalize(FunctionContext* ctx, const StringVal& src) {
-
     PercentileState* percentile = reinterpret_cast<PercentileState*>(src.ptr);
     double quantile = percentile->quantile;
     auto result = percentile->counts.terminate(quantile);
@@ -343,7 +342,6 @@ void AggregateFunctions::percentile_approx_merge(FunctionContext* ctx, const Str
 
 DoubleVal AggregateFunctions::percentile_approx_finalize(FunctionContext* ctx,
                                                          const StringVal& src) {
-
     PercentileApproxState* percentile = reinterpret_cast<PercentileApproxState*>(src.ptr);
     double quantile = percentile->targetQuantile;
     double result = percentile->digest->quantile(quantile);
@@ -659,22 +657,6 @@ void AggregateFunctions::min(FunctionContext*, const DecimalV2Val& src, DecimalV
 }
 
 template <>
-void AggregateFunctions::min(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val < dst->val) {
-        dst->val = src.val;
-    }
-}
-
-template <>
 void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV2Val* dst) {
     if (src.is_null) {
         return;
@@ -689,22 +671,6 @@ void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV
         if (new_src > new_dst) {
             *dst = src;
         }
-    }
-}
-
-template <>
-void AggregateFunctions::max(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val > dst->val) {
-        dst->val = src.val;
     }
 }
 
@@ -1112,7 +1078,7 @@ void AggregateFunctions::hll_merge(FunctionContext* ctx, const StringVal& src, S
     DCHECK(!src.is_null);
     DCHECK_EQ(dst->len, std::pow(2, HLL_COLUMN_PRECISION));
     DCHECK_EQ(src.len, std::pow(2, HLL_COLUMN_PRECISION));
-    
+
     for (int i = 0; i < src.len; ++i) {
         dst->ptr[i] = (dst->ptr[i] < src.ptr[i] ? src.ptr[i] : dst->ptr[i]);
     }
@@ -1348,7 +1314,8 @@ private:
         }
     };
 
-    std::unordered_set<T, NumericHashHelper> _set;
+    phmap::flat_hash_set<T, NumericHashHelper> _set;
+
     // Because Anyval does not provide the hash function, in order
     // to adopt the type different from the template, the pointer is used
     // HybridSetBase* _set;
@@ -1505,7 +1472,8 @@ public:
 private:
     const int DECIMAL_BYTE_SIZE = 16;
 
-    std::unordered_set<DecimalV2Value> _set;
+    phmap::flat_hash_set<DecimalV2Value> _set;
+
     FunctionContext::Type _type;
 };
 
@@ -1590,7 +1558,8 @@ private:
     const int DATETIME_PACKED_TIME_BYTE_SIZE = 8;
     const int DATETIME_TYPE_BYTE_SIZE = 4;
 
-    std::unordered_set<DateTimeVal, DateTimeHashHelper> _set;
+    phmap::flat_hash_set<DateTimeVal, DateTimeHashHelper> _set;
+
     FunctionContext::Type _type;
 };
 
@@ -2424,7 +2393,7 @@ struct WindowFunnelState {
         return 0;
     }
 
-    void merge(WindowFunnelState *other) {
+    void merge(WindowFunnelState* other) {
         if (other->events.empty()) {
             return;
         }
@@ -2453,7 +2422,7 @@ struct WindowFunnelState {
                events.size() * (sizeof(int64_t) + sizeof(int));
     }
 
-    void serialize(uint8_t *buf) {
+    void serialize(uint8_t* buf) {
         memcpy(buf, &max_event_level, sizeof(int));
         buf += sizeof(int);
         memcpy(buf, &window, sizeof(int64_t));
@@ -2472,7 +2441,7 @@ struct WindowFunnelState {
         }
     }
 
-    void deserialize(uint8_t *buf) {
+    void deserialize(uint8_t* buf) {
         uint64_t size;
 
         memcpy(&max_event_level, buf, sizeof(int));
@@ -2502,15 +2471,17 @@ void AggregateFunctions::window_funnel_init(FunctionContext* ctx, StringVal* dst
     WindowFunnelState* state = new WindowFunnelState();
     dst->ptr = (uint8_t*)state;
     // constant args at index 0 and 1
-    DCHECK(ctx->is_arg_constant(0));
-    BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
-    state->window = window->val;
+    if (ctx->is_arg_constant(0)) {
+        BigIntVal* window = reinterpret_cast<BigIntVal*>(ctx->get_constant_arg(0));
+        state->window = window->val;
+    }
     // TODO handle mode in the future
 }
 
 void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
-                                             const StringVal& mode, const DateTimeVal& timestamp,
-                                             int num_cond, const BooleanVal* conds, StringVal* dst) {
+                                              const StringVal& mode, const DateTimeVal& timestamp,
+                                              int num_cond, const BooleanVal* conds,
+                                              StringVal* dst) {
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
 
@@ -2530,8 +2501,7 @@ void AggregateFunctions::window_funnel_update(FunctionContext* ctx, const BigInt
     }
 }
 
-StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx,
-                                                const StringVal& src) {
+StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx, const StringVal& src) {
     WindowFunnelState* state = reinterpret_cast<WindowFunnelState*>(src.ptr);
     int64_t serialized_size = state->serialized_size();
     StringVal result(ctx, sizeof(double) + serialized_size);
@@ -2542,7 +2512,7 @@ StringVal AggregateFunctions::window_funnel_serialize(FunctionContext* ctx,
 }
 
 void AggregateFunctions::window_funnel_merge(FunctionContext* ctx, const StringVal& src,
-                                            StringVal* dst) {
+                                             StringVal* dst) {
     DCHECK(dst->ptr != nullptr);
     DCHECK_EQ(sizeof(WindowFunnelState), dst->len);
     WindowFunnelState* dst_state = reinterpret_cast<WindowFunnelState*>(dst->ptr);
@@ -2678,6 +2648,8 @@ template void AggregateFunctions::min<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::min<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::min<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::min<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                   LargeIntVal* dst);
 template void AggregateFunctions::min<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::min<DoubleVal>(FunctionContext*, const DoubleVal& src,
@@ -2726,6 +2698,8 @@ template void AggregateFunctions::max<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::max<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::max<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::max<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                   LargeIntVal* dst);
 template void AggregateFunctions::max<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::max<DoubleVal>(FunctionContext*, const DoubleVal& src,

@@ -17,6 +17,28 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.SinglePartitionInfo;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -24,31 +46,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-
-import org.apache.doris.catalog.FakeCatalog;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.KeysType;
-import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.RandomDistributionInfo;
-import org.apache.doris.catalog.SinglePartitionInfo;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.thrift.TStorageType;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 public class CreateTableInfoTest {
     private Catalog catalog;
@@ -70,16 +67,16 @@ public class CreateTableInfoTest {
         File file = new File("./createTableInfo");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         List<Column> columns = new ArrayList<Column>();
         Column column2 = new Column("column2",
                 ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
         columns.add(column2);
         columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
+        columns.add(new Column("column4",
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
+        columns.add(new Column("column5",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column6",
                 ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
@@ -93,7 +90,7 @@ public class CreateTableInfoTest {
         MaterializedIndex index = new MaterializedIndex(1, IndexState.NORMAL);
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(10);
         Partition partition = new Partition(20000L, "table", index, distributionInfo);
-        OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS, 
+        OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), distributionInfo);
         short shortKeyColumnCount = 1;
         table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
@@ -109,15 +106,15 @@ public class CreateTableInfoTest {
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         CreateTableInfo rInfo1 = CreateTableInfo.read(dis);
         Assert.assertTrue(rInfo1.getTable().equals(table));
         Assert.assertTrue(rInfo1.equals(info));
         Assert.assertEquals(rInfo1.getDbName(), "db1");
-        
+
         // 3. delete files
         dis.close();
         file.delete();

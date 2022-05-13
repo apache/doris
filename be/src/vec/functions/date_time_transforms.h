@@ -33,14 +33,14 @@
 
 namespace doris::vectorized {
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                     \
-    struct CLASS {                                                    \
-        static constexpr auto name = #UNIT;                           \
-        static inline auto execute(const Int64& t, bool& is_null) {  \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                    \
+    struct CLASS {                                                                   \
+        static constexpr auto name = #UNIT;                                          \
+        static inline auto execute(const Int64& t, bool& is_null) {                  \
             const auto& date_time_value = (doris::vectorized::VecDateTimeValue&)(t); \
-            is_null = !date_time_value.is_valid_date();               \
-            return date_time_value.FUNCTION;                          \
-        }                                                             \
+            is_null = !date_time_value.is_valid_date();                              \
+            return date_time_value.FUNCTION;                                         \
+        }                                                                            \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
@@ -60,18 +60,18 @@ TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 
-#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)             \
-    struct CLASS {                                                    \
-        static constexpr auto name = #UNIT;                           \
-        static inline auto execute(const Int64& t, bool& is_null) {   \
+#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                            \
+    struct CLASS {                                                                   \
+        static constexpr auto name = #UNIT;                                          \
+        static inline auto execute(const Int64& t, bool& is_null) {                  \
             const auto& date_time_value = (doris::vectorized::VecDateTimeValue&)(t); \
-            is_null = !date_time_value.is_valid_date();               \
-            return date_time_value.FUNCTION;                          \
-        }                                                             \
-                                                                      \
-        static DataTypes get_variadic_argument_types() {              \
-             return {std::make_shared<DataTypeDateTime>()};           \
-        }                                                             \
+            is_null = !date_time_value.is_valid_date();                              \
+            return date_time_value.FUNCTION;                                         \
+        }                                                                            \
+                                                                                     \
+        static DataTypes get_variadic_argument_types() {                             \
+            return {std::make_shared<DataTypeDateTime>()};                           \
+        }                                                                            \
     }
 
 TIME_FUNCTION_ONE_ARG_IMPL(ToWeekOneArgImpl, week, week(mysql_week_mode(0)));
@@ -151,19 +151,19 @@ struct DateFormatImpl {
         if (format.size > 128) {
             offset += 1;
             res_data.emplace_back(0);
-            return std::pair{offset, true};
+            return std::pair {offset, true};
         }
         char buf[128];
         if (!dt.to_format_string(format.data, format.size, buf)) {
             offset += 1;
             res_data.emplace_back(0);
-            return std::pair{offset, true};
+            return std::pair {offset, true};
         }
 
         auto len = strlen(buf) + 1;
         res_data.insert(buf, buf + len);
         offset += len;
-        return std::pair{offset, false};
+        return std::pair {offset, false};
     }
 };
 
@@ -182,20 +182,20 @@ struct FromUnixTimeImpl {
         if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
             offset += 1;
             res_data.emplace_back(0);
-            return std::pair{offset, true};
+            return std::pair {offset, true};
         }
 
         char buf[128];
         if (!dt.to_format_string(format.data, format.size, buf)) {
             offset += 1;
             res_data.emplace_back(0);
-            return std::pair{offset, true};
+            return std::pair {offset, true};
         }
 
         auto len = strlen(buf) + 1;
         res_data.insert(buf, buf + len);
         offset += len;
-        return std::pair{offset, false};
+        return std::pair {offset, false};
     }
 };
 
@@ -213,7 +213,7 @@ struct TransformerToStringOneArgument {
             const auto& t = ts[i];
             const auto& date_time_value = reinterpret_cast<const VecDateTimeValue&>(t);
             res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
-                    reinterpret_cast<bool&>(null_map[i]));
+                                                reinterpret_cast<bool&>(null_map[i]));
         }
     }
 };
@@ -243,7 +243,7 @@ struct TransformerToStringTwoArgument {
 template <typename FromType, typename ToType, typename Transform>
 struct Transformer {
     static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to,
-            NullMap& null_map) {
+                       NullMap& null_map) {
         size_t size = vec_from.size();
         vec_to.resize(size);
         null_map.resize_fill(size, false);
@@ -265,8 +265,8 @@ struct DateTimeTransformImpl {
             auto col_to = ColumnVector<ToType>::create();
             auto null_map = ColumnVector<UInt8>::create();
             Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-            block.replace_by_position(result,
-                    ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
         } else {
             return Status::RuntimeError(fmt::format(
                     "Illegal column {} of first argument of function {}",

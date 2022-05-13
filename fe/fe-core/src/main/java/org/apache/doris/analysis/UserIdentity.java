@@ -17,18 +17,22 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -41,9 +45,16 @@ import java.io.IOException;
 // cmy@192.168.%
 // cmy@[domain.name]
 public class UserIdentity implements Writable {
+    
+    @SerializedName(value = "user")
     private String user;
+    
+    @SerializedName(value = "host")
     private String host;
+    
+    @SerializedName(value = "isDomain")
     private boolean isDomain;
+    
     private boolean isAnalyzed = false;
 
     public static final UserIdentity ROOT;
@@ -170,6 +181,10 @@ public class UserIdentity implements Writable {
         return user.equals(PaloAuth.ROOT_USER);
     }
 
+    public boolean isAdminUser() {
+        return user.equals(PaloAuth.ADMIN_USER);
+    }
+
     public TUserIdentity toThrift() {
         Preconditions.checkState(isAnalyzed);
         TUserIdentity tUserIdent = new TUserIdentity();
@@ -180,9 +195,17 @@ public class UserIdentity implements Writable {
     }
 
     public static UserIdentity read(DataInput in) throws IOException {
-        UserIdentity userIdentity = new UserIdentity();
-        userIdentity.readFields(in);
-        return userIdentity;
+        // Use Gson in the VERSION_109
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_109) {
+            UserIdentity userIdentity = new UserIdentity();
+            userIdentity.readFields(in);
+            return userIdentity;
+        } else {
+            String json = Text.readString(in);
+            UserIdentity userIdentity = GsonUtils.GSON.fromJson(json, UserIdentity.class);
+            userIdentity.setIsAnalyzed();
+            return userIdentity;
+        }
     }
 
     @Override
@@ -226,16 +249,14 @@ public class UserIdentity implements Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         Preconditions.checkState(isAnalyzed);
-        Text.writeString(out, user);
-        Text.writeString(out, host);
-        out.writeBoolean(isDomain);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
         user = Text.readString(in);
         host = Text.readString(in);
         isDomain = in.readBoolean();
         isAnalyzed = true;
     }
 }
-

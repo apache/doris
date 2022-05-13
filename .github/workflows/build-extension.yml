@@ -57,5 +57,5 @@ jobs:
 
     - name: Build docs
       run: |
-        cd docs && npm install && npm run build
+        cd docs &&  /bin/bash build_help_zip.sh && export NODE_OPTIONS="--max-old-space-size=4096" && npm install && npm run build
 

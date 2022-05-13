@@ -29,7 +29,7 @@ public class MiniEtlJobInfo extends EtlJobInfo {
     private static final int GET_STATUS_INTERVAL_TIMES = 5;
     // load checker check etl job status times
     private int checkTimes;
-    
+
     // etlTaskId -> etlTaskInfo
     private Map<Long, MiniEtlTaskInfo> idToEtlTask;
 
@@ -38,7 +38,7 @@ public class MiniEtlJobInfo extends EtlJobInfo {
         checkTimes = 0;
         idToEtlTask = Maps.newHashMap();
     }
-    
+
     public boolean needGetTaskStatus() {
         if (++checkTimes % GET_STATUS_INTERVAL_TIMES == 0) {
             return true;
@@ -49,7 +49,7 @@ public class MiniEtlJobInfo extends EtlJobInfo {
     public Map<Long, MiniEtlTaskInfo> getEtlTasks() {
         return idToEtlTask;
     }
-    
+
     public MiniEtlTaskInfo getEtlTask(long taskId) {
         return idToEtlTask.get(taskId);
     }
@@ -57,7 +57,7 @@ public class MiniEtlJobInfo extends EtlJobInfo {
     public void setEtlTasks(Map<Long, MiniEtlTaskInfo> idToEtlTask) {
         this.idToEtlTask = idToEtlTask;
     }
-    
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);

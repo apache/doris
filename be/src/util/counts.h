@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_COUNTS_H_
-#define DORIS_BE_SRC_UTIL_COUNTS_H_
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -82,7 +81,8 @@ public:
         }
     }
 
-    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts, double position) const {
+    double get_percentile(std::vector<std::pair<int64_t, uint32_t>>& counts,
+                          double position) const {
         long lower = std::floor(position);
         long higher = std::ceil(position);
 
@@ -134,5 +134,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_COUNTS_H_

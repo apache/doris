@@ -190,7 +190,7 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
     using EmplaceResult = columns_hashing_impl::EmplaceResultImpl<Mapped>;
     using FindResult = columns_hashing_impl::FindResultImpl<Mapped>;
 
-    static HashMethodContextPtr createContext(const HashMethodContext::Settings & settings) {
+    static HashMethodContextPtr createContext(const HashMethodContext::Settings& settings) {
         return nullptr;
     }
 
@@ -203,19 +203,20 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         return {nested_col};
     }
 
-    HashMethodSingleLowNullableColumn(
-            const ColumnRawPtrs & key_columns_nullable, const Sizes & key_sizes, const HashMethodContextPtr & context)
-        : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context), key_columns(key_columns_nullable) {
-    }
+    HashMethodSingleLowNullableColumn(const ColumnRawPtrs& key_columns_nullable,
+                                      const Sizes& key_sizes, const HashMethodContextPtr& context)
+            : Base(get_nested_column(key_columns_nullable[0]), key_sizes, context),
+              key_columns(key_columns_nullable) {}
 
     template <typename Data>
-    ALWAYS_INLINE EmplaceResult emplace_key(Data & data, size_t row, Arena & pool) {
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, size_t row, Arena& pool) {
         if (key_columns[0]->is_null_at(row)) {
             bool has_null_key = data.has_null_key_data();
             data.has_null_key_data() = true;
 
             if constexpr (has_mapped)
-                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(), !has_null_key);
+                return EmplaceResult(data.get_null_key_data(), data.get_null_key_data(),
+                                     !has_null_key);
             else
                 return EmplaceResult(!has_null_key);
         }
@@ -227,13 +228,12 @@ struct HashMethodSingleLowNullableColumn : public SingleColumnMethod {
         data.emplace(key_holder, it, inserted);
 
         if constexpr (has_mapped) {
-            auto & mapped = *lookup_result_get_mapped(it);
+            auto& mapped = *lookup_result_get_mapped(it);
             if (inserted) {
                 new (&mapped) Mapped();
             }
             return EmplaceResult(mapped, mapped, inserted);
-        }
-        else
+        } else
             return EmplaceResult(inserted);
     }
 };

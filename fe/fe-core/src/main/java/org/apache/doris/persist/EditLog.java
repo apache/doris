@@ -63,6 +63,8 @@ import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -275,13 +277,13 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
-                    catalog.getRollupHandler().replayDropRollup(info, catalog);
+                    catalog.getMaterializedViewHandler().replayDropRollup(info, catalog);
                     break;
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        catalog.getRollupHandler().replayDropRollup(
+                        catalog.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
                     }
                     break;
@@ -701,7 +703,7 @@ public class EditLog {
                     AlterJobV2 alterJob = (AlterJobV2) journal.getData();
                     switch (alterJob.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayAlterJobV2(alterJob);
+                            catalog.getMaterializedViewHandler().replayAlterJobV2(alterJob);
                             break;
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
@@ -714,7 +716,7 @@ public class EditLog {
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
-                        catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
+                        catalog.getMaterializedViewHandler().replayAlterJobV2(alterJobV2);
                     }
                     break;
                 }
@@ -759,7 +761,7 @@ public class EditLog {
                     RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayRemoveAlterJobV2(log);
+                            catalog.getMaterializedViewHandler().replayRemoveAlterJobV2(log);
                             break;
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayRemoveAlterJobV2(log);
@@ -807,6 +809,16 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
                     ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
                     catalog.getAlterInstance().replayProcessModifyEngine(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_POLICY: {
+                    Policy log = (Policy) journal.getData();
+                    catalog.getPolicyMgr().replayCreate(log);
+                    break;
+                }
+                case OperationType.OP_DROP_POLICY: {
+                    DropPolicyLog log = (DropPolicyLog) journal.getData();
+                    catalog.getPolicyMgr().replayDrop(log);
                     break;
                 }
                 default: {
@@ -1410,5 +1422,13 @@ public class EditLog {
 
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
+    }
+
+    public void logCreatePolicy(Policy policy) {
+        logEdit(OperationType.OP_CREATE_POLICY, policy);
+    }
+
+    public void logDropPolicy(DropPolicyLog log) {
+        logEdit(OperationType.OP_DROP_POLICY, log);
     }
 }

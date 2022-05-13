@@ -23,8 +23,7 @@
  *
  */
 
-#ifndef RADIXSORT_H_
-#define RADIXSORT_H_
+#pragma once
 
 #include <malloc.h>
 #include <string.h>
@@ -56,7 +55,7 @@ using is_unsigned_v = typename std::is_unsigned<T>::value;
 
 template <typename To, typename From>
 decay_t<To> bit_cast(const From& from) {
-    To res{};
+    To res {};
     memcpy(static_cast<void*>(&res), &from, std::min(sizeof(res), sizeof(from)));
     return res;
 }
@@ -303,5 +302,3 @@ void radixSortLSD(T* arr, size_t size) {
 }
 
 } // namespace doris
-
-#endif // RADIXSORT_H_

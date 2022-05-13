@@ -54,8 +54,10 @@ public:
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
             TransformerToStringOneArgument<Transform>::vector(
-                    sources->get_data(), col_res->get_chars(), col_res->get_offsets(), null_map->get_data());
-            block.replace_by_position(result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+                    sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
+                    null_map->get_data());
+            block.replace_by_position(
+                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
         } else {
             return Status::InternalError("Illegal column " +
                                          block.get_by_position(arguments[0]).column->get_name() +

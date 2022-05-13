@@ -20,14 +20,13 @@ package org.apache.doris.load.loadv2.dpp;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
+import com.google.common.collect.Lists;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.types.DecimalType;
-import org.apache.spark.sql.Row;
-
-import com.google.common.collect.Lists;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
@@ -182,7 +181,10 @@ public class DppUtils {
             byte value = (byte) (b ? 1 : 0);
             buffer.put(value);
         }
-        buffer.flip();
+        // do not flip buffer when the buffer was created by wrap()
+        if (!type.equals(DataTypes.StringType)) {
+            buffer.flip();
+        }
         return buffer;
     }
 

@@ -23,7 +23,6 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Preconditions;
 import com.sleepycat.je.rep.StateChangeEvent;
 import com.sleepycat.je.rep.StateChangeListener;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

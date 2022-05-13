@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_EXEC_QUERY_STATISTICS_H
-#define DORIS_BE_EXEC_QUERY_STATISTICS_H
+#pragma once
 
 #include <mutex>
 
@@ -50,7 +49,8 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics() : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
+    QueryStatistics()
+            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
     ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -75,7 +75,9 @@ public:
 
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
-    void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) { this->max_peak_memory_bytes = max_peak_memory_bytes; }
+    void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
+        this->max_peak_memory_bytes = max_peak_memory_bytes;
+    }
 
     void merge(QueryStatisticsRecvr* recvr);
 
@@ -134,5 +136,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

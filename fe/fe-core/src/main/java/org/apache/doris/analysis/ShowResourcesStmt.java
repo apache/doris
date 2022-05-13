@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.catalog.ResourceMgr;
@@ -27,6 +26,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -232,7 +233,7 @@ public class ShowResourcesStmt extends ShowStmt {
     public String toString() {
         return toSql();
     }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();

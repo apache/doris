@@ -127,8 +127,8 @@ public:
     // The first/last tuple must be start_key/end_key.to_tuple(). If we can't divide the input range,
     // the result `ranges` should be [start_key.to_tuple(), end_key.to_tuple()]
     virtual Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                                   uint64_t request_block_row_count, size_t key_num,
-                                   std::vector<OlapTuple>* ranges) = 0;
+                               uint64_t request_block_row_count, size_t key_num,
+                               std::vector<OlapTuple>* ranges) = 0;
 
     const RowsetMetaSharedPtr& rowset_meta() const { return _rowset_meta; }
 
@@ -198,8 +198,10 @@ public:
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status upload_files_to(const FilePathDesc& dir_desc,
-                const RowsetId&, bool delete_src = false) { return Status::OK(); }
+    virtual Status upload_files_to(const FilePathDesc& dir_desc, const RowsetId&,
+                                   bool delete_src = false) {
+        return Status::OK();
+    }
 
     virtual Status remove_old_files(std::vector<std::string>* files_to_remove) = 0;
 
@@ -209,7 +211,9 @@ public:
     virtual bool check_file_exist() = 0;
 
     // return an unique identifier string for this rowset
-    std::string unique_id() const { return _rowset_path_desc.filepath + "/" + rowset_id().to_string(); }
+    std::string unique_id() const {
+        return _rowset_path_desc.filepath + "/" + rowset_id().to_string();
+    }
 
     bool need_delete_file() const { return _need_delete_file; }
 
@@ -217,9 +221,7 @@ public:
 
     bool contains_version(Version version) { return rowset_meta()->version().contains(version); }
 
-    FilePathDesc rowset_path_desc() {
-        return _rowset_path_desc;
-    }
+    FilePathDesc rowset_path_desc() { return _rowset_path_desc; }
 
     static bool comparator(const RowsetSharedPtr& left, const RowsetSharedPtr& right) {
         return left->end_version() < right->end_version();
@@ -256,7 +258,8 @@ protected:
 
     DISALLOW_COPY_AND_ASSIGN(Rowset);
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc, RowsetMetaSharedPtr rowset_meta);
+    Rowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
+           RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual Status init() = 0;

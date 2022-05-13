@@ -19,11 +19,11 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.w3c.dom.Document;

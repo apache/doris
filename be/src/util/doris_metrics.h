@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
-#define DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
+#pragma once
 
 #include <set>
 #include <string>
@@ -130,6 +129,8 @@ public:
     IntCounter* attach_task_thread_count;
     IntCounter* switch_thread_mem_tracker_count;
     IntCounter* switch_thread_mem_tracker_err_cb_count;
+    // brpc server response count
+    IntCounter* switch_bthread_count;
 
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
@@ -244,5 +245,3 @@ private:
 };
 
 }; // namespace doris
-
-#endif

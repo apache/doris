@@ -59,11 +59,10 @@ using std::vector;
 namespace doris {
 
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                         size_t* written_len, OLAPCompressionType compression_type) {
+                     size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        OLAP_LOG_WARNING(
-                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                src_buf, dest_buf, written_len);
+        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
+                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
@@ -78,10 +77,8 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         if (LZO_E_OK != (lzo_res = lzo1x_1_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) <<  "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
             return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
@@ -99,10 +96,8 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         if (LZO_E_OK != (lzo_res = lzo1c_99_compress(
                                  reinterpret_cast<const lzo_byte*>(src_buf), src_len,
                                  reinterpret_cast<unsigned char*>(dest_buf), written_len, mem))) {
-            LOG(WARNING) << "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
 
             return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         } else if (*written_len > dest_len) {
@@ -127,18 +122,17 @@ Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t
         break;
     }
     default:
-        OLAP_LOG_WARNING("unknown compression type. [type=%d]", compression_type);
+        LOG(WARNING) << "unknown compression type. [type=" << compression_type << "]";
         break;
     }
     return Status::OK();
 }
 
 Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                           size_t* written_len, OLAPCompressionType compression_type) {
+                       size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        OLAP_LOG_WARNING(
-                "input param with nullptr pointer. [src_buf=%p dest_buf=%p written_len=%p]",
-                src_buf, dest_buf, written_len);
+        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
+                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
 
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
@@ -151,15 +145,12 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
             return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
-            OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
-                             dest_len, *written_len);
-
+            LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
+                         << " written_len=" << *written_len << "]";
             return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
@@ -169,15 +160,12 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
                                             reinterpret_cast<unsigned char*>(dest_buf), written_len,
                                             nullptr);
         if (LZO_E_OK != lzo_res) {
-            LOG(WARNING) <<  "compress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lzo_res;
+            LOG(WARNING) << "compress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lzo_res;
             return Status::OLAPInternalError(OLAP_ERR_DECOMPRESS_ERROR);
         } else if (*written_len > dest_len) {
-            OLAP_LOG_WARNING("buffer overflow when decompressing. [dest_len=%lu written_len=%lu]",
-                             dest_len, *written_len);
-
+            LOG(WARNING) << "buffer overflow when decompressing. [dest_len=" << dest_len
+                         << " written_len=" << *written_len << "]";
             return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
@@ -188,10 +176,8 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
         int lz4_res = LZ4_decompress_safe(src_buf, dest_buf, src_len, dest_len);
         *written_len = lz4_res;
         if (lz4_res < 0) {
-            LOG(WARNING) << "decompress failed. src_len=" << src_len
-                         << "; dest_len= " << dest_len 
-                         << "; written_len=" << *written_len
-                         << "; lzo_res=" << lz4_res;
+            LOG(WARNING) << "decompress failed. src_len=" << src_len << "; dest_len= " << dest_len
+                         << "; written_len=" << *written_len << "; lzo_res=" << lz4_res;
             return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
         break;
@@ -566,12 +552,12 @@ Status gen_timestamp_string(string* out_string) {
     tm local_tm;
 
     if (localtime_r(&now, &local_tm) == nullptr) {
-        OLAP_LOG_WARNING("fail to localtime_r time. [time=%lu]", now);
+        LOG(WARNING) << "fail to localtime_r time. [time=" << now << "]";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
     char time_suffix[16] = {0}; // Example: 20150706111404, 长度是15个字符
     if (strftime(time_suffix, sizeof(time_suffix), "%Y%m%d%H%M%S", &local_tm) == 0) {
-        OLAP_LOG_WARNING("fail to strftime time. [time=%lu]", now);
+        LOG(WARNING) << "fail to strftime time. [time=" << now << "]";
         return Status::OLAPInternalError(OLAP_ERR_OS_ERROR);
     }
 
@@ -677,7 +663,7 @@ const char* Errno::str() {
 
 const char* Errno::str(int no) {
     if (0 != strerror_r(no, _buf, BUF_SIZE)) {
-        OLAP_LOG_WARNING("fail to get errno string. [no='%d', errno='%d']", no, errno);
+        LOG(WARNING) << "fail to get errno string. [no='" << no << "', errno='" << errno << "']";
         snprintf(_buf, BUF_SIZE, "unknown errno");
     }
 
@@ -764,46 +750,46 @@ bool valid_datetime(const string& value_str) {
 
     if (std::regex_match(value_str, what, e)) {
         if (what[0].str().size() != value_str.size()) {
-            OLAP_LOG_WARNING("datetime str does not fully match. [value_str=%s match=%s]",
-                             value_str.c_str(), what[0].str().c_str());
+            LOG(WARNING) << "datetime str does not fully match. [value_str=" << value_str
+                         << " match=" << what[0].str() << "]";
             return false;
         }
 
         int month = strtol(what[2].str().c_str(), nullptr, 10);
         if (month < 1 || month > 12) {
-            OLAP_LOG_WARNING("invalid month. [month=%d]", month);
+            LOG(WARNING) << "invalid month. [month=" << month << "]";
             return false;
         }
 
         int day = strtol(what[3].str().c_str(), nullptr, 10);
         if (day < 1 || day > 31) {
-            OLAP_LOG_WARNING("invalid day. [day=%d]", day);
+            LOG(WARNING) << "invalid day. [day=" << day << "]";
             return false;
         }
 
         if (what[4].length()) {
             int hour = strtol(what[5].str().c_str(), nullptr, 10);
             if (hour < 0 || hour > 23) {
-                OLAP_LOG_WARNING("invalid hour. [hour=%d]", hour);
+                LOG(WARNING) << "invalid hour. [hour=" << hour << "]";
                 return false;
             }
 
             int minute = strtol(what[6].str().c_str(), nullptr, 10);
             if (minute < 0 || minute > 59) {
-                OLAP_LOG_WARNING("invalid minute. [minute=%d]", minute);
+                LOG(WARNING) << "invalid minute. [minute=" << minute << "]";
                 return false;
             }
 
             int second = strtol(what[7].str().c_str(), nullptr, 10);
             if (second < 0 || second > 59) {
-                OLAP_LOG_WARNING("invalid second. [second=%d]", second);
+                LOG(WARNING) << "invalid second. [second=" << second << "]";
                 return false;
             }
         }
 
         return true;
     } else {
-        OLAP_LOG_WARNING("datetime string does not match");
+        LOG(WARNING) << "datetime string does not match";
         return false;
     }
 }

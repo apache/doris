@@ -1,5 +1,3 @@
-#ifndef BASE_ATOMIC_REFCOUNT_H_
-#define BASE_ATOMIC_REFCOUNT_H_
 // Copyright 2008 Google Inc.
 // All rights reserved.
 
@@ -33,6 +31,8 @@
 // "volatile" in the signatures below is for backwards compatibility.
 //
 // If you need to do something very different from this, use a Mutex.
+
+#pragma once
 
 #include <glog/logging.h>
 
@@ -145,5 +145,3 @@ inline bool RefCountIsZero(const volatile AtomicWord* ptr) {
 #endif
 
 } // namespace base
-
-#endif // BASE_ATOMIC_REFCOUNT_H_

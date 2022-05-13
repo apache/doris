@@ -17,13 +17,13 @@
 
 package plugin;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
-
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginInfo;
+
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 public class PluginTest extends Plugin {
 

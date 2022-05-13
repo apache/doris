@@ -1890,7 +1890,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             goto PROCESS_ALTER_EXIT;
         }
         res = sc_params.new_tablet->add_rowset(new_rowset, false);
-        if (res == Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+        if (res.precise_code() == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sc_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;

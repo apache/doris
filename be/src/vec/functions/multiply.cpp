@@ -48,7 +48,7 @@ struct MultiplyImpl {
 struct NameMultiply {
     static constexpr auto name = "multiply";
 };
-using FunctionMultiply = FunctionBinaryArithmetic<MultiplyImpl, NameMultiply>;
+using FunctionMultiply = FunctionBinaryArithmetic<MultiplyImpl, NameMultiply, false>;
 
 void register_function_multiply(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiply>();

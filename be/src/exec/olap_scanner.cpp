@@ -49,11 +49,14 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _mem_tracker(MemTracker::create_tracker(
-                  tracker->limit(),
-                  tracker->label() + ":OlapScanner:" + thread_local_ctx.get()->thread_id_str(),
-                  tracker)) {}
+          _version(-1) {
+#ifndef NDEBUG
+    _mem_tracker = MemTracker::create_tracker(tracker->limit(),
+                                              "OlapScanner:" + tls_ctx()->thread_id_str(), tracker);
+#else
+    _mem_tracker = tracker;
+#endif
+}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,
@@ -287,6 +290,11 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     {
         SCOPED_TIMER(_parent->_scan_timer);
+        // store the object which may can't pass the conjuncts temporarily.
+        // otherwise, pushed all objects into agg_object_pool directly may lead to OOM.
+        ObjectPool tmp_object_pool;
+        // release the memory of the object which can't pass the conjuncts.
+        ObjectPool unused_object_pool;
         while (true) {
             // Batch is full or reach raw_rows_threshold or raw_bytes_threshold, break
             if (batch->is_full() ||
@@ -295,9 +303,18 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
                 _update_realtime_counter();
                 break;
             }
+
+            if (tmp_object_pool.size() > 0) {
+                unused_object_pool.acquire_data(&tmp_object_pool);
+            }
+
+            if (unused_object_pool.size() >= config::object_pool_buffer_size) {
+                unused_object_pool.clear();
+            }
+
             // Read one row from reader
             auto res = _tablet_reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(),
-                                                                 batch->agg_object_pool(), eof);
+                                                                 &tmp_object_pool, eof);
             if (!res.ok()) {
                 std::stringstream ss;
                 ss << "Internal Error: read storage fail. res=" << res
@@ -396,6 +413,7 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
 
                 // check direct && pushdown conjuncts success then commit tuple
                 batch->commit_last_row();
+                batch->agg_object_pool()->acquire_data(&tmp_object_pool);
                 char* new_tuple = reinterpret_cast<char*>(tuple);
                 new_tuple += _tuple_desc->byte_size();
                 tuple = reinterpret_cast<Tuple*>(new_tuple);
@@ -531,7 +549,7 @@ void OlapScanner::update_counter() {
     // COUNTER_UPDATE(_parent->_filtered_rows_counter, stats.num_rows_filtered);
     COUNTER_UPDATE(_parent->_vec_cond_timer, stats.vec_cond_ns);
     COUNTER_UPDATE(_parent->_short_cond_timer, stats.short_cond_ns);
-    COUNTER_UPDATE(_parent->_pred_col_read_timer, stats.pred_col_read_ns);
+    COUNTER_UPDATE(_parent->_first_read_timer, stats.first_read_ns);
     COUNTER_UPDATE(_parent->_lazy_read_timer, stats.lazy_read_ns);
     COUNTER_UPDATE(_parent->_output_col_timer, stats.output_col_ns);
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, stats.rows_vec_cond_filtered);

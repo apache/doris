@@ -22,11 +22,11 @@
 #include <emmintrin.h>
 #endif
 
+#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/typeid_cast.h"
-#include "util/simd/bits.h"
 
 namespace doris::vectorized {
 

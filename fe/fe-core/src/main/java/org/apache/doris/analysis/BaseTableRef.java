@@ -74,4 +74,3 @@ public class BaseTableRef extends TableRef {
         analyzeHints();
     }
 }
-

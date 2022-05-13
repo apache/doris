@@ -17,15 +17,12 @@
 
 package org.apache.doris.plugin;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 
 import org.apache.commons.io.FileUtils;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -39,9 +36,9 @@ public class PluginLoaderTest {
     public void setUp() {
         try {
             FileUtils.deleteQuietly(PluginTestUtil.getTestFile("target"));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target")));
             Files.createDirectory(PluginTestUtil.getTestPath("target"));
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("target")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target")));
 
         } catch (IOException e) {
             e.printStackTrace();
@@ -58,8 +55,8 @@ public class PluginLoaderTest {
             PluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString("source"), pf);
             ((DynamicPluginLoader) util).installPath = PluginTestUtil.getTestPath("target");
             ((DynamicPluginLoader) util).movePlugin();
-            assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
-            assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));
+            Assert.assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
+            Assert.assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));
         } catch (IOException | UserException e) {
             e.printStackTrace();
         }
@@ -76,15 +73,15 @@ public class PluginLoaderTest {
 
             p.init(null, null);
             p.close();
-            assertEquals(2, p.flags());
+            Assert.assertEquals(2, p.flags());
 
             p.setVariable("test", "value");
 
             Map<String, String> m = p.variable();
 
-            assertEquals(1, m.size());
-            assertTrue(m.containsKey("test"));
-            assertEquals("value", m.get("test"));
+            Assert.assertEquals(1, m.size());
+            Assert.assertTrue(m.containsKey("test"));
+            Assert.assertEquals("value", m.get("test"));
 
         } catch (IOException | UserException e) {
             e.printStackTrace();

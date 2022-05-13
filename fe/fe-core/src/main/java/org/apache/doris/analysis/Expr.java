@@ -42,7 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -874,11 +873,24 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }
 
+    public String toDigest() {
+        return (printSqlInParens) ? "(" + toDigestImpl() + ")" : toDigestImpl();
+    }
+
     /**
      * Returns a SQL string representing this expr. Subclasses should override this method
      * instead of toSql() to ensure that parenthesis are properly added around the toSql().
      */
     protected abstract String toSqlImpl();
+
+    /**
+     * !!!!!! Important !!!!!!
+     * Subclasses should override this method if
+     * sql digest should be represented different from tosqlImpl().
+     */
+    protected String toDigestImpl() {
+        return toSqlImpl();
+    }
 
     public String toMySql() {
         return toSql();
@@ -951,6 +963,14 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     //                      ((SlotRef) this).getDesc().getParent().getId());
     //        }
     //    }
+
+    public List<String> childrenToDigest() {
+        List<String> childrenDigestList = Lists.newArrayList();
+        for (Expr child : children) {
+            childrenDigestList.add(child.toDigest());
+        }
+        return childrenDigestList;
+    }
 
     public static com.google.common.base.Predicate<Expr> isAggregatePredicate() {
         return IS_AGGREGATE_PREDICATE;
@@ -1416,7 +1436,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     /**
      * This method is mainly used to find the original column corresponding to the current expr.
      * Find the initial slotRef from the current slot ref.
-     * 
+     *
      * If the initial expr is not a slotRef, it returns null directly.
      * If the current slotRef comes from another expression transformation,
      *   rather than directly from another slotRef, null will also be returned.

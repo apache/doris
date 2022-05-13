@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/free-pool.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
-#define DORIS_BE_SRC_QUERY_BE_RUNTIME_FREE_POOL_H
+#pragma once
 
 #include <stdio.h>
 #include <string.h>
@@ -162,5 +161,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

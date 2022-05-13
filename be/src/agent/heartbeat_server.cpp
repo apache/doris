@@ -104,7 +104,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
+            LOG(WARNING) << "invalid cluster id: " << master_info.cluster_id << ". ignore.";
             return Status::InternalError("invalid cluster id. ignore.");
         }
     }
@@ -171,8 +171,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 }
 
 Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                                    ThriftServer** thrift_server, uint32_t worker_thread_num,
-                                    TMasterInfo* local_master_info) {
+                               ThriftServer** thrift_server, uint32_t worker_thread_num,
+                               TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
     if (heartbeat_server == nullptr) {
         return Status::InternalError("Get heartbeat server failed");

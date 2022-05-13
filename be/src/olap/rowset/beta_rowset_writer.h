@@ -43,11 +43,13 @@ public:
     // For Memtable::flush()
     Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
+    Status add_block(const vectorized::Block* block) override;
+
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;
 
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                   const SchemaMapping& schema_mapping) override;
+                                               const SchemaMapping& schema_mapping) override;
 
     Status add_rowset_for_migration(RowsetSharedPtr rowset) override;
 

@@ -25,7 +25,7 @@
 namespace doris {
 
 OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size)
-        : _compress_kind(compress_kind), _stream_buffer_size(stream_buffer_size) {
+        : _stream_buffer_size(stream_buffer_size) {
     switch (compress_kind) {
     case COMPRESS_NONE:
         _compressor = nullptr;
@@ -64,7 +64,7 @@ OutStream* OutStreamFactory::create_stream(uint32_t column_unique_id,
     }
 
     if (nullptr == stream) {
-        OLAP_LOG_WARNING("fail to allocate OutStream.");
+        LOG(WARNING) << "fail to allocate OutStream.";
         return nullptr;
     }
 
@@ -106,7 +106,7 @@ Status OutStream::_create_new_input_buffer() {
 }
 
 Status OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
-                                  StreamHead::StreamType type, uint32_t length) {
+                              StreamHead::StreamType type, uint32_t length) {
     if (buf->limit() < sizeof(StreamHead) + length) {
         return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
@@ -119,7 +119,7 @@ Status OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
 }
 
 Status OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
-                                StorageByteBuffer* overflow, bool* smaller) {
+                            StorageByteBuffer* overflow, bool* smaller) {
     Status res = Status::OK();
 
     res = _compressor(input, overflow, smaller);
@@ -207,7 +207,7 @@ Status OutStream::_spill() {
         res = _compress(_current, _compressed, _overflow, &smaller);
 
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to compress data.");
+            LOG(WARNING) << "fail to compress data.";
             return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         }
 
@@ -268,7 +268,7 @@ Status OutStream::write(const char* buffer, uint64_t length) {
         if (OLAP_LIKELY(0 != to_put)) {
             res = _current->put(&buffer[offset], to_put);
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to put buffer.");
+                LOG(WARNING) << "fail to put buffer.";
                 return res;
             }
 
@@ -279,7 +279,7 @@ Status OutStream::write(const char* buffer, uint64_t length) {
         if (_current->remaining() == 0) {
             res = _spill();
             if (!res.ok()) {
-                OLAP_LOG_WARNING("fail to spill current buffer.");
+                LOG(WARNING) << "fail to spill current buffer.";
                 return res;
             }
         }
@@ -346,7 +346,7 @@ Status OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mbytes_
 
         res = file_handle->write((*it)->array(), (*it)->limit());
         if (!res.ok()) {
-            OLAP_LOG_WARNING("fail to write stream to fail.");
+            LOG(WARNING) << "fail to write stream to fail.";
             return res;
         }
 
@@ -372,7 +372,7 @@ Status OutStream::flush() {
 
     res = _spill();
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to spill stream.");
+        LOG(WARNING) << "fail to spill stream.";
         return res;
     }
 

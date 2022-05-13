@@ -26,7 +26,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.statistics.TableStats;
 
 import com.google.common.collect.ImmutableList;
-
 import org.apache.parquet.Preconditions;
 import org.apache.parquet.Strings;
 
@@ -35,8 +34,8 @@ public class ShowTableStatsStmt extends ShowStmt {
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
                     .add("table_name")
-                    .add(TableStats.ROW_COUNT)
-                    .add(TableStats.DATA_SIZE)
+                    .add(TableStats.ROW_COUNT.getValue())
+                    .add(TableStats.DATA_SIZE.getValue())
                     .build();
 
     private TableName tableName;

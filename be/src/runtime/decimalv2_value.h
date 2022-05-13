@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
-#define DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
+#pragma once
 
 #include <cctype>
 #include <climits>
@@ -61,8 +60,8 @@ public:
 
     static constexpr int32_t PRECISION = 27;
     static constexpr int32_t SCALE = 9;
-    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] =
-            { 1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1 };
+    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] = {
+            1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1};
     static constexpr uint32_t ONE_BILLION = 1000000000;
     static constexpr int64_t MAX_INT_VALUE = 999999999999999999;
     static constexpr int32_t MAX_FRAC_VALUE = 999999999;
@@ -324,5 +323,3 @@ struct hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
 } // namespace std
-
-#endif // DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H

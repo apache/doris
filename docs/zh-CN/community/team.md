@@ -79,7 +79,6 @@ under the License.
 | [xuyang](https://people.apache.org/committer-index.html#xuyang) | xy720            | Yang Xu        |
 | [laiyingchun](https://people.apache.org/committer-index.html#laiyingchun) | acelyc111        | Yingchun Lai   |
 | [wyf](https://people.apache.org/committer-index.html#wyf)    | wuyunfeng        | Yunfeng Wu     |
-| [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93         | Zuo Wei        |
 
 ## Contributor
 

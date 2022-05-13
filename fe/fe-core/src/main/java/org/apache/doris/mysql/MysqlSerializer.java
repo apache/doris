@@ -17,14 +17,14 @@
 
 package org.apache.doris.mysql;
 
-import java.io.ByteArrayOutputStream;
-import java.io.UnsupportedEncodingException;
-import java.nio.ByteBuffer;
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.base.Strings;
+
+import java.io.ByteArrayOutputStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 
 // used for serialize memory data to byte stream of MySQL protocol
 public class MysqlSerializer {

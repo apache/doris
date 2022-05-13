@@ -21,7 +21,6 @@
 #pragma once
 
 #include "exprs/hybrid_set.h"
-
 #include "vec/columns/column_dummy.h"
 
 namespace doris::vectorized {
@@ -32,15 +31,14 @@ using ConstSetPtr = std::shared_ptr<HybridSetBase>;
   * Behaves like a constant-column (because the set is one, not its own for each line).
   * This column has a nonstandard value, so it can not be obtained via a normal interface.
   */
-class ColumnSet final : public COWHelper<IColumnDummy, ColumnSet>
-{
+class ColumnSet final : public COWHelper<IColumnDummy, ColumnSet> {
 public:
     friend class COWHelper<IColumnDummy, ColumnSet>;
 
-    ColumnSet(size_t s_, const ConstSetPtr & data_) : data(data_) { s = s_; }
-    ColumnSet(const ColumnSet &) = default;
+    ColumnSet(size_t s_, const ConstSetPtr& data_) : data(data_) { s = s_; }
+    ColumnSet(const ColumnSet&) = default;
 
-    const char * get_family_name() const override { return "Set"; }
+    const char* get_family_name() const override { return "Set"; }
     MutableColumnPtr clone_dummy(size_t s_) const override { return ColumnSet::create(s_, data); }
 
     ConstSetPtr get_data() const { return data; }
@@ -49,4 +47,4 @@ private:
     ConstSetPtr data;
 };
 
-}
+} // namespace doris::vectorized

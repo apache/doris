@@ -113,6 +113,11 @@ struct TDiskTrashInfo {
     3: required i64 trash_used_capacity
 }
 
+struct TCheckStorageFormatResult {
+    1: optional list<i64> v1_tablets;
+    2: optional list<i64> v2_tablets;
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -174,4 +179,7 @@ service BackendService {
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
     oneway void clean_trash();
+
+    // check tablet rowset type
+    TCheckStorageFormatResult check_storage_format();
 }

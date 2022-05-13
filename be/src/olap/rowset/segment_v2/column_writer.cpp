@@ -118,7 +118,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta->set_unique_id(2);
             length_options.meta->set_type(length_type);
             length_options.meta->set_is_nullable(false);
-            length_options.meta->set_length(get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
+            length_options.meta->set_length(
+                    get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(LZ4F);
 
@@ -145,7 +146,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta->set_unique_id(3);
                 null_options.meta->set_type(null_type);
                 null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
+                null_options.meta->set_length(
+                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(LZ4F);
 
@@ -189,6 +191,47 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
         }
     }
     return Status::OK();
+}
+
+Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                     size_t num_rows) {
+    size_t offset = 0;
+    auto next_run_step = [&]() {
+        size_t step = 1;
+        for (auto i = offset + 1; i < num_rows; ++i) {
+            if (null_map[offset] == null_map[i])
+                step++;
+            else
+                break;
+        }
+        return step;
+    };
+
+    do {
+        auto step = next_run_step();
+        if (null_map[offset]) {
+            RETURN_IF_ERROR(append_nulls(step));
+            *ptr += get_field()->size() * step;
+        } else {
+            // TODO:
+            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  2. support array vectorized load and ptr offset add
+            RETURN_IF_ERROR(append_data(ptr, step));
+        }
+        offset += step;
+    } while (offset < num_rows);
+
+    return Status::OK();
+}
+
+Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
+    assert(data && num_rows > 0);
+    const auto* ptr = (const uint8_t*)data;
+    if (nullmap) {
+        return append_nullable(nullmap, &ptr, num_rows);
+    } else {
+        return append_data(&ptr, num_rows);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////

@@ -55,9 +55,8 @@ public:
     // Initialize with the size of the key, currently only used when splitting the range of key
     Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys);
 
-    Status init_scan_key(const TabletSchema& schema,
-                             const std::vector<std::string>& keys,
-                             const std::shared_ptr<Schema>& shared_schema);
+    Status init_scan_key(const TabletSchema& schema, const std::vector<std::string>& keys,
+                         const std::shared_ptr<Schema>& shared_schema);
 
     //allocate memory for string type, which include char, varchar, hyperloglog
     Status allocate_memory_for_string_type(const TabletSchema& schema);
@@ -86,7 +85,7 @@ public:
     }
     // convert and deep copy field content
     Status convert_from(size_t index, const char* src, const TypeInfo* src_type,
-                            MemPool* mem_pool) {
+                        MemPool* mem_pool) {
         char* dest = cell_ptr(index);
         return column_schema(index)->convert_from(dest, src, src_type, mem_pool);
     }
@@ -130,9 +129,7 @@ public:
 
     bool is_null(size_t index) const { return *reinterpret_cast<bool*>(nullable_cell_ptr(index)); }
 
-    void set_null(size_t index) const {
-        *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true;
-    }
+    void set_null(size_t index) const { *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = true; }
 
     void set_not_null(size_t index) const {
         *reinterpret_cast<bool*>(nullable_cell_ptr(index)) = false;
@@ -149,7 +146,7 @@ public:
 private:
     Status _init(const std::vector<uint32_t>& columns);
     Status _init(const std::shared_ptr<Schema>& shared_schema,
-                     const std::vector<uint32_t>& columns);
+                 const std::vector<uint32_t>& columns);
     // common init function
     Status _init(const std::vector<TabletColumn>& schema, const std::vector<uint32_t>& columns);
     Status _alloc_buf();
@@ -170,4 +167,3 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
 } // namespace doris
-

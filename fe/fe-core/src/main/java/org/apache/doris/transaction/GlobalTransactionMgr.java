@@ -41,7 +41,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -211,7 +210,7 @@ public class GlobalTransactionMgr implements Writable {
      * @throws UserException
      * @throws TransactionCommitFailedException
      * @note it is necessary to optimize the `lock` mechanism and `lock` scope resulting from wait lock long time
-     * @note callers should get db.write lock before call this api
+     * @note callers should get all tables' write locks before call this api
      */
     public void commitTransaction(long dbId, List<Table> tableList, long transactionId, List<TabletCommitInfo> tabletCommitInfos,
                                   TxnCommitAttachment txnCommitAttachment)
@@ -263,7 +262,7 @@ public class GlobalTransactionMgr implements Writable {
             // so we just return false to indicate publish timeout
             return false;
         }
-        return dbTransactionMgr.publishTransaction(db, transactionId, publishTimeoutMillis);
+        return dbTransactionMgr.waitForTransactionFinished(db, transactionId, publishTimeoutMillis);
     }
 
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
@@ -394,7 +393,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     // for replay idToTransactionState
-    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
+    // check point also run transaction cleaner, the cleaner maybe concurrently modify id to
     public void replayUpsertTransactionState(TransactionState transactionState) throws MetaNotFoundException {
         try {
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());

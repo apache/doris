@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TDescriptorTable;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -47,7 +46,7 @@ public class DescriptorTable {
     private final HashMap<TupleId, TupleDescriptor> tupleDescs = new HashMap<TupleId, TupleDescriptor>();
     // List of referenced tables with no associated TupleDescriptor to ship to the BE.
     // For example, the output table of an insert query.
-    private final List<Table> referencedTables = new ArrayList<Table>();;
+    private final List<Table> referencedTables = new ArrayList<Table>();
     private final IdGenerator<TupleId> tupleIdGenerator_ = TupleId.createGenerator();
     private final IdGenerator<SlotId> slotIdGenerator_ = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();

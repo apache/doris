@@ -57,7 +57,8 @@ public:
     }
 
     void insert_default_into(IColumn&) const override {
-        LOG(FATAL) << "Method insert_default_into() is not implemented for data type " << get_name();
+        LOG(FATAL) << "Method insert_default_into() is not implemented for data type "
+                   << get_name();
     }
 
     bool have_subtypes() const override { return false; }

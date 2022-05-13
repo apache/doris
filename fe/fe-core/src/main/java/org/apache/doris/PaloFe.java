@@ -38,7 +38,6 @@ import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
-
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
@@ -66,6 +65,9 @@ public class PaloFe {
 
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args) {
+        if (System.getenv("DORIS_LOG_TO_STDERR") != null) {
+            Log4jConfig.foreground = true;
+        }
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
             System.err.println("env DORIS_HOME is not set.");
             return;
@@ -143,8 +145,9 @@ public class PaloFe {
             httpServer.setWorkers(Config.jetty_server_workers);
             httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
             httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
+            httpServer.setMaxHttpHeaderSize (Config.jetty_server_max_http_header_size);
             httpServer.start();
-            
+
             qeService.start();
 
             ThreadPoolManager.registerAllThreadPoolMetric();
@@ -365,5 +368,3 @@ public class PaloFe {
         }
     }
 }
-
-

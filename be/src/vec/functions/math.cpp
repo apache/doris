@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/core/types.h"
 #include "vec/data_types/number_traits.h"
-#include "vec/functions/function_const.h"
 #include "vec/functions/function_binary_arithmetic.h"
-#include "vec/functions/function_binary_arithmetic_to_null_type.h"
+#include "vec/functions/function_const.h"
 #include "vec/functions/function_math_unary.h"
 #include "vec/functions/function_math_unary_to_null_type.h"
 #include "vec/functions/function_string.h"
@@ -126,18 +126,18 @@ struct ExpName {
 };
 using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
 
-#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                                    \
-struct CLASS##Impl {                                                            \
-    using Type = DataTypeFloat64;                                               \
-    using RetType = Float64;                                                    \
-    static constexpr auto name = #NAME;                                         \
-    template <typename T, typename U>                                           \
-    static void execute(const T* src, U* dst, UInt8& null_flag) {               \
-        null_flag = src[0] <= 0;                                                \
-        dst[0] = static_cast<U>(FUNC((double)src[0]));                          \
-    }                                                                           \
-};                                                                              \
-using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
+#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                          \
+    struct CLASS##Impl {                                              \
+        using Type = DataTypeFloat64;                                 \
+        using RetType = Float64;                                      \
+        static constexpr auto name = #NAME;                           \
+        template <typename T, typename U>                             \
+        static void execute(const T* src, U* dst, UInt8& null_flag) { \
+            null_flag = src[0] <= 0;                                  \
+            dst[0] = static_cast<U>(FUNC((double)src[0]));            \
+        }                                                             \
+    };                                                                \
+    using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
 
 LOG_FUNCTION_IMPL(Log10, log10, std::log10);
 LOG_FUNCTION_IMPL(Log2, log2, std::log2);
@@ -150,17 +150,39 @@ struct LogName {
 template <typename A, typename B>
 struct LogImpl {
     using ResultType = Float64;
+    using Traits = NumberTraits::BinaryOperatorTraits<A, B>;
+
     static const constexpr bool allow_decimal = false;
+    static constexpr double EPSILON = 1e-9;
+
+    template <typename Result = ResultType>
+    static void apply(const typename Traits::ArrayA& a, B b,
+                      typename ColumnVector<Result>::Container& c,
+                      typename Traits::ArrayNull& null_map) {
+        size_t size = c.size();
+        UInt8 is_null = b <= 0;
+        memset(null_map.data(), is_null, size);
+
+        if (!is_null) {
+            for (size_t i = 0; i < size; i++) {
+                if (a[i] <= 0 || std::fabs(a[i] - 1.0) < EPSILON) {
+                    null_map[i] = 1;
+                } else {
+                    c[i] = static_cast<Float64>(std::log(static_cast<Float64>(b)) /
+                                                std::log(static_cast<Float64>(a[i])));
+                }
+            }
+        }
+    }
 
     template <typename Result>
-    static inline Result apply(A a, B b, NullMap& null_map, size_t index) {
-        constexpr double EPSILON = 1e-9;
-        null_map[index] = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+    static inline Result apply(A a, B b, UInt8& is_null) {
+        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
-                                      std::log(static_cast<Float64>(a)));
+                                    std::log(static_cast<Float64>(a)));
     }
 };
-using FunctionLog = FunctionBinaryArithmeticToNullType<LogImpl, LogName>;
+using FunctionLog = FunctionBinaryArithmetic<LogImpl, LogName, true>;
 
 struct CeilName {
     static constexpr auto name = "ceil";
@@ -212,9 +234,7 @@ template <typename A>
 struct NegativeImpl {
     using ResultType = A;
 
-    static inline ResultType apply(A a) {
-        return -a;
-    }
+    static inline ResultType apply(A a) { return -a; }
 };
 
 struct NameNegative {
@@ -254,7 +274,8 @@ using FunctionTan = FunctionMathUnary<UnaryFunctionVectorized<TanName, std::tan>
 struct FloorName {
     static constexpr auto name = "floor";
 };
-using FunctionFloor = FunctionMathUnary<UnaryFunctionVectorized<FloorName, std::floor, DataTypeInt64>>;
+using FunctionFloor =
+        FunctionMathUnary<UnaryFunctionVectorized<FloorName, std::floor, DataTypeInt64>>;
 
 template <typename A>
 struct RadiansImpl {
@@ -294,7 +315,7 @@ struct BinImpl {
     static constexpr auto TYPE_INDEX = TypeIndex::Int64;
     using Type = Int64;
     using ReturnColumnType = ColumnString;
-    
+
     static std::string bin_impl(Int64 value) {
         uint64_t n = static_cast<uint64_t>(value);
         const size_t max_bits = sizeof(uint64_t) * 8;
@@ -305,13 +326,12 @@ struct BinImpl {
         } while (n >>= 1);
         return std::string(result + index, max_bits - index);
     }
-    
+
     static Status vector(const ColumnInt64::Container& data, ColumnString::Chars& res_data,
                          ColumnString::Offsets& res_offsets) {
-        
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
-        
+
         for (size_t i = 0; i < input_size; ++i) {
             StringOP::push_value_string(bin_impl(data[i]), i, res_data, res_offsets);
         }
@@ -333,11 +353,11 @@ struct RoundOneImpl {
     static constexpr auto name = RoundName::name;
     static constexpr auto rows_per_iteration = 1;
     static constexpr bool always_returns_float64 = false;
-    
+
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<vectorized::DataTypeFloat64>()};
     }
-    
+
     template <typename T, typename U>
     static void execute(const T* src, U* dst) {
         dst[0] = static_cast<Int64>(std::round(static_cast<Float64>(src[0])));
@@ -353,13 +373,13 @@ struct PowImpl {
     template <typename type>
     static inline double apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return std::pow((double)a, (double) b);
+        return std::pow((double)a, (double)b);
     }
 };
 struct PowName {
     static constexpr auto name = "pow";
 };
-using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName>;
+using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
 template <typename A, typename B>
 struct TruncateImpl {
@@ -369,14 +389,14 @@ struct TruncateImpl {
     template <typename type>
     static inline double apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(my_double_round(
-                static_cast<Float64>(a), static_cast<Int32>(b), false, true));
+        return static_cast<Float64>(
+                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, true));
     }
 };
 struct TruncateName {
     static constexpr auto name = "truncate";
 };
-using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName>;
+using FunctionTruncate = FunctionBinaryArithmetic<TruncateImpl, TruncateName, false>;
 
 /// round(double,int32)-->double
 /// key_str:roundFloat64Int32
@@ -393,11 +413,11 @@ struct RoundTwoImpl {
     template <typename type>
     static inline double apply(A a, B b) {
         /// Next everywhere, static_cast - so that there is no wrong result in expressions of the form Int64 c = UInt32(a) * Int32(-1).
-        return static_cast<Float64>(my_double_round(
-                static_cast<Float64>(a), static_cast<Int32>(b), false, false));
+        return static_cast<Float64>(
+                my_double_round(static_cast<Float64>(a), static_cast<Int32>(b), false, false));
     }
 };
-using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName>;
+using FunctionRoundTwo = FunctionBinaryArithmetic<RoundTwoImpl, RoundName, false>;
 
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future

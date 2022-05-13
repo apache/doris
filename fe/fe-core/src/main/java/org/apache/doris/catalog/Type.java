@@ -28,10 +28,10 @@ import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Longs;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -248,7 +248,7 @@ public abstract class Type {
         return isScalarType(PrimitiveType.TINYINT) || isScalarType(PrimitiveType.SMALLINT)
                 || isScalarType(PrimitiveType.INT);
     }
-    
+
     public boolean isLargeIntType() {
         return isScalarType(PrimitiveType.LARGEINT);
     }
@@ -273,7 +273,7 @@ public abstract class Type {
     public boolean isDatetime() {
         return isScalarType(PrimitiveType.DATETIME);
     }
-    
+
     public boolean isTime() {
         return isScalarType(PrimitiveType.TIME);
     }
@@ -558,7 +558,7 @@ public abstract class Type {
         }
         return result;
     }
-    
+
     public static Type fromThrift(TTypeDesc thrift) {
         Preconditions.checkState(thrift.types.size() > 0);
         Pair<Type, Integer> t = fromThrift(thrift, 0);
@@ -880,7 +880,7 @@ public abstract class Type {
         compatibilityMatrix[SMALLINT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
         // INT
-        compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;    
+        compatibilityMatrix[INT.ordinal()][BIGINT.ordinal()] = PrimitiveType.BIGINT;
         compatibilityMatrix[INT.ordinal()][LARGEINT.ordinal()] = PrimitiveType.LARGEINT;
         // 32 bit integer fits only mantissa of double.
         // TODO: arguably we should promote INT + FLOAT to DOUBLE to avoid loss of precision,
@@ -901,7 +901,7 @@ public abstract class Type {
         compatibilityMatrix[INT.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
 
-        // BIGINT 
+        // BIGINT
         // 64 bit integer does not fit in mantissa of double or float.
         // TODO: arguably we should always promote BIGINT + FLOAT to double here to keep as
         // much precision as possible, but we depend on this implicit cast for some use
@@ -917,7 +917,7 @@ public abstract class Type {
         compatibilityMatrix[BIGINT.ordinal()][CHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][VARCHAR.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][DECIMALV2.ordinal()] = PrimitiveType.INVALID_TYPE;
-        compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;        
+        compatibilityMatrix[BIGINT.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][TIME.ordinal()] = PrimitiveType.DOUBLE;
         compatibilityMatrix[BIGINT.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[BIGINT.ordinal()][STRING.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1008,7 +1008,7 @@ public abstract class Type {
         compatibilityMatrix[STRING.ordinal()][QUANTILE_STATE.ordinal()] = PrimitiveType.INVALID_TYPE;
 
 
-        // DECIMALV2 
+        // DECIMALV2
         compatibilityMatrix[DECIMALV2.ordinal()][HLL.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[DECIMALV2.ordinal()][BITMAP.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1104,7 +1104,7 @@ public abstract class Type {
 
         // Following logical is compatible with MySQL.
         if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
-            return Type.VARCHAR; 
+            return Type.VARCHAR;
         }
         if ((t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.STRING)
                 || (t1ResultType == PrimitiveType.STRING && t2ResultType == PrimitiveType.VARCHAR)

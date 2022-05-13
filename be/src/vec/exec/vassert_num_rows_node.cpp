@@ -17,17 +17,17 @@
 
 #include "vec/exec/vassert_num_rows_node.h"
 
-#include "vec/core/block.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/core/block.h"
 
 namespace doris::vectorized {
 
 VAssertNumRowsNode::VAssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
-                                     const DescriptorTbl& descs)
+                                       const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
           _subquery_string(tnode.assert_num_rows_node.subquery_string) {
@@ -96,4 +96,4 @@ Status VAssertNumRowsNode::get_next(RuntimeState* state, Block* block, bool* eos
     return Status::OK();
 }
 
-} // namespace doris
+} // namespace doris::vectorized

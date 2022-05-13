@@ -25,17 +25,17 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Constructor;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ReflectionUtils {
     private static final Class[] emptyArray = new Class[]{};
-    
-    /** 
+
+    /**
      * Cache of constructors for each class. Pins the classes so they
      * can't be garbage collected until ReflectionUtils can be collected.
      */
-    private static final Map<Class<?>, Constructor<?>> CONSTRUCTOR_CACHE = 
+    private static final Map<Class<?>, Constructor<?>> CONSTRUCTOR_CACHE =
             new ConcurrentHashMap<Class<?>, Constructor<?>>();
 
     /** Create an object for the given class and initialize it from conf
@@ -58,23 +58,23 @@ public class ReflectionUtils {
         return result;
     }
 
-    static private ThreadMXBean threadBean = 
+    static private ThreadMXBean threadBean =
             ManagementFactory.getThreadMXBean();
-    
+
     public static void setContentionTracing(boolean val) {
         threadBean.setThreadContentionMonitoringEnabled(val);
     }
-    
+
     private static String getTaskName(long id, String name) {
         if (name == null) {
             return Long.toString(id);
         }
         return id + " (" + name + ")";
     }
-    
+
     /**
      * Print all of the thread's information and stack traces.
-     * 
+     *
      * @param stream the stream to
      * @param title a string title for the stack trace
      */
@@ -84,14 +84,14 @@ public class ReflectionUtils {
         long[] threadIds = threadBean.getAllThreadIds();
         stream.println("Process Thread Dump: " + title);
         stream.println(threadIds.length + " active threads");
-        
+
         for (long tid: threadIds) {
             ThreadInfo info = threadBean.getThreadInfo(tid, STACK_DEPTH);
             if (info == null) {
                 stream.println("  Inactive");
                 continue;
             }
-            stream.println("Thread " + 
+            stream.println("Thread " +
                     getTaskName(info.getThreadId(), info.getThreadName()) + ":");
             Thread.State state = info.getThreadState();
             stream.println("  State: " + state);
@@ -105,7 +105,7 @@ public class ReflectionUtils {
                 stream.println("  Waiting on " + info.getLockName());
             } else  if (state == Thread.State.BLOCKED) {
                 stream.println("  Blocked on " + info.getLockName());
-                stream.println("  Blocked by " + 
+                stream.println("  Blocked by " +
                         getTaskName(info.getLockOwnerId(), info.getLockOwnerName()));
             }
             stream.println("  Stack:");
@@ -113,17 +113,17 @@ public class ReflectionUtils {
                 stream.println("    " + frame.toString());
             }
         }
-        
+
         stream.flush();
     }
-    
+
     private static long previousLogTime = 0;
-    
+
     /**
      * Log the current thread stacks at INFO level.
      * @param log the logger that logs the stack trace
      * @param title a descriptive title for the call stacks
-     * @param minInterval the minimum time from the last 
+     * @param minInterval the minimum time from the last
      */
     public static void logThreadInfo(Logger log, String title, long minInterval) {
         boolean dumpStack = false;
@@ -135,7 +135,7 @@ public class ReflectionUtils {
                     dumpStack = true;
                 }
             }
-            
+
             if (dumpStack) {
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                 printThreadInfo(new PrintWriter(buffer), title);
@@ -146,19 +146,19 @@ public class ReflectionUtils {
 
     /**
      * Return the correctly-typed {@link Class} of the given object.
-     *  
+     *
      * @param o object whose correctly-typed <code>Class</code> is to be obtained
      * @return the correctly typed <code>Class</code> of the given object.
      */
     public static <T> Class<T> getClass(T o) {
         return (Class<T>)o.getClass();
     }
-  
+
     // methods to support testing
     static void clearCache() {
         CONSTRUCTOR_CACHE.clear();
     }
-    
+
     static int getCacheSize() {
         return CONSTRUCTOR_CACHE.size();
     }

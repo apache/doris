@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
 import org.apache.doris.thrift.TDiskTrashInfo;
@@ -67,23 +68,21 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.thrift.TException;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import io.grpc.stub.StreamObserver;
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 
-import io.grpc.stub.StreamObserver;
-
 /*
  * This class is used to create mock backends.
  * Usage can be found in Demon.java's beforeClass()
- * 
- * 
+ *
+ *
  */
 public class MockedBackendFactory {
 
@@ -124,7 +123,7 @@ public class MockedBackendFactory {
             return result;
         }
     }
-    
+
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {
@@ -277,7 +276,7 @@ public class MockedBackendFactory {
 
         @Override
         public long getTrashUsedCapacity() throws TException {
-            return  0l;
+            return  0L;
         }
 
         @Override
@@ -318,6 +317,11 @@ public class MockedBackendFactory {
         @Override
         public void cleanTrash() throws TException {
             return;
+        }
+
+        @Override
+        public TCheckStorageFormatResult checkStorageFormat() throws TException {
+            return new TCheckStorageFormatResult();
         }
     }
 

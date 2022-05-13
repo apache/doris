@@ -21,7 +21,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -142,7 +141,7 @@ public class Replica implements Writable {
     }
 
     public Replica(long replicaId, long backendId, long version, int schemaHash,
-                       long dataSize, long rowCount, ReplicaState state, 
+                       long dataSize, long rowCount, ReplicaState state,
                        long lastFailedVersion,
                        long lastSuccessVersion) {
         this.id = replicaId;
@@ -255,7 +254,7 @@ public class Replica implements Writable {
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
         updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRowCount);
     }
-    
+
     public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
         updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
@@ -284,8 +283,8 @@ public class Replica implements Writable {
      *      the V(hash) equals to LSV(hash), and V equals to LFV, but LFV hash is 0 or some unknown number.
      *      We just reset the LFV(hash) to recovery this replica.
      */
-    private void updateReplicaInfo(long newVersion, 
-            long lastFailedVersion, long lastSuccessVersion, 
+    private void updateReplicaInfo(long newVersion,
+            long lastFailedVersion, long lastSuccessVersion,
             long newDataSize, long newRowCount) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("before update: {}", this.toString());
@@ -293,7 +292,7 @@ public class Replica implements Writable {
 
         if (newVersion < this.version) {
             // This case means that replica meta version has been updated by ReportHandler before
-            // For example, the publish version daemon has already sent some publish verison tasks to one be to publish version 2, 3, 4, 5, 6,
+            // For example, the publish version daemon has already sent some publish version tasks to one be to publish version 2, 3, 4, 5, 6,
             // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
             // for other be to finish most of publish version tasks to update replica version in fe.
             // At the moment, the replica version in fe is 4, when ReportHandler sync tablet, it find reported replica version in be is 6 and then
@@ -323,7 +322,7 @@ public class Replica implements Writable {
         // TODO: this case is unknown, add log to observe
         if (this.version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
-                        + "maybe a fatal error or be report version, print a stack here ", 
+                        + "maybe a fatal error or be report version, print a stack here ",
                     this.version, lastFailedVersion, new Exception());
         }
 
@@ -359,7 +358,7 @@ public class Replica implements Writable {
             LOG.debug("after update {}", this.toString());
         }
     }
-    
+
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
         updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, rowCount);
     }
@@ -376,7 +375,7 @@ public class Replica implements Writable {
         if (ignoreAlter && state == ReplicaState.ALTER && version == Partition.PARTITION_INIT_VERSION) {
             return true;
         }
-        
+
         if (expectedVersion == Partition.PARTITION_INIT_VERSION) {
             // no data is loaded into this replica, just return true
             return true;

@@ -32,8 +32,8 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
                                 ? config::string_type_length_soft_limit_bytes
                                 : OLAP_VARCHAR_MAX_LENGTH;
     if (is_string_type && len > max_length) {
-        OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].", len,
-                         max_length);
+        LOG(WARNING) << "length of string parameter is too long[len=" << len
+                     << ", max_len=" << max_length << "].";
         return nullptr;
     }
 

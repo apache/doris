@@ -26,7 +26,6 @@
 
 namespace doris::vectorized {
 
-
 /** More information about the block.
   */
 struct BlockInfo {
@@ -51,7 +50,6 @@ struct BlockInfo {
     APPLY_FOR_BLOCK_INFO_FIELDS(DECLARE_FIELD_VEC)
 
 #undef DECLARE_FIELD_VEC
-
 };
 
 /// Block extention to support delayed defaults. AddingDefaultsBlockInputStream uses it to replace missing values with column defaults.

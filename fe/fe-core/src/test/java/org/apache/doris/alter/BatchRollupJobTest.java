@@ -32,7 +32,6 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -55,7 +54,7 @@ public class BatchRollupJobTest {
 
     @Before
     public void before() throws Exception {
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         alterJobs.clear();
 
         // create database db1
@@ -77,7 +76,7 @@ public class BatchRollupJobTest {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
 
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
@@ -127,7 +126,7 @@ public class BatchRollupJobTest {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
         List<Long> jobIds = Lists.newArrayList(alterJobs.keySet());
 

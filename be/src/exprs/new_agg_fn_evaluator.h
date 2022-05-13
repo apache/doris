@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.h
 // and modified by Doris
 
-#ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
-#define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
+#pragma once
 
 #include <string>
 
@@ -248,8 +247,7 @@ private:
     void Update(const TupleRow* row, Tuple* dst, void* fn);
 
     /// Writes the result in src into dst pointed to by dst_slot_desc
-    void SetDstSlot(const doris_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc,
-                           Tuple* dst);
+    void SetDstSlot(const doris_udf::AnyVal* src, const SlotDescriptor& dst_slot_desc, Tuple* dst);
 
     /// Sets up the arguments to call 'fn'. This converts from the agg-expr signature,
     /// taking TupleRow to the UDA signature taking AnyVals. Writes the serialize/finalize
@@ -319,5 +317,3 @@ inline void NewAggFnEvaluator::Finalize(const std::vector<NewAggFnEvaluator*>& e
 }
 
 } // namespace doris
-
-#endif

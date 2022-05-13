@@ -99,4 +99,3 @@ public enum SchemaTableType {
         return tableType;
     }
 }
-

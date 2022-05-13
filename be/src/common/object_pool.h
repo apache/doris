@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
-#define DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
+#pragma once
 
 #include <mutex>
 #include <vector>
@@ -60,6 +59,11 @@ public:
         src->_objects.clear();
     }
 
+    uint64_t size() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _objects.size();
+    }
+
 private:
     ObjectPool(const ObjectPool&) = delete;
     void operator=(const ObjectPool&) = delete;
@@ -78,5 +82,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -17,9 +17,10 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;

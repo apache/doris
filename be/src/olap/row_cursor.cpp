@@ -67,19 +67,19 @@ Status RowCursor::_init(const std::vector<uint32_t>& columns) {
 }
 
 Status RowCursor::_init(const std::shared_ptr<Schema>& shared_schema,
-                            const std::vector<uint32_t>& columns) {
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(*shared_schema.get()));
     return _init(columns);
 }
 
 Status RowCursor::_init(const std::vector<TabletColumn>& schema,
-                            const std::vector<uint32_t>& columns) {
+                        const std::vector<uint32_t>& columns) {
     _schema.reset(new Schema(schema, columns));
     return _init(columns);
 }
 
 Status RowCursor::_init_scan_key(const TabletSchema& schema,
-                                     const std::vector<std::string>& scan_keys) {
+                                 const std::vector<std::string>& scan_keys) {
     // NOTE: cid equal with column index
     // Hyperloglog cannot be key, no need to handle it
     _variable_len = 0;
@@ -173,7 +173,7 @@ Status RowCursor::init(const TabletSchema& schema, const std::vector<uint32_t>& 
 }
 
 Status RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys) {
+                                const std::vector<std::string>& scan_keys) {
     size_t scan_key_size = scan_keys.size();
     if (scan_key_size > schema.num_columns()) {
         LOG(WARNING)
@@ -192,8 +192,8 @@ Status RowCursor::init_scan_key(const TabletSchema& schema,
 }
 
 Status RowCursor::init_scan_key(const TabletSchema& schema,
-                                    const std::vector<std::string>& scan_keys,
-                                    const std::shared_ptr<Schema>& shared_schema) {
+                                const std::vector<std::string>& scan_keys,
+                                const std::shared_ptr<Schema>& shared_schema) {
     size_t scan_key_size = scan_keys.size();
 
     std::vector<uint32_t> columns;
@@ -327,19 +327,19 @@ Status RowCursor::_alloc_buf() {
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
-        OLAP_LOG_WARNING("Fail to malloc _variable_buf.");
+        LOG(WARNING) << "Fail to malloc _variable_buf.";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
         if (_long_text_buf == nullptr) {
-            OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
+            LOG(WARNING) << "Fail to malloc _long_text_buf.";
             return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
         for (int i = 0; i < _string_field_count; ++i) {
             _long_text_buf[i] = (char*)malloc(DEFAULT_TEXT_LENGTH * sizeof(char));
             if (_long_text_buf[i] == nullptr) {
-                OLAP_LOG_WARNING("Fail to malloc _long_text_buf.");
+                LOG(WARNING) << "Fail to malloc _long_text_buf.";
                 return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             }
         }

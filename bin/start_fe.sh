@@ -171,15 +171,16 @@ if [ x"$HELPER" != x"" ]; then
     HELPER="-helper $HELPER"
 fi
 
-if [ ${IMAGE_TOOL} -eq 1 ]; then
+if [[ ${IMAGE_TOOL} -eq 1 ]]; then
     if [ ! -z ${IMAGE_PATH} ]; then
         $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe -i ${IMAGE_PATH}
     else
         echo "Internal Error. USE IMAGE_TOOL like : ./start_fe.sh --image image_path"
     fi
-elif [ ${RUN_DAEMON} -eq 1 ]; then
+elif [[ ${RUN_DAEMON} -eq 1 ]]; then
     nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
 else
+    export DORIS_LOG_TO_STDERR=1
     $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" < /dev/null
 fi
 

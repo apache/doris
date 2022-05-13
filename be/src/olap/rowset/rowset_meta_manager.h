@@ -32,15 +32,14 @@ class RowsetMetaManager {
 public:
     static bool check_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 
-    static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                      const RowsetId& rowset_id, RowsetMetaSharedPtr rowset_meta);
+    static Status get_rowset_meta(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
+                                  RowsetMetaSharedPtr rowset_meta);
 
     static Status get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_uid,
-                                           const RowsetId& rowset_id,
-                                           std::string* json_rowset_meta);
+                                       const RowsetId& rowset_id, std::string* json_rowset_meta);
 
     static Status save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
-                           const RowsetMetaPB& rowset_meta_pb);
+                       const RowsetMetaPB& rowset_meta_pb);
 
     static Status remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id);
 

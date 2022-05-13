@@ -23,11 +23,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -37,7 +37,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -335,7 +334,7 @@ public class OutFileClause {
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed." 
+                throw new AnalysisException("Exporting results to local disk is not allowed."
                     + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
             }
             isLocalOutput = true;
@@ -529,6 +528,15 @@ public class OutFileClause {
         return sb.toString();
     }
 
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" INTO OUTFILE '").append(" ? ").append(" FORMAT AS ").append(" ? ");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append(" PROPERTIES(").append(" ? ").append(")");
+        }
+        return sb.toString();
+    }
+
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
         if (isCsvFormat()) {
@@ -551,5 +559,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
-

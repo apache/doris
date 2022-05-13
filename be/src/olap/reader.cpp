@@ -106,7 +106,11 @@ TabletReader::~TabletReader() {
 }
 
 Status TabletReader::init(const ReaderParams& read_params) {
+#ifndef NDEBUG
     _predicate_mem_pool.reset(new MemPool("TabletReader:" + read_params.tablet->full_name()));
+#else
+    _predicate_mem_pool.reset(new MemPool());
+#endif
 
     Status res = _init_params(read_params);
     if (!res.ok()) {
@@ -145,7 +149,7 @@ bool TabletReader::_optimize_for_single_rowset(
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
-                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
+                                         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
     const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
     if (rs_readers->empty()) {
         LOG(WARNING) << "fail to acquire data sources. tablet=" << _tablet->full_name();
@@ -310,6 +314,17 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
         VLOG_NOTICE << "return column is empty, using full column as default.";
+    } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
+                read_params.reader_type == READER_BASE_COMPACTION) &&
+               !read_params.return_columns.empty()) {
+        _return_columns = read_params.return_columns;
+        for (auto id : read_params.return_columns) {
+            if (_tablet->tablet_schema().column(id).is_key()) {
+                _key_cids.push_back(id);
+            } else {
+                _value_cids.push_back(id);
+            }
+        }
     } else if (read_params.reader_type == READER_CHECKSUM) {
         _return_columns = read_params.return_columns;
         for (auto id : read_params.return_columns) {
@@ -320,8 +335,8 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
             }
         }
     } else {
-        OLAP_LOG_WARNING("fail to init return columns. [reader_type=%d return_columns_size=%u]",
-                         read_params.reader_type, read_params.return_columns.size());
+        LOG(WARNING) << "fail to init return columns. [reader_type=" << read_params.reader_type
+                     << " return_columns_size=" << read_params.return_columns.size() << "]";
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
@@ -379,8 +394,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
-            OLAP_LOG_WARNING("The start_key.at(%ld).size == %ld, not equals the %ld", i,
-                             read_params.start_key[i].size(), scan_key_size);
+            LOG(WARNING) << "The start_key.at(" << i
+                         << ").size == " << read_params.start_key[i].size() << ", not equals the "
+                         << scan_key_size;
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
@@ -403,13 +419,13 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
     std::vector<RowCursor>(end_key_size).swap(_keys_param.end_keys);
     for (size_t i = 0; i < end_key_size; ++i) {
         if (read_params.end_key[i].size() != scan_key_size) {
-            OLAP_LOG_WARNING("The end_key.at(%ld).size == %ld, not equals the %ld", i,
-                             read_params.end_key[i].size(), scan_key_size);
+            LOG(WARNING) << "The end_key.at(" << i << ").size == " << read_params.end_key[i].size()
+                         << ", not equals the " << scan_key_size;
             return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(
-                _tablet->tablet_schema(), read_params.end_key[i].values(), schema);
+        Status res = _keys_param.end_keys[i].init_scan_key(_tablet->tablet_schema(),
+                                                           read_params.end_key[i].values(), schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;

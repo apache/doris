@@ -292,7 +292,7 @@ off_t FileHandler::length() const {
     struct stat stat_data;
 
     if (fstat(_fd, &stat_data) < 0) {
-        OLAP_LOG_WARNING("fstat error. [fd=%d]", _fd);
+        LOG(WARNING) << "fstat error. [fd=" << _fd << "]";
         return -1;
     }
 
@@ -356,7 +356,7 @@ Status FileHandlerWithBuf::close() {
 
 Status FileHandlerWithBuf::read(void* buf, size_t size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
+        LOG(WARNING) << "Fail to write, fp is nullptr!";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 
@@ -380,7 +380,7 @@ Status FileHandlerWithBuf::read(void* buf, size_t size) {
 
 Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
+        LOG(WARNING) << "Fail to write, fp is nullptr!";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 
@@ -397,7 +397,7 @@ Status FileHandlerWithBuf::pread(void* buf, size_t size, size_t offset) {
 
 Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
+        LOG(WARNING) << "Fail to write, fp is nullptr!";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 
@@ -415,7 +415,7 @@ Status FileHandlerWithBuf::write(const void* buf, size_t buf_size) {
 
 Status FileHandlerWithBuf::pwrite(const void* buf, size_t buf_size, size_t offset) {
     if (OLAP_UNLIKELY(nullptr == _fp)) {
-        OLAP_LOG_WARNING("Fail to write, fp is nullptr!");
+        LOG(WARNING) << "Fail to write, fp is nullptr!";
         return Status::OLAPInternalError(OLAP_ERR_NOT_INITED);
     }
 

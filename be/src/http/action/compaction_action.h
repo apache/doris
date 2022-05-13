@@ -42,7 +42,7 @@ public:
     CompactionAction(CompactionActionType type) : _type(type) {
         _compaction_mem_tracker =
                 type == RUN_COMPACTION ? MemTracker::create_tracker(-1, "ManualCompaction", nullptr,
-                                                                    MemTrackerLevel::TASK)
+                                                                    MemTrackerLevel::VERBOSE)
                                        : nullptr;
     }
 
@@ -58,8 +58,7 @@ private:
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
-    Status _execute_compaction_callback(TabletSharedPtr tablet,
-                                            const std::string& compaction_type);
+    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);

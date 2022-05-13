@@ -22,7 +22,7 @@ public enum CaseSensibility {
     DATABASE(true),
     TABLE(true),
     ROLLUP(true),
-    PARTITION(true),
+    PARTITION(false),
     COLUMN(false),
     USER(true),
     ROLE(false),
@@ -34,13 +34,13 @@ public enum CaseSensibility {
     ROUTINE_LOAD(true);
 
     private boolean caseSensitive;
-    
+
     private CaseSensibility(boolean caseSensitive) {
         this.caseSensitive  = caseSensitive;
     }
-    
+
     public boolean getCaseSensibility() {
         return caseSensitive;
     }
-    
+
 }

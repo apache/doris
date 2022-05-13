@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-3.0.0/be/src/runtime/buffered-tuple-stream.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
-#define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
+#pragma once
 
 #include <functional>
 #include <set>
@@ -690,5 +689,3 @@ private:
     void CheckPageConsistency(const Page* page) const;
 };
 } // namespace doris
-
-#endif

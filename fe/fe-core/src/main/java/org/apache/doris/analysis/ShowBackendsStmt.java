@@ -30,9 +30,9 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowBackendsStmt extends ShowStmt {
 
-    public ShowBackendsStmt() {  
+    public ShowBackendsStmt() {
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
@@ -64,4 +64,3 @@ public class ShowBackendsStmt extends ShowStmt {
         }
     }
 }
-
