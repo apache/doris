@@ -65,6 +65,8 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     static void cast_to_date_time(Int64& x);
+
+    MutableColumnPtr create_column() const override;
 };
 
 template <typename DataType>
