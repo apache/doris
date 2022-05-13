@@ -17,7 +17,12 @@
 #
 ---
 name: Code Quality Analysis
-on: [pull_request_target]
+on: on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
