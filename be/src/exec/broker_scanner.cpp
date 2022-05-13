@@ -364,9 +364,11 @@ void BrokerScanner::split_line(const Slice& line) {
                 if (p1 == _value_separator_length) {
                     // Match a separator
                     non_space = curpos;
-                    // Trim trailing spaces. Be consistent with hive and trino's behavior.
-                    while (non_space > start && *(value + non_space - 1) == ' ') {
-                        non_space--;
+                    // Trim tailing spaces. Be consistent with hive and trino's behavior.
+                    if (_state->trim_tailing_spaces_for_external_table_query()) {
+                        while (non_space > start && *(value + non_space - 1) == ' ') {
+                            non_space--;
+                        }
                     }
                     _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
@@ -379,8 +381,10 @@ void BrokerScanner::split_line(const Slice& line) {
 
         CHECK(curpos == line.size) << curpos << " vs " << line.size;
         non_space = curpos;
-        while (non_space > start && *(value + non_space - 1) == ' ') {
-            non_space--;
+        if (_state->trim_tailing_spaces_for_external_table_query()) {
+            while (non_space > start && *(value + non_space - 1) == ' ') {
+                non_space--;
+            }
         }
         _split_values.emplace_back(value + start, non_space - start);
     }
