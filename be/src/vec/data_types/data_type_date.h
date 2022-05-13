@@ -38,6 +38,8 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
     static void cast_to_date(Int64& x);
+
+    MutableColumnPtr create_column() const override;
 };
 
 } // namespace doris::vectorized
