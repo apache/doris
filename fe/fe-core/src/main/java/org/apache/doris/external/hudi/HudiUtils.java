@@ -36,7 +36,7 @@ public class HudiUtils {
     /**
      * check hudi table properties
      */
-    public static void validateCreatTable(HudiTable table) throws DdlException {
+    public static void validateCreateTable(HudiTable table) throws DdlException {
 
         if (table.getTableProperties() == null) {
             throw new DdlException("Please set properties of hudi table, "

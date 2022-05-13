@@ -4118,7 +4118,7 @@ public class Catalog {
         HudiTable hudiTable = new HudiTable(tableId, tableName, columns, stmt.getProperties());
         hudiTable.setComment(stmt.getComment());
         // check hudi properties in create stmt.
-        HudiUtils.validateCreatTable(hudiTable);
+        HudiUtils.validateCreateTable(hudiTable);
         // check hudi table whether exists in hive database
         String metastoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
         HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
