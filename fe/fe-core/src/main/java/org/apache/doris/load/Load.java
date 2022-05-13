@@ -1056,19 +1056,20 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
                 slotDesc.setIsMaterialized(true);
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
                 // because src slot is what we read from file, not represent to real column value.
                 // If column is not nullable, error will be thrown when filling the dest slot,
                 // which is not nullable.
                 slotDesc.setIsNullable(true);
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-
+               
                 boolean isBitmapType = tbl.getColumn(columnName).getType().isBitmapType();
-                if(isBitmapType){
+                if (isBitmapType) {
                     slotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
                     slotDesc.setColumn(new Column(realColName, PrimitiveType.BITMAP));
+                } else {
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 }
                 params.addToSrcSlotIds(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
