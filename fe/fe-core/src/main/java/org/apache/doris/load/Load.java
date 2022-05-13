@@ -1221,15 +1221,16 @@ public class Load {
     }
 
     /**
-     * columns that only exist in mapping expr args, replace type with inferred from exprs,
-     * if there are more than one, choose the last except varchar type
-     * for example:
-     * k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME
+     * columns that only exist in mapping expr args, replace type with inferred from exprs.
+     *
      * @param excludedColumns columns that the type should not be inferred from expr.
      *                         1. column exists in both schema and expr args.
      */
     private static void replaceVarcharWithCastType(Map<String, Expr> exprsByName, TupleDescriptor srcTupleDesc,
                                                Set<String> excludedColumns) throws UserException {
+        // if there are more than one, choose the last except varchar type.
+        // for example:
+        // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME.
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
             List<CastExpr> casts = Lists.newArrayList();
             // exclude explicit cast. for example: cast(k1 as date)
