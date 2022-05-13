@@ -103,7 +103,7 @@ private:
                           int* filtered_rows, bool* stop_processing);
 
     // some output column of output expr may have different nullable property with dest slot desc
-    // so here need to do the convert operation6
+    // so here need to do the convert operation
     void _convert_to_dest_desc_block(vectorized::Block* block);
 
     VOlapTablePartitionParam* _vpartition = nullptr;
