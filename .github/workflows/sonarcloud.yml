@@ -17,12 +17,9 @@
 #
 ---
 name: Code Quality Analysis
-on:
-  push:
-    branches:
-      - master
-  pull_request:
-    types: [opened, synchronize, reopened]
+
+on: [pull_request_target]
+
 jobs:
   build:
     name: Build
@@ -30,27 +27,54 @@ jobs:
     env:
       SONAR_SCANNER_VERSION: 4.7.0.2747
       SONAR_SERVER_URL: "https://sonarcloud.io"
-      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
+      BUILD_WRAPPER_OUT_DIR: build_wrapper_output
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
-          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          ref: "refs/pull/${{ github.event.number }}/merge"
+          fetch-depth: 0
+
+      - name: Changed Java Files
+        id: java-changes
+        uses: tj-actions/changed-files@a59f800cbb60ed483623848e31be67659a2940f8
+        with:
+          sha: "${{ github.pull_request.sha }}"
+          base_sha: "${{ github.sha }}"
+          files: |
+            **/*.java
+            **/*.xml
+      
+      - name: Changed CPP Files
+        id: cpp-changes
+        uses: tj-actions/changed-files@a59f800cbb60ed483623848e31be67659a2940f8
+        with:
+          sha: "${{ github.pull_request.sha }}"
+          base_sha: "${{ github.sha }}"
+          files: |
+            **/*.h
+            **/*.cpp
+            **/*.cc
+
       - name: Set up JDK 11
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v3
+        if: steps.java-changes.outputs.any_changed == 'true'
         with:
           java-version: 11
+
       - name: Cache SonarCloud packages
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
+
       - name: Cache Maven packages
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
+
       - name: Setup thrift
         run: |
           sudo apt-get update
@@ -58,13 +82,16 @@ jobs:
           thrift --version
           mkdir -p thirdparty/installed/bin/
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
+
       - name: Analyze FE
+        if: steps.java-changes.outputs.any_changed == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          PR_ID: ${{ github.event.pull_request.number }}
         run: |
           cd fe
-          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=apache_incubator-doris -DskipTests
+          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=apache_incubator-doris -Dsonar.pullrequest.key=$PR_ID -Dsonar.pullrequest.branch=${{ github.event.pull_request.head.ref }} -Dsonar.pullrequest.github.repository=apache/incubator-doris -Dsonar.pullrequest.provider=GitHub -Dsonar.pullrequest.github.summary_comment=true -DskipTests
 # scanner be
 #      - name: Download and set up sonar-scanner
 #        env:
