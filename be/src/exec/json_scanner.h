@@ -67,13 +67,17 @@ public:
     // Close this scanner
     void close() override;
 
-private:
+protected:
     Status open_file_reader();
     Status open_line_reader();
     Status open_json_reader();
     Status open_next_reader();
 
-private:
+    Status open_based_reader();
+    Status get_range_params(std::string& jsonpath, std::string& json_root, bool& strip_outer_array,
+                            bool& num_as_string, bool& fuzzy_parse);
+
+protected:
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
 
@@ -129,7 +133,7 @@ public:
     Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
                          MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
-private:
+protected:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 MemPool* tuple_pool, bool* is_empty_row, bool* eof);
@@ -158,8 +162,9 @@ private:
     void _close();
     Status _generate_json_paths(const std::string& jsonpath,
                                 std::vector<std::vector<JsonPath>>* vect);
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
 
-private:
+protected:
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
