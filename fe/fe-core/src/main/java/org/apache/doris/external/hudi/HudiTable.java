@@ -104,7 +104,11 @@ public class HudiTable extends Table {
 
     @Override
     public TTableDescriptor toThrift() {
-        THudiTable tHudiTable = new THudiTable(getHmsDatabaseName(), getHmsTableName(), getTableProperties());
+        THudiTable tHudiTable = new THudiTable();
+        tHudiTable.setDbName(getHmsDatabaseName());
+        tHudiTable.setTableName(getHmsTableName());
+        tHudiTable.setProperties(getTableProperties());
+
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HUDI_TABLE,
                 fullSchema.size(), 0, getName(), "");
         tTableDescriptor.setHudiTable(tHudiTable);

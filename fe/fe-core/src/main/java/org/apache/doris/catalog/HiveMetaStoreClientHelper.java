@@ -288,6 +288,7 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get hive table with dbName and tableName
+     * 
      * @param dbName
      * @param tableName
      * @param metaStoreUris

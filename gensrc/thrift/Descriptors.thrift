@@ -251,8 +251,8 @@ struct TIcebergTable {
 }
 
 struct THudiTable {
-  1: optional string db_name
-  2: optional string table_name
+  1: optional string dbName
+  2: optional string tableName
   3: optional map<string, string> properties
 }
 
