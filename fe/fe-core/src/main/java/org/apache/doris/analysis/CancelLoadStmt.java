@@ -29,11 +29,14 @@ import lombok.Getter;
 import java.util.List;
 
 
-// CANCEL LOAD statement used to cancel load job.
-//
-// syntax:
-//      CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
+/**
+ * CANCEL LOAD statement used to cancel load job.
+ * syntax:
+ *     CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
+ **/
 public class CancelLoadStmt extends DdlStmt {
+
+    private static final List<String> SUPPORT_COLUMNS = Lists.newArrayList("label", "state");
 
     @Getter
     private String dbName;
@@ -49,15 +52,13 @@ public class CancelLoadStmt extends DdlStmt {
 
     private Expr whereClause;
 
-    private static final List<String> SUPPORT_COLUMNS = Lists.newArrayList("label", "state");
-
     public CancelLoadStmt(String dbName, Expr whereClause) {
         this.dbName = dbName;
         this.whereClause = whereClause;
     }
 
     private void checkColumn(Expr expr, boolean like) throws AnalysisException {
-        String inputCol = ((SlotRef) expr.getChild(0)).getColumnName().toLowerCase();
+        String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
         if (!SUPPORT_COLUMNS.contains(inputCol)) {
             throw new AnalysisException("Current not support " + inputCol);
         }
@@ -72,10 +73,13 @@ public class CancelLoadStmt extends DdlStmt {
         if (like && !inputValue.contains("%")) {
             inputValue = "%" + inputValue + "%";
         }
-        if (inputCol.equals("label")) {
+        if (inputCol.equalsIgnoreCase("label")) {
             label = inputValue;
         }
-        if (inputCol.equals("state")) {
+        if (inputCol.equalsIgnoreCase("state")) {
+            if (like) {
+                throw new AnalysisException("Only label can use like");
+            }
             state = inputValue;
         }
     }
@@ -93,7 +97,7 @@ public class CancelLoadStmt extends DdlStmt {
 
     private void binaryCheck(Expr expr) throws AnalysisException {
         if (expr instanceof BinaryPredicate) {
-            BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
             if (!Operator.EQ.equals(binaryPredicate.getOp())) {
                 throw new AnalysisException("Only support equal or like");
             }
@@ -107,15 +111,16 @@ public class CancelLoadStmt extends DdlStmt {
         }
         if (expr instanceof CompoundPredicate) {
             // current only support label and state
-            CompoundPredicate compoundPredicate = (CompoundPredicate) whereClause;
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             for (int i = 0; i < 2; i++) {
                 Expr child = compoundPredicate.getChild(i);
                 if (child instanceof CompoundPredicate) {
                     throw new AnalysisException("Current only support label and state");
                 }
-                likeCheck(expr);
-                binaryCheck(expr);
+                likeCheck(child);
+                binaryCheck(child);
             }
+            operator = compoundPredicate.getOp();
         }
     }
 
@@ -133,6 +138,8 @@ public class CancelLoadStmt extends DdlStmt {
 
         // check auth after we get real load job
         // analyze expr
+        likeCheck(whereClause);
+        binaryCheck(whereClause);
         compoundCheck(whereClause);
     }
 

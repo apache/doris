@@ -17,6 +17,9 @@
 
 package org.apache.doris.common;
 
+/**
+ * CaseSensibility Enum.
+ **/
 public enum CaseSensibility {
     CLUSTER(true),
     DATABASE(true),
@@ -28,7 +31,6 @@ public enum CaseSensibility {
     ROLE(false),
     HOST(false),
     LABEL(false),
-    STATE(false),
     VARIABLES(true),
     RESOURCE(true),
     CONFIG(true),

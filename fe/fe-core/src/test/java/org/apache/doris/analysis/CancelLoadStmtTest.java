@@ -17,86 +17,123 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.loadv2.InsertLoadJob;
+import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadManager;
+import org.apache.doris.utframe.TestWithFeService;
 
-import mockit.Expectations;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-public class CancelLoadStmtTest {
+import java.util.ArrayList;
+import java.util.List;
+
+public class CancelLoadStmtTest extends TestWithFeService {
+
     private Analyzer analyzer;
-    private Catalog catalog;
 
-    FakeCatalog fakeCatalog;
-
-    @Before
-    public void setUp() {
-        fakeCatalog = new FakeCatalog();
-
-        catalog = AccessTestUtil.fetchAdminCatalog();
-        FakeCatalog.setCatalog(catalog);
-
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = "testCluster:testDb";
-
-                analyzer.getQualifiedUser();
-                minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-
-                analyzer.getCatalog();
-                minTimes = 0;
-                result = catalog;
-            }
-        };
+    @Override
+    protected void runBeforeAll() throws Exception {
+        FeConstants.runningUnitTest = true;
+        createDatabase("testDb");
+        useDatabase("testDb");
+        createTable("create table table1\n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
+        analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException {
-        SlotRef slotRef = new SlotRef(null, "label");
-        StringLiteral stringLiteral = new StringLiteral("doris_test_label");
+    public void testNormal() throws UserException {
+        SlotRef labelSlotRef = new SlotRef(null, "label");
+        StringLiteral labelStringLiteral = new StringLiteral("doris_test_label");
 
-        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
-        CancelLoadStmt stmt = new CancelLoadStmt(null, binaryPredicate);
-        stmt.analyze(analyzer);
-        Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` = 'doris_test_label'", stmt.toString());
+        SlotRef stateSlotRef = new SlotRef(null, "state");
+        StringLiteral stateStringLiteral = new StringLiteral("FINISHED");
 
-        LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteral);
-        stmt = new CancelLoadStmt(null, likePredicate);
+        BinaryPredicate labelBinaryPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, labelSlotRef, labelStringLiteral);
+        CancelLoadStmt stmt = new CancelLoadStmt(null, labelBinaryPredicate);
         stmt.analyze(analyzer);
-        Assert.assertEquals("CANCEL LOAD FROM testCluster:testDb WHERE `label` LIKE 'doris_test_label'", stmt.toString());
+        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label'",
+                stmt.toString());
+
+        BinaryPredicate stateBinaryPredicate =
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, stateSlotRef, stateStringLiteral);
+        stmt = new CancelLoadStmt(null, stateBinaryPredicate);
+        stmt.analyze(analyzer);
+        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `state` = 'FINISHED'", stmt.toString());
+
+        LikePredicate labelLikePredicate =
+                new LikePredicate(LikePredicate.Operator.LIKE, labelSlotRef, labelStringLiteral);
+        stmt = new CancelLoadStmt(null, labelLikePredicate);
+        stmt.analyze(analyzer);
+        Assertions.assertEquals("CANCEL LOAD FROM default_cluster:testDb WHERE `label` LIKE 'doris_test_label'",
+                stmt.toString());
+
+        CompoundPredicate compoundAndPredicate =
+                new CompoundPredicate(Operator.AND, labelBinaryPredicate, stateBinaryPredicate);
+        stmt = new CancelLoadStmt(null, compoundAndPredicate);
+        stmt.analyze(analyzer);
+        Assertions.assertEquals(
+                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' AND `state` = 'FINISHED'",
+                stmt.toString());
+
+        CompoundPredicate compoundOrPredicate =
+                new CompoundPredicate(Operator.OR, labelBinaryPredicate, stateBinaryPredicate);
+        stmt = new CancelLoadStmt(null, compoundOrPredicate);
+        stmt.analyze(analyzer);
+        Assertions.assertEquals(
+                "CANCEL LOAD FROM default_cluster:testDb WHERE `label` = 'doris_test_label' OR `state` = 'FINISHED'",
+                stmt.toString());
+
+        // test match
+        List<LoadJob> loadJobs = new ArrayList<>();
+        InsertLoadJob insertLoadJob1 = new InsertLoadJob("doris_test_label", 1L, 10003L, 10005L, 0, "", "");
+        loadJobs.add(insertLoadJob1);
+        InsertLoadJob insertLoadJob2 = new InsertLoadJob("doris_test_label_1", 2L, 10003L, 10005L, 0, "", "");
+        loadJobs.add(insertLoadJob2);
+        InsertLoadJob insertLoadJob3 = new InsertLoadJob("doris_test_label_2", 3L, 10003L, 10005L, 0, "", "");
+        loadJobs.add(insertLoadJob3);
+        // label
+        stmt = new CancelLoadStmt(null, labelBinaryPredicate);
+        stmt.analyze(analyzer);
+        List<LoadJob> matchLoadJobs = new ArrayList<>();
+        LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
+        Assertions.assertEquals(1, matchLoadJobs.size());
+        // state
+        matchLoadJobs.clear();
+        stmt = new CancelLoadStmt(null, stateBinaryPredicate);
+        stmt.analyze(analyzer);
+        LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
+        Assertions.assertEquals(3, matchLoadJobs.size());
+        // or
+        matchLoadJobs.clear();
+        stmt = new CancelLoadStmt(null, compoundOrPredicate);
+        stmt.analyze(analyzer);
+        LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
+        Assertions.assertEquals(3, matchLoadJobs.size());
+        // and
+        matchLoadJobs.clear();
+        stmt = new CancelLoadStmt(null, compoundAndPredicate);
+        stmt.analyze(analyzer);
+        LoadManager.addNeedCancelLoadJob(stmt, loadJobs, matchLoadJobs);
+        Assertions.assertEquals(1, matchLoadJobs.size());
     }
 
-    @Test(expected = AnalysisException.class)
-    public void testNoDb() throws UserException, AnalysisException {
-        SlotRef slotRef = new SlotRef(null, "label");
-        StringLiteral stringLiteral = new StringLiteral("doris_test_label");
-        new Expectations(analyzer) {
-            {
-                analyzer.getDefaultDb();
-                minTimes = 0;
-                result = "";
+    @Test
+    public void testError() {
+        SlotRef stateSlotRef = new SlotRef(null, "state");
+        StringLiteral stateStringLiteral = new StringLiteral("FINISHED");
 
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
-            }
-        };
-
-        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
-        CancelLoadStmt stmt = new CancelLoadStmt(null, binaryPredicate);
-        stmt.analyze(analyzer);
-        Assert.fail("No exception throws.");
+        LikePredicate stateLikePredicate =
+                new LikePredicate(LikePredicate.Operator.LIKE, stateSlotRef, stateStringLiteral);
+        CancelLoadStmt stmt = new CancelLoadStmt(null, stateLikePredicate);
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Only label can use like",
+                () -> stmt.analyze(analyzer));
     }
 }
