@@ -160,7 +160,6 @@ private:
     friend class RuntimePredicateWrapper;
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
-    friend class EsScanNode;
     friend class EsPredicate;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
