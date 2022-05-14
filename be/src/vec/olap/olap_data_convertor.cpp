@@ -192,26 +192,43 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     }
 
     assert(column_bitmap);
-    BitmapValue* bitmap_value_cur =
+    BitmapValue* bitmap_value =
             const_cast<BitmapValue*>(column_bitmap->get_data().data() + _row_pos);
+    BitmapValue* bitmap_value_cur = bitmap_value;
     BitmapValue* bitmap_value_end = bitmap_value_cur + _num_rows;
+
+    size_t total_size = 0;
+    if (_nullmap) {
+        const UInt8* nullmap_cur = _nullmap + _row_pos;
+        while (bitmap_value_cur != bitmap_value_end) {
+            if (!*nullmap_cur) {
+                total_size += bitmap_value_cur->getSizeInBytes();
+            }
+            ++nullmap_cur;
+            ++bitmap_value_cur;
+        }
+    } else {
+        while (bitmap_value_cur != bitmap_value_end) {
+            total_size += bitmap_value_cur->getSizeInBytes();
+            ++bitmap_value_cur;
+        }
+    }
+    _raw_data.resize(total_size);
+
+    bitmap_value_cur = bitmap_value;
     size_t slice_size;
-    size_t old_size;
-    char* raw_data;
+    char* raw_data = _raw_data.data();
     Slice* slice = _slice.data();
     if (_nullmap) {
         const UInt8* nullmap_cur = _nullmap + _row_pos;
         while (bitmap_value_cur != bitmap_value_end) {
             if (!*nullmap_cur) {
                 slice_size = bitmap_value_cur->getSizeInBytes();
-                old_size = _raw_data.size();
-                _raw_data.resize(old_size + slice_size);
-
-                raw_data = _raw_data.data() + old_size;
                 bitmap_value_cur->write(raw_data);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
+                raw_data += slice_size;
             } else {
                 // TODO: this may not be neccessary, check and remove later
                 slice->data = nullptr;
@@ -225,14 +242,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
     } else {
         while (bitmap_value_cur != bitmap_value_end) {
             slice_size = bitmap_value_cur->getSizeInBytes();
-            old_size = _raw_data.size();
-            _raw_data.resize(old_size + slice_size);
-
-            raw_data = _raw_data.data() + old_size;
             bitmap_value_cur->write(raw_data);
 
             slice->data = raw_data;
             slice->size = slice_size;
+            raw_data += slice_size;
 
             ++slice;
             ++bitmap_value_cur;
@@ -256,26 +270,42 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     }
 
     assert(column_hll);
-    HyperLogLog* hll_value_cur = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
+    HyperLogLog* hll_value = const_cast<HyperLogLog*>(column_hll->get_data().data() + _row_pos);
+    HyperLogLog* hll_value_cur = hll_value;
     HyperLogLog* hll_value_end = hll_value_cur + _num_rows;
-    size_t slice_size;
-    size_t old_size;
-    char* raw_data;
-    Slice* slice = _slice.data();
+
+    size_t total_size = 0;
     if (nullmap) {
         const UInt8* nullmap_cur = nullmap + _row_pos;
         while (hll_value_cur != hll_value_end) {
             if (!*nullmap_cur) {
-                slice_size = hll_value_cur->max_serialized_size();
-                old_size = _raw_data.size();
-                _raw_data.resize(old_size + slice_size);
+                total_size += hll_value_cur->max_serialized_size();
+            }
+            ++nullmap_cur;
+            ++hll_value_cur;
+        }
+    } else {
+        while (hll_value_cur != hll_value_end) {
+            total_size += hll_value_cur->max_serialized_size();
+            ++hll_value_cur;
+        }
+    }
+    _raw_data.resize(total_size);
 
-                raw_data = _raw_data.data() + old_size;
+    size_t slice_size;
+    char* raw_data = _raw_data.data();
+    Slice* slice = _slice.data();
+
+    hll_value_cur = hll_value;
+    if (nullmap) {
+        const UInt8* nullmap_cur = nullmap + _row_pos;
+        while (hll_value_cur != hll_value_end) {
+            if (!*nullmap_cur) {
                 slice_size = hll_value_cur->serialize((uint8_t*)raw_data);
-                _raw_data.resize(old_size + slice_size);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
+                raw_data += slice_size;
             } else {
                 // TODO: this may not be neccessary, check and remove later
                 slice->data = nullptr;
@@ -288,16 +318,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
         assert(nullmap_cur == nullmap + _row_pos + _num_rows && slice == _slice.get_end_ptr());
     } else {
         while (hll_value_cur != hll_value_end) {
-            slice_size = hll_value_cur->max_serialized_size();
-            old_size = _raw_data.size();
-            _raw_data.resize(old_size + slice_size);
-
-            raw_data = _raw_data.data() + old_size;
             slice_size = hll_value_cur->serialize((uint8_t*)raw_data);
-            _raw_data.resize(old_size + slice_size);
 
             slice->data = raw_data;
             slice->size = slice_size;
+            raw_data += slice_size;
 
             ++slice;
             ++hll_value_cur;
