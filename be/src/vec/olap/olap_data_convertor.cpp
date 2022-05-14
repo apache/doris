@@ -58,7 +58,7 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
         return std::make_unique<OlapColumnDataConvertorDateTime>();
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        if (config::enable_decimalv3) {
+        if (config::enable_execution_decimalv3) {
             if (column.precision() <= 9) {
                 return std::make_unique<OlapColumnDataConvertorDecimal<Decimal32>>();
             } else if (column.precision() <= 18) {

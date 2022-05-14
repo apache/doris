@@ -46,7 +46,7 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        if (!config::enable_decimalv3) {
+        if (!config::enable_execution_decimalv3) {
             // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
             if constexpr (std::is_same_v<ResultT, Decimal128> && std::is_same_v<T, Decimal128>) {
                 DecimalV2Value decimal_val_count(count, 0);

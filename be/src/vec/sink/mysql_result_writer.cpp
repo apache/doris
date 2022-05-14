@@ -144,7 +144,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
-    } else if (type == TYPE_DECIMALV2 && config::enable_decimalv3) {
+    } else if (type == TYPE_DECIMALV2 && config::enable_execution_decimalv3) {
         WhichDataType which(nested_type_ptr->get_type_id());
         for (int i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {

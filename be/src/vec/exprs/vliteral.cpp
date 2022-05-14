@@ -112,7 +112,7 @@ void VLiteral::init(const TExprNode& node) {
         case TYPE_DECIMALV2: {
             DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
             DCHECK(node.__isset.decimal_literal);
-            if (config::enable_decimalv3) {
+            if (config::enable_execution_decimalv3) {
                 DataTypePtr type_ptr = create_decimal(node.type.types[0].scalar_type.precision,
                                                       node.type.types[0].scalar_type.scale);
                 WhichDataType which(type_ptr);

@@ -137,7 +137,7 @@ void ColumnDecimal<T>::insert_many_decimalv2_data(const char* data_ptr, size_t n
         const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
         int64_t int_value = *(int64_t*)(cur_ptr);
         int32_t frac_value = *(int32_t*)(cur_ptr + sizeof(int64_t));
-        if (config::enable_decimalv3) {
+        if (config::enable_execution_decimalv3) {
             bool is_negative = (int_value < 0 || frac_value < 0);
             if (is_negative) {
                 int_value = std::abs(int_value);

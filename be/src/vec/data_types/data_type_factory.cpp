@@ -69,7 +69,7 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case OLAP_FIELD_TYPE_DECIMAL:
-        if (config::enable_decimalv3) {
+        if (config::enable_execution_decimalv3) {
             nested = vectorized::create_decimal(col_desc.precision(), col_desc.frac());
         } else {
             nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
@@ -146,7 +146,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case OLAP_FIELD_TYPE_DECIMAL:
-        if (config::enable_decimalv3) {
+        if (config::enable_execution_decimalv3) {
             nested = vectorized::create_decimal(col_desc.precision(), col_desc.frac());
         } else {
             nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
@@ -224,7 +224,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
     case TYPE_DECIMALV2:
-        if (config::enable_decimalv3) {
+        if (config::enable_execution_decimalv3) {
             nested = vectorized::create_decimal(col_desc.precision, col_desc.scale);
         } else {
             nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);

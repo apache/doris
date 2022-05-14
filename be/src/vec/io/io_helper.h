@@ -282,7 +282,7 @@ bool read_date_text_impl(T& x, ReadBuffer& buf) {
 template <typename T>
 bool read_decimal_text_impl(T& x, ReadBuffer& buf, UInt32 precision, UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
-    if (config::enable_decimalv3) {
+    if (config::enable_execution_decimalv3) {
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
 
         x.value = StringParser::string_to_decimal<typename T::NativeType>(
