@@ -112,11 +112,9 @@ public:
     }
 
     ~Lz4fBlockCompression() override {
-        if (ctx_c_inited)
-            LZ4F_freeCompressionContext(ctx_c);
+        if (ctx_c_inited) LZ4F_freeCompressionContext(ctx_c);
 
-        if (ctx_d_inited)
-            LZ4F_freeDecompressionContext(ctx_d);
+        if (ctx_d_inited) LZ4F_freeDecompressionContext(ctx_d);
     }
 
     Status compress(const Slice& input, Slice* output) const override {
@@ -410,16 +408,15 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         return Status::NotFound(strings::Substitute("unknown compression type($0)", type));
     }
 
-    if (!ptr)
-        return Status::NotFound("Failed to create compression codec");
-    
+    if (!ptr) return Status::NotFound("Failed to create compression codec");
+
     Status st = ptr->init();
     if (st.ok()) {
         codec.reset(ptr);
     } else {
         delete ptr;
     }
-    
+
     return st;
 }
 
