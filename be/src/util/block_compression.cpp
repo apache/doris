@@ -88,11 +88,6 @@ public:
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 public:
-    static const Lz4fBlockCompression* instance() {
-        static Lz4fBlockCompression s_instance;
-        return &s_instance;
-    }
-
     Status init() override {
         auto ret1 = LZ4F_createCompressionContext(&ctx_c, LZ4F_VERSION);
         if (LZ4F_isError(ret1)) {
@@ -113,19 +108,12 @@ public:
 
     ~Lz4fBlockCompression() override {
         if (ctx_c_inited) LZ4F_freeCompressionContext(ctx_c);
-
         if (ctx_d_inited) LZ4F_freeDecompressionContext(ctx_d);
     }
 
     Status compress(const Slice& input, Slice* output) const override {
-        auto compressed_len = LZ4F_compressFrame(output->data, output->size, input.data, input.size,
-                                                 &_s_preferences);
-        if (LZ4F_isError(compressed_len)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "Fail to do LZ4F compress frame, msg=$0", LZ4F_getErrorName(compressed_len)));
-        }
-        output->size = compressed_len;
-        return Status::OK();
+        std::vector<Slice> inputs {input};
+        return compress(inputs, output);
     }
 
     Status compress(const std::vector<Slice>& inputs, Slice* output) const override {
@@ -179,6 +167,8 @@ private:
     }
 
     Status _decompress(LZ4F_decompressionContext_t ctx, const Slice& input, Slice* output) const {
+        // reset decompression context to avoid ERROR_maxBlockSize_invalid
+        LZ4F_resetDecompressionContext(ctx);
         size_t input_size = input.size;
         auto lres =
                 LZ4F_decompress(ctx, output->data, &output->size, input.data, &input_size, nullptr);
