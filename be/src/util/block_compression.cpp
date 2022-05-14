@@ -399,7 +399,7 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         ptr = new Lz4BlockCompression();
         break;
     case segment_v2::CompressionTypePB::LZ4F:
-        ptr = new Lz4fBlockCompression(); 
+        ptr = new Lz4fBlockCompression();
         break;
     case segment_v2::CompressionTypePB::ZLIB:
         ptr = new ZlibBlockCompression();
