@@ -156,7 +156,6 @@ Status BaseScanner::init_expr_ctxes() {
             RETURN_IF_ERROR(ctx->open(_state));
             _dest_expr_ctx.emplace_back(ctx);
         }
-
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -276,6 +275,58 @@ Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
         continue;
     }
     _success = true;
+    return Status::OK();
+}
+
+Status BaseScanner::filter_block(vectorized::Block* temp_block, size_t slot_num) {
+    // filter block
+    if (!_vpre_filter_ctxs.empty()) {
+        for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
+            auto old_rows = temp_block->rows();
+            RETURN_IF_ERROR(
+                    vectorized::VExprContext::filter_block(_vpre_filter_ctx, temp_block, slot_num));
+            _counter->num_rows_unselected += old_rows - temp_block->rows();
+        }
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::execute_exprs(vectorized::Block* output_block, vectorized::Block* temp_block) {
+    // Do vectorized expr here
+    Status status;
+    if (!_dest_vexpr_ctx.empty()) {
+        *output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _dest_vexpr_ctx, *temp_block, status);
+        if (UNLIKELY(output_block->rows() == 0)) {
+            return status;
+        }
+    }
+
+    return Status::OK();
+}
+
+Status BaseScanner::fill_dest_block(vectorized::Block* dest_block,
+                                    std::vector<vectorized::MutableColumnPtr>& columns) {
+    if (columns.empty() || columns[0]->size() == 0) {
+        return Status::OK();
+    }
+
+    std::unique_ptr<vectorized::Block> temp_block(new vectorized::Block());
+    auto n_columns = 0;
+    for (const auto slot_desc : _src_slot_descs) {
+        temp_block->insert(vectorized::ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                             slot_desc->get_data_type_ptr(),
+                                                             slot_desc->col_name()));
+    }
+
+    RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), _dest_tuple_desc->slots().size()));
+
+    if (_dest_vexpr_ctx.empty()) {
+        *dest_block = *temp_block;
+    } else {
+        RETURN_IF_ERROR(BaseScanner::execute_exprs(dest_block, temp_block.get()));
+    }
+
     return Status::OK();
 }
 
