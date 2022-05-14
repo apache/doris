@@ -27,6 +27,8 @@ class VExpr;
 class VExprContext {
 public:
     VExprContext(VExpr* expr);
+    ~VExprContext();
+    
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    const std::shared_ptr<MemTracker>& tracker);
     Status open(RuntimeState* state);
