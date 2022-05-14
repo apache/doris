@@ -76,6 +76,9 @@ JDK1.8+, IntelliJ IDEA
 
 如果使用windows环境可能会有make命令和sh脚本无法执行的情况 可以通过拷贝linux上的 `fe/fe-core/target/generated-sources` 目录拷贝到相应的目录的方式实现，也可以通过docker 镜像挂载本地目录之后，在docker 内部生成自动生成代码，可以参照编译一节
 
+5. 如果还未生成过help文档，需要跳转到docs目录，执行`sh build_help_zip.sh`，
+   然后将build中的help-resource.zip拷贝到fe/fe-core/target/classes中
+
 ## 2.调试
 
 1. 用idea导入fe工程
