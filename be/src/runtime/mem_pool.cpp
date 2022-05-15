@@ -41,6 +41,17 @@ MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_by
     DorisMetrics::instance()->memory_pool_bytes_total->increment(chunk.size);
 }
 
+
+MemPool::MemPool(const std::string& label)
+        : current_chunk_idx_(-1),
+          next_chunk_size_(INITIAL_CHUNK_SIZE),
+          total_allocated_bytes_(0),
+          total_reserved_bytes_(0),
+          peak_allocated_bytes_(0) {
+    mem_tracker_own_ = MemTracker::CreateTracker(-1, label + ":MemPool");
+    mem_tracker_ = mem_tracker_own_.get();
+}
+
 MemPool::~MemPool() {
     int64_t total_bytes_released = 0;
     for (auto& chunk : chunks_) {

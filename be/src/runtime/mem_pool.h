@@ -99,6 +99,8 @@ public:
         DCHECK(mem_tracker != nullptr);
     }
 
+    MemPool(const std::string& label);
+
     /// Frees all chunks of memory and subtracts the total allocated bytes
     /// from the registered limits.
     ~MemPool();
@@ -302,6 +304,9 @@ private:
     /// The current and peak memory footprint of this pool. This is different from
     /// total allocated_bytes_ since it includes bytes in chunks that are not used.
     MemTracker* mem_tracker_;
+
+    // TODO(zxy) temp variable, In the future, mem trackers should all use raw pointers.
+    std::shared_ptr<MemTracker> mem_tracker_own_;
 };
 
 // Stamp out templated implementations here so they're included in IR module
