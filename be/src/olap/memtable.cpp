@@ -251,7 +251,8 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
                                  new_row->_row_pos, nullptr);
     }
 }
-void MemTable::_collect_vskiplist_to_output(bool final) {
+template<bool is_final>
+void MemTable::_collect_vskiplist_to_output() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     // TODO: should try to insert data by column, not by row. to opt the the code
@@ -273,7 +274,7 @@ void MemTable::_collect_vskiplist_to_output(bool final) {
                 auto function = _agg_functions[i];
                 function->insert_result_into(it.key()->_agg_places[i],
                                              *(_output_mutable_block.get_column_by_position(i)));
-                if (final) {
+                if constexpr(is_final) {
                     function->destroy(it.key()->_agg_places[i]);
                 }
             }
@@ -281,16 +282,18 @@ void MemTable::_collect_vskiplist_to_output(bool final) {
             it.key()->_row_pos = idx;
             idx++;
         }
-        if (!final) {
-            size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-            _mem_tracker->consume(shrunked_after_agg - _mem_usage);
-            _mem_usage = shrunked_after_agg;
-            _input_mutable_block.swap(_output_mutable_block);
-            //TODO(weixang):opt here.
-            std::unique_ptr<vectorized::Block> empty_input_block = std::move(in_block.create_same_struct_block(0));
-            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
-            _output_mutable_block.clear_column_data();
-        }
+        if constexpr(!is_final) {
+                size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
+                _mem_tracker->consume(shrunked_after_agg - _mem_usage);
+                _mem_usage = shrunked_after_agg;
+                _input_mutable_block.swap(_output_mutable_block);
+                //TODO(weixang):opt here.
+                std::unique_ptr<vectorized::Block> empty_input_block =
+                        std::move(in_block.create_same_struct_block(0));
+                _output_mutable_block =
+                        vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
+                _output_mutable_block.clear_column_data();
+            }
     }
 }
 
@@ -300,13 +303,17 @@ void MemTable::shrink_memtable_by_agg() {
         if (_is_shrunk_by_agg) {
             return;
         }
-        _collect_vskiplist_to_output(false);
+        _collect_vskiplist_to_output<false>();
         _is_shrunk_by_agg = true;
     }
 }
 
-bool MemTable::is_full() {
+bool MemTable::is_flush() {
     return memory_usage() >= config::write_buffer_size;
+}
+
+bool MemTable::need_to_agg() {
+    return memory_usage() >= config::memtable_max_buffer_size;
 }
 
 Status MemTable::flush() {
@@ -345,7 +352,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         }
     } else {
         shrink_memtable_by_agg();
-        _collect_vskiplist_to_output(true);
+        _collect_vskiplist_to_output<true>();
         vectorized::Block block = _output_mutable_block.to_block();
         RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
         _flush_size = block.allocated_bytes();

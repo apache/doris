@@ -58,7 +58,9 @@ public:
 
     void shrink_memtable_by_agg();
 
-    bool is_full();
+    bool is_flush();
+
+    bool need_to_agg();
 
     /// Flush
     Status flush();
@@ -218,7 +220,9 @@ private:
     //for vectorized
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
-    void _collect_vskiplist_to_output(bool final);
+
+    template<bool is_final>
+    void _collect_vskiplist_to_output();
     bool _is_first_insertion;
 
     bool _is_shrunk_by_agg = false;
