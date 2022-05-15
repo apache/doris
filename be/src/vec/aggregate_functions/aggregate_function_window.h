@@ -183,12 +183,12 @@ private:
     std::string _copied_value;
 };
 
-template <typename T, bool is_nullable, bool is_string, typename StoreType = Value>
+template <typename T, bool result_is_nullable, bool is_string, typename StoreType = Value>
 struct LeadAndLagData {
 public:
     bool has_init() const { return _is_init; }
 
-    static constexpr bool nullable = is_nullable;
+    static constexpr bool nullable = result_is_nullable;
 
     void set_null_if_need() {
         if (!_has_value) {
@@ -204,7 +204,7 @@ public:
     }
 
     void insert_result_into(IColumn& to) const {
-        if constexpr (is_nullable) {
+        if constexpr (result_is_nullable) {
             if (_data_value.is_null()) {
                 auto& col = assert_cast<ColumnNullable&>(to);
                 col.insert_default();
@@ -231,7 +231,7 @@ public:
     }
 
     void set_value(const IColumn** columns, int64_t pos) {
-        if constexpr (is_nullable) {
+        if (is_column_nullable(*columns[0])) {
             const auto* nullable_column = assert_cast<const ColumnNullable*>(columns[0]);
             if (nullable_column && nullable_column->is_null_at(pos)) {
                 _data_value.set_null(true);
@@ -501,7 +501,7 @@ private:
 };
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
-          bool is_nullable, bool is_copy = false>
+          bool result_is_nullable, bool is_copy = false>
 static IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types,
                                                         const Array& parameters) {
@@ -515,23 +515,24 @@ static IAggregateFunction* create_function_single_value(const String& name,
 #define DISPATCH(TYPE)                        \
     if (which.idx == TypeIndex::TYPE)         \
         return new AggregateFunctionTemplate< \
-                Data<LeadAndLagData<TYPE, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<TYPE, result_is_nullable, false, StoreType>>>(argument_types);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
     if (which.is_decimal()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int128, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<Int128, result_is_nullable, false, StoreType>>>(argument_types);
     }
     if (which.is_date_or_datetime()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<Int64, is_nullable, false, StoreType>>>(argument_types);
+                Data<LeadAndLagData<Int64, result_is_nullable, false, StoreType>>>(argument_types);
     }
     if (which.is_string_or_fixed_string()) {
         return new AggregateFunctionTemplate<
-                Data<LeadAndLagData<StringRef, is_nullable, true, StoreType>>>(argument_types);
+                Data<LeadAndLagData<StringRef, result_is_nullable, true, StoreType>>>(
+                argument_types);
     }
-    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_leadlag";
+    DCHECK(false) << "with unknowed type, failed in  create_aggregate_function_" << name;
     return nullptr;
 }
 
