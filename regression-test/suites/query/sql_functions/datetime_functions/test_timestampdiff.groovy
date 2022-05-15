@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dayofweek", "query") {
+suite("test_timestampdiff", "query") {
     qt_select "SELECT TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),'2022-04-28') AS `date-str`,
                       TIMESTAMPDIFF(YEAR,'1981-09-11','2022-04-28') AS `str-str`,
                       TIMESTAMPDIFF(YEAR,DATE('1981-09-11'),DATE('2022-04-28')) AS `date-date`,
