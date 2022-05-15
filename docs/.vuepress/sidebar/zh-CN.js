@@ -777,6 +777,7 @@ module.exports = [
               "SHOW-STREAM-LOAD",
               "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
+              "SHOW-TABLES",			  
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
