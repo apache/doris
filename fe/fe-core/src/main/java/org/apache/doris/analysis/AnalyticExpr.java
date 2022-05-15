@@ -707,9 +707,8 @@ public class AnalyticExpr extends Expr {
             resetWindow = true;
         }
 
-       // Change first_value/last_value RANGE windows to ROWS 
-       if ((analyticFnName.getFunction().equalsIgnoreCase(FIRSTVALUE)
-                || analyticFnName.getFunction().equalsIgnoreCase(LASTVALUE))
+        // Change first_value RANGE windows to ROWS
+        if ((analyticFnName.getFunction().equalsIgnoreCase(FIRSTVALUE))
                 && window != null
                 && window.getType() == AnalyticWindow.Type.RANGE) {
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS, window.getLeftBoundary(),
