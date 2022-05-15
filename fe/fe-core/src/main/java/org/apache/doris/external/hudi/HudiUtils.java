@@ -81,6 +81,12 @@ public class HudiUtils {
         return false;
     }
 
+    /**
+     * check whether the table is hudi table
+     *
+     * @param hiveTable
+     * @return true when table is hudi table
+     */
     public static boolean isHudiRealtimeTable(org.apache.hadoop.hive.metastore.api.Table hiveTable) {
         String inputFormat = hiveTable.getSd().getInputFormat();
         if (HoodieParquetRealtimeInputFormat.class.getName().equals(inputFormat)) {
@@ -92,10 +98,11 @@ public class HudiUtils {
     /**
      * Check if there are duplicate columns in hudi table.
      * check if columns of hudi table exist in hive table.
+     *
      * @param table
      * @param hiveTable
-     * @return
-     * @throws DdlException
+     * @return void
+     * @throws DdlException when hudi table's column(s) didn't exist in hive table
      */
     public static void validateColumns(HudiTable table, org.apache.hadoop.hive.metastore.api.Table hiveTable) throws DdlException {
         Set<String> hudiColumnNames = table.getFullSchema().stream()

@@ -288,12 +288,12 @@ public class HiveMetaStoreClientHelper {
 
     /**
      * Get hive table with dbName and tableName
-     * 
-     * @param dbName
-     * @param tableName
-     * @param metaStoreUris
+     *
+     * @param dbName: database name
+     * @param tableName: table name
+     * @param metaStoreUris: hive metastore uris
      * @return HiveTable
-     * @throws DdlException
+     * @throws DdlException when get table from hive metastore failed.
      */
     public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
         HiveMetaStoreClient client = getClient(metaStoreUris);
