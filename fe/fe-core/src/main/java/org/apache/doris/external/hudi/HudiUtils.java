@@ -29,7 +29,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Hudi utils
+ * Hudi utils.
  */
 public class HudiUtils {
 
@@ -108,12 +108,13 @@ public class HudiUtils {
      * Check if there are duplicate columns in hudi table.
      * check if columns of hudi table exist in hive table.
      *
-     * @param table
-     * @param hiveTable
-     * @return void
+     * @param table hudi table to be checked
+     * @param hiveTable the corresponding hive table
+     * @return non return value
      * @throws DdlException when hudi table's column(s) didn't exist in hive table
      */
-    public static void validateColumns(HudiTable table, org.apache.hadoop.hive.metastore.api.Table hiveTable) throws DdlException {
+    public static void validateColumns(HudiTable table,
+                                       org.apache.hadoop.hive.metastore.api.Table hiveTable) throws DdlException {
         Set<String> hudiColumnNames = table.getFullSchema().stream()
                 .map(x -> x.getName()).collect(Collectors.toSet());
 

@@ -51,6 +51,14 @@ public class HudiTable extends Table {
         super(TableType.HUDI);
     }
 
+    /**
+     * Generate a Hudi Table with id, name, schema, properties.
+     *
+     * @param id table id
+     * @param tableName table name
+     * @param fullSchema table's schema
+     * @param tableProperties table's properties
+     */
     public HudiTable(long id, String tableName, List<Column> fullSchema, Map<String, String>  tableProperties) {
         super(id, tableName, TableType.HUDI, fullSchema);
         this.tableProperties = tableProperties;
@@ -104,14 +112,14 @@ public class HudiTable extends Table {
 
     @Override
     public TTableDescriptor toThrift() {
-        THudiTable tHudiTable = new THudiTable();
-        tHudiTable.setDbName(getHmsDatabaseName());
-        tHudiTable.setTableName(getHmsTableName());
-        tHudiTable.setProperties(getTableProperties());
+        THudiTable thriftHudiTable = new THudiTable();
+        thriftHudiTable.setDbName(getHmsDatabaseName());
+        thriftHudiTable.setTableName(getHmsTableName());
+        thriftHudiTable.setProperties(getTableProperties());
 
-        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HUDI_TABLE,
+        TTableDescriptor thriftTableDescriptor = new TTableDescriptor(getId(), TTableType.HUDI_TABLE,
                 fullSchema.size(), 0, getName(), "");
-        tTableDescriptor.setHudiTable(tHudiTable);
-        return tTableDescriptor;
+        thriftTableDescriptor.setHudiTable(tHudiTable);
+        return thriftTableDescriptor;
     }
 }
