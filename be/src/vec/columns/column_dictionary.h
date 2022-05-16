@@ -98,11 +98,6 @@ public:
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
-        DCHECK(pos == nullptr);
-        if (pos == nullptr) {
-            _codes.push_back(_dict.get_null_code());
-            return;
-        }
         LOG(FATAL) << "insert_data not supported in ColumnDictionary";
     }
 
