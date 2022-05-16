@@ -17,20 +17,32 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Abstract class for all slot in expression.
+ * Null safe equal expression: a <=> b.
+ * Unlike normal equal to expression, null <=> null is true.
  */
-public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
-        implements LeafExpression<EXPR_TYPE> {
-
-    public Slot(NodeType type) {
-        super(type);
+public class NullSafeEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Constructor of Null Safe Equal ComparisonPredicate.
+     *
+     * @param left  left child of Null Safe Equal
+     * @param right right child of Null Safe Equal
+     */
+    public NullSafeEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.NULL_SAFE_EQUAL, left, right);
     }
 
     @Override
-    public Slot toSlot() {
-        return this;
+    public boolean nullable() throws UnboundException {
+        return false;
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " <=> " + right() + ")";
     }
 }

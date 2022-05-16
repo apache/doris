@@ -50,17 +50,24 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.BinaryPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
+
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
@@ -74,9 +81,9 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
- * Build an AST that consisting of logical plans.
+ * Build an logical plan tree with unbounded nodes.
  */
-public class AstBuilder extends DorisParserBaseVisitor<Object> {
+public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     /**
      * Create a logical plan using a where clause.
@@ -356,20 +363,19 @@ public class AstBuilder extends DorisParserBaseVisitor<Object> {
         TerminalNode operator = (TerminalNode) ctx.comparisonOperator().getChild(0);
         switch (operator.getSymbol().getType()) {
             case DorisParser.EQ:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.EQ);
-            case DorisParser.NSEQ:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.NSEQ);
-            case DorisParser.LT:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.LT);
-            case DorisParser.GT:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.GT);
-            case DorisParser.LTE:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.LE);
-            case DorisParser.GTE:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.GE);
+                return new EqualTo(left, right);
             case DorisParser.NEQ:
-            case DorisParser.NEQJ:
-                return new BinaryPredicate(left, right, BinaryPredicate.Operator.EQ);
+                return new Not(new EqualTo(left, right));
+            case DorisParser.LT:
+                return new LessThan(left, right);
+            case DorisParser.GT:
+                return new GreaterThan(left, right);
+            case DorisParser.LTE:
+                return new LessThanEqual(left, right);
+            case DorisParser.GTE:
+                return new GreaterThanEqual(left, right);
+            case DorisParser.NSEQ:
+                return new NullSafeEqual(left, right);
             default:
                 return null;
         }
