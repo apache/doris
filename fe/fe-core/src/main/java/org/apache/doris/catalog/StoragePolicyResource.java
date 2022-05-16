@@ -30,8 +30,7 @@ import com.google.gson.annotations.SerializedName;
 import java.util.Map;
 
 /**
- * Policy resource for olap table
- *
+ * Policy resource for olap table.
  * Syntax:
  * CREATE RESOURCE "storage_policy_name"
  * PROPERTIES(
@@ -77,10 +76,10 @@ public class StoragePolicyResource extends Resource {
         // optional
         checkOptionalProperty(COOLDOWN_DATETIME, DEFAULT_COOLDOWN_DATETIME);
         checkOptionalProperty(COOLDOWN_TTL, DEFAULT_COOLDOWN_TTL);
-        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL) &&
-                !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
-            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL +
-                "] can be specified in properties.");
+        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL)
+                && !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
+            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL
+                    + "] can be specified in properties.");
         }
     }
 
@@ -98,10 +97,10 @@ public class StoragePolicyResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
-        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL) &&
-            !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
-            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL +
-                    "] can be specified in properties.");
+        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL)
+                && !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
+            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL
+                    + "] can be specified in properties.");
         }
         // modify properties
         replaceIfEffectiveValue(this.properties, STORAGE_RESOURCE, properties.get(STORAGE_RESOURCE));
