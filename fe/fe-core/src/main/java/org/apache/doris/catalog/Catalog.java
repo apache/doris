@@ -3682,7 +3682,7 @@ public class Catalog {
 
     // the invoker should keep table's write lock
     public void modifyTableColocate(Database db, OlapTable table, String colocateGroup, boolean isReplay,
-                                    GroupId assignedGroupId)
+            GroupId assignedGroupId)
             throws DdlException {
 
         String oldGroup = table.getColocateGroup();
@@ -4110,7 +4110,7 @@ public class Catalog {
 
                 ModifyTableDefaultDistributionBucketNumOperationLog info
                         = new ModifyTableDefaultDistributionBucketNumOperationLog(
-                                db.getId(), olapTable.getId(), bucketNum);
+                        db.getId(), olapTable.getId(), bucketNum);
                 editLog.logModifyDefaultDistributionBucketNum(info);
                 LOG.info("modify table[{}] default bucket num to {}", olapTable.getName(), bucketNum);
             }
@@ -4608,7 +4608,7 @@ public class Catalog {
                     if (column.getAggregationType() == AggregateType.REPLACE
                             || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                         throw new DdlException("Cannot change distribution type of aggregate keys table which has value"
-                            + " columns with " + column.getAggregationType() + " type.");
+                                + " columns with " + column.getAggregationType() + " type.");
                     }
                 }
             }

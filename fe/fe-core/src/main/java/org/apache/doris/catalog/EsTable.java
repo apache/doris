@@ -28,14 +28,16 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -53,12 +55,10 @@ public class EsTable extends Table {
     public static final String PASSWORD = "password";
     public static final String INDEX = "index";
     public static final String TYPE = "type";
-    public static final String TRANSPORT = "transport";
     public static final String VERSION = "version";
     public static final String DOC_VALUES_MODE = "doc_values_mode";
 
     public static final String TRANSPORT_HTTP = "http";
-    public static final String TRANSPORT_THRIFT = "thrift";
     public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
     public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
@@ -74,6 +74,7 @@ public class EsTable extends Table {
 
     // which type used for `indexName`
     private String mappingType = null;
+    // only support http
     private String transport = "http";
     // only save the partition definition, save the partition key,
     // partition list is got from es cluster dynamically and is saved in esTableState
@@ -111,17 +112,38 @@ public class EsTable extends Table {
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
 
+    // connect es.
+    private EsRestClient client = null;
+
+    // Periodically pull es metadata
+    private EsMetaStateTracker esMetaStateTracker;
+
     public EsTable() {
         super(TableType.ELASTICSEARCH);
     }
 
-    public EsTable(long id, String name, List<Column> schema, Map<String, String> properties,
-            PartitionInfo partitionInfo) throws DdlException {
+    /**
+     * Create table for user.
+     **/
+    public EsTable(String name, Map<String, String> properties) throws DdlException {
+        super(TableType.ELASTICSEARCH);
+        this.name = name;
+        validate(properties);
+        this.client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
+
+    }
+
+    /**
+     * Create table for test.
+     **/
+    public EsTable(long id, String name, List<Column> schema,
+            Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException {
         super(id, name, TableType.ELASTICSEARCH, schema);
         this.partitionInfo = partitionInfo;
         validate(properties);
-    }
+        this.client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
 
+    }
 
     public Map<String, String> fieldsContext() {
         return esMetaStateTracker.searchContext().fetchFieldsContext();
@@ -156,26 +178,23 @@ public class EsTable extends Table {
             throw new DdlException(
                     "Please set properties of elasticsearch table, " + "they are: hosts, user, password, index");
         }
-
-        if (Strings.isNullOrEmpty(properties.get(HOSTS)) || Strings.isNullOrEmpty(properties.get(HOSTS).trim())) {
+        if (StringUtils.isBlank(properties.get(HOSTS))) {
             throw new DdlException("Hosts of ES table is null. "
                     + "Please add properties('hosts'='xxx.xxx.xxx.xxx,xxx.xxx.xxx.xxx') when create table");
         }
         hosts = properties.get(HOSTS).trim();
         seeds = hosts.split(",");
-
-        if (!Strings.isNullOrEmpty(properties.get(USER)) && !Strings.isNullOrEmpty(properties.get(USER).trim())) {
+        if (properties.containsKey(USER)) {
             userName = properties.get(USER).trim();
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(PASSWORD)) && !Strings.isNullOrEmpty(
-                properties.get(PASSWORD).trim())) {
+        if (properties.containsKey(PASSWORD)) {
             passwd = properties.get(PASSWORD).trim();
         }
 
-        if (Strings.isNullOrEmpty(properties.get(INDEX)) || Strings.isNullOrEmpty(properties.get(INDEX).trim())) {
-            throw new DdlException(
-                    "Index of ES table is null. " + "Please add properties('index'='xxxx') when create table");
+        if (StringUtils.isBlank(properties.get(INDEX))) {
+            throw new DdlException("Index of ES table is null. "
+                    + "Please add properties('index'='xxxx') when create table");
         }
         indexName = properties.get(INDEX).trim();
 
@@ -218,17 +237,8 @@ public class EsTable extends Table {
             }
         }
 
-        if (!Strings.isNullOrEmpty(properties.get(TYPE)) && !Strings.isNullOrEmpty(properties.get(TYPE).trim())) {
+        if (StringUtils.isNotBlank(properties.get(TYPE))) {
             mappingType = properties.get(TYPE).trim();
-        }
-
-        if (!Strings.isNullOrEmpty(properties.get(TRANSPORT)) && !Strings.isNullOrEmpty(
-                properties.get(TRANSPORT).trim())) {
-            transport = properties.get(TRANSPORT).trim();
-            if (!(TRANSPORT_HTTP.equals(transport) || TRANSPORT_THRIFT.equals(transport))) {
-                throw new DdlException("transport of ES table must be http/https(recommend)"
-                        + " or thrift(reserved inner usage), but value is " + transport);
-            }
         }
 
         if (properties.containsKey(MAX_DOCVALUE_FIELDS)) {
@@ -259,6 +269,7 @@ public class EsTable extends Table {
         tableContext.put(HTTP_SSL_ENABLED, String.valueOf(httpSslEnabled));
     }
 
+    @Override
     public TTableDescriptor toThrift() {
         TEsTable tEsTable = new TEsTable();
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ES_TABLE, fullSchema.size(), 0,
@@ -414,14 +425,16 @@ public class EsTable extends Table {
         this.lastMetaDataSyncException = lastMetaDataSyncException;
     }
 
-    private EsMetaStateTracker esMetaStateTracker;
+    public void setPartitionInfo(PartitionInfo partitionInfo) {
+        this.partitionInfo = partitionInfo;
+    }
 
     /**
      * sync es index meta from remote ES Cluster
      *
      * @param client esRestClient
      */
-    public void syncTableMetaData(EsRestClient client) {
+    public void syncTableMetaData() {
         if (esMetaStateTracker == null) {
             esMetaStateTracker = new EsMetaStateTracker(client, this);
         }
@@ -433,6 +446,53 @@ public class EsTable extends Table {
                     + "table id: {}, err: {}", this.name, this.id, e.getMessage());
             this.esTablePartitions = null;
             this.lastMetaDataSyncException = e;
+        }
+    }
+
+    /**
+     * Generate columns from ES Cluster.
+     **/
+    public List<Column> genColumnsFromEs() {
+        String mapping = client.getMapping(indexName);
+        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
+        Set<String> keys = (Set<String>) mappingProps.keySet();
+        List<Column> columns = new ArrayList<>();
+        for (String key : keys) {
+            JSONObject field = (JSONObject) mappingProps.get(key);
+            // Complex types are not currently supported.
+            if (field.containsKey("type")) {
+                Type type = toDorisType(field.get("type").toString());
+                if (!type.isInvalid()) {
+                    columns.add(new Column(key, type));
+                }
+            }
+        }
+        return columns;
+    }
+
+    private Type toDorisType(String esType) {
+        switch (esType) {
+            case "byte":
+                return Type.TINYINT;
+            case "short":
+                return Type.SMALLINT;
+            case "integer":
+                return Type.INT;
+            case "long":
+                return Type.BIGINT;
+            case "float":
+                return Type.FLOAT;
+            case "double":
+                return Type.DOUBLE;
+            case "keyword":
+            case "text":
+            case "nested":
+            case "object":
+                return Type.STRING;
+            case "date":
+                return Type.DATETIME;
+            default:
+                return Type.INVALID;
         }
     }
 }
