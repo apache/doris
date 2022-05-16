@@ -606,7 +606,9 @@ public class StmtExecutor implements ProfileWriter {
                         //
                         // Session: set enable_vectorized_engine=true;
                         // Query1: select * from table (vec)
-                        // Query2: select * from t1 left join (select count(*) as count from t2) t3 on t1.k1=t3.count (switch to non-vec)
+                        // Query2: select * from t1 left join
+                        //         (select count(*) as count from t2) t3
+                        //         on t1.k1=t3.count (switch to non-vec)
                         // Query3: select * from table (still vec)
                         SessionVariable sessionVariable = context.getSessionVariable();
                         sessionVariable.setIsSingleSetVar(true);
