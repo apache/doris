@@ -17,9 +17,12 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 
 public class VectorizedUtil {
     /**
@@ -33,15 +36,7 @@ public class VectorizedUtil {
         if (connectContext == null) {
             return false;
         }
-        StmtExecutor stmtExecutor = connectContext.getExecutor();
-        if (stmtExecutor == null) {
-            return connectContext.getSessionVariable().enableVectorizedEngine();
-        }
-        Analyzer analyzer = stmtExecutor.getAnalyzer();
-        if (analyzer == null) {
-            return connectContext.getSessionVariable().enableVectorizedEngine();
-        }
-        return analyzer.enableQueryVec();
+        return connectContext.getSessionVariable().enableVectorizedEngine();
     }
 
     /**
@@ -63,11 +58,15 @@ public class VectorizedUtil {
         if (connectContext == null) {
             return;
         }
-        Analyzer analyzer = connectContext.getExecutor().getAnalyzer();
-        if (analyzer == null) {
-            return;
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        sessionVariable.setIsSingleSetVar(true);
+        try {
+            VariableMgr.setVar(sessionVariable, new SetVar(
+                    "enable_vectorized_engine",
+                    new StringLiteral("false")));
+        } catch (DdlException e) {
+            // do nothing
         }
-        analyzer.disableQueryVec();
     }
 }
 
