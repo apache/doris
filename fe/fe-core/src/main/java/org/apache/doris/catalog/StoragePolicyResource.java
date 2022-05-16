@@ -77,6 +77,11 @@ public class StoragePolicyResource extends Resource {
         // optional
         checkOptionalProperty(COOLDOWN_DATETIME, DEFAULT_COOLDOWN_DATETIME);
         checkOptionalProperty(COOLDOWN_TTL, DEFAULT_COOLDOWN_TTL);
+        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL) &&
+                !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
+            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL +
+                "] can be specified in properties.");
+        }
     }
 
     private void checkRequiredProperty(String propertyKey) throws DdlException {
@@ -93,6 +98,11 @@ public class StoragePolicyResource extends Resource {
 
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
+        if (properties.containsKey(COOLDOWN_DATETIME) && properties.containsKey(COOLDOWN_TTL) &&
+            !properties.get(COOLDOWN_DATETIME).isEmpty() && !properties.get(COOLDOWN_TTL).isEmpty()) {
+            throw new DdlException("Only one of [" + COOLDOWN_DATETIME + "] and [" + COOLDOWN_TTL +
+                    "] can be specified in properties.");
+        }
         // modify properties
         replaceIfEffectiveValue(this.properties, STORAGE_RESOURCE, properties.get(STORAGE_RESOURCE));
         replaceIfEffectiveValue(this.properties, COOLDOWN_DATETIME, properties.get(COOLDOWN_DATETIME));
@@ -108,14 +118,13 @@ public class StoragePolicyResource extends Resource {
         copiedProperties.remove(COOLDOWN_TTL);
 
         if (!copiedProperties.isEmpty()) {
-            throw new AnalysisException("Unknown S3 resource properties: " + copiedProperties);
+            throw new AnalysisException("Unknown policy resource properties: " + copiedProperties);
         }
     }
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        Map<String, String> copiedProperties = Maps.newHashMap(properties);
-        return copiedProperties;
+        return Maps.newHashMap(properties);
     }
 
     @Override
