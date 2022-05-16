@@ -86,7 +86,6 @@ set(EXEC_TEST_FILES
     # exec/schema_scanner/schema_collations_scanner_test.cpp
     # exec/schema_scanner/schema_charsets_scanner_test.cpp
     # exec/broker_reader_test.cpp
-    # exec/es_scan_node_test.cpp
 )
 
 if(DEFINED DORIS_WITH_LZO)
@@ -338,6 +337,7 @@ set(VEC_TEST_FILES
     vec/exec/vgeneric_iterators_test.cpp
     vec/exec/vbroker_scan_node_test.cpp
     vec/exec/vbroker_scanner_test.cpp
+    vec/exec/vjson_scanner_test.cpp
     vec/exec/vtablet_sink_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp

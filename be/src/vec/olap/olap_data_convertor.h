@@ -101,7 +101,6 @@ private:
     private:
         size_t _length;
         PaddedPODArray<Slice> _slice;
-        PaddedPODArray<char> _raw_data;
     };
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {
