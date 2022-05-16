@@ -285,10 +285,10 @@ public class CreateTableStmtTest {
         stmt.analyze(analyzer);
 
         Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
-            + "\n"
-            + ") ENGINE = hudi\n"
-            + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
-            + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
-            + "\"hudi.table\"  =  \"test\")", stmt.toString());
+                + "\n"
+                + ") ENGINE = hudi\n"
+                + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
+                + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"hudi.table\"  =  \"test\")", stmt.toString());
     }
 }

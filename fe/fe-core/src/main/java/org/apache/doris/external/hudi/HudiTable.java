@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * External Hudi table
+ * External Hudi table.
  */
 public class HudiTable extends Table {
     private static final Logger LOG = LogManager.getLogger(HudiTable.class);

@@ -105,7 +105,7 @@ Hudi External Table of Doris 提供了 Doris 直接访问 Hudi 外部表的能�
 
 |  Hudi  | Doris  |             描述              |
 | :------: | :----: | :-------------------------------: |
-|   BOOLEAN  | TINYINT  |                         |
+|   BOOLEAN  | BOOLEAN  |                         |
 |   INTEGER   |  INT  |                       |
 |   LONG | BIGINT |              |
 |   FLOAT   | FLOAT |  |

@@ -4128,9 +4128,9 @@ public class Catalog {
                     hudiTable.getHmsTableIdentifer()));
         }
         org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(
-            hudiTable.getHmsDatabaseName(),
-            hudiTable.getHmsTableName(),
-            metastoreUris);
+                hudiTable.getHmsDatabaseName(),
+                hudiTable.getHmsTableName(),
+                metastoreUris);
         if (!HudiUtils.isHudiTable(hiveTable)) {
             throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
         }

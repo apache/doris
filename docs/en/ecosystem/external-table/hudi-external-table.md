@@ -106,7 +106,7 @@ The supported Hudi column types correspond to Doris in the following table.
 
 |  Hudi  | Doris  |             Description              |
 | :------: | :----: | :-------------------------------: |
-|   BOOLEAN  | TINYINT  |                         |
+|   BOOLEAN  | BOOLEAN  |                         |
 |   INTEGER   |  INT  |                       |
 |   LONG | BIGINT |              |
 |   FLOAT   | FLOAT |  |

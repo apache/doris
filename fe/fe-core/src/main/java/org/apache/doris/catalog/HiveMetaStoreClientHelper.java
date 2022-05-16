@@ -287,11 +287,11 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
-     * Get hive table with dbName and tableName
+     * Get hive table with dbName and tableName.
      *
-     * @param dbName: database name
-     * @param tableName: table name
-     * @param metaStoreUris: hive metastore uris
+     * @param dbName database name
+     * @param tableName table name
+     * @param metaStoreUris hive metastore uris
      * @return HiveTable
      * @throws DdlException when get table from hive metastore failed.
      */

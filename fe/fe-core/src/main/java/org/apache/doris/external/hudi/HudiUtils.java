@@ -28,13 +28,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Hudi utils
+ */
 public class HudiUtils {
 
     private static final String PROPERTY_MISSING_MSG =
             "Hudi table %s is null. Please add properties('%s'='xxx') when create table";
 
     /**
-     * check hudi table properties
+     * check hudi table properties.
      */
     public static void validateCreateTable(HudiTable table) throws DdlException {
 
@@ -72,19 +75,25 @@ public class HudiUtils {
         }
     }
 
+    /**
+     * check a hiveTable is hudi table or not.
+     *
+     * @param hiveTable hive metastore table
+     * @return true when hiveTable is hudi table, false when it is not
+     */
     public static boolean isHudiTable(org.apache.hadoop.hive.metastore.api.Table hiveTable) {
         String inputFormat = hiveTable.getSd().getInputFormat();
-        if (HoodieParquetInputFormat.class.getName().equals(inputFormat) ||
-                HoodieParquetRealtimeInputFormat.class.getName().equals(inputFormat)) {
+        if (HoodieParquetInputFormat.class.getName().equals(inputFormat)
+                || HoodieParquetRealtimeInputFormat.class.getName().equals(inputFormat)) {
             return true;
         }
         return false;
     }
 
     /**
-     * check whether the table is hudi table
+     * check whether the table is hudi realtime table.
      *
-     * @param hiveTable
+     * @param hiveTable hive metastore table
      * @return true when table is hudi table
      */
     public static boolean isHudiRealtimeTable(org.apache.hadoop.hive.metastore.api.Table hiveTable) {
