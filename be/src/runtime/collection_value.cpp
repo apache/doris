@@ -18,8 +18,8 @@
 #include "runtime/collection_value.h"
 
 #include "common/utils.h"
-#include "runtime/types.h"
 #include "runtime/raw_value.h"
+#include "runtime/types.h"
 #include "util/mem_util.hpp"
 
 namespace doris {

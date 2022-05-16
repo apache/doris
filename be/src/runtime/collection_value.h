@@ -18,6 +18,7 @@
 #pragma once
 
 #include <type_traits>
+
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/mem_pool.h"
@@ -154,7 +155,7 @@ public:
         }
         return false;
     }
-    bool seek(int n) const {
+    bool seek(uint32_t n) const {
         if (n >= _collection_value->size()) {
             return false;
         }
