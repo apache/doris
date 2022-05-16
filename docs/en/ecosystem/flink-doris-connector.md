@@ -109,7 +109,7 @@ sh build.sh --flink 1.14.3 --scala 2.12
 
 > Note: If you check out the source code from tag, you can just run `sh build.sh --tag` without specifying the flink and scala versions. This is because the version in the tag source code is fixed. For example, `1.13.5_2.12-1.0.1` means flink version 1.13.5, scala version 2.12, and connector version 1.0.1.
 
-After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `jars/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+After successful compilation, the file `flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Flink` to use `Flink-Doris-Connector`. For example, `Flink` running in `Local` mode, put this file in the `lib/` folder. `Flink` running in `Yarn` cluster mode, put this file in the pre-deployment package.
 
 **Remarks:** 
 
