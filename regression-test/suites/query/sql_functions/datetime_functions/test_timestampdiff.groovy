@@ -40,7 +40,6 @@ suite("test_timestampdiff", "query") {
                         TIMESTAMPDIFF(MONTH,DATE('2020-04-29'),DATE('2022-04-28')) AS `date-date`,
                         TIMESTAMPDIFF(MONTH,'2020-04-29',DATE('2022-04-28')) AS `str-date`"""
 
-
     // vectorized
     sql """ set enable_vectorized_engine = true """
 
