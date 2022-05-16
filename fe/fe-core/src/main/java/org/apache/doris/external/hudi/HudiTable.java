@@ -119,7 +119,7 @@ public class HudiTable extends Table {
 
         TTableDescriptor thriftTableDescriptor = new TTableDescriptor(getId(), TTableType.HUDI_TABLE,
                 fullSchema.size(), 0, getName(), "");
-        thriftTableDescriptor.setHudiTable(tHudiTable);
+        thriftTableDescriptor.setHudiTable(thriftHudiTable);
         return thriftTableDescriptor;
     }
 }
