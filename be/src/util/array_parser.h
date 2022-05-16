@@ -171,14 +171,12 @@ private:
         case TYPE_LARGEINT: {
             __int128 value = 0;
             if (iterator->IsNumber()) {
-                if (iterator->IsUint64()) {
-                    value = iterator->GetUint64();
-                } else {
-                    value = iterator->GetInt64();
-                }
+                value = iterator->GetUint64();
             } else {
-                auto literal = iterator->GetString();
-                LargeIntValue::to_buffer(value, const_cast<char*>(literal));
+                std::string_view view(iterator->GetString(), iterator->GetStringLength());
+                std::stringstream stream;
+                stream << view;
+                stream >> value;
             }
             *val = reinterpret_cast<AnyVal*>(context->allocate(sizeof(LargeIntVal)));
             new (*val) LargeIntVal(value);
@@ -216,10 +214,7 @@ private:
             new (*val) DecimalV2Val();
 
             if (iterator->IsNumber()) {
-                if (iterator->IsInt() || iterator->IsUint() || iterator->IsInt64()) {
-                    DecimalV2Value(iterator->GetInt64(), 0)
-                            .to_decimal_val(static_cast<DecimalV2Val*>(*val));
-                } else if (iterator->IsUint64()) {
+                if (iterator->IsUint64()) {
                     DecimalV2Value(iterator->GetUint64(), 0)
                             .to_decimal_val(static_cast<DecimalV2Val*>(*val));
                 } else {
