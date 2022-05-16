@@ -44,8 +44,6 @@ VJsonScanner::VJsonScanner(RuntimeState* state, RuntimeProfile* profile,
         : JsonScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_vjson_reader(nullptr) {}
 
-VJsonScanner::~VJsonScanner() {}
-
 Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
     const int batch_size = _state->batch_size();
