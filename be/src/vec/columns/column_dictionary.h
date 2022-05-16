@@ -98,12 +98,16 @@ public:
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
-        _codes.push_back(unaligned_load<T>(pos));
+        if (pos == nullptr) {
+            _codes.push_back(_dict.get_null_code());
+            return;
+        }
+        LOG(FATAL) << "insert_data not supported in ColumnDictionary";
     }
 
-    void insert_data(const T value) { _codes.push_back(value); }
-
-    void insert_default() override { _codes.push_back(T()); }
+    void insert_default() override {
+        _codes.push_back(_dict.get_null_code());
+    }
 
     void clear() override {
         _codes.clear();
@@ -219,13 +223,13 @@ public:
     void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {
-        if (!is_dict_inited()) {
-            _dict.reserve(dict_num);
+        if (_dict.empty()) {
+            _dict.reserve(dict_num + 1);
             for (uint32_t i = 0; i < dict_num; ++i) {
                 auto value = StringValue(dict_array[i].data, dict_array[i].size);
                 _dict.insert_value(value);
             }
-            _dict_inited = true;
+            _dict.insert_null_value();  // make the last dict value is null value
         }
 
         char* end_ptr = (char*)_codes.get_end_ptr();
@@ -263,8 +267,6 @@ public:
         return _dict.find_codes(values);
     }
 
-    bool is_dict_inited() const { return _dict_inited; }
-
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
@@ -296,6 +298,12 @@ public:
             _inverted_index[value] = _inverted_index.size();
         }
 
+        void insert_null_value() {
+            auto value = StringValue();
+            _dict_data.push_back_without_reserve(value);
+            _inverted_index[value] = _inverted_index.size();
+        }
+
         int32_t find_code(const StringValue& value) const {
             auto it = _inverted_index.find(value);
             if (it != _inverted_index.end()) {
@@ -304,10 +312,14 @@ public:
             return -1;
         }
 
+        T get_null_code() {
+            return _dict_data.size() - 1; // The last dict value is null value
+        }
+
         inline StringValue& get_value(T code) { return _dict_data[code]; }
 
         inline void generate_hash_values() {
-            if (_hash_values.size() == 0) {
+            if (_hash_values.empty()) {
                 _hash_values.resize(_dict_data.size());
                 for (size_t i = 0; i < _dict_data.size(); i++) {
                     auto& sv = _dict_data[i];
@@ -380,6 +392,8 @@ public:
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
+        bool empty() { return _dict_data.empty(); }
+
     private:
         StringValue::Comparator _comparator;
         // dict code -> dict value
@@ -398,7 +412,6 @@ public:
 
 private:
     size_t _reserve_size;
-    bool _dict_inited = false;
     bool _dict_sorted = false;
     bool _dict_code_converted = false;
     Dictionary _dict;
