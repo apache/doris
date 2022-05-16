@@ -44,7 +44,7 @@ This document introduces how to use this feature and the considerations.
 
 ### Create Hudi External Table 
 
-Hudi tables can be created in Doris in two ways. You do not need to declare the column definitions of the table when creating an external table, Doris can automatically convert them based on the column definitions of the table in hive metastore.
+Hudi tables can be created in Doris with or without schema. You do not need to declare the column definitions of the table when creating an external table, Doris can resolve the column definitions of the table in hive metastore when querying the table.
 
 1. Create a separate external table to mount the Hudi table.  
    The syntax can be viewed in `HELP CREATE TABLE`.
@@ -106,7 +106,7 @@ The supported Hudi column types correspond to Doris in the following table.
 
 |  Hudi  | Doris  |             Description              |
 | :------: | :----: | :-------------------------------: |
-|   BOOLEAN  | BOOLEAN  |                         |
+|   BOOLEAN  | TINYINT  |                         |
 |   INTEGER   |  INT  |                       |
 |   LONG | BIGINT |              |
 |   FLOAT   | FLOAT |  |

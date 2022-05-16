@@ -44,7 +44,7 @@ Hudi External Table of Doris 提供了 Doris 直接访问 Hudi 外部表的能�
 
 ### Doris 中创建 Hudi 的外表
 
-可以通过以下两种方式在 Doris 中创建 Hudi 外表。建外表时无需声明表的列定义，Doris 可以根据 Hudi 中表的列定义自动转换。
+可以通过以下两种方式在 Doris 中创建 Hudi 外表。建外表时无需声明表的列定义，Doris 可以在查询时从HiveMetaStore中获取列信息。
 
 1. 创建一个单独的外表，用于挂载 Hudi 表。  
    具体相关语法，可以通过 [CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) 查看。
@@ -62,7 +62,7 @@ Hudi External Table of Doris 提供了 Doris 直接访问 Hudi 外部表的能�
     );
 
 
-    -- 例子：挂载 HiveMetaStore 中 hudi_db_in_hive_metastore 下的 hudi_table_in_hive_metastore 
+    -- 例子：挂载 HiveMetaStore 中 hudi_db_in_hive_metastore 下的 hudi_table_in_hive_metastore，挂载时不指定schema。
     CREATE TABLE `t_hudi` 
     ENGINE = HUDI
     PROPERTIES (
@@ -105,7 +105,7 @@ Hudi External Table of Doris 提供了 Doris 直接访问 Hudi 外部表的能�
 
 |  Hudi  | Doris  |             描述              |
 | :------: | :----: | :-------------------------------: |
-|   BOOLEAN  | BOOLEAN  |                         |
+|   BOOLEAN  | TINYINT  |                         |
 |   INTEGER   |  INT  |                       |
 |   LONG | BIGINT |              |
 |   FLOAT   | FLOAT |  |
