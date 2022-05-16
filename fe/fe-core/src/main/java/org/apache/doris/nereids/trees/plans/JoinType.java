@@ -20,6 +20,10 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.common.AnalysisException;
 
+import com.google.common.collect.ImmutableMap;
+
+import java.util.Map;
+
 /**
  * All job type in Nereids.
  */
@@ -34,6 +38,19 @@ public enum JoinType {
     RIGHT_ANTI_JOIN,
     CROSS_JOIN,
     ;
+
+    private static final Map<JoinType, JoinType> joinSwapMap = ImmutableMap
+            .<JoinType, JoinType>builder()
+            .put(INNER_JOIN, INNER_JOIN)
+            .put(CROSS_JOIN, CROSS_JOIN)
+            .put(FULL_OUTER_JOIN, FULL_OUTER_JOIN)
+            .put(LEFT_SEMI_JOIN, RIGHT_SEMI_JOIN)
+            .put(RIGHT_SEMI_JOIN, LEFT_SEMI_JOIN)
+            .put(LEFT_OUTER_JOIN, RIGHT_OUTER_JOIN)
+            .put(RIGHT_OUTER_JOIN, LEFT_OUTER_JOIN)
+            .put(LEFT_ANTI_JOIN, RIGHT_ANTI_JOIN)
+            .put(RIGHT_ANTI_JOIN, LEFT_ANTI_JOIN)
+            .build();
 
     /**
      * Convert join type in Nereids to legacy join type in Doris.
@@ -65,5 +82,17 @@ public enum JoinType {
             default:
                 throw new AnalysisException("Not support join operator: " + joinType.name());
         }
+    }
+
+    public final boolean isInnerOrOuterOrCrossJoin() {
+        return this == INNER_JOIN || this == CROSS_JOIN || this == FULL_OUTER_JOIN;
+    }
+
+    public final boolean isSwapJoinType() {
+        return joinSwapMap.containsKey(this);
+    }
+
+    public JoinType swap() {
+        return joinSwapMap.get(this);
     }
 }
