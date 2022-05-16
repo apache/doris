@@ -78,7 +78,6 @@ import org.apache.doris.common.util.QueryPlannerProfile;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -597,7 +596,23 @@ public class StmtExecutor implements ProfileWriter {
                         throw e;
                     } else {
                         resetAnalyzerAndStmt();
-                        VectorizedUtil.switchToQueryNonVec();
+                        // The purpose of this function is to turn off the vectorization switch for the current query.
+                        // When the vectorization engine cannot meet the requirements of the current query,
+                        // it will convert the current query into a non-vectorized query.
+                        // Note that this will only change the **vectorization switch for a single query**,
+                        // and will not affect other queries in the same session.
+                        // Therefore, even if the vectorization switch of the current query is turned off,
+                        // the vectorization properties of subsequent queries will not be affected.
+                        //
+                        // Session: set enable_vectorized_engine=true;
+                        // Query1: select * from table (vec)
+                        // Query2: select * from t1 left join (select count(*) as count from t2) t3 on t1.k1=t3.count (switch to non-vec)
+                        // Query3: select * from table (still vec)
+                        SessionVariable sessionVariable = context.getSessionVariable();
+                        sessionVariable.setIsSingleSetVar(true);
+                        VariableMgr.setVar(sessionVariable, new SetVar(
+                                "enable_vectorized_engine",
+                                new StringLiteral("false")));
                     }
                 } catch (UserException e) {
                     throw e;

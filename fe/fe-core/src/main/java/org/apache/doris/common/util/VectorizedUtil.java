@@ -17,9 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
 
 public class VectorizedUtil {
     /**
@@ -33,40 +31,6 @@ public class VectorizedUtil {
         if (connectContext == null) {
             return false;
         }
-        StmtExecutor stmtExecutor = connectContext.getExecutor();
-        if (stmtExecutor == null) {
-            return connectContext.getSessionVariable().enableVectorizedEngine();
-        }
-        Analyzer analyzer = stmtExecutor.getAnalyzer();
-        if (analyzer == null) {
-            return connectContext.getSessionVariable().enableVectorizedEngine();
-        }
-        return analyzer.enableQueryVec();
-    }
-
-    /**
-     * The purpose of this function is to turn off the vectorization switch for the current query.
-     * When the vectorization engine cannot meet the requirements of the current query,
-     * it will convert the current query into a non-vectorized query.
-     * Note that this will only change the **vectorization switch for a single query**,
-     * and will not affect other queries in the same session.
-     * Therefore, even if the vectorization switch of the current query is turned off,
-     * the vectorization properties of subsequent queries will not be affected.
-     *
-     * Session: set enable_vectorized_engine=true;
-     * Query1: select * from table (vec)
-     * Query2: select * from t1 left join (select count(*) as count from t2) t3 on t1.k1=t3.count (switch to non-vec)
-     * Query3: select * from table (still vec)
-     */
-    public static void switchToQueryNonVec() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
-            return;
-        }
-        Analyzer analyzer = connectContext.getExecutor().getAnalyzer();
-        if (analyzer == null) {
-            return;
-        }
-        analyzer.disableQueryVec();
+        return connectContext.getSessionVariable().enableVectorizedEngine();
     }
 }
