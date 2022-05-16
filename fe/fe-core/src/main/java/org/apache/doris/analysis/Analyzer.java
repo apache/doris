@@ -300,17 +300,6 @@ public class Analyzer {
 
         private final long autoBroadcastJoinThreshold;
 
-        /**
-         * This property is mainly used to store the vectorized switch of the current query.
-         * true: the vectorization of the current query is turned on
-         * false: the vectorization of the current query is turned off.
-         * It is different from the vectorized switch`enableVectorizedEngine` of the session.
-         * It is only valid for a single query, while the session switch is valid for all queries in the session.
-         * It cannot be set directly by the user, only by inheritance from session`enableVectorizedEngine`
-         * or internal adjustment of the system.
-         */
-        private boolean enableQueryVec;
-
         public GlobalState(Catalog catalog, ConnectContext context) {
             this.catalog = catalog;
             this.context = context;
@@ -360,9 +349,6 @@ public class Analyzer {
             } else {
                 // autoBroadcastJoinThreshold is a "final" field, must set an initial value for it
                 autoBroadcastJoinThreshold = 0;
-            }
-            if (context != null) {
-                enableQueryVec = context.getSessionVariable().enableVectorizedEngine();
             }
         }
     }
@@ -670,27 +656,6 @@ public class Analyzer {
 
     public ExprRewriter getMVExprRewriter() {
         return globalState.mvExprRewriter;
-    }
-
-    /**
-     * Only the top-level `query vec` value of the query analyzer represents the value of the entire query.
-     * Other sub-analyzers cannot represent the value of `query vec`.
-     * @return
-     */
-    public boolean enableQueryVec() {
-        if (ancestors.isEmpty()) {
-            return globalState.enableQueryVec;
-        } else {
-            return ancestors.get(ancestors.size() - 1).enableQueryVec();
-        }
-    }
-
-    /**
-     * Since analyzer cannot get sub-analyzers from top to bottom.
-     * So I can only set the `query vec` variable of the top level analyzer of query to true.
-     */
-    public void disableQueryVec() {
-        globalState.enableQueryVec = false;
     }
 
     /**
