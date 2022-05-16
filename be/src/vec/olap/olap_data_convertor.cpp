@@ -639,6 +639,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
     assert(column_array);
     assert(data_type_ptr_array);
 
+    const auto& offsets = column_array->get_offsets();
     CollectionValue* collection_value = _values.data();
     for (int i = 0; i < _num_rows; ++i, ++collection_value) {
         int64_t cur_pos = _row_pos + i;
@@ -646,7 +647,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap() {
         if (_nullmap && _nullmap[cur_pos]) {
             continue;
         }
-        const auto& offsets = column_array->get_offsets();
         auto offset = offsets[prev_pos];
         auto size = offsets[cur_pos] - offsets[prev_pos];
         new (collection_value) CollectionValue(size);
