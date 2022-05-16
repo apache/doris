@@ -17,20 +17,31 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
 /**
- * Abstract class for all slot in expression.
+ * Greater than and equal expression: a >= b.
  */
-public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
-        implements LeafExpression<EXPR_TYPE> {
-
-    public Slot(NodeType type) {
-        super(type);
+public class GreaterThanEqual<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+    /**
+     * Constructor of Greater Than And Equal.
+     *
+     * @param left  left child of Greater Than And Equal
+     * @param right right child of Greater Than And Equal
+     */
+    public GreaterThanEqual(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.GREATER_THAN_EQUAL, left, right);
     }
 
     @Override
-    public Slot toSlot() {
-        return this;
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " >= " + right() + ")";
     }
 }

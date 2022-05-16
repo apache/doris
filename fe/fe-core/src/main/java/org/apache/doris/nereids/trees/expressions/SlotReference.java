@@ -38,7 +38,7 @@ public class SlotReference extends Slot<SlotReference> {
     private final boolean nullable;
 
     public SlotReference(String name, DataType dataType, boolean nullable, List<String> qualifier) {
-        this(NamedExpressionUtils.newExprId(), name, dataType, nullable, qualifier);
+        this(NamedExpressionUtil.newExprId(), name, dataType, nullable, qualifier);
     }
 
     /**
