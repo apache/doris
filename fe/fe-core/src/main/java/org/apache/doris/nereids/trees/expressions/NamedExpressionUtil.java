@@ -17,20 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.NodeType;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Abstract class for all slot in expression.
+ * The util of named expression.
  */
-public abstract class Slot<EXPR_TYPE extends Slot<EXPR_TYPE>> extends NamedExpression<EXPR_TYPE>
-        implements LeafExpression<EXPR_TYPE> {
+public class NamedExpressionUtil {
+    /**
+     * Tool class for generate next ExprId.
+     */
+    private static final UUID JVM_ID = UUID.randomUUID();
+    private static final AtomicLong CURRENT_ID = new AtomicLong();
 
-    public Slot(NodeType type) {
-        super(type);
-    }
-
-    @Override
-    public Slot toSlot() {
-        return this;
+    public static ExprId newExprId() {
+        return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);
     }
 }

@@ -31,7 +31,11 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class BinaryPredicateTest {
+
+/**
+ * Comparison Predicate unit test.
+ */
+public class ComparisonPredicateTest {
 
     @Mocked
     Analyzer analyzer;

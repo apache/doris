@@ -17,19 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.UnaryNode;
 
 /**
  * Abstract class for all expression that have one child.
  */
-public abstract class UnaryExpression<
-            EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>,
-            CHILD_TYPE extends Expression>
-        extends AbstractExpression<EXPR_TYPE>
-        implements UnaryNode<EXPR_TYPE, CHILD_TYPE> {
+public interface UnaryExpression<EXPR_TYPE extends UnaryExpression<EXPR_TYPE, CHILD_TYPE>,
+        CHILD_TYPE extends Expression> extends UnaryNode<EXPR_TYPE, CHILD_TYPE> {
 
-    public UnaryExpression(NodeType type, CHILD_TYPE child) {
-        super(type, child);
-    }
 }

@@ -18,41 +18,36 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
-import java.util.List;
-
 /**
- * Abstract class for all Expression in Nereids.
+ * Comparison predicate expression.
+ * Such as: "=", "<", "<=", ">", ">=", "<=>"
  */
-public abstract class Expression<EXPR_TYPE extends Expression<EXPR_TYPE>>
-        extends AbstractTreeNode<EXPR_TYPE> {
+public class ComparisonPredicate<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends Expression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>> implements
+        BinaryExpression<ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public Expression(NodeType type, Expression... children) {
-        super(type, children);
+    /**
+     * Constructor of ComparisonPredicate.
+     *
+     * @param nodeType node type of expression
+     * @param left     left child of comparison predicate
+     * @param right    right child of comparison predicate
+     */
+    public ComparisonPredicate(NodeType nodeType, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(nodeType, left, right);
     }
 
+    @Override
     public DataType getDataType() throws UnboundException {
-        throw new UnboundException("dataType");
-    }
-
-    public String sql() throws UnboundException {
-        throw new UnboundException("sql");
-    }
-
-    public boolean nullable() throws UnboundException {
-        throw new UnboundException("nullable");
+        return BooleanType.INSTANCE;
     }
 
     @Override
-    public List<Expression> children() {
-        return (List) children;
-    }
-
-    @Override
-    public Expression child(int index) {
-        return (Expression) children.get(index);
+    public String sql() {
+        return toString();
     }
 }
