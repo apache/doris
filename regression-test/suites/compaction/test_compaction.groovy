@@ -19,11 +19,12 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_compaction") {
     def tableName = "compaction_regression_test"
+    def beHttpAddress = getConf("beHttpAddress")
 
     try {
         StringBuilder showConfigCommand = new StringBuilder();
         showConfigCommand.append("curl -X GET http://")
-        showConfigCommand.append(context.config.beHttpAddress)
+        showConfigCommand.append(beHttpAddress)
         showConfigCommand.append("/api/show_config")
         def process = showConfigCommand.toString().execute()
         int code = process.waitFor()
@@ -110,7 +111,7 @@ suite("test_compaction") {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X POST http://")
-            sb.append(context.config.beHttpAddress)
+            sb.append(beHttpAddress)
             sb.append("/api/compaction/run?tablet_id=")
             sb.append(tablet_id)
             sb.append("&compact_type=cumulative")
@@ -140,7 +141,7 @@ suite("test_compaction") {
                 String tablet_id = tablet[0]
                 StringBuilder sb = new StringBuilder();
                 sb.append("curl -X GET http://")
-                sb.append(context.config.beHttpAddress)
+                sb.append(beHttpAddress)
                 sb.append("/api/compaction/run_status?tablet_id=")
                 sb.append(tablet_id)
 
@@ -162,7 +163,7 @@ suite("test_compaction") {
             String tablet_id = tablet[0]
             StringBuilder sb = new StringBuilder();
             sb.append("curl -X GET http://")
-            sb.append(context.config.beHttpAddress)
+            sb.append(beHttpAddress)
             sb.append("/api/compaction/show?tablet_id=")
             sb.append(tablet_id)
             String command = sb.toString()
