@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_VJSON_SCANNER_H_
-#define BE_SRC_VJSON_SCANNER_H_
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -32,14 +31,8 @@
 
 #include "common/status.h"
 #include "exec/base_scanner.h"
-#include "exec/exec_node.h"
 #include "exec/json_scanner.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -55,8 +48,10 @@ public:
                  const std::vector<TNetworkAddress>& broker_addresses,
                  const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~VJsonScanner();
-
+    Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                    bool* fill_tuple) override {
+        return Status::NotSupported("Not Implemented get tuple");
+    }
     Status get_next(vectorized::Block* output_block, bool* eof) override;
 
 private:
@@ -117,4 +112,3 @@ private:
 
 } // namespace vectorized
 } // namespace doris
-#endif
