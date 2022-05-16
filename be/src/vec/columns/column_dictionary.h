@@ -98,6 +98,7 @@ public:
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
+        DCHECK(pos == nullptr);
         if (pos == nullptr) {
             _codes.push_back(_dict.get_null_code());
             return;
@@ -222,12 +223,11 @@ public:
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {
         if (_dict.empty()) {
-            _dict.reserve(dict_num + 1);
+            _dict.reserve(dict_num);
             for (uint32_t i = 0; i < dict_num; ++i) {
                 auto value = StringValue(dict_array[i].data, dict_array[i].size);
                 _dict.insert_value(value);
             }
-            _dict.insert_null_value(); // make the last dict value is null value
         }
 
         char* end_ptr = (char*)_codes.get_end_ptr();
@@ -296,12 +296,6 @@ public:
             _inverted_index[value] = _inverted_index.size();
         }
 
-        void insert_null_value() {
-            auto value = StringValue();
-            _dict_data.push_back_without_reserve(value);
-            _inverted_index[value] = _inverted_index.size();
-        }
-
         int32_t find_code(const StringValue& value) const {
             auto it = _inverted_index.find(value);
             if (it != _inverted_index.end()) {
@@ -311,10 +305,12 @@ public:
         }
 
         T get_null_code() {
-            return _dict_data.size() - 1; // The last dict value is null value
+            return _dict_data.size(); // Make null code greater than the index of the dict
         }
 
-        inline StringValue& get_value(T code) { return _dict_data[code]; }
+        inline StringValue& get_value(T code) {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
 
         inline void generate_hash_values() {
             if (_hash_values.empty()) {
@@ -393,6 +389,7 @@ public:
         bool empty() { return _dict_data.empty(); }
 
     private:
+        StringValue _null_value = StringValue();
         StringValue::Comparator _comparator;
         // dict code -> dict value
         DictContainer _dict_data;
