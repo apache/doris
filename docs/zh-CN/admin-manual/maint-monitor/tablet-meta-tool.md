@@ -86,7 +86,7 @@ api：
 命令：
 
 ```
-./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_header_path=path
+./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_meta_path=path
 ```
 
 ### 删除 header
