@@ -42,6 +42,7 @@ import org.apache.hadoop.fs.LocatedFileStatus;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -284,6 +285,18 @@ public class HiveMetaStoreClientHelper {
             throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
         }
         return table;
+    }
+
+    public static List<FieldSchema> getSchema(HiveTable hiveTable) throws DdlException {
+        HiveMetaStoreClient client = getClient(hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS));
+        List<FieldSchema> schema;
+        try {
+            schema = client.getSchema(hiveTable.getHiveDb(), hiveTable.getHiveTable());
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        }
+        return schema;
     }
 
     /**
