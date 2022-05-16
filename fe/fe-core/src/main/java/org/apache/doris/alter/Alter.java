@@ -55,6 +55,7 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -677,12 +678,18 @@ public class Alter {
             // 4.2 combine the old properties with new ones
             Map<String, String> newProperties = new HashMap<>();
             newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, dataProperty.getStorageMedium().name());
+            Type datetimeType;
+            if (Config.use_date_v2_by_default) {
+                datetimeType = Type.DATETIMEV2;
+            } else {
+                datetimeType = Type.DATETIME;
+            }
             DateLiteral dateLiteral = new DateLiteral(dataProperty.getCooldownTimeMs(),
-                    TimeUtils.getTimeZone(), Type.DATETIME);
+                    TimeUtils.getTimeZone(), datetimeType);
             newProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, dateLiteral.getStringValue());
             newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, dataProperty.getRemoteStorageResourceName());
             DateLiteral dateLiteral1 = new DateLiteral(dataProperty.getRemoteCooldownTimeMs(),
-                    TimeUtils.getTimeZone(), Type.DATETIME);
+                    TimeUtils.getTimeZone(), datetimeType);
             newProperties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME, dateLiteral1.getStringValue());
             newProperties.putAll(properties);
             // 4.3 analyze new properties

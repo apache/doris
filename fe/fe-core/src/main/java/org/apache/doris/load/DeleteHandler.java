@@ -559,10 +559,14 @@ public class DeleteHandler implements Writable {
                         } else if (value.toLowerCase().equals("false")) {
                             binaryPredicate.setChild(1, LiteralExpr.create("0", Type.TINYINT));
                         }
-                    } else if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
+                    } else if (column.getDataType() == PrimitiveType.DATE
+                            || column.getDataType() == PrimitiveType.DATETIME
+                            || column.getDataType() == PrimitiveType.DATEV2
+                            || column.getDataType() == PrimitiveType.DATETIMEV2) {
                         DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
                         value = dateLiteral.getStringValue();
-                        binaryPredicate.setChild(1, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
+                        binaryPredicate.setChild(1, LiteralExpr.create(value,
+                                Type.fromPrimitiveType(column.getDataType())));
                     }
                     LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
                 } catch (AnalysisException e) {
@@ -574,13 +578,18 @@ public class DeleteHandler implements Writable {
                 try {
                     InPredicate inPredicate = (InPredicate) condition;
                     for (int i = 1; i <= inPredicate.getInElementNum(); i++) {
-                        value = ((LiteralExpr) inPredicate.getChild(i)).getStringValue();
-                        if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME) {
-                            DateLiteral dateLiteral = new DateLiteral(value, Type.fromPrimitiveType(column.getDataType()));
+                        value = inPredicate.getChild(i).getStringValue();
+                        if (column.getDataType() == PrimitiveType.DATE || column.getDataType() == PrimitiveType.DATETIME
+                                || column.getDataType() == PrimitiveType.DATEV2
+                                || column.getDataType() == PrimitiveType.DATETIMEV2) {
+                            DateLiteral dateLiteral = new DateLiteral(value,
+                                    Type.fromPrimitiveType(column.getDataType()));
                             value = dateLiteral.getStringValue();
-                            inPredicate.setChild(i, LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType())));
+                            inPredicate.setChild(i, LiteralExpr.create(value,
+                                    Type.fromPrimitiveType(column.getDataType())));
                         } else {
-                            LiteralExpr.create(value, Type.fromPrimitiveType(column.getDataType()));
+                            LiteralExpr.create(value,
+                                    Type.fromPrimitiveType(column.getDataType()));
                         }
                     }
                 } catch (AnalysisException e) {

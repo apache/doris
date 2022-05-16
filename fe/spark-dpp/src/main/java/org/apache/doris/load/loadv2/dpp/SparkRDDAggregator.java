@@ -75,6 +75,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "decimalv2":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMaxAggregator();
                     case "char":
                     case "varchar":
@@ -95,6 +97,8 @@ public abstract class SparkRDDAggregator<T> implements Serializable {
                     case "decimalv2":
                     case "date":
                     case "datetime":
+                    case "datev2":
+                    case "datetimev2":
                         return new NumberMinAggregator();
                     case "char":
                     case "varchar":

@@ -467,10 +467,13 @@ public class CreateFunctionStmt extends DdlStmt {
                 typeBuilder.setId(Types.PGenericType.TypeId.BITMAP);
                 break;
             case DATE:
+            case DATEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATE);
                 break;
             case DATETIME:
+            case DATETIMEV2:
             case TIME:
+            case TIMEV2:
                 typeBuilder.setId(Types.PGenericType.TypeId.DATETIME);
                 break;
             case DECIMALV2:

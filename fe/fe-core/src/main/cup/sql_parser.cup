@@ -4599,11 +4599,15 @@ type ::=
   | KW_DOUBLE
   {: RESULT = Type.DOUBLE; :}
   | KW_DATE
-  {: RESULT = Type.DATE; :}
+  {: RESULT = ScalarType.createDateType(); :}
+  | KW_DATETIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createDatetimeV2Type(precision.intValue()); :}
   | KW_DATETIME
-  {: RESULT = Type.DATETIME; :}
+  {: RESULT = ScalarType.createDatetimeType(); :}
+  | KW_TIME LPAREN INTEGER_LITERAL:precision RPAREN
+  {: RESULT = ScalarType.createTimeV2Type(precision.intValue()); :}
   | KW_TIME
-  {: RESULT = Type.TIME; :}
+  {: RESULT = ScalarType.createTimeType(); :}
   | KW_BITMAP
   {: RESULT = Type.BITMAP; :}
   | KW_QUANTILE_STATE

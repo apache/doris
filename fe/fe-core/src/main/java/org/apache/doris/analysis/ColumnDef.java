@@ -316,7 +316,9 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATETIME:
-                new DateLiteral(defaultValue, type);
+            case DATEV2:
+            case DATETIMEV2:
+                new DateLiteral(defaultValue, DateLiteral.getDefaultDateType(type));
                 break;
             case CHAR:
             case VARCHAR:
@@ -327,11 +329,8 @@ public class ColumnDef {
                 }
                 break;
             case BITMAP:
-                break;
             case ARRAY:
-                break;
             case MAP:
-                break;
             case STRUCT:
                 break;
             case BOOLEAN:

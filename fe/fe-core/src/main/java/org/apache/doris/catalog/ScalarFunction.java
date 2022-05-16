@@ -152,6 +152,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn += "_double_val";
                     break;
                 case CHAR:
@@ -164,6 +165,8 @@ public class ScalarFunction extends Function {
                     break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn += "_datetime_val";
                     break;
                 case DECIMALV2:
@@ -226,6 +229,7 @@ public class ScalarFunction extends Function {
                     break;
                 case DOUBLE:
                 case TIME:
+                case TIMEV2:
                     beFn.append("_double_val");
                     break;
                 case CHAR:
@@ -236,6 +240,8 @@ public class ScalarFunction extends Function {
                     break;
                 case DATE:
                 case DATETIME:
+                case DATEV2:
+                case DATETIMEV2:
                     beFn.append("_datetime_val");
                     break;
                 case DECIMALV2:

@@ -115,6 +115,76 @@ public class ColumnTypeTest {
         Assert.assertNotEquals(type.getType(), type4.getType());
     }
 
+    @Test
+    public void testDatetimeV2() throws AnalysisException {
+        TypeDef type = TypeDef.createDatetimeV2(3);
+        type.analyze(null);
+        Assert.assertEquals("datetime(3)", type.toString());
+        Assert.assertEquals(PrimitiveType.DATETIMEV2, type.getType().getPrimitiveType());
+        Assert.assertEquals(ScalarType.DATETIME_PRECISION, ((ScalarType) type.getType()).getScalarPrecision());
+        Assert.assertEquals(3, ((ScalarType) type.getType()).getScalarScale());
+
+        // equal type
+        TypeDef type2 = TypeDef.createDatetimeV2(3);
+        Assert.assertEquals(type.getType(), type2.getType());
+
+        // different type
+        TypeDef type3 = TypeDef.createDatetimeV2(6);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+        type3 = TypeDef.createDatetimeV2(0);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+
+        // different type
+        TypeDef type4 = TypeDef.create(PrimitiveType.BIGINT);
+        Assert.assertNotEquals(type.getType(), type4.getType());
+
+        TypeDef type5 = TypeDef.createDatetimeV2(0);
+        TypeDef type6 = TypeDef.create(PrimitiveType.DATETIME);
+        Assert.assertEquals(type5.getType(), type6.getType());
+        Assert.assertNotEquals(type.getType(), type6.getType());
+    }
+
+    @Test
+    public void testDateV2() throws AnalysisException {
+        TypeDef type = TypeDef.create(PrimitiveType.DATE);
+        TypeDef type2 = TypeDef.create(PrimitiveType.DATEV2);
+        type.analyze(null);
+        Assert.assertEquals(type.getType(), type2.getType());
+
+        // different type
+        TypeDef type3 = TypeDef.createDatetimeV2(6);
+        Assert.assertNotEquals(type2.getType(), type3.getType());
+    }
+
+    @Test
+    public void testTimeV2() throws AnalysisException {
+        TypeDef type = TypeDef.createTimeV2(3);
+        type.analyze(null);
+        Assert.assertEquals("time(3)", type.toString());
+        Assert.assertEquals(PrimitiveType.TIMEV2, type.getType().getPrimitiveType());
+        Assert.assertEquals(ScalarType.DATETIME_PRECISION, ((ScalarType) type.getType()).getScalarPrecision());
+        Assert.assertEquals(3, ((ScalarType) type.getType()).getScalarScale());
+
+        // equal type
+        TypeDef type2 = TypeDef.createTimeV2(3);
+        Assert.assertEquals(type.getType(), type2.getType());
+
+        // different type
+        TypeDef type3 = TypeDef.createTimeV2(6);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+        type3 = TypeDef.createTimeV2(0);
+        Assert.assertNotEquals(type.getType(), type3.getType());
+
+        // different type
+        TypeDef type4 = TypeDef.create(PrimitiveType.BIGINT);
+        Assert.assertNotEquals(type.getType(), type4.getType());
+
+        TypeDef type5 = TypeDef.createTimeV2(0);
+        TypeDef type6 = TypeDef.create(PrimitiveType.TIME);
+        Assert.assertEquals(type5.getType(), type6.getType());
+        Assert.assertNotEquals(type.getType(), type6.getType());
+    }
+
     @Test(expected = AnalysisException.class)
     public void testDecimalPreFail() throws AnalysisException {
         TypeDef type = TypeDef.createDecimal(28, 3);

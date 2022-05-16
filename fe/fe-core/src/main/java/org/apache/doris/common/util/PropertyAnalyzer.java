@@ -135,7 +135,7 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
                 cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 if (cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
                     hasCooldown = true;
@@ -146,7 +146,7 @@ public class PropertyAnalyzer {
                     remoteStorageResourceName = value;
                 }
             } else if (!hasRemoteCooldown && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                DateLiteral dateLiteral = new DateLiteral(value, DateLiteral.getDefaultDateType(Type.DATETIME));
                 remoteCooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
                 if (remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
                     hasRemoteCooldown = true;

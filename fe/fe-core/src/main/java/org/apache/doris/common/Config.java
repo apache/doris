@@ -1651,4 +1651,7 @@ public class Config extends ConfigBase {
 
     @ConfField
     public static boolean enable_vectorized_load = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean use_date_v2_by_default = false;
 }
