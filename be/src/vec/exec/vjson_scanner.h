@@ -48,7 +48,10 @@ public:
                  const std::vector<TNetworkAddress>& broker_addresses,
                  const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    using JsonScanner::get_next;
+    Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                    bool* fill_tuple) override {
+        return Status::NotSupported("Not Implemented get tuple");
+    }
     Status get_next(vectorized::Block* output_block, bool* eof) override;
 
 private:
