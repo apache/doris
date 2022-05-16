@@ -105,9 +105,7 @@ public:
         LOG(FATAL) << "insert_data not supported in ColumnDictionary";
     }
 
-    void insert_default() override {
-        _codes.push_back(_dict.get_null_code());
-    }
+    void insert_default() override { _codes.push_back(_dict.get_null_code()); }
 
     void clear() override {
         _codes.clear();
@@ -229,7 +227,7 @@ public:
                 auto value = StringValue(dict_array[i].data, dict_array[i].size);
                 _dict.insert_value(value);
             }
-            _dict.insert_null_value();  // make the last dict value is null value
+            _dict.insert_null_value(); // make the last dict value is null value
         }
 
         char* end_ptr = (char*)_codes.get_end_ptr();
