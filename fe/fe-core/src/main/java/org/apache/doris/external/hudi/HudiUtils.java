@@ -110,7 +110,6 @@ public class HudiUtils {
      *
      * @param table hudi table to be checked
      * @param hiveTable the corresponding hive table
-     * @return non return value
      * @throws DdlException when hudi table's column(s) didn't exist in hive table
      */
     public static void validateColumns(HudiTable table,
