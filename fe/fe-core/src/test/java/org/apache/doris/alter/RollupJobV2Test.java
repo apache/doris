@@ -79,6 +79,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 import mockit.Expectations;
 import mockit.Mock;
@@ -317,7 +321,6 @@ public class RollupJobV2Test {
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
             AnalysisException {
-        Config.enable_materialized_view = true;
         // prepare file
         File file = new File(fileName);
         file.createNewFile();

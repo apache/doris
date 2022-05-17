@@ -423,20 +423,6 @@ show data （其他用法：HELP SHOW DATA）
 
 只要有一个BE宕机，Routine Load 就无法自动恢复
 
-### `enable_materialized_view`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
-
-该配置用于开启和关闭创建物化视图功能。如果设置为 true，则创建物化视图功能开启。用户可以通过 `CREATE MATERIALIZED VIEW` 命令创建物化视图。如果设置为 false，则无法创建物化视图。
-
-如果在创建物化视图的时候报错 `The materialized view is coming soon` 或 `The materialized view is disabled` 则说明改配置被设置为了 false，创建物化视图功能关闭了。可以通过修改配置为 true 来启动创建物化视图功能。
-
-该变量为动态配置，用户可以在 FE 进程启动后，通过命令修改配置。也可以通过修改 FE 的配置文件，重启 FE 来生效
-
 ### `check_java_version`
 
 默认值：true
@@ -461,7 +447,7 @@ Doris 将检查已编译和运行的 Java 版本是否兼容，如果不兼容�
 
 是否为 Master FE 节点独有的配置项：true
 
-是否启用动态分区，默认启用
+是否启用动态分区调度，默认启用
 
 ### `dynamic_partition_check_interval_seconds`
 
@@ -2174,16 +2160,6 @@ load 标签清理器将每隔 `label_clean_interval_second` 运行一次以清�
 是否为 Master FE 节点独有的配置项：false
 
 如果设置为true，则在选择可查询副本时，将跳过 compaction 较慢的副本
-
-### enable_create_sync_job
-
-开启 MySQL 数据同步作业功能。默认是 false，关闭此功能
-
-默认值：false
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：true
 
 ### sync_commit_interval_second
 

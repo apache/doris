@@ -39,6 +39,9 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -57,7 +60,7 @@ public class CreateMaterializedViewStmtTest {
 
     @Before
     public void initTest() {
-        Deencapsulation.setField(Config.class, "enable_materialized_view", true);
+
     }
 
     @Test

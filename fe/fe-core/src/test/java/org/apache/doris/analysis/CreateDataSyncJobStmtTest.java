@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.sync.DataSyncJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -39,6 +38,9 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -93,8 +95,6 @@ public class CreateDataSyncJobStmtTest {
                 result = catalog;
             }
         };
-
-        Config.enable_create_sync_job = true;
     }
     @Test
     public void testNoDb() {

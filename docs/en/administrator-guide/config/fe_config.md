@@ -437,20 +437,6 @@ MasterOnly：true
 
 As long as one BE is down, Routine Load cannot be automatically restored 
 
-### enable_materialized_view
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-This configuration is used to turn on and off the creation of materialized views. If set to true, the function to create a materialized view is enabled. The user can create a materialized view through the `CREATE MATERIALIZED VIEW` command. If set to false, materialized views cannot be created.
-
-If you get an error `The materialized view is coming soon` or `The materialized view is disabled` when creating the materialized view, it means that the configuration is set to false and the function of creating the materialized view is turned off. You can start to create a materialized view by modifying the configuration to true.
-
-This variable is a dynamic configuration, and users can modify the configuration through commands after the FE process starts. You can also modify the FE configuration file and restart the FE to take effect
-
 ### check_java_version
 
 Default：true
@@ -475,7 +461,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to enable dynamic partition, enabled by default
+Whether to enable dynamic partition scheduler, enabled by default
 
 ### dynamic_partition_check_interval_seconds
 
@@ -2151,16 +2137,6 @@ Dynamically configured: true
 Only for Master FE: false
 
 If set to true, the compaction slower replica will be skipped when select get queryable replicas
-
-### enable_create_sync_job
-
-Enable Mysql data synchronization job function. The default is false, this function is turned off
-
-Default: false
-
-Is it possible to configure dynamically: true
-
-Whether it is a configuration item unique to the Master FE node: true
 
 ### sync_commit_interval_second
 

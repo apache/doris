@@ -58,7 +58,7 @@ public class MaterializedViewFunctionTest {
         FeConstants.runningUnitTest = true;
         UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
-        dorisAssert.withEnableMV().withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
+        dorisAssert.withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
     }
 
     @Before

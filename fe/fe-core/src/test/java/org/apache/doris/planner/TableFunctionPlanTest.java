@@ -48,7 +48,6 @@ public class TableFunctionPlanTest {
     public static void setUp() throws Exception {
         UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
-        ctx.getSessionVariable().setEnableLateralView(true);
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);

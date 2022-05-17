@@ -478,10 +478,6 @@ You can use `HELP STOP SYNC JOB;`, `HELP PAUSE SYNC JOB`; And `HELP RESUME SYNC 
 ### Fe configuration
 
 The following configuration belongs to the system level configuration of SyncJob. The configuration value can be modified in configuration file fe.conf.
-
-* `enable_create_sync_job`
-
-	Turn on the Binlog Load feature. The default value is false. This feature is turned off.
 	
 * `sync_commit_interval_second`
 
