@@ -64,12 +64,14 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     if (!_is_init) return Status::InternalError("used before initialize.");
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    bool mem_reuse = block->mem_reuse();
-    DCHECK(block->rows() == 0);
     std::vector<vectorized::MutableColumnPtr> columns(_slot_num);
     bool schema_eos = false;
 
     do {
+        bool mem_reuse = block->mem_reuse();
+        DCHECK(block->rows() == 0);
+
+        columns.resize(_slot_num);
         for (int i = 0; i < _slot_num; ++i) {
             if (mem_reuse) {
                 columns[i] = std::move(*block->get_by_position(i).column).mutate();
@@ -81,8 +83,8 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
             RETURN_IF_CANCELLED(state);
 
             // get all slots from schema table.
-            RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_single_tuple, _tuple_pool.get(), &schema_eos));
-
+            RETURN_IF_ERROR(_schema_scanner->get_next_row(_src_single_tuple, _tuple_pool.get(),
+                                                          &schema_eos));
             if (schema_eos) {
                 *eos = true;
                 break;
