@@ -433,7 +433,6 @@ public class EsTable extends Table {
     /**
      * sync es index meta from remote ES Cluster
      *
-     * @param client esRestClient
      */
     public void syncTableMetaData() {
         if (esMetaStateTracker == null) {
@@ -492,6 +491,7 @@ public class EsTable extends Table {
                 return Type.STRING;
             case "date":
                 return Type.DATETIME;
+
             default:
                 return Type.INVALID;
         }
