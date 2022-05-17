@@ -471,7 +471,7 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
-    std::string func_name{"PlanFragmentExecutor::_exec_actual"};
+    std::string func_name {"PlanFragmentExecutor::_exec_actual"};
     auto span = exec_state->get_tracer()->StartSpan(func_name);
     auto scope = opentelemetry::trace::Scope {span};
     span->SetAttribute("host", BackendOptions::get_localhost());

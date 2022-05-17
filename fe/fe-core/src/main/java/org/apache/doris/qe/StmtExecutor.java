@@ -122,6 +122,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -139,10 +142,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
-
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
@@ -337,8 +336,8 @@ public class StmtExecutor implements ProfileWriter {
 
             if (!context.isTxnModel()) {
                 Span queryAnalysisSpan = context.getTracer().spanBuilder("query analysis")
-                        .setParent(Context.current())
-                        .startSpan();
+                    .setParent(Context.current())
+                    .startSpan();
                 try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
                     analyze(context.getSessionVariable().toThrift());
@@ -996,8 +995,8 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         Span queryScheduleSpan = context.getTracer().spanBuilder("query schedule")
-                .setParent(Context.current())
-                .startSpan();
+            .setParent(Context.current())
+            .startSpan();
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1022,8 +1021,8 @@ public class StmtExecutor implements ProfileWriter {
         plannerProfile.setQueryScheduleFinishTime();
         writeProfile(false);
         Span fetchResultSpan = context.getTracer().spanBuilder("fetch result")
-                .setParent(Context.current())
-                .startSpan();
+            .setParent(Context.current())
+            .startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
                 batch = coord.getNext();

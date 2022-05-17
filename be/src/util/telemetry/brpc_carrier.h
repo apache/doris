@@ -38,7 +38,6 @@ public:
     void Set(opentelemetry::nostd::string_view key,
              opentelemetry::nostd::string_view value) noexcept override;
 
-
 private:
     const brpc::Controller* cntl_ {};
 };

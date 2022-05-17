@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "opentelemetry/context/context.h"
 #include "opentelemetry/sdk/trace/tracer_provider.h"
 #include "opentelemetry/trace/provider.h"
-#include "opentelemetry/context/context.h"
 
 namespace doris::telemetry {
 

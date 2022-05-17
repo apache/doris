@@ -28,11 +28,11 @@
 #include "opentelemetry/trace/propagation/http_trace_context.h"
 #include "opentelemetry/trace/provider.h"
 
-namespace trace     = opentelemetry::trace;
-namespace nostd     = opentelemetry::nostd;
+namespace trace = opentelemetry::trace;
+namespace nostd = opentelemetry::nostd;
 namespace trace_sdk = opentelemetry::sdk::trace;
-namespace zipkin    = opentelemetry::exporter::zipkin;
-namespace resource  = opentelemetry::sdk::resource;
+namespace zipkin = opentelemetry::exporter::zipkin;
+namespace resource = opentelemetry::sdk::resource;
 namespace propagation = opentelemetry::context::propagation;
 
 void doris::telemetry::initTracerForZipkin() {
@@ -44,7 +44,7 @@ void doris::telemetry::initTracerForZipkin() {
     opts.endpoint = doris::config::trace_export_url;
     resource::ResourceAttributes attributes = {{"service.name", "Backend"}};
     auto resource = resource::Resource::Create(attributes);
-    auto exporter  = std::unique_ptr<trace_sdk::SpanExporter>(new zipkin::ZipkinExporter(opts));
+    auto exporter = std::unique_ptr<trace_sdk::SpanExporter>(new zipkin::ZipkinExporter(opts));
 
     trace_sdk::BatchSpanProcessorOptions batchOptions;
     auto processor = std::unique_ptr<trace_sdk::SpanProcessor>(

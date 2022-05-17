@@ -114,7 +114,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
-    auto scope = trace_api::Scope{telemetry::get_span_from_rpc(cntl)};
+    auto scope = trace_api::Scope {telemetry::get_span_from_rpc(cntl)};
 
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;

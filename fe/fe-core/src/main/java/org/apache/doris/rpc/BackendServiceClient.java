@@ -23,12 +23,6 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-
 import io.grpc.CallOptions;
 import io.grpc.Channel;
 import io.grpc.ClientCall;
@@ -39,6 +33,11 @@ import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.opentelemetry.context.Context;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
@@ -139,16 +138,16 @@ public class BackendServiceClient {
 
     public static class OpenTelemetryClientInterceptor implements ClientInterceptor {
         @Override
-        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(
-            MethodDescriptor<ReqT, RespT> methodDescriptor, CallOptions callOptions, Channel channel) {
+        public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(MethodDescriptor<ReqT, RespT> methodDescriptor,
+                CallOptions callOptions, Channel channel) {
             return new ForwardingClientCall.SimpleForwardingClientCall<ReqT, RespT>(
-                channel.newCall(methodDescriptor, callOptions)) {
+                    channel.newCall(methodDescriptor, callOptions)) {
                 @Override
                 public void start(Listener<RespT> responseListener, Metadata headers) {
                     // Inject the request with the current context
                     Telemetry.getOpenTelemetry().getPropagators().getTextMapPropagator()
-                        .inject(Context.current(), headers, (carrier, key, value) ->
-                            carrier.put(Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
+                            .inject(Context.current(), headers, (carrier, key, value) -> carrier.put(
+                                    Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER), value));
                     super.start(responseListener, headers);
                 }
             };

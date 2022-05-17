@@ -19,11 +19,6 @@ package org.apache.doris.common.opentelemetry;
 
 import org.apache.doris.common.Config;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.concurrent.TimeUnit;
-
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
@@ -36,6 +31,10 @@ import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.sdk.trace.export.BatchSpanProcessor;
 import io.opentelemetry.sdk.trace.export.SpanExporter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * All SDK management takes place here, away from the instrumentation code, which should only access
@@ -63,20 +62,13 @@ public class Telemetry {
                 Resource.create(Attributes.of(AttributeKey.stringKey("service.name"), SERVICE_NAME));
         // Send a batch of spans if ScheduleDelay time or MaxExportBatchSize is reached
         BatchSpanProcessor spanProcessor =
-                BatchSpanProcessor.builder(spanExporter)
-                        .setScheduleDelay(100, TimeUnit.MILLISECONDS)
-                        .setMaxExportBatchSize(1000)
-                        .build();
+                BatchSpanProcessor.builder(spanExporter).setScheduleDelay(100, TimeUnit.MILLISECONDS)
+                        .setMaxExportBatchSize(1000).build();
 
-        SdkTracerProvider tracerProvider =
-                SdkTracerProvider.builder()
-                        .addSpanProcessor(spanProcessor)
-                        .setResource(Resource.getDefault().merge(serviceNameResource))
-                        .build();
-        openTelemetry = OpenTelemetrySdk.builder()
-                .setTracerProvider(tracerProvider)
-                .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance()))
-                .build();
+        SdkTracerProvider tracerProvider = SdkTracerProvider.builder().addSpanProcessor(spanProcessor)
+                .setResource(Resource.getDefault().merge(serviceNameResource)).build();
+        openTelemetry = OpenTelemetrySdk.builder().setTracerProvider(tracerProvider)
+                .setPropagators(ContextPropagators.create(W3CTraceContextPropagator.getInstance())).build();
         // .buildAndRegisterGlobal();
 
         // add a shutdown hook to shut down the SDK
