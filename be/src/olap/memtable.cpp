@@ -53,7 +53,6 @@ MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet
         // TODO: Support ZOrderComparator in the future
         _vec_skip_list = std::make_unique<VecTable>(
                 _vec_row_comparator.get(), _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
-        _init_profile();
     } else {
         _vec_skip_list = nullptr;
         if (_keys_type == KeysType::DUP_KEYS) {
@@ -99,7 +98,6 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 MemTable::~MemTable() {
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _mem_tracker->release(_mem_usage);
-    print_profile();
 }
 
 MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
@@ -117,60 +115,54 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 }
 
 void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num_rows) {
-    {
-        SCOPED_TIMER(_insert_time);
-        if (_is_first_insertion) {
-            _is_first_insertion = false;
-            auto cloneBlock = block->clone_without_columns();
-            _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-            _vec_row_comparator->set_block(&_input_mutable_block);
-            _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
-            if (_keys_type != KeysType::DUP_KEYS) {
-                _init_agg_functions(block);
-            }
+    if (_is_first_insertion) {
+        _is_first_insertion = false;
+        auto cloneBlock = block->clone_without_columns();
+        _input_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        _vec_row_comparator->set_block(&_input_mutable_block);
+        _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        if (_keys_type != KeysType::DUP_KEYS) {
+            _init_agg_functions(block);
         }
-        size_t cursor_in_mutableblock = _input_mutable_block.rows();
-        _input_mutable_block.add_rows(block, row_pos, num_rows);
-        size_t input_size = block->allocated_bytes() * num_rows / block->rows(); 
-        _mem_usage += input_size;
-        _mem_tracker->consume(input_size);
-        // when new data inserted, the mem_usage of memtable should be re-shrunk again.
-        _is_shrunk_by_agg = false;
+    }
+    size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    _input_mutable_block.add_rows(block, row_pos, num_rows);
+    size_t input_size = block->allocated_bytes() * num_rows / block->rows(); 
+    _mem_usage += input_size;
+    _mem_tracker->consume(input_size);
+    // when new data inserted, the mem_usage of memtable should be re-shrunk again.
+    _is_shrunk_by_agg = false;
 
-        for (int i = 0; i < num_rows; i++) {
-            _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
-            _insert_one_row_from_block(_row_in_blocks.back());
-        }
+    for (int i = 0; i < num_rows; i++) {
+        _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
+        _insert_one_row_from_block(_row_in_blocks.back());
     }
 }
 
 void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
-    {
-        SCOPED_TIMER(_sort_agg_time);
-        _rows++;
-        bool overwritten = false;
-        if (_keys_type == KeysType::DUP_KEYS) {
-            // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
-            _vec_skip_list->Insert(row_in_block, &overwritten);
-            DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
-            return;
+    _rows++;
+    bool overwritten = false;
+    if (_keys_type == KeysType::DUP_KEYS) {
+        // TODO: dup keys only need sort opertaion. Rethink skiplist is the beat way to sort columns?
+        _vec_skip_list->Insert(row_in_block, &overwritten);
+        DCHECK(!overwritten) << "Duplicate key model meet overwrite in SkipList";
+        return;
+    }
+
+    bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
+    if (is_exist) {
+        _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
+    } else {
+        row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
+        for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
+            auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
+            auto place = row_in_block->_agg_places[cid];
+            _agg_functions[cid]->add(place,
+                                     const_cast<const doris::vectorized::IColumn**>(&col_ptr),
+                                     row_in_block->_row_pos, nullptr);
         }
 
-        bool is_exist = _vec_skip_list->Find(row_in_block, &_vec_hint);
-        if (is_exist) {
-            _aggregate_two_row_in_block(row_in_block, _vec_hint.curr->key);
-        } else {
-            row_in_block->init_agg_places(_agg_functions, _schema->num_key_columns());
-            for (auto cid = _schema->num_key_columns(); cid < _schema->num_columns(); cid++) {
-                auto col_ptr = _input_mutable_block.mutable_columns()[cid].get();
-                auto place = row_in_block->_agg_places[cid];
-                _agg_functions[cid]->add(place,
-                                        const_cast<const doris::vectorized::IColumn**>(&col_ptr),
-                                        row_in_block->_row_pos, nullptr);
-            }
-
-            _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
-        }
+        _vec_skip_list->InsertWithHint(row_in_block, is_exist, &_vec_hint);
     }
 }
 
@@ -282,30 +274,27 @@ void MemTable::_collect_vskiplist_to_output() {
             it.key()->_row_pos = idx;
             idx++;
         }
-        if constexpr(!is_final) {
-                size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
-                _mem_tracker->consume(shrunked_after_agg - _mem_usage);
-                _mem_usage = shrunked_after_agg;
-                _input_mutable_block.swap(_output_mutable_block);
-                //TODO(weixang):opt here.
-                std::unique_ptr<vectorized::Block> empty_input_block =
-                        std::move(in_block.create_same_struct_block(0));
-                _output_mutable_block =
-                        vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
-                _output_mutable_block.clear_column_data();
-            }
+        if constexpr (!is_final) {
+            size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
+            _mem_tracker->consume(shrunked_after_agg - _mem_usage);
+            _mem_usage = shrunked_after_agg;
+            _input_mutable_block.swap(_output_mutable_block);
+            //TODO(weixang):opt here.
+            std::unique_ptr<vectorized::Block> empty_input_block =
+                    std::move(in_block.create_same_struct_block(0));
+            _output_mutable_block =
+                    vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
+            _output_mutable_block.clear_column_data();
+        }
     }
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    {
-        SCOPED_TIMER(_shrunk_agg_time);
-        if (_is_shrunk_by_agg) {
-            return;
-        }
-        _collect_vskiplist_to_output<false>();
-        _is_shrunk_by_agg = true;
+    if (_is_shrunk_by_agg) {
+        return;
     }
+    _collect_vskiplist_to_output<false>();
+    _is_shrunk_by_agg = true;
 }
 
 bool MemTable::is_flush() {
@@ -317,18 +306,14 @@ bool MemTable::need_to_agg() {
 }
 
 Status MemTable::flush() {
-    clock_t now = clock();
-    LOG(INFO) << "begin to flush memtable for tablet: " << _tablet_id
+    VLOG_CRITICAL << "begin to flush memtable for tablet: " << _tablet_id
                   << ", memsize: " << memory_usage() << ", rows: " << _rows;
     int64_t duration_ns = 0;
     RETURN_NOT_OK(_do_flush(duration_ns));
     DorisMetrics::instance()->memtable_flush_total->increment(1);
     DorisMetrics::instance()->memtable_flush_duration_us->increment(duration_ns / 1000);
-    LOG(INFO) << "after flush memtable for tablet: " << _tablet_id
-                  << ", flushsize: " << _flush_size
-                  << ", duration(ms): " << duration_ns / (1000*1000);
-    double flush_waiting_time = (now - _flush_submit_time) / (CLOCKS_PER_SEC/1000);
-    LOG(INFO) << "flush waiting time(ms): " << flush_waiting_time;
+    VLOG_CRITICAL << "after flush memtable for tablet: " << _tablet_id
+                  << ", flushsize: " << _flush_size;
     return Status::OK();
 }
 
