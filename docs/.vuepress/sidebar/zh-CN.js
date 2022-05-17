@@ -807,6 +807,7 @@ module.exports = [
               "FLOAT",
               "HLL",
               "INT",
+              "LARGEINT",              
               "SMALLINT",
               "STRING",
               "TINYINT",
