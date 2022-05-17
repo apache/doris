@@ -104,7 +104,7 @@ bool Minidump::_minidump_cb(const google_breakpad::MinidumpDescriptor& descripto
 }
 
 void Minidump::stop() {
-    if (_stop) {
+    if (config::disable_minidump || _stop) {
         return;
     }
     _stop = true;
