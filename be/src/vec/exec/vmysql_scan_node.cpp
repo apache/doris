@@ -46,6 +46,7 @@ Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, b
     bool mysql_eos = false;
 
     do {
+        columns.resize(_slot_num);
         for (int i = 0; i < _slot_num; ++i) {
             if (mem_reuse) {
                 columns[i] = std::move(*block->get_by_position(i).column).mutate();
