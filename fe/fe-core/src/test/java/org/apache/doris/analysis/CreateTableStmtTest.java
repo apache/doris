@@ -274,4 +274,21 @@ public class CreateTableStmtTest {
                 "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
                 "\"iceberg.table\"  =  \"test\")", stmt.toString());
     }
+
+    @Test
+    public void testCreateHudiTable() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("hudi.database", "doris");
+        properties.put("hudi.table", "test");
+        properties.put("hudi.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = hudi\n"
+                + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
+                + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"hudi.table\"  =  \"test\")", stmt.toString());
+    }
 }
