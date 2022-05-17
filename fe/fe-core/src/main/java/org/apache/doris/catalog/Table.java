@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.thrift.TTableDescriptor;
 
 import com.google.common.base.Preconditions;
@@ -67,7 +68,8 @@ public class Table extends MetaObject implements Writable {
         BROKER,
         ELASTICSEARCH,
         HIVE,
-        ICEBERG
+        ICEBERG,
+        HUDI
     }
 
     protected long id;
@@ -340,6 +342,8 @@ public class Table extends MetaObject implements Writable {
             table = new HiveTable();
         } else if (type == TableType.ICEBERG) {
             table = new IcebergTable();
+        } else if (type == TableType.HUDI) {
+            table = new HudiTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
@@ -432,6 +436,8 @@ public class Table extends MetaObject implements Writable {
                 return "ElasticSearch";
             case HIVE:
                 return "Hive";
+            case HUDI:
+                return "Hudi";
             default:
                 return null;
         }
@@ -451,6 +457,7 @@ public class Table extends MetaObject implements Writable {
             case BROKER:
             case ELASTICSEARCH:
             case HIVE:
+            case HUDI:
                 return "EXTERNAL TABLE";
             default:
                 return null;
