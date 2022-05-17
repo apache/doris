@@ -36,7 +36,6 @@ public:
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    //  -- work_function: the function to run every time an item is consumed from the queue
     PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size)
             : PriorityThreadPool(0, 0) {
         DCHECK_GT(num_queues, 0);
@@ -49,6 +48,11 @@ public:
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityWorkStealingThreadPool::work_thread), this, i));
         }
+    }
+
+    virtual ~PriorityWorkStealingThreadPool() {
+        shutdown();
+        join();
     }
 
     // Blocking operation that puts a work item on the queue. If the queue is full, blocks
@@ -81,10 +85,6 @@ public:
             work_queue->shutdown();
         }
     }
-
-    // Blocks until all threads are finished. shutdown does not need to have been called,
-    // since it may be called on a separate thread.
-    void join() override { _threads.join_all(); }
 
     uint32_t get_queue_size() const override {
         uint32_t size = 0;
@@ -141,15 +141,6 @@ private:
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.
     std::vector<std::shared_ptr<BlockingPriorityQueue<Task>>> _work_queues;
-
-    // Collection of worker threads that process work from the queues.
-    ThreadGroup _threads;
-
-    // Guards _empty_cv
-    std::mutex _lock;
-
-    // Signalled when the queue becomes empty
-    std::condition_variable _empty_cv;
 };
 
 } // namespace doris
