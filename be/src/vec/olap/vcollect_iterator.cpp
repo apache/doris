@@ -55,7 +55,8 @@ void VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers
         DCHECK(!rs_readers.empty());
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
-            if ((*c_iter)->init() != Status::OK()) {
+            auto s = (*c_iter)->init();
+            if (!s.ok() && s.precise_code() != OLAP_ERR_DATA_EOF) {
                 delete (*c_iter);
                 c_iter = _children.erase(c_iter);
                 r_iter = rs_readers.erase(r_iter);
@@ -208,8 +209,12 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     _ref.row_pos++;
-    RETURN_NOT_OK(_refresh_current_row());
-
+    auto s = _refresh_current_row();
+    // Ensure all blocks have been processed completely
+    if ((s.precise_code() == OLAP_ERR_DATA_EOF && _ref.block->rows() == 0) ||
+        (!s.ok() && s.precise_code() != OLAP_ERR_DATA_EOF)) {
+        return s;
+    }
     *ref = _ref;
     return Status::OK();
 }
