@@ -357,6 +357,7 @@ set(VEC_TEST_FILES
     vec/function/function_test_util.cpp
     vec/function/table_function_test.cpp
     vec/runtime/vdata_stream_test.cpp
+    vec/utils/arrow_column_to_doris_column_test.cpp
 )
 
 add_executable(doris_be_test

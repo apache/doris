@@ -105,6 +105,21 @@ public class TupleDescriptor {
         return slots;
     }
 
+    /**
+     * get slot desc by slot id.
+     *
+     * @param slotId slot id
+     * @return this slot's desc
+     */
+    public SlotDescriptor getSlot(int slotId) {
+        for (SlotDescriptor slotDesc : slots) {
+            if (slotDesc.getId().asInt() == slotId) {
+                return slotDesc;
+            }
+        }
+        return null;
+    }
+
     public void setCardinality(long cardinality) {
         this.cardinality = cardinality;
     }
