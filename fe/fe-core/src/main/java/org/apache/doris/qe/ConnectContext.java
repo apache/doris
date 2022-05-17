@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.opentelemetry.Telemetry;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.mysql.MysqlCapability;
@@ -44,6 +45,8 @@ import org.apache.logging.log4j.Logger;
 import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Set;
+
+import io.opentelemetry.api.trace.Tracer;
 
 // When one client connect in, we create a connect context for it.
 // We store session information here. Meanwhile ConnectScheduler all
@@ -103,6 +106,8 @@ public class ConnectContext {
     protected volatile long startTime;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
+
+    protected volatile Tracer tracer;
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -463,6 +468,14 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
+    }
+
+    public Tracer getTracer() {
+        return tracer;
+    }
+
+    public void initTracer(String name) {
+        this.tracer = Telemetry.getOpenTelemetry().getTracer(name);
     }
 
     // kill operation with no protect.

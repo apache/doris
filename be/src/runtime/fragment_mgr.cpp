@@ -34,6 +34,7 @@
 #include "gen_cpp/QueryPlanExtra_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
+#include "opentelemetry/trace/scope.h"
 #include "runtime/client_cache.h"
 #include "runtime/datetime_value.h"
 #include "runtime/descriptors.h"
@@ -48,6 +49,7 @@
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
+#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -140,6 +142,10 @@ public:
     void set_pipe(std::shared_ptr<StreamLoadPipe> pipe) { _pipe = pipe; }
     std::shared_ptr<StreamLoadPipe> get_pipe() const { return _pipe; }
 
+    telemetry::OpentelemetryTracer get_tracer() { return _tracer; }
+
+    void set_tracer(telemetry::OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
+
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
 
@@ -171,6 +177,8 @@ private:
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
     // The pipe for data transfering, such as insert.
     std::shared_ptr<StreamLoadPipe> _pipe;
+
+    telemetry::OpentelemetryTracer _tracer;
 };
 
 FragmentExecState::FragmentExecState(const TUniqueId& query_id,
@@ -186,7 +194,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
                                               std::placeholders::_3)),
           _set_rsc_info(false),
           _timeout_second(-1),
-          _fragments_ctx(std::move(fragments_ctx)) {
+          _fragments_ctx(std::move(fragments_ctx)),
+          _tracer(telemetry::get_noop_tracer()) {
     _start_time = DateTimeValue::local_time();
     _coord_addr = _fragments_ctx->coord_addr;
 }
@@ -202,7 +211,8 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
           _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
                                               this, std::placeholders::_1, std::placeholders::_2,
                                               std::placeholders::_3)),
-          _timeout_second(-1) {
+          _timeout_second(-1),
+          _tracer(telemetry::get_noop_tracer()) {
     _start_time = DateTimeValue::local_time();
 }
 
@@ -461,8 +471,15 @@ FragmentMgr::~FragmentMgr() {
 static void empty_function(PlanFragmentExecutor* exec) {}
 
 void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+    std::string func_name{"PlanFragmentExecutor::_exec_actual"};
+    auto span = exec_state->get_tracer()->StartSpan(func_name);
+    auto scope = opentelemetry::trace::Scope {span};
+    span->SetAttribute("host", BackendOptions::get_localhost());
+    span->SetAttribute("query_id", print_id(exec_state->query_id()));
+    span->SetAttribute("instance_id", print_id(exec_state->fragment_instance_id()));
+
     TAG(LOG(INFO))
-            .log("PlanFragmentExecutor::_exec_actual")
+            .log(std::move(func_name))
             .query_id(exec_state->query_id())
             .instance_id(exec_state->fragment_instance_id())
             .tag("pthread_id", std::to_string((uintptr_t)pthread_self()));
@@ -487,6 +504,7 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             _fragments_ctx_map.erase(fragments_ctx->query_id);
         }
     }
+    span->End();
 
     // Callback after remove from this id
     cb(exec_state->executor());
@@ -622,6 +640,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                                                params.params.fragment_instance_id,
                                                params.backend_num, _exec_env, fragments_ctx));
     }
+    if (opentelemetry::trace::Tracer::GetCurrentSpan()->GetContext().IsValid()) {
+        exec_state->set_tracer(telemetry::get_tracer(print_id(params.params.query_id)));
+    }
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
     _runtimefilter_controller.add_entity(params, &handler);
@@ -634,8 +655,13 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
         _cv.notify_all();
     }
 
-    auto st = _thread_pool->submit_func(
-            std::bind<void>(&FragmentMgr::_exec_actual, this, exec_state, cb));
+    // auto st = _thread_pool->submit_func(
+    //         std::bind<void>(&FragmentMgr::_exec_actual, this, exec_state, cb));
+    auto cur_span = opentelemetry::trace::Tracer::GetCurrentSpan();
+    auto st = _thread_pool->submit_func([this, exec_state, cb, parent_span = std::move(cur_span)] {
+        opentelemetry::trace::Scope scope {parent_span};
+        _exec_actual(exec_state, cb);
+    });
     if (!st.ok()) {
         {
             // Remove the exec state added

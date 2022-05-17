@@ -717,6 +717,10 @@ CONF_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 CONF_String(rpc_load_balancer, "rr");
 
+CONF_Bool(enable_tracing, "false");
+
+CONF_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans")
+
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");

@@ -20,6 +20,8 @@
 #include "common/config.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "opentelemetry/trace/context.h"
+#include "opentelemetry/trace/experimental_semantic_conventions.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/exec_env.h"
@@ -35,6 +37,8 @@
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/string_util.h"
+#include "util/telemetry/brpc_carrier.h"
+#include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "vec/runtime/vdata_stream_mgr.h"
@@ -109,6 +113,9 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
+    auto scope = trace_api::Scope{telemetry::get_span_from_rpc(cntl)};
+
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
     st = _exec_plan_fragment(request->request(), compact);

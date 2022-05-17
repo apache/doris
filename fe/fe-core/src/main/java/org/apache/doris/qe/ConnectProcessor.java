@@ -66,6 +66,9 @@ import java.nio.channels.AsynchronousCloseException;
 import java.util.List;
 import java.util.UUID;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Scope;
+
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
  */
@@ -208,16 +211,24 @@ public class ConnectProcessor {
                 if (i > 0) {
                     ctx.resetReturnRows();
                 }
-                parsedStmt = stmts.get(i);
-                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
-                parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-                executor = new StmtExecutor(ctx, parsedStmt);
-                ctx.setExecutor(executor);
-                executor.execute();
+                ctx.initTracer("tracer query");
+                Span rootSpan = ctx.getTracer().spanBuilder("").startSpan();
+                rootSpan.setAttribute("sql", originStmt);
+                try (Scope scope = rootSpan.makeCurrent()) {
+                    rootSpan.setAttribute("fehost", Catalog.getCurrentCatalog().getSelfNode().first);
+                    parsedStmt = stmts.get(i);
+                    parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                    parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
+                    executor = new StmtExecutor(ctx, parsedStmt);
+                    ctx.setExecutor(executor);
+                    executor.execute();
 
-                if (i != stmts.size() - 1) {
-                    ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
-                    finalizeCommand();
+                    if (i != stmts.size() - 1) {
+                        ctx.getState().serverStatus |= MysqlServerStatusFlag.SERVER_MORE_RESULTS_EXISTS;
+                        finalizeCommand();
+                    }
+                } finally {
+                    rootSpan.end();
                 }
                 auditInfoList.add(new Pair<>(executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog()));
                 alreadyAddedToAuditInfoList = true;

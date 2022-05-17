@@ -140,6 +140,10 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+
 // Do one COM_QUERY process.
 // first: Parse receive byte array to statement struct.
 // second: Do handle function for statement.
@@ -314,6 +318,8 @@ public class StmtExecutor implements ProfileWriter {
     // Exception:
     // IOException: talk with client failed.
     public void execute(TUniqueId queryId) throws Exception {
+        Span span = Span.fromContext(Context.current());
+        span.updateName(DebugUtil.printId(queryId));
         context.setStartTime();
 
         plannerProfile.setQueryBeginTime();
@@ -330,8 +336,18 @@ public class StmtExecutor implements ProfileWriter {
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
-                // analyze this query
-                analyze(context.getSessionVariable().toThrift());
+                Span queryAnalysisSpan = context.getTracer().spanBuilder("query analysis")
+                        .setParent(Context.current())
+                        .startSpan();
+                try (Scope scope = queryAnalysisSpan.makeCurrent()) {
+                    // analyze this query
+                    analyze(context.getSessionVariable().toThrift());
+                } catch (Exception e) {
+                    queryAnalysisSpan.recordException(e);
+                    throw e;
+                } finally {
+                    queryAnalysisSpan.end();
+                }
                 if (isForwardToMaster()) {
                     if (isProxy) {
                         // This is already a stmt forwarded from other FE.
@@ -389,6 +405,7 @@ public class StmtExecutor implements ProfileWriter {
                             TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                             AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}", DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
                             context.setQueryId(newQueryId);
+                            span.updateName(DebugUtil.printId(newQueryId));
                         }
                         handleQueryStmt();
                         // explain query stmt do not have profile
@@ -978,6 +995,9 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
+        Span queryScheduleSpan = context.getTracer().spanBuilder("query schedule")
+                .setParent(Context.current())
+                .startSpan();
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -991,43 +1011,60 @@ public class StmtExecutor implements ProfileWriter {
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
                 new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
         coord.setProfileWriter(this);
-        coord.exec();
+        try (Scope scope = queryScheduleSpan.makeCurrent()) {
+            coord.exec();
+        } catch (Exception e) {
+            queryScheduleSpan.recordException(e);
+            throw e;
+        } finally {
+            queryScheduleSpan.end();
+        }
         plannerProfile.setQueryScheduleFinishTime();
         writeProfile(false);
-        while (true) {
-            batch = coord.getNext();
-            // for outfile query, there will be only one empty batch send back with eos flag
-            if (batch.getBatch() != null) {
-                // For some language driver, getting error packet after fields packet will be recognized as a success result
-                // so We need to send fields after first batch arrived
-                if (!isSendFields) {
-                    if (!isOutfileQuery) {
-                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
-                    } else {
-                        sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result")
+                .setParent(Context.current())
+                .startSpan();
+        try (Scope scope = fetchResultSpan.makeCurrent()) {
+            while (true) {
+                batch = coord.getNext();
+                // for outfile query, there will be only one empty batch send back with eos flag
+                if (batch.getBatch() != null) {
+                    // For some language driver, getting error packet after fields packet will be recognized as a success result
+                    // so We need to send fields after first batch arrived
+                    if (!isSendFields) {
+                        if (!isOutfileQuery) {
+                            sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                        } else {
+                            sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                        }
+                        isSendFields = true;
                     }
-                    isSendFields = true;
+                    for (ByteBuffer row : batch.getBatch().getRows()) {
+                        channel.sendOnePacket(row);
+                    }
+                    context.updateReturnRows(batch.getBatch().getRows().size());
                 }
-                for (ByteBuffer row : batch.getBatch().getRows()) {
-                    channel.sendOnePacket(row);
+                if (batch.isEos()) {
+                    break;
                 }
-                context.updateReturnRows(batch.getBatch().getRows().size());
             }
-            if (batch.isEos()) {
-                break;
+            if (!isSendFields) {
+                if (!isOutfileQuery) {
+                    sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                } else {
+                    sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
+                }
             }
-        }
-        if (!isSendFields) {
-            if (!isOutfileQuery) {
-                sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
-            } else {
-                sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
-            }
-        }
 
-        statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
-        context.getState().setEof();
-        plannerProfile.setQueryFetchResultFinishTime();
+            statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
+            context.getState().setEof();
+            plannerProfile.setQueryFetchResultFinishTime();
+        } catch (Exception e) {
+            fetchResultSpan.recordException(e);
+            throw e;
+        } finally {
+            fetchResultSpan.end();
+        }
     }
 
 

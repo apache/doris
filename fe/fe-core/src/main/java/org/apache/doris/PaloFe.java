@@ -25,6 +25,7 @@ import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.MetaReader;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.opentelemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -117,6 +118,8 @@ public class PaloFe {
 
             // check all port
             checkAllPorts();
+
+            Telemetry.initOpenTelemetry();
 
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
