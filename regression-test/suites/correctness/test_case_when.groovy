@@ -64,4 +64,16 @@ suite("test_case_when") {
             and channel_id = '00'
             group by hour_time, station_type; 
     """
+
+    qt_select_agg """
+    SELECT
+      hour_time,
+      sum((CASE WHEN TRUE THEN merchant_id ELSE 0 END)) mid
+    FROM
+      dws_scan_qrcode_user_ts
+    GROUP BY
+      hour_time
+    ORDER BY
+      hour_time;
+    """
 }
