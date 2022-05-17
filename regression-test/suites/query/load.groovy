@@ -67,6 +67,28 @@ suite("load") {
     }
     sql "insert into ${dbName}.test select * from ${dbName}.baseall where k1 <= 3"
 
+    // table for compaction
+    sql """
+    CREATE TABLE compaction_tbl
+    (
+      user_id LARGEINT NOT NULL,
+      date DATE NOT NULL,
+      city VARCHAR(20),
+      age SMALLINT,
+      sex TINYINT,
+      last_visit_date DATETIME REPLACE DEFAULT "1970-01-01 00:00:00",
+      last_update_date DATETIME REPLACE_IF_NOT_NULL DEFAULT "1970-01-01 00:00:00",
+      last_visit_date_not_null DATETIME REPLACE NOT NULL DEFAULT "1970-01-01 00:00:00",
+      cost BIGINT SUM DEFAULT "0",
+      max_dwell_time INT MAX DEFAULT "0",
+      min_dwell_time INT MIN DEFAULT "99999",
+      hll_col HLL HLL_UNION NOT NULL,
+      bitmap_col Bitmap BITMAP_UNION NOT NULL
+    ) AGGREGATE KEY(user_id, date, city, age, sex)
+    DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");"""
+
+    sql """insert into compaction_tbl values(123,"1999-10-10",'aaa',123,123,"1970-01-01 00:00:00","1970-01-01 00:00:00","1970-01-01 00:00:00",123,123,123,hll_hash(""),bitmap_from_string(""));"""
+
     def baseall_count = sql "select count(*) from ${dbName}.baseall"
     assertEquals(16, baseall_count[0][0])
     def test_count = sql "select count(*) from ${dbName}.test"
