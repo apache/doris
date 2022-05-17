@@ -761,7 +761,9 @@ void SegmentIterator::_init_current_block(
         auto cid = _schema.column_id(i);
         auto column_desc = _schema.column(cid);
 
-        if (_is_pred_column[cid]) { //todo(wb) maybe we can release it after output block
+        // the column in in block must clear() here to insert new data
+        if (_is_pred_column[cid] ||
+            i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
@@ -778,8 +780,12 @@ void SegmentIterator::_init_current_block(
 
 void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     for (auto cid : _non_predicate_columns) {
-        block->replace_by_position(_schema_block_id_map[cid],
-                                   std::move(_current_return_columns[cid]));
+        auto loc = _schema_block_id_map[cid];
+        // if loc < block->block->columns() means the the column is delete column and should
+        // not output by block, so just skip the column.
+        if (loc < block->columns()) {
+            block->replace_by_position(loc, std::move(_current_return_columns[cid]));
+        }
     }
 }
 
@@ -911,10 +917,21 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         _current_return_columns.resize(_schema.columns().size());
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
+            auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                auto column_desc = _schema.column(cid);
                 _current_return_columns[cid] = Schema::get_predicate_column_nullable_ptr(
                         column_desc->type(), column_desc->is_nullable());
+                _current_return_columns[cid]->reserve(_opts.block_row_max);
+            } else if (i >= block->columns()) {
+                // if i >= block->columns means the column and not the pred_column means `column i` is
+                // a delete condition column. but the column is not effective in the segment. so we just
+                // create a column to hold the data.
+                // a. origin data -> b. delete condition -> c. new load data
+                // the segment of c do not effective delete condition, but it still need read the column
+                // to match the schema.
+                // TODO: skip read the not effective delete column to speed up segment read.
+                _current_return_columns[cid] =
+                        Schema::get_data_type_ptr(column_desc->type())->create_column();
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
@@ -930,7 +947,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     _opts.stats->raw_rows_read += nrows_read;
 
     if (nrows_read == 0) {
-        for (int i = 0; i < _schema.num_column_ids(); i++) {
+        for (int i = 0; i < block->columns(); i++) {
             auto cid = _schema.column_id(i);
             // todo(wb) abstract make column where
             if (!_is_pred_column[cid]) { // non-predicate
