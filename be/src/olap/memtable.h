@@ -202,7 +202,7 @@ private:
     vectorized::MutableBlock _input_mutable_block;
     vectorized::MutableBlock _output_mutable_block;
 
-    template<bool is_final>
+    template <bool is_final>
     void _collect_vskiplist_to_output();
     bool _is_first_insertion;
 

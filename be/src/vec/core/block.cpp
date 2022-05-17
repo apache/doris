@@ -857,7 +857,6 @@ void MutableBlock::swap(MutableBlock&& another) noexcept {
     _data_types = std::move(another._data_types);
 }
 
-
 void MutableBlock::add_row(const Block* block, int row) {
     auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {

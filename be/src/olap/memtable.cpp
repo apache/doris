@@ -127,7 +127,7 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
     _input_mutable_block.add_rows(block, row_pos, num_rows);
-    size_t input_size = block->allocated_bytes() * num_rows / block->rows(); 
+    size_t input_size = block->allocated_bytes() * num_rows / block->rows();
     _mem_usage += input_size;
     _mem_tracker->consume(input_size);
     // when new data inserted, the mem_usage of memtable should be re-shrunk again.
@@ -243,7 +243,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
                                  new_row->_row_pos, nullptr);
     }
 }
-template<bool is_final>
+template <bool is_final>
 void MemTable::_collect_vskiplist_to_output() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
@@ -266,7 +266,7 @@ void MemTable::_collect_vskiplist_to_output() {
                 auto function = _agg_functions[i];
                 function->insert_result_into(it.key()->_agg_places[i],
                                              *(_output_mutable_block.get_column_by_position(i)));
-                if constexpr(is_final) {
+                if constexpr (is_final) {
                     function->destroy(it.key()->_agg_places[i]);
                 }
             }

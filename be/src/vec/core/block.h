@@ -425,11 +425,9 @@ public:
 
     Block to_block(int start_column, int end_column);
 
-
     void swap(MutableBlock& other) noexcept;
-    
-    void swap(MutableBlock&& other) noexcept;
 
+    void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
     void add_rows(const Block* block, const int* row_begin, const int* row_end);
