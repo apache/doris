@@ -481,10 +481,6 @@ public class FunctionCallExpr extends Expr {
                         "group_concat requires one or two parameters: " + this.toSql());
             }
 
-            if (fnParams.isDistinct()) {
-                throw new AnalysisException("group_concat does not support DISTINCT");
-            }
-
             Expr arg0 = getChild(0);
             if (!arg0.type.isStringType() && !arg0.type.isNull()) {
                 throw new AnalysisException(
