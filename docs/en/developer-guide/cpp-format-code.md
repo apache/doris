@@ -40,7 +40,7 @@ Doris uses clang-format for code formatting, and provides a package script in th
 
 The code style of Doris is slightly modified on the basis of Google Style and is customized as a `.clang-format` file located in the root directory of Doris.
 
-Currently, the `.clang-format` configuration file is adapted to versions above clang-format-8.0.1.
+Currently, the `.clang-format` configuration file is adapted to versions above clang-format-13.0.1.
 
 The code that you do not want to be formatted is recorded in the `.clang-format-ignore` file. These codes usually come from third-party code bases, and it is recommended to keep the original code style.
 
@@ -50,19 +50,24 @@ You need to download and install clang-format, or you can use the clang-format p
 
 ### Download and install clang-format
 
-It is recommended to use NPM to install clang-format 11 (different versions of clang-format may produce different code formats, it is recommended to use version 11):
+It is recommended to use NPM to install clang-format 14 (different versions of clang-format may produce different code formats, it is recommended to use version 14):
 
-`npm install clang-format@1.4.0`
+`npm install clang-format@1.6.0`
 
 Ubuntu: `apt-get install clang-format`
 
-The current version is 10.0, you can also specify the old version, for example: `apt-get install clang-format-9`
+The current version is 10.0, you can also specify the old version, for example: `apt-get install clang-format-9`. It is recommended to compile version 14.0 from source code.
 
 Mac: `brew install clang-format`
 
 Centos 7:
 
-The version of clang-format installed by centos yum is too old and supports too few StyleOptions. It is recommended to compile version 10.0 from source code.
+The version of clang-format installed by centos yum is too old and supports too few StyleOptions. It is recommended to compile version 14.0 from source code.
+
+LDB toolchain:
+
+If you are using [LDB toolchain](http://doris.incubator.apache.org/install/source-install/compilation-with-ldb-toolchain.html),
+the latest version (>= v0.11) of [LDB toolchain](https://github.com/amosbird/ldb_toolchain_gen/releases) has already included clang-format with 13.0.1 version.
 
 ### clang-format plugin
 
