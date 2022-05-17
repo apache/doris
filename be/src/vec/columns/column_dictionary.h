@@ -296,12 +296,10 @@ public:
             if (it != _inverted_index.end()) {
                 return it->second;
             }
-            return -1;
+            return -2; // -1 is null code
         }
 
-        T get_null_code() {
-            return _dict_data.size(); // Make null code greater than the index of the dict
-        }
+        T get_null_code() { return -1; }
 
         inline StringValue& get_value(T code) {
             return code >= _dict_data.size() ? _null_value : _dict_data[code];
@@ -408,9 +406,6 @@ private:
     Container _codes;
 };
 
-template class ColumnDictionary<uint8_t>;
-template class ColumnDictionary<uint16_t>;
-template class ColumnDictionary<uint32_t>;
 template class ColumnDictionary<int32_t>;
 
 using ColumnDictI32 = vectorized::ColumnDictionary<doris::vectorized::Int32>;
