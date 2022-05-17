@@ -54,16 +54,20 @@ public:
                    const std::vector<TNetworkAddress>& broker_addresses,
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~ParquetScanner();
+    ~ParquetScanner() override;
 
     // Open this scanner, will initialize information need to
-    virtual Status open();
+    Status open() override;
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple);
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
+
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
-    virtual void close();
+    void close() override;
 
 protected:
     // Read next buffer from reader
