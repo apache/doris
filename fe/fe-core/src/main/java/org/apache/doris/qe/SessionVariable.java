@@ -417,9 +417,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
 
-    @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
-    public boolean enableLateralView = false;
-
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
@@ -879,14 +876,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableParallelOutfile() {
         return enableParallelOutfile;
-    }
-
-    public boolean isEnableLateralView() {
-        return enableLateralView;
-    }
-
-    public void setEnableLateralView(boolean enableLateralView) {
-        this.enableLateralView = enableLateralView;
     }
 
     public boolean isDisableJoinReorder() {

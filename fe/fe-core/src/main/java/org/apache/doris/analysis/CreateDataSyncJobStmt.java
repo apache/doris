@@ -23,7 +23,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -78,11 +77,6 @@ public class CreateDataSyncJobStmt extends DdlStmt {
             dbName = analyzer.getDefaultDb();
         }
         dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
-
-        if (!Config.enable_create_sync_job) {
-            throw new AnalysisException("Mysql sync job is disabled." +
-                    " Set config 'enable_create_sync_job' = 'true' to enable this feature. ");
-        }
 
         if (binlogDesc != null) {
             binlogDesc.analyze();
