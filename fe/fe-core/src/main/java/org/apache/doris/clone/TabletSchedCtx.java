@@ -1098,6 +1098,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             sb.append(". to backend: ").append(destBackendId);
             sb.append(", dest path hash: ").append(destPathHash);
         }
+        sb.append(", visible version: ").append(visibleVersion);
+        sb.append(", committed version: ").append(committedVersion);
         if (errMsg != null) {
             sb.append(". err: ").append(errMsg);
         }
@@ -1119,4 +1121,26 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
     }
+
+    /**
+     * call this when releaseTabletCtx()
+     */
+    public void resetReplicaState() {
+        if (tablet != null) {
+            for (Replica replica : tablet.getReplicas()) {
+                // To address issue: https://github.com/apache/incubator-doris/issues/9422
+                // the DECOMMISSION state is set in TabletScheduler and not persist to meta.
+                // So it is reasonable to reset this state if we failed to scheduler this tablet.
+                // That is, if the TabletScheduler cannot process the tablet, then it should reset
+                // any intermediate state it set during the scheduling process.
+                if (replica.getState() == ReplicaState.DECOMMISSION) {
+                    replica.setState(ReplicaState.NORMAL);
+                    replica.setWatermarkTxnId(-1);
+                    LOG.debug("reset replica {} on backend {} of tablet {} state from DECOMMISSION to NORMAL",
+                            replica.getId(), replica.getBackendId(), tabletId);
+                }
+            }
+        }
+    }
+
 }
