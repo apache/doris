@@ -61,10 +61,7 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -80,6 +77,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class RollupJobV2Test {
     private static String fileName = "./RollupJobV2Test";
@@ -313,7 +314,6 @@ public class RollupJobV2Test {
     @Test
     public void testSerializeOfRollupJob(@Mocked CreateMaterializedViewStmt stmt) throws IOException,
             AnalysisException {
-        Config.enable_materialized_view = true;
         // prepare file
         File file = new File(fileName);
         file.createNewFile();

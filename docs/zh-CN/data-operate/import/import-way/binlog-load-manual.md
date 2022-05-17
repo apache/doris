@@ -494,10 +494,6 @@ binlog_desc
 
 下面配置属于数据同步作业的系统级别配置，主要通过修改 fe.conf 来调整配置值。
 
-- `enable_create_sync_job`
-
-  开启数据同步作业功能。默认为 false，关闭此功能。
-
 - `sync_commit_interval_second`
 
   提交事务的最大时间间隔。若超过了这个时间channel中还有数据没有提交，consumer会通知channel提交事务。
