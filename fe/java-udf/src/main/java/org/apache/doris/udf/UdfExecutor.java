@@ -382,7 +382,7 @@ public class UdfExecutor {
                 BigInteger data = (BigInteger) obj;
                 byte[] bytes = convertByteOrder(data.toByteArray());
 
-                //here  value is 16 bytes, so if result data greater than the maximum of 16 bytes
+                //here value is 16 bytes, so if result data greater than the maximum of 16 bytes
                 //it will return a wrong num to backend;
                 byte[] value = new byte[16];
                 //check data is negative
@@ -400,7 +400,7 @@ public class UdfExecutor {
             case DECIMALV2: {
                 BigInteger data = ((BigDecimal) obj).unscaledValue();
                 byte[] bytes = convertByteOrder(data.toByteArray());
-
+                //TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[16];
                 if (data.signum() == -1) {
                     Arrays.fill(value, (byte) -1);
