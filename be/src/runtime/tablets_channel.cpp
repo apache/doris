@@ -129,9 +129,16 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
         for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            writer->close_wait(
-                    tablet_vec, tablet_errors,
+            Status st = writer->close_wait(
+                    tablet_vec,
                     (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()));
+            if (!st.ok()) {
+#ifndef BE_TEST
+                PTabletError* tablet_error = tablet_errors->Add();
+                tablet_error->set_tablet_id(writer->tablet_id());
+                tablet_error->set_msg(st.get_error_msg());
+#endif
+            }
         }
     }
     return Status::OK();
