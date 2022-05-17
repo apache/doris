@@ -32,15 +32,16 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 
 public class CreateMaterializedViewStmtTest {
 
@@ -55,7 +56,7 @@ public class CreateMaterializedViewStmtTest {
 
     @Before
     public void initTest() {
-        Deencapsulation.setField(Config.class, "enable_materialized_view", true);
+
     }
 
     @Test

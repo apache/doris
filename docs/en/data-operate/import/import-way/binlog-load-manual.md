@@ -510,10 +510,6 @@ You can use [STOP SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-
 ### Fe configuration
 
 The following configuration belongs to the system level configuration of SyncJob. The configuration value can be modified in configuration file fe.conf.
-
-* `enable_create_sync_job`
-
-	Turn on the Binlog Load feature. The default value is false. This feature is turned off.
 	
 * `sync_commit_interval_second`
 
