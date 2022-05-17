@@ -56,7 +56,15 @@ public:
                 const std::vector<TBrokerRangeDesc>& ranges,
                 const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+
+    JsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                const std::vector<TBrokerRangeDesc>& ranges,
+                const std::vector<TNetworkAddress>& broker_addresses,
+                const TExpr& vpre_filter_texpr, ScannerCounter* counter);
+
     ~JsonScanner();
+
+    void init_line_delimiter(const TBrokerScanRangeParams& params);
 
     // Open this scanner, will initialize information needed
     Status open() override;

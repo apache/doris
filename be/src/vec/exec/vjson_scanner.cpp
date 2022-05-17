@@ -40,8 +40,8 @@ VJsonScanner::VJsonScanner(RuntimeState* state, RuntimeProfile* profile,
                            const TBrokerScanRangeParams& params,
                            const std::vector<TBrokerRangeDesc>& ranges,
                            const std::vector<TNetworkAddress>& broker_addresses,
-                           const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : JsonScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
+                           const TExpr& vpre_filter_texpr, ScannerCounter* counter)
+        : JsonScanner(state, profile, params, ranges, broker_addresses, vpre_filter_texpr, counter),
           _cur_vjson_reader(nullptr) {}
 
 Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {

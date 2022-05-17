@@ -31,9 +31,8 @@ VParquetScanner::VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                  const TBrokerScanRangeParams& params,
                                  const std::vector<TBrokerRangeDesc>& ranges,
                                  const std::vector<TNetworkAddress>& broker_addresses,
-                                 const std::vector<TExpr>& pre_filter_texprs,
-                                 ScannerCounter* counter)
-        : ParquetScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
+                                 const TExpr& vpre_filter_texpr, ScannerCounter* counter)
+        : ParquetScanner(state, profile, params, ranges, broker_addresses, vpre_filter_texpr,
                          counter),
           _batch(nullptr),
           _arrow_batch_cur_idx(0) {}

@@ -43,6 +43,18 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_file_reader(nullptr),
           _cur_file_eof(false) {}
 
+ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
+                               const TBrokerScanRangeParams& params,
+                               const std::vector<TBrokerRangeDesc>& ranges,
+                               const std::vector<TNetworkAddress>& broker_addresses,
+                               const TExpr& vpre_filter_texpr, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, vpre_filter_texpr, counter),
+          _ranges(ranges),
+          _broker_addresses(broker_addresses),
+          _cur_file_reader(nullptr),
+          _next_range(0),
+          _cur_file_eof(false) {}
+
 ParquetScanner::~ParquetScanner() {
     close();
 }

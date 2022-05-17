@@ -233,7 +233,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         if (_vectorized) {
             scan = new vectorized::VParquetScanner(
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+                    scan_range.broker_addresses, _vpre_filter_texpr, counter);
         } else {
             scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
                                       scan_range.ranges, scan_range.broker_addresses,
@@ -249,7 +249,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         if (_vectorized) {
             scan = new vectorized::VJsonScanner(
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _pre_filter_texprs, counter);
+                    scan_range.broker_addresses, _vpre_filter_texpr, counter);
         } else {
             scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
                                    scan_range.ranges, scan_range.broker_addresses,
