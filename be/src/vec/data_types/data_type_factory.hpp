@@ -22,6 +22,7 @@
 #include <mutex>
 #include <string>
 
+#include "arrow/type.h"
 #include "gen_cpp/data.pb.h"
 #include "olap/field.h"
 #include "olap/tablet_schema.h"
@@ -86,6 +87,8 @@ public:
     DataTypePtr create_data_type(const TypeDescriptor& col_desc, bool is_nullable = true);
 
     DataTypePtr create_data_type(const PColumnMeta& pcolumn);
+
+    DataTypePtr create_data_type(const arrow::Type::type& type, bool is_nullable);
 
 private:
     DataTypePtr _create_primitive_data_type(const FieldType& type) const;

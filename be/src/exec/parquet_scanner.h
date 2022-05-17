@@ -65,11 +65,11 @@ public:
     // Close this scanner
     virtual void close();
 
-private:
+protected:
     // Read next buffer from reader
     Status open_next_reader();
 
-private:
+protected:
     //const TBrokerScanRangeParams& _params;
     const std::vector<TBrokerRangeDesc>& _ranges;
     const std::vector<TNetworkAddress>& _broker_addresses;
