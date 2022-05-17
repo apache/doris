@@ -150,6 +150,9 @@ import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.external.elasticsearch.EsRepository;
+import org.apache.doris.external.hudi.HudiProperty;
+import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
@@ -3076,6 +3079,9 @@ public class Catalog {
         } else if (engineName.equalsIgnoreCase("iceberg")) {
             IcebergCatalogMgr.createIcebergTable(db, stmt);
             return;
+        } else if (engineName.equalsIgnoreCase("hudi")) {
+            createHudiTable(db, stmt);
+            return;
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
         }
@@ -4105,6 +4111,44 @@ public class Catalog {
         LOG.info("successfully create table[{}-{}]", tableName, tableId);
     }
 
+    private void createHudiTable(Database db, CreateTableStmt stmt) throws DdlException {
+        String tableName = stmt.getTableName();
+        List<Column> columns = stmt.getColumns();
+        long tableId = getNextId();
+        HudiTable hudiTable = new HudiTable(tableId, tableName, columns, stmt.getProperties());
+        hudiTable.setComment(stmt.getComment());
+        // check hudi properties in create stmt.
+        HudiUtils.validateCreateTable(hudiTable);
+        // check hudi table whether exists in hive database
+        String metastoreUris = hudiTable.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
+        HiveMetaStoreClient hiveMetaStoreClient = HiveMetaStoreClientHelper.getClient(metastoreUris);
+        if (!HiveMetaStoreClientHelper.tableExists(hiveMetaStoreClient,
+                hudiTable.getHmsDatabaseName(), hudiTable.getHmsTableName())) {
+            throw new DdlException(String.format("Table [%s] dose not exist in Hive Metastore.",
+                    hudiTable.getHmsTableIdentifer()));
+        }
+        org.apache.hadoop.hive.metastore.api.Table hiveTable = HiveMetaStoreClientHelper.getTable(
+                hudiTable.getHmsDatabaseName(),
+                hudiTable.getHmsTableName(),
+                metastoreUris);
+        if (!HudiUtils.isHudiTable(hiveTable)) {
+            throw new DdlException(String.format("Table [%s] is not a hudi table.", hudiTable.getHmsTableIdentifer()));
+        }
+        // after support snapshot query for mor, we should remove the check.
+        if (HudiUtils.isHudiRealtimeTable(hiveTable)) {
+            throw new DdlException(String.format("Can not support hudi realtime table.", hudiTable.getHmsTableName()));
+        }
+        // check table's schema when user specify the schema
+        if (!hudiTable.getFullSchema().isEmpty()) {
+            HudiUtils.validateColumns(hudiTable, hiveTable);
+        }
+        // check hive table if exists in doris database
+        if (!db.createTableWithLock(hudiTable, false, stmt.isSetIfNotExists()).first) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+        }
+        LOG.info("successfully create table[{}-{}]", tableName, tableId);
+    }
+
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
@@ -4411,6 +4455,15 @@ public class Catalog {
             sb.append("\"iceberg.database\" = \"").append(icebergTable.getIcebergDb()).append("\",\n");
             sb.append("\"iceberg.table\" = \"").append(icebergTable.getIcebergTbl()).append("\",\n");
             sb.append(new PrintableMap<>(icebergTable.getIcebergProperties(), " = ", true, true, false).toString());
+            sb.append("\n)");
+        } else if (table.getType() == TableType.HUDI) {
+            HudiTable hudiTable = (HudiTable) table;
+            if (!Strings.isNullOrEmpty(table.getComment())) {
+                sb.append("\nCOMMENT \"").append(table.getComment(true)).append("\"");
+            }
+            // properties
+            sb.append("\nPROPERTIES (\n");
+            sb.append(new PrintableMap<>(hudiTable.getTableProperties(), " = ", true, true, false).toString());
             sb.append("\n)");
         }
 

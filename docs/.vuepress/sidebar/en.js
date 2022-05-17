@@ -224,7 +224,8 @@ module.exports = [
           "doris-on-es",
           "odbc-of-doris",
           "hive-of-doris",
-          "iceberg-of-doris"
+          "iceberg-of-doris",
+          "hudi-external-table"
         ],
       },
       "audit-plugin",

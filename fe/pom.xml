@@ -249,7 +249,8 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>0.12.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
-        <!-- ATTN: avro version must be consistent with Iceberg version -->
+        <!-- hudi -->
+        <hudi.version>0.10.0</hudi.version>
         <parquet.version>1.10.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <scala.version>2.12.10</scala.version>
@@ -850,6 +851,20 @@ under the License.
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
+            </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+            <dependency>
+                <groupId>org.apache.hudi</groupId>
+                <artifactId>hudi-common</artifactId>
+                <version>${hudi.version}</version>
+            </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
+            <dependency>
+                <groupId>org.apache.hudi</groupId>
+                <artifactId>hudi-hadoop-mr</artifactId>
+                <version>${hudi.version}</version>
             </dependency>
 
             <dependency>
