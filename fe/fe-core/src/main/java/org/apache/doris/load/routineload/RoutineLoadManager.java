@@ -55,6 +55,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -476,7 +477,7 @@ public class RoutineLoadManager implements Writable {
      * The routine load task can only be scheduled on backends which has proper resource tags.
      * The tags should be got from user property.
      * But in the old version, the routine load job does not have user info, so for compatibility,
-     * if there is no user info, we will get tags from replica allocation if the first partition of the table.
+     * if there is no user info, we will get tags from replica allocation of the first partition of the table.
      *
      * @param jobId
      * @param cluster
