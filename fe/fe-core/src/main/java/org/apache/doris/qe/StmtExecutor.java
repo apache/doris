@@ -335,9 +335,8 @@ public class StmtExecutor implements ProfileWriter {
             analyzeVariablesInStmt();
 
             if (!context.isTxnModel()) {
-                Span queryAnalysisSpan = context.getTracer().spanBuilder("query analysis")
-                    .setParent(Context.current())
-                    .startSpan();
+                Span queryAnalysisSpan =
+                        context.getTracer().spanBuilder("query analysis").setParent(Context.current()).startSpan();
                 try (Scope scope = queryAnalysisSpan.makeCurrent()) {
                     // analyze this query
                     analyze(context.getSessionVariable().toThrift());
@@ -994,9 +993,8 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
-        Span queryScheduleSpan = context.getTracer().spanBuilder("query schedule")
-            .setParent(Context.current())
-            .startSpan();
+        Span queryScheduleSpan =
+                context.getTracer().spanBuilder("query schedule").setParent(Context.current()).startSpan();
         // send result
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
@@ -1020,9 +1018,7 @@ public class StmtExecutor implements ProfileWriter {
         }
         plannerProfile.setQueryScheduleFinishTime();
         writeProfile(false);
-        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result")
-            .setParent(Context.current())
-            .startSpan();
+        Span fetchResultSpan = context.getTracer().spanBuilder("fetch result").setParent(Context.current()).startSpan();
         try (Scope scope = fetchResultSpan.makeCurrent()) {
             while (true) {
                 batch = coord.getNext();

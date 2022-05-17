@@ -136,6 +136,9 @@ public class BackendServiceClient {
         LOG.warn("shut down backend service client: {}", address);
     }
 
+    /***
+     * OpenTelemetry span interceptor
+     */
     public static class OpenTelemetryClientInterceptor implements ClientInterceptor {
         @Override
         public <ReqT, RespT> ClientCall<ReqT, RespT> interceptCall(MethodDescriptor<ReqT, RespT> methodDescriptor,
