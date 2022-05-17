@@ -44,12 +44,12 @@ public:
                     const std::vector<TNetworkAddress>& broker_addresses,
                     const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    virtual ~VParquetScanner();
+    ~VParquetScanner() override;
 
     // Open this scanner, will initialize information need to
-    Status open();
+    Status open() override;
 
-    Status get_next(Block* block, bool* eof);
+    Status get_next(Block* block, bool* eof) override;
 
 private:
     Status _next_arrow_batch();
