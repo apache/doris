@@ -111,7 +111,6 @@ public class EsTable extends Table {
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
-
     // connect es.
     private EsRestClient client = null;
 
@@ -130,7 +129,6 @@ public class EsTable extends Table {
         this.name = name;
         validate(properties);
         this.client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
-
     }
 
     /**
@@ -142,7 +140,6 @@ public class EsTable extends Table {
         this.partitionInfo = partitionInfo;
         validate(properties);
         this.client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
-
     }
 
     public Map<String, String> fieldsContext() {
@@ -171,6 +168,10 @@ public class EsTable extends Table {
 
     public boolean isHttpSslEnabled() {
         return httpSslEnabled;
+    }
+
+    public EsRestClient getClient() {
+        return client;
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -370,7 +371,7 @@ public class EsTable extends Table {
         } else {
             throw new IOException("invalid partition type: " + partType);
         }
-
+        client = new EsRestClient(seeds, userName, passwd, httpSslEnabled);
     }
 
     public String getHosts() {
@@ -454,7 +455,7 @@ public class EsTable extends Table {
      **/
     public List<Column> genColumnsFromEs() {
         String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
+        JSONObject mappingProps = EsUtil.getMappingProps(indexName, name, mapping, mappingType);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
         for (String key : keys) {
