@@ -343,10 +343,6 @@ public class SingleNodePlanner {
         // Gather unassigned conjuncts and generate predicates to enfore
         // slot equivalences for each tuple id.
         List<Expr> conjuncts = analyzer.getUnassignedConjuncts(root);
-        // for (TupleId ignored : tupleIds) {
-        //     // TODO(zc)
-        //     analyzer.createEquivConjuncts(tid, conjuncts);
-        // }
         if (conjuncts.isEmpty()) {
             return root;
         }
@@ -2394,10 +2390,13 @@ public class SingleNodePlanner {
             final List<SlotId> slotIds = Lists.newArrayList();
             predicate.getIds(tupleIds, slotIds);
 
-            boolean isAllSlotReferingGroupBys = true;
+            boolean isAllSlotReferToGroupBys = true;
             for (SlotId slotId : slotIds) {
-
                 Expr sourceExpr = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
+                // Every phase in aggregate will wrap expression with SlotRef.
+                // When we process one phase aggregate, we just need to unwrap once.
+                // But when we process 2 phase aggregate, we need to unwrap twice.
+                // So use loop here to adapt to different situations.
                 while (sourceExpr instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) sourceExpr;
                     SlotDescriptor slotDesc = slotRef.getDesc();
@@ -2418,24 +2417,24 @@ public class SingleNodePlanner {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
                     if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
                             || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
-                        isAllSlotReferingGroupBys = false;
+                        isAllSlotReferToGroupBys = false;
                     } else {
                         // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
                         // the predicate cannot be push down
                         for (List<Expr> exprs : stmt.getGroupByClause().getGroupingSetList()) {
                             if (!exprs.contains(sourceExpr)) {
-                                isAllSlotReferingGroupBys = false;
+                                isAllSlotReferToGroupBys = false;
                                 break;
                             }
                         }
                     }
                 }
                 if (sourceExpr.getFn() instanceof AggregateFunction) {
-                    isAllSlotReferingGroupBys = false;
+                    isAllSlotReferToGroupBys = false;
                 }
             }
 
-            if (isAllSlotReferingGroupBys) {
+            if (isAllSlotReferToGroupBys) {
                 predicatesCanPushDown.add(predicate);
             }
         }
