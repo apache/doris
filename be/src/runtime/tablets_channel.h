@@ -99,8 +99,8 @@ private:
 
     // deal with DeltaWriter close_wait(), add tablet to list for return.
     void _close_wait(DeltaWriter* writer,
-                    google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                    google::protobuf::RepeatedPtrField<PTabletError>* tablet_error);
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                     google::protobuf::RepeatedPtrField<PTabletError>* tablet_error);
 
     // id of this load channel
     TabletsChannelKey _key;
