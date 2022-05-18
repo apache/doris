@@ -139,28 +139,28 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + where
 
-	Import the filter conditions specified by the task. Stream load supports filtering of where statements specified for raw data. The filtered data will not be imported or participated in the calculation of filter ratio, but will be counted as `num_rows_unselected`.
+    Import the filter conditions specified by the task. Stream load supports filtering of where statements specified for raw data. The filtered data will not be imported or participated in the calculation of filter ratio, but will be counted as `num_rows_unselected`.
 
 + partition
 
-	Partition information for tables to be imported will not be imported if the data to be imported does not belong to the specified Partition. These data will be included in `dpp.abnorm.ALL`.
+    Partition information for tables to be imported will not be imported if the data to be imported does not belong to the specified Partition. These data will be included in `dpp.abnorm.ALL`.
 
 + columns
 
-	The function transformation configuration of data to be imported includes the sequence change of columns and the expression transformation, in which the expression transformation method is consistent with the query statement.
+    The function transformation configuration of data to be imported includes the sequence change of columns and the expression transformation, in which the expression transformation method is consistent with the query statement.
 
-	```
-	Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present. 
-	when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
-	columns: dst_c1, dst_c2, dst_c3
+    ```
+    Examples of column order transformation: There are three columns of original data (src_c1,src_c2,src_c3), and there are also three columns （dst_c1,dst_c2,dst_c3) in the doris table at present. 
+    when the first column src_c1 of the original file corresponds to the dst_c1 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c2 column of the target table and the third column src_c3 of the original file corresponds to the dst_c3 column of the target table,which is written as follows:
+    columns: dst_c1, dst_c2, dst_c3
 	
-	when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
-	columns: dst_c2, dst_c3, dst_c1
+    when the first column src_c1 of the original file corresponds to the dst_c2 column of the target table, while the second column src_c2 of the original file corresponds to the dst_c3 column of the target table and the third column src_c3 of the original file corresponds to the dst_c1 column of the target table,which is written as follows:
+    columns: dst_c2, dst_c3, dst_c1
 	
-	Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
-	columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
-	Tmp_* is a placeholder, representing two original columns in the original file.
-	```
+    Example of expression transformation: There are two columns in the original file and two columns in the target table (c1, c2). However, both columns in the original file need to be transformed by functions to correspond to the two columns in the target table.
+    columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
+    Tmp_* is a placeholder, representing two original columns in the original file.
+    ```
 
 + exec\_mem\_limit
 
@@ -171,26 +171,52 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
 + two\_phase\_commit
 
-    Stream load supports the two-phase commit mode。The mode could be enabled by declaring ```two_phase_commit=true``` in http header. This mode is disabled by default.
-    the two-phase commit mode means：During Stream load, after data is written, the message will be returned to the client, the data is invisible at this point and the transaction status is PRECOMMITTED. The data will be visible only after COMMIT is triggered by client。
-    
-    1. User can invoke the following interface to trigger commit operations for transaction：
-    ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
-    ```
-    or
-    ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
-    ```
-    
-    2. User can invoke the following interface to trigger abort operations for transaction：
-    ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
-    ```
-    or
-    ```
-    curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
-    ```
+  Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
+
+  The default two-phase bulk transaction commit is off.
+
+  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf (restart takes effect) and declare `two_phase_commit=true` in HEADER.
+
+  Example：
+
+	1. Initiate a stream load pre-commit operation
+  ```shell
+  curl  --location-trusted -u user:passwd -H "two_phase_commit:true" -T test.txt http://fe_host:http_port/api/{db}/{table}/_stream_load
+  {
+      "TxnId": 18036,
+      "Label": "55c8ffc9-1c40-4d51-b75e-f2265b3602ef",
+      "TwoPhaseCommit": "true",
+      "Status": "Success",
+      "Message": "OK",
+      "NumberTotalRows": 100,
+      "NumberLoadedRows": 100,
+      "NumberFilteredRows": 0,
+      "NumberUnselectedRows": 0,
+      "LoadBytes": 1031,
+      "LoadTimeMs": 77,
+      "BeginTxnTimeMs": 1,
+      "StreamLoadPutTimeMs": 1,
+      "ReadDataTimeMs": 0,
+      "WriteDataTimeMs": 58,
+      "CommitAndPublishTimeMs": 0
+  }
+  ```
+    2. Trigger the commit operation on the transaction
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "transaction [18036] commit successfully."
+  }
+  ```
+    3. Trigger an abort operation on a transaction
+  ```shell
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "transaction [18037] abort successfully."
+  }
+   ```
 
 ### Return results
 
