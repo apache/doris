@@ -55,7 +55,7 @@ public class DatabaseTest {
     private EditLog editLog;
 
     @Before
-    public void Setup() {
+    public void setup() {
         db = new Database(dbId, "dbTest");
         new Expectations() {
             {

@@ -32,6 +32,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * CASE and DECODE are represented using this class. The backend implementation is
@@ -96,6 +97,11 @@ public class CaseExpr extends Expr {
     @Override
     public Expr clone() {
         return new CaseExpr(this);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), hasCaseExpr, hasElseExpr);
     }
 
     @Override

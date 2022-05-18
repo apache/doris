@@ -45,7 +45,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
-import org.apache.doris.journal.bdbje.BDBJEJournal;
+import org.apache.doris.journal.bdbje.BdbjeJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
@@ -93,7 +93,7 @@ public class EditLog {
     private Journal journal;
 
     public EditLog(String nodeName) {
-        journal = new BDBJEJournal(nodeName);
+        journal = new BdbjeJournal(nodeName);
     }
 
     public long getMaxJournalId() {

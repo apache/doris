@@ -469,7 +469,7 @@ public class Text implements Writable {
         while (count < start + len) {
             int aByte = ((int) utf8[count] & 0xFF);
 
-            switch (state) {
+            switch (state) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case LEAD_BYTE:
                 leadByte = aByte;
                 length = bytesFromUTF8[aByte];
@@ -520,8 +520,9 @@ public class Text implements Writable {
                 }
                 // falls through to regular trail-byte test!!
             case TRAIL_BYTE:
-                if (aByte < 0x80 || aByte > 0xBF)
+                if (aByte < 0x80 || aByte > 0xBF) {
                     throw new MalformedInputException(count);
+                }
                 if (--length == 0) {
                     state = LEAD_BYTE;
                 } else {
@@ -570,28 +571,35 @@ public class Text implements Writable {
         byte b = bytes.get();
         bytes.reset();
         int extraBytesToRead = bytesFromUTF8[(b & 0xFF)];
-        if (extraBytesToRead < 0)
+        if (extraBytesToRead < 0) {
             return -1; // trailing byte!
+        }
         int ch = 0;
 
-        switch (extraBytesToRead) {
+        switch (extraBytesToRead) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
         case 5:
             ch += (bytes.get() & 0xFF);
             ch <<= 6; /* remember, illegal UTF-8 */
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 4:
             ch += (bytes.get() & 0xFF);
             ch <<= 6; /* remember, illegal UTF-8 */
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 3:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 2:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 1:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 0:
             ch += (bytes.get() & 0xFF);
+            // CHECKSTYLE IGNORE THIS LINE: fall through, missing switch default
         }
         ch -= offsetsFromUTF8[extraBytesToRead];
 

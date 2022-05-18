@@ -62,7 +62,9 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public int numNodes() {
         int numNodes = 1;
-        for (NodeType child: children) numNodes += child.numNodes();
+        for (NodeType child: children) {
+            numNodes += child.numNodes();
+        }
         return numNodes;
     }
 
@@ -82,7 +84,9 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
             matches.add((D) this);
             return;
         }
-        for (NodeType child: children) child.collect(predicate, matches);
+        for (NodeType child: children) {
+            child.collect(predicate, matches);
+        }
     }
 
     /**
@@ -96,7 +100,9 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
             matches.add((D) this);
             return;
         }
-        for (NodeType child: children) child.collect(cl, matches);
+        for (NodeType child: children) {
+            child.collect(cl, matches);
+        }
     }
 
     /**
@@ -106,8 +112,12 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public <C extends TreeNode<NodeType>, D extends C> void collectAll(
             Predicate<? super C> predicate, List<D> matches) {
-        if (predicate.apply((C) this)) matches.add((D) this);
-        for (NodeType child: children) child.collectAll(predicate, matches);
+        if (predicate.apply((C) this)) {
+            matches.add((D) this);
+        }
+        for (NodeType child: children) {
+            child.collectAll(predicate, matches);
+        }
     }
 
     /**
@@ -116,7 +126,9 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public static <C extends TreeNode<C>, D extends C> void collect(
             Collection<C> nodeList, Predicate<? super C> predicate, Collection<D> matches) {
-        for (C node: nodeList) node.collect(predicate, matches);
+        for (C node: nodeList) {
+            node.collect(predicate, matches);
+        }
     }
 
     /**
@@ -125,7 +137,9 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public static <C extends TreeNode<C>, D extends C> void collect(
             Collection<C> nodeList, Class cl, Collection<D> matches) {
-        for (C node: nodeList) node.collect(cl, matches);
+        for (C node: nodeList) {
+            node.collect(cl, matches);
+        }
     }
 
     public boolean contains(Class cl) {
@@ -145,8 +159,14 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public <C extends TreeNode<NodeType>> boolean contains(
             Predicate<? super C> predicate) {
-        if (predicate.apply((C) this)) return true;
-        for (NodeType child: children) if (child.contains(predicate)) return true;
+        if (predicate.apply((C) this)) {
+            return true;
+        }
+        for (NodeType child: children) {
+            if (child.contains(predicate)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -156,7 +176,11 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public static <C extends TreeNode<C>, D extends C> boolean contains(
             Collection<C> nodeList, Predicate<? super C> predicate) {
-        for (C node: nodeList) if (node.contains(predicate)) return true;
+        for (C node: nodeList) {
+            if (node.contains(predicate)) {
+                return true;
+            }
+        }
         return false;
     }
 
@@ -165,7 +189,11 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
      */
     public static <C extends TreeNode<C>> boolean contains(
             List<C> nodeList, Class cl) {
-        for (C node: nodeList) if (node.contains(cl)) return true;
+        for (C node: nodeList) {
+            if (node.contains(cl)) {
+                return true;
+            }
+        }
         return false;
     }
 

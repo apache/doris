@@ -25,17 +25,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
-// SHOW PROC "/bdbje/dbname/"
-public class BDBJEDatabaseProcDir implements ProcDirInterface  {
+// SHOW PROC "/bdbje"
+public class BdbjeProcDir implements ProcDirInterface  {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("JournalId").build();
-
-    private String dbName;
-
-    public BDBJEDatabaseProcDir(String dbName){
-        this.dbName = dbName;
-    }
+            .add("DbNames").add("JournalNumber").add("Comment").build();
 
     @Override
     public boolean register(String name, ProcNodeInterface node) {
@@ -43,8 +39,8 @@ public class BDBJEDatabaseProcDir implements ProcDirInterface  {
     }
 
     @Override
-    public ProcNodeInterface lookup(String journalId) throws AnalysisException {
-        return new BDBJEJournalDataProcNode(dbName, Long.valueOf(journalId));
+    public ProcNodeInterface lookup(String dbName) throws AnalysisException {
+        return new BdbjeDatabaseProcDir(dbName);
     }
 
     @Override
@@ -56,16 +52,16 @@ public class BDBJEDatabaseProcDir implements ProcDirInterface  {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        BDBDebugger.BDBDebugEnv env = BDBDebugger.get().getEnv();
-        try {
-            List<Long> journalIds = env.getJournalIds(dbName);
-            for (Long journalId : journalIds) {
-                result.addRow(Lists.newArrayList(journalId.toString()));
-            }
-        } catch (BDBDebugger.BDBDebugException e) {
-            throw new AnalysisException(e.getMessage());
+        BDBDebugger.BDBDebugEnv debugEnv = BDBDebugger.get().getEnv();
+        List<String> dbNames = debugEnv.listDbNames();
+        TreeMap<String, Long> journalNumMap = new TreeMap<>();
+        for (String dbName : dbNames) {
+            journalNumMap.put(dbName, debugEnv.getJournalNumber(dbName));
         }
 
+        for (Map.Entry<String, Long> entry : journalNumMap.entrySet()) {
+            result.addRow(Lists.newArrayList(entry.getKey(), entry.getValue().toString(), ""));
+        }
         return result;
     }
 }

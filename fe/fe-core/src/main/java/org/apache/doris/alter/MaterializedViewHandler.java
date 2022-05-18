@@ -1050,8 +1050,9 @@ public class MaterializedViewHandler extends AlterHandler {
             if (cancelAlterTableStmt.getAlterJobIdList() != null) {
                 for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
-                    if (alterJobV2 == null)
+                    if (alterJobV2 == null) {
                         continue;
+                    }
                     rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
                 }
             } else {

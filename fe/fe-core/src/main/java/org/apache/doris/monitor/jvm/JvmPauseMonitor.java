@@ -51,14 +51,14 @@ public class JvmPauseMonitor {
 
     // Check for Java deadlocks at this interval. Set by init(). 0 or negative means that
     // the deadlock checks are disabled.
-    private long deadlockCheckIntervalS_ = 0;
+    private long deadlockCheckIntervalS = 0;
 
     // log WARN if we detect a pause longer than this threshold.
-    private long warnThresholdMs_;
+    private long warnThresholdMs;
     private static final long WARN_THRESHOLD_MS = 10000;
 
     // log INFO if we detect a pause longer than this threshold.
-    private long infoThresholdMs_;
+    private long infoThresholdMs;
     private static final long INFO_THRESHOLD_MS = 1000;
 
     // Overall metrics
@@ -70,7 +70,7 @@ public class JvmPauseMonitor {
     private volatile long totalGcExtraSleepTime = 0;
 
     // Daemon thread running the pause monitor loop.
-    private Thread monitorThread_;
+    private Thread monitorThread;
     private volatile boolean shouldRun = true;
 
     // Singleton instance of this pause monitor.
@@ -78,7 +78,9 @@ public class JvmPauseMonitor {
 
     // Initializes the pause monitor. No-op if called multiple times.
     public static void initPauseMonitor(long deadlockCheckIntervalS) {
-        if (INSTANCE.isStarted()) return;
+        if (INSTANCE.isStarted()) {
+            return;
+        }
         INSTANCE.init(deadlockCheckIntervalS);
     }
 
@@ -87,19 +89,19 @@ public class JvmPauseMonitor {
     }
 
     private JvmPauseMonitor(long infoThresholdMs, long warnThresholdMs) {
-        this.infoThresholdMs_ = infoThresholdMs;
-        this.warnThresholdMs_ = warnThresholdMs;
+        this.infoThresholdMs = infoThresholdMs;
+        this.warnThresholdMs = warnThresholdMs;
     }
 
     protected void init(long deadlockCheckIntervalS) {
-        deadlockCheckIntervalS_ = deadlockCheckIntervalS;
-        monitorThread_ = new Thread(new Monitor(), "JVM pause monitor");
-        monitorThread_.setDaemon(true);
-        monitorThread_.start();
+        this.deadlockCheckIntervalS = deadlockCheckIntervalS;
+        monitorThread = new Thread(new Monitor(), "JVM pause monitor");
+        monitorThread.setDaemon(true);
+        monitorThread.start();
     }
 
     public boolean isStarted() {
-        return monitorThread_ != null;
+        return monitorThread != null;
     }
 
     public long getNumGcWarnThresholdExceeded() {
@@ -202,11 +204,11 @@ public class JvmPauseMonitor {
                 long extraSleepTime = sw.elapsed(TimeUnit.MILLISECONDS) - SLEEP_INTERVAL_MS;
                 Map<String, GcTimes> gcTimesAfterSleep = getGcTimes();
 
-                if (extraSleepTime > warnThresholdMs_) {
+                if (extraSleepTime > warnThresholdMs) {
                     ++numGcWarnThresholdExceeded;
                     LOG.warn(formatMessage(
                             extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
-                } else if (extraSleepTime > infoThresholdMs_) {
+                } else if (extraSleepTime > infoThresholdMs) {
                     ++numGcInfoThresholdExceeded;
                     LOG.info(formatMessage(
                             extraSleepTime, gcTimesAfterSleep, gcTimesBeforeSleep));
@@ -214,8 +216,8 @@ public class JvmPauseMonitor {
                 totalGcExtraSleepTime += extraSleepTime;
                 gcTimesBeforeSleep = gcTimesAfterSleep;
 
-                if (deadlockCheckIntervalS_ > 0 &&
-                        timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS_) {
+                if (deadlockCheckIntervalS > 0 &&
+                        timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS) {
                     checkForDeadlocks();
                     timeSinceDeadlockCheck.reset().start();
                 }
@@ -242,7 +244,9 @@ public class JvmPauseMonitor {
                 for (ThreadInfo thread : deadlockedThreads) {
                     // Defensively check for null in case the thread somehow disappeared between
                     // findDeadlockedThreads() and getThreadInfo().
-                    if (thread != null) LOG.error(thread.toString());
+                    if (thread != null) {
+                        LOG.error(thread.toString());
+                    }
                 }
                 LOG.warn("All threads:");
                 for (ThreadInfo thread : threadMx.dumpAllThreads(true, true)) {

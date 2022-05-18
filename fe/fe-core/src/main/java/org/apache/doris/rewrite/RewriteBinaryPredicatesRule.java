@@ -86,7 +86,9 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate)) return expr;
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
         BinaryPredicate.Operator op = ((BinaryPredicate) expr).getOp();
         Expr expr0 = expr.getChild(0);
         Expr expr1 = expr.getChild(1);

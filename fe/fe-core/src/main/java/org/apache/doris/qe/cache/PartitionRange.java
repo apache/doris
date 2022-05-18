@@ -117,7 +117,7 @@ public class PartitionRange {
             this.tooNew = false;
         }
 
-        public void Debug() {
+        public void debug() {
             if (partition != null) {
                 LOG.info("partition id {}, cacheKey {}, version {}, time {}, fromCache {}, tooNew {} ",
                         partitionId, cacheKey.realValue(),
@@ -196,6 +196,8 @@ public class PartitionRange {
                     value = expr.getLongValue();
                     keyType = KeyType.LONG;
                     break;
+                default:
+                    return true;
             }
             return true;
         }

@@ -28,7 +28,7 @@ import org.junit.Test;
 public class DateLiteralTest {
 
     @Test
-    public void TwoDigitYear() {
+    public void twoDigitYear() {
         boolean hasException = false;
         try {
             DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);

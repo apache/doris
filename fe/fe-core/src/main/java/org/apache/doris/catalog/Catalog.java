@@ -155,7 +155,7 @@ import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
-import org.apache.doris.ha.BDBHA;
+import org.apache.doris.ha.BdbHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
 import org.apache.doris.ha.MasterInfo;
@@ -1440,7 +1440,7 @@ public class Catalog {
         if (Config.edit_log_type.equalsIgnoreCase("BDB")) {
             for (Frontend fe : frontends.values()) {
                 if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
-                    ((BDBHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());
+                    ((BdbHA) getHaProtocol()).addHelperSocket(fe.getHost(), fe.getEditLogPort());
                 }
             }
         }
@@ -2440,6 +2440,7 @@ public class Catalog {
                             LOG.error(msg);
                             Util.stdoutWithTime(msg);
                             System.exit(-1);
+                            break;
                         }
                         default:
                             break;
@@ -2527,7 +2528,7 @@ public class Catalog {
             fe = new Frontend(role, nodeName, host, editLogPort);
             frontends.put(nodeName, fe);
             if (role == FrontendNodeType.FOLLOWER || role == FrontendNodeType.REPLICA) {
-                ((BDBHA) getHaProtocol()).addHelperSocket(host, editLogPort);
+                ((BdbHA) getHaProtocol()).addHelperSocket(host, editLogPort);
                 helperNodes.add(Pair.create(host, editLogPort));
             }
             editLog.logAddFrontend(fe);
@@ -5262,7 +5263,7 @@ public class Catalog {
     public EsRepository getEsRepository() {
         return this.esRepository;
     }
-    
+
     public PolicyMgr getPolicyMgr() {
         return this.policyMgr;
     }

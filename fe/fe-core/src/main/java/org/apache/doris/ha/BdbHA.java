@@ -40,14 +40,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
-public class BDBHA implements HAProtocol {
-    private static final Logger LOG = LogManager.getLogger(BDBHA.class);
+public class BdbHA implements HAProtocol {
+    private static final Logger LOG = LogManager.getLogger(BdbHA.class);
 
     private BDBEnvironment environment;
     private String nodeName;
     private static final int RETRY_TIME = 3;
 
-    public BDBHA(BDBEnvironment env, String nodeName) {
+    public BdbHA(BDBEnvironment env, String nodeName) {
         this.environment = env;
         this.nodeName = nodeName;
     }

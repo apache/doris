@@ -49,8 +49,9 @@ public class HttpUtil {
         BufferedReader reader = null;
         try {
             reader = request.getReader();
-            while (null != (line = reader.readLine()))
+            while (null != (line = reader.readLine())) {
                 data.append(new String(line.getBytes("utf-8")));
+            }
         } catch (IOException e) {
         } finally {
         }

@@ -191,6 +191,7 @@ abstract public class ScanNode extends PlanNode {
                         break;
                     case CONVERT_SUCCESS:
                         result.intersect(ranges.ranges);
+                        break;
                     case CONVERT_FAILURE:
                     default:
                         break;

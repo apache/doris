@@ -195,7 +195,7 @@ public class TabletHealthProcDir implements ProcDirInterface {
                                             replicaAlloc, aliveBeIdsInCluster);
                                     res = pair.first;
                                 }
-                                switch (res) {
+                                switch (res) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                                     case HEALTHY:
                                         healthyNum++;
                                         break;

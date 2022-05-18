@@ -50,12 +50,12 @@ public class TupleDescriptor {
     private TableRef ref;
 
     // All legal aliases of this tuple.
-    private String[] aliases_;
+    private String[] aliases;
 
     // If true, requires that aliases_.length() == 1. However, aliases_.length() == 1
     // does not imply an explicit alias because nested collection refs have only a
     // single implicit alias.
-    private boolean hasExplicitAlias_;
+    private boolean hasExplicitAlias;
 
     // if false, this tuple doesn't need to be materialized
     private boolean isMaterialized = true;
@@ -97,8 +97,8 @@ public class TupleDescriptor {
         return ref;
     }
 
-    public void setRef(TableRef new_ref) {
-        ref = new_ref;
+    public void setRef(TableRef tableRef) {
+        ref = tableRef;
     }
 
     public ArrayList<SlotDescriptor> getSlots() {
@@ -131,7 +131,9 @@ public class TupleDescriptor {
     public ArrayList<SlotDescriptor> getMaterializedSlots() {
         ArrayList<SlotDescriptor> result = Lists.newArrayList();
         for (SlotDescriptor slot : slots) {
-            if (slot.isMaterialized()) result.add(slot);
+            if (slot.isMaterialized()) {
+                result.add(slot);
+            }
         }
         return result;
     }
@@ -175,13 +177,13 @@ public class TupleDescriptor {
     }
 
     public void setAliases(String[] aliases, boolean hasExplicitAlias) {
-        aliases_ = aliases;
-        hasExplicitAlias_ = hasExplicitAlias;
+        this.aliases = aliases;
+        this.hasExplicitAlias = hasExplicitAlias;
     }
-    public boolean hasExplicitAlias() { return hasExplicitAlias_; }
-    public String getAlias() { return (aliases_ != null) ? aliases_[0] : null; }
+    public boolean hasExplicitAlias() { return hasExplicitAlias; }
+    public String getAlias() { return (aliases != null) ? aliases[0] : null; }
     public TableName getAliasAsName() {
-        return (aliases_ != null) ? new TableName(null, aliases_[0]) : null;
+        return (aliases != null) ? new TableName(null, aliases[0]) : null;
     }
 
     public TTupleDescriptor toThrift() {
@@ -328,7 +330,9 @@ public class TupleDescriptor {
      * Materialize all slots.
      */
     public void materializeSlots() {
-        for (SlotDescriptor slot: slots) slot.setIsMaterialized(true);
+        for (SlotDescriptor slot: slots) {
+            slot.setIsMaterialized(true);
+        }
     }
 
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
