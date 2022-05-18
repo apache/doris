@@ -272,9 +272,9 @@ public class CreateTableStmtTest {
                 "\n" +
                 ") ENGINE = iceberg\n" +
                 "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.table\" = \"test\",\n" +
-                "\"iceberg.catalog.type\" = \"hive\",\n" +
-                "\"iceberg.catalog.uri\"  =  \"thrift://127.0.0.1:9087\"", stmt.toString());
+                "\"iceberg.catalog.uri\"  =  \"thrift://127.0.0.1:9087\",\n" +
+                "\"iceberg.table\"  =  \"test\",\n" +
+                "\"iceberg.catalog.type\"  =  \"hive\")", stmt.toString());
     }
 
     @Test
@@ -291,9 +291,9 @@ public class CreateTableStmtTest {
                 "\n" +
                 ") ENGINE = iceberg\n" +
                 "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.table\" = \"test\",\n" +
-                "\"iceberg.catalog.type\" = \"hadoop\",\n" +
-                "\"iceberg.catalog.warehouse\"  =  \"hdfs://nn:8020/warehouse/path\"", stmt.toString());
+                "\"iceberg.catalog.warehouse\"  =  \"hdfs://nn:8020/warehouse/path\",\n" +
+                "\"iceberg.table\"  =  \"test\",\n" +
+                "\"iceberg.catalog.type\"  =  \"hadoop\")", stmt.toString());
     }
 
     @Test
