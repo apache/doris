@@ -26,6 +26,14 @@ namespace vectorized {
 
 VCollectIterator::~VCollectIterator() {}
 
+#define RETURN_IF_NOT_EOF_AND_OK(stmt)                                                  \
+    do {                                                                                \
+        const Status& _status_ = (stmt);                                                \
+        if (UNLIKELY(!_status_.ok() && _status_.precise_code() != OLAP_ERR_DATA_EOF)) { \
+            return _status_;                                                            \
+        }                                                                               \
+    } while (false)
+
 void VCollectIterator::init(TabletReader* reader) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
@@ -56,11 +64,13 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
             auto s = (*c_iter)->init();
-            if (!s.ok() && s.precise_code() != OLAP_ERR_DATA_EOF) {
+            if (!s.ok()) {
                 delete (*c_iter);
                 c_iter = _children.erase(c_iter);
                 r_iter = rs_readers.erase(r_iter);
-                return s;
+                if (s.precise_code() != OLAP_ERR_DATA_EOF) {
+                    return s;
+                }
             } else {
                 ++c_iter;
                 ++r_iter;
@@ -93,6 +103,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             }
             Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
                                                            cumu_children.size() > 1, _skip_same);
+            RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             cumu_iter->init();
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
@@ -105,7 +116,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
     } else {
         _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _skip_same));
     }
-    _inner_iter->init();
+    RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
     _children.clear();
     return Status::OK();
@@ -200,8 +211,12 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
             _ref.row_pos = 0;
             _block->clear_column_data();
             auto res = _rs_reader->next_block(_block.get());
-            if (!res.ok()) {
+            if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
                 return res;
+            }
+            if (res.precise_code() == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+                _ref.row_pos = -1;
+                return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
             }
         }
     } while (_block->rows() != 0);
@@ -211,12 +226,7 @@ Status VCollectIterator::Level0Iterator::_refresh_current_row() {
 
 Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     _ref.row_pos++;
-    auto s = _refresh_current_row();
-    // Ensure all blocks have been processed completely
-    if ((s.precise_code() == OLAP_ERR_DATA_EOF && _ref.block->rows() == 0) ||
-        (!s.ok() && s.precise_code() != OLAP_ERR_DATA_EOF)) {
-        return s;
-    }
+    RETURN_NOT_OK(_refresh_current_row());
     *ref = _ref;
     return Status::OK();
 }
@@ -227,7 +237,14 @@ Status VCollectIterator::Level0Iterator::next(Block* block) {
         _ref.row_pos = -1;
         return Status::OK();
     } else {
-        return _rs_reader->next_block(block);
+        auto res = _rs_reader->next_block(block);
+        if (!res.ok() && res.precise_code() != OLAP_ERR_DATA_EOF) {
+            return res;
+        }
+        if (res.precise_code() == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+            return Status::OLAPInternalError(OLAP_ERR_DATA_EOF);
+        }
+        return Status::OK();
     }
 }
 
