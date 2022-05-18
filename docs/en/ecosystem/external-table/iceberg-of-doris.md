@@ -79,7 +79,7 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.table" = "iceberg_hadoop_catalog_table",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -110,7 +110,7 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     PROPERTIES (
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -156,7 +156,7 @@ You can also create an Iceberg table by explicitly specifying the column definit
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.table" = "iceberg_hadoop_catalog_table",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 

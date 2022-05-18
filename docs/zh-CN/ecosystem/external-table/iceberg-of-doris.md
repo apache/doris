@@ -80,7 +80,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.table" = "iceberg_hadoop_catalog_table",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -111,7 +111,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     PROPERTIES (
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -156,7 +156,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     "iceberg.database" = "iceberg_hadoop_catalog_db",
     "iceberg.table" = "iceberg_hadoop_catalog_table",
     "iceberg.catalog.type" = "hadoop",
-    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
+    "iceberg.catalog.warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
