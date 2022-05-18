@@ -104,7 +104,6 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
                                                            cumu_children.size() > 1, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
-            cumu_iter->init();
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
             children.push_back(cumu_iter);
