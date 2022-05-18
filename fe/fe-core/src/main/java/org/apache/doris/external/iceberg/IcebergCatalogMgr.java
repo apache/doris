@@ -77,16 +77,16 @@ public class IcebergCatalogMgr {
         String icebergCatalogType = properties.get(IcebergProperty.ICEBERG_CATALOG_TYPE);
         if (Strings.isNullOrEmpty(icebergCatalogType)) {
             LOG.info("{} is not set, set to HiveCatalog as default", IcebergProperty.ICEBERG_CATALOG_TYPE);
-            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_HIVE);
+            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE);
         } else if (CatalogType.HIVE_CATALOG.name().equals(icebergCatalogType)) {
-            LOG.warn(String.format("Property Value of iceberg.catalog.type: %s is deprecated. Please use 'hive' for HiveCatalog directly",
+            LOG.warn(String.format("Property Value of 'iceberg.catalog.type': %s is deprecated. Please use 'hive' for HiveCatalog directly",
                     CatalogType.HIVE_CATALOG));
-            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_HIVE);
+            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE);
         }
 
         // check iceberg.hive.metastore.uris
         if (properties.containsKey(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS)) {
-            LOG.warn(String.format("Property %s is deprecated. Please use iceberg.catalog.uri for HiveCatalog directly",
+            LOG.warn(String.format("Property '%s' is deprecated. Please use 'iceberg.catalog.uri' for HiveCatalog directly",
                     IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
             properties.put("iceberg.catalog.uri", properties.remove(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
         }
