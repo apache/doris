@@ -62,7 +62,15 @@ public class PlannerTest extends TestWithFeService {
                         "DUPLICATE KEY(k1, k2, k3) " +
                         "distributed by hash(k1) buckets 1 " +
                         "properties ('replication_num' = '1');";
-        createTables(tbl1, tbl2, tbl3);
+
+        String tbl4 = "create table db1.tbl4("
+                + "k1 int,"
+                + " k2 int,"
+                + " v1 int)"
+                + " distributed by hash(k1)"
+                + " properties('replication_num' = '1');";
+
+        createTables(tbl1, tbl2, tbl3, tbl4);
     }
 
     @Test
@@ -436,5 +444,54 @@ public class PlannerTest extends TestWithFeService {
         AnalysisException exception =
             Assertions.assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(createTbl1));
         Assertions.assertTrue(exception.getMessage().contains("String Type should not be used in key column[k1]."));
+    }
+
+    @Test
+    public void testPushDownPredicateOnGroupingSetAggregate() throws Exception {
+        String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
+                + " group by grouping sets((k1), (k1, k2)) having k1 = 1 and k2 = 1";
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
+    }
+
+    @Test
+    public void testPushDownPredicateOnRollupAggregate() throws Exception {
+        String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
+                + " group by rollup(k1, k2) having k1 = 1 and k2 = 1";
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assertions.assertFalse(plan.contains("PREDICATES:"));
+    }
+
+    @Test
+    public void testPushDownPredicateOnNormalAggregate() throws Exception {
+        String sql = "explain select k1, k2, count(distinct v1) from db1.tbl4"
+                + " group by k1, k2 having k1 = 1 and k2 = 1";
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1, `k2` = 1\n"));
+    }
+
+    @Test
+    public void testPushDownPredicateOnWindowFunction() throws Exception {
+        String sql = "explain select v1, k1,"
+                + " sum(v1) over (partition by k1 order by v1 rows between 1 preceding and 1 following)"
+                + " as 'moving total' from db1.tbl4 where k1 = 1";
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assertions.assertTrue(plan.contains("PREDICATES: `k1` = 1\n"));
     }
 }
