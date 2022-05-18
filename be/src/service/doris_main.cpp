@@ -332,9 +332,11 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Failed to change TCMalloc total thread cache size.\n");
         return -1;
     }
+#ifndef NO_MEM_TRACKER
     if (doris::config::track_new_delete) {
         init_hook();
     }
+#endif // USE_MEM_TRACKER
 #endif
 
     std::vector<doris::StorePath> paths;

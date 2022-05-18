@@ -29,6 +29,7 @@ CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
 CumulativeCompaction::~CumulativeCompaction() {}
 
 Status CumulativeCompaction::prepare_compact() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION, _mem_tracker);
     if (!_tablet->init_succeeded()) {
         return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_INVALID_PARAMETERS);
     }

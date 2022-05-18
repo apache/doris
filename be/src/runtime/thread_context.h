@@ -281,7 +281,9 @@ public:
     ~SwitchThreadMemTracker();
 
 protected:
+#ifndef NO_MEM_TRACKER
     int64_t _old_tracker_id = 0;
+#endif
 };
 
 class SwitchThreadMemTrackerEndClear : public SwitchThreadMemTracker<false> {
@@ -303,7 +305,9 @@ public:
     ~SwitchThreadMemTrackerErrCallBack();
 
 private:
+#ifndef NO_MEM_TRACKER
     ConsumeErrCallBackInfo _old_tracker_cb;
+#endif
 };
 
 class SwitchBthread {
@@ -313,7 +317,9 @@ public:
     ~SwitchBthread();
 
 private:
+#ifndef NO_MEM_TRACKER
     ThreadContext* tls;
+#endif
 };
 
 } // namespace doris

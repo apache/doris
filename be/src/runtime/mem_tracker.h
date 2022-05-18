@@ -122,6 +122,7 @@ public:
 
     // Increases consumption of this tracker and its ancestors by 'bytes'.
     void consume(int64_t bytes) {
+#ifndef NO_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return;
@@ -129,6 +130,7 @@ public:
         for (auto& tracker : _all_trackers) {
             tracker->_consumption->add(bytes);
         }
+#endif
     }
 
     // Increases consumption of this tracker and its ancestors by 'bytes' only if
@@ -136,6 +138,7 @@ public:
     // no MemTrackers are updated. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
     Status try_consume(int64_t bytes) {
+#ifndef NO_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return Status::OK();
@@ -166,11 +169,13 @@ public:
         }
         // Everyone succeeded, return.
         DCHECK_EQ(i, -1);
+#endif
         return Status::OK();
     }
 
     // Decreases consumption of this tracker and its ancestors by 'bytes'.
     void release(int64_t bytes) {
+#ifndef NO_MEM_TRACKER
         if (bytes < 0) {
             consume(-bytes);
             return;
@@ -181,6 +186,7 @@ public:
         for (auto& tracker : _all_trackers) {
             tracker->_consumption->add(-bytes);
         }
+#endif
     }
 
     static void batch_consume(int64_t bytes,
@@ -247,22 +253,26 @@ public:
     // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
     // against the limit recorded in one of its ancestors already happened.
     void consume_local(int64_t bytes, MemTracker* end_tracker) {
+#ifndef NO_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(bytes);
         }
+#endif
     }
 
     // up to (but not including) end_tracker.
     void release_local(int64_t bytes, MemTracker* end_tracker) {
+#ifndef NO_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
             if (tracker == end_tracker) return;
             tracker->_consumption->add(-bytes);
         }
+#endif
     }
 
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
@@ -273,6 +283,7 @@ public:
 
     WARN_UNUSED_RESULT
     Status try_transfer_to(MemTracker* dst, int64_t bytes) {
+#ifndef NO_MEM_TRACKER
         if (id() == dst->id()) return Status::OK();
         // Must release first, then consume
         release_cache(bytes);
@@ -281,14 +292,17 @@ public:
             consume_cache(bytes);
             return st;
         }
+#endif
         return Status::OK();
     }
 
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
     void transfer_to(MemTracker* dst, int64_t bytes) {
+#ifndef NO_MEM_TRACKER
         if (id() == dst->id()) return;
         release_cache(bytes);
         dst->consume_cache(bytes);
+#endif
     }
 
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.

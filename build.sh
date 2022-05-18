@@ -214,6 +214,9 @@ fi
 if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
+if [[ -z ${NO_MEM_TRACKER} ]]; then
+    NO_MEM_TRACKER=OFF
+fi
 
 if [[ -z ${USE_DWARF} ]]; then
     USE_DWARF=OFF
@@ -238,6 +241,7 @@ echo "Get params:
     USE_LLD             -- $USE_LLD
     USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
+    NO_MEM_TRACKER      -- $NO_MEM_TRACKER
 "
 
 # Clean and build generated code
@@ -300,6 +304,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
             -DUSE_DWARF=${USE_DWARF} \
+            -DNO_MEM_TRACKER=${NO_MEM_TRACKER} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}

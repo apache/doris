@@ -26,7 +26,9 @@ using std::vector;
 namespace doris {
 
 Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
-        : _mem_tracker(MemTracker::create_tracker(-1, label, nullptr, MemTrackerLevel::INSTANCE)),
+        : _mem_tracker(MemTracker::create_tracker(
+                  -1, label, StorageEngine::instance()->compaction_mem_tracker(),
+                  MemTrackerLevel::INSTANCE)),
           _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -41,6 +43,7 @@ Status Compaction::compact() {
 }
 
 Status Compaction::execute_compact() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION, _mem_tracker);
     Status st = execute_compact_impl();
     if (!st.ok()) {
         gc_output_rowset();
