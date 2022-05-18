@@ -281,7 +281,7 @@ public:
     ~SwitchThreadMemTracker();
 
 protected:
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     int64_t _old_tracker_id = 0;
 #endif
 };
@@ -305,7 +305,7 @@ public:
     ~SwitchThreadMemTrackerErrCallBack();
 
 private:
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     ConsumeErrCallBackInfo _old_tracker_cb;
 #endif
 };
@@ -317,7 +317,7 @@ public:
     ~SwitchBthread();
 
 private:
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     ThreadContext* tls;
 #endif
 };

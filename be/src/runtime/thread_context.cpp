@@ -36,7 +36,7 @@ AttachTaskThread::AttachTaskThread(const ThreadContext::TaskType& type, const st
                                    const TUniqueId& fragment_instance_id,
                                    const std::shared_ptr<doris::MemTracker>& mem_tracker) {
     DCHECK(task_id != "");
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->attach(type, task_id, fragment_instance_id, mem_tracker);
 #endif
 }
@@ -46,7 +46,7 @@ AttachTaskThread::AttachTaskThread(const ThreadContext::TaskType& type,
 #ifndef BE_TEST
     DCHECK(mem_tracker);
 #endif
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->attach(type, "", TUniqueId(), mem_tracker);
 #endif
 }
@@ -56,7 +56,7 @@ AttachTaskThread::AttachTaskThread(const TQueryType::type& query_type,
 #ifndef BE_TEST
     DCHECK(mem_tracker);
 #endif
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->attach(query_to_task_type(query_type), "", TUniqueId(), mem_tracker);
 #endif
 }
@@ -70,7 +70,7 @@ AttachTaskThread::AttachTaskThread(const TQueryType::type& query_type,
     DCHECK(fragment_instance_id != TUniqueId());
     DCHECK(mem_tracker);
 #endif
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->attach(query_to_task_type(query_type), task_id, fragment_instance_id, mem_tracker);
 #endif
 }
@@ -82,7 +82,7 @@ AttachTaskThread::AttachTaskThread(const RuntimeState* runtime_state,
     DCHECK(runtime_state->fragment_instance_id() != TUniqueId());
     DCHECK(mem_tracker);
 #endif
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->attach(query_to_task_type(runtime_state->query_type()),
                       print_id(runtime_state->query_id()), runtime_state->fragment_instance_id(),
                       mem_tracker);
@@ -90,7 +90,7 @@ AttachTaskThread::AttachTaskThread(const RuntimeState* runtime_state,
 }
 
 AttachTaskThread::~AttachTaskThread() {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->detach();
     DorisMetrics::instance()->attach_task_thread_count->increment(1);
 #endif
@@ -99,7 +99,7 @@ AttachTaskThread::~AttachTaskThread() {
 template <bool Existed>
 SwitchThreadMemTracker<Existed>::SwitchThreadMemTracker(
         const std::shared_ptr<doris::MemTracker>& mem_tracker, bool in_task) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     if (config::memory_verbose_track) {
 #ifndef BE_TEST
         DCHECK(mem_tracker);
@@ -123,7 +123,7 @@ SwitchThreadMemTracker<Existed>::SwitchThreadMemTracker(
 
 template <bool Existed>
 SwitchThreadMemTracker<Existed>::~SwitchThreadMemTracker() {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     if (config::memory_verbose_track) {
 #ifndef NDEBUG
         tls_ctx()->_thread_mem_tracker_mgr->switch_count -= 1;
@@ -138,7 +138,7 @@ SwitchThreadMemTracker<Existed>::~SwitchThreadMemTracker() {
 
 SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(
         const std::string& action_type, bool cancel_work, ERRCALLBACK err_call_back_func) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     DCHECK(action_type != std::string());
     _old_tracker_cb = tls_ctx()->_thread_mem_tracker_mgr->update_consume_err_cb(
             action_type, cancel_work, err_call_back_func);
@@ -146,7 +146,7 @@ SwitchThreadMemTrackerErrCallBack::SwitchThreadMemTrackerErrCallBack(
 }
 
 SwitchThreadMemTrackerErrCallBack::~SwitchThreadMemTrackerErrCallBack() {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls_ctx()->_thread_mem_tracker_mgr->update_consume_err_cb(_old_tracker_cb);
 #ifndef NDEBUG
     DorisMetrics::instance()->switch_thread_mem_tracker_err_cb_count->increment(1);
@@ -155,7 +155,7 @@ SwitchThreadMemTrackerErrCallBack::~SwitchThreadMemTrackerErrCallBack() {
 }
 
 SwitchBthread::SwitchBthread() {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     tls = static_cast<ThreadContext*>(bthread_getspecific(btls_key));
     // First call to bthread_getspecific (and before any bthread_setspecific) returns NULL
     if (tls == nullptr) {
@@ -173,7 +173,7 @@ SwitchBthread::SwitchBthread() {
 }
 
 SwitchBthread::~SwitchBthread() {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
     DCHECK(tls != nullptr);
     tls->_thread_mem_tracker_mgr->clear_untracked_mems();
     tls->_thread_mem_tracker_mgr->init();

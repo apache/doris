@@ -28,7 +28,6 @@ BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
 BaseCompaction::~BaseCompaction() {}
 
 Status BaseCompaction::prepare_compact() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION, _mem_tracker);
     if (!_tablet->init_succeeded()) {
         return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }

@@ -43,7 +43,6 @@ Status Compaction::compact() {
 }
 
 Status Compaction::execute_compact() {
-    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::COMPACTION, _mem_tracker);
     Status st = execute_compact_impl();
     if (!st.ok()) {
         gc_output_rowset();

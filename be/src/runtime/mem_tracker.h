@@ -122,7 +122,7 @@ public:
 
     // Increases consumption of this tracker and its ancestors by 'bytes'.
     void consume(int64_t bytes) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return;
@@ -138,7 +138,7 @@ public:
     // no MemTrackers are updated. Returns true if the consumption was successfully updated.
     WARN_UNUSED_RESULT
     Status try_consume(int64_t bytes) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         if (bytes <= 0) {
             release(-bytes);
             return Status::OK();
@@ -175,7 +175,7 @@ public:
 
     // Decreases consumption of this tracker and its ancestors by 'bytes'.
     void release(int64_t bytes) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         if (bytes < 0) {
             consume(-bytes);
             return;
@@ -253,7 +253,7 @@ public:
     // ancestor. This happens when we want to update tracking on a particular mem tracker but the consumption
     // against the limit recorded in one of its ancestors already happened.
     void consume_local(int64_t bytes, MemTracker* end_tracker) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
@@ -265,7 +265,7 @@ public:
 
     // up to (but not including) end_tracker.
     void release_local(int64_t bytes, MemTracker* end_tracker) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         DCHECK(end_tracker);
         if (bytes == 0) return;
         for (auto& tracker : _all_trackers) {
@@ -283,7 +283,7 @@ public:
 
     WARN_UNUSED_RESULT
     Status try_transfer_to(MemTracker* dst, int64_t bytes) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         if (id() == dst->id()) return Status::OK();
         // Must release first, then consume
         release_cache(bytes);
@@ -298,7 +298,7 @@ public:
 
     // Forced transfer, 'dst' may limit exceed, and more ancestor trackers will be updated.
     void transfer_to(MemTracker* dst, int64_t bytes) {
-#ifndef NO_MEM_TRACKER
+#ifdef USE_MEM_TRACKER
         if (id() == dst->id()) return;
         release_cache(bytes);
         dst->consume_cache(bytes);
