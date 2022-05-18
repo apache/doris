@@ -35,10 +35,8 @@
 // Be careful to stop the thread mem tracker, because the actual order of malloc and free memory
 // may be different from the order of execution of instructions, which will cause the position of
 // the memory track to be unexpected.
-#define SCOPED_STOP_THREAD_LOCAL_MEM_TRACKER() \
-    auto VARNAME_LINENUM(stop_tracker) = doris::StopThreadMemTracker(true)
-#define GLOBAL_STOP_THREAD_LOCAL_MEM_TRACKER() \
-    auto VARNAME_LINENUM(stop_tracker) = doris::StopThreadMemTracker(false)
+#define STOP_THREAD_LOCAL_MEM_TRACKER(scope) \
+    auto VARNAME_LINENUM(stop_tracker) = doris::StopThreadMemTracker(scope)
 // Switch thread mem tracker during task execution.
 // After the non-query thread switches the mem tracker, if the thread will not switch the mem
 // tracker again in the short term, can consider manually clear_untracked_mems.
@@ -80,9 +78,11 @@
 #define ADD_THREAD_LOCAL_MEM_TRACKER(mem_tracker) \
     doris::tls_ctx()->_thread_mem_tracker_mgr->add_tracker(mem_tracker)
 #define CONSUME_THREAD_LOCAL_MEM_TRACKER(size) \
-    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_consume(size)
+    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_try_consume(size)
 #define RELEASE_THREAD_LOCAL_MEM_TRACKER(size) \
-    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_consume(-size)
+    doris::tls_ctx()->_thread_mem_tracker_mgr->noncache_try_consume(-size)
+#define STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER() \
+    auto VARNAME_LINENUM(switch_bthread) = StopCheckLimitThreadMemTracker()
 
 namespace doris {
 
@@ -320,6 +320,17 @@ private:
 #ifdef USE_MEM_TRACKER
     ThreadContext* tls;
 #endif
+};
+
+class StopCheckLimitThreadMemTracker {
+public:
+    explicit StopCheckLimitThreadMemTracker() {
+        tls_ctx()->_thread_mem_tracker_mgr->update_check_limit(false);
+    }
+
+    ~StopCheckLimitThreadMemTracker() {
+        tls_ctx()->_thread_mem_tracker_mgr->update_check_limit(true);
+    }
 };
 
 } // namespace doris

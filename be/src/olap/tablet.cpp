@@ -1462,7 +1462,6 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         new_rowset = rs_writer->build();
         res = add_rowset(new_rowset);
         if (!res.ok()) {
-
             LOG(WARNING) << "failed to add rowset for tablet " << full_name();
             break;
         }
@@ -1505,7 +1504,7 @@ Status Tablet::create_rowset_writer(const int64_t& txn_id, const PUniqueId& load
 void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.rowset_id = StorageEngine::instance()->next_rowset_id();
     context.tablet_uid = tablet_uid();
-    
+
     context.tablet_id = tablet_id();
     context.partition_id = partition_id();
     context.tablet_schema_hash = schema_hash();

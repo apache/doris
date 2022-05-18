@@ -438,6 +438,10 @@ if (WITH_LZO)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_LZO")
 endif()
 
+# Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
+# and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
+# Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
+# which will bring about a 2% performance improvement, which may be useful in performance POC.
 if (USE_MEM_TRACKER)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_MEM_TRACKER")
 endif()
