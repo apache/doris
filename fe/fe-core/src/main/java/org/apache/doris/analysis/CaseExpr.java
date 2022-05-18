@@ -235,25 +235,25 @@ public class CaseExpr extends Expr {
         // Add casts to case expr to compatible type.
         if (hasCaseExpr) {
             // Cast case expr.
-            if (children.get(0).type != whenType) {
+            if (!children.get(0).getType().equals(whenType)) {
                 castChild(whenType, 0);
             }
             // Add casts to when exprs to compatible type.
             for (int i = loopStart; i < loopEnd; i += 2) {
-                if (children.get(i).type != whenType) {
+                if (!children.get(i).getType().equals(whenType)) {
                     castChild(whenType, i);
                 }
             }
         }
         // Cast then exprs to compatible type.
         for (int i = loopStart + 1; i < children.size(); i += 2) {
-            if (children.get(i).type != returnType) {
+            if (!children.get(i).getType().equals(returnType)) {
                 castChild(returnType, i);
             }
         }
         // Cast else expr to compatible type.
         if (hasElseExpr) {
-            if (children.get(children.size() - 1).type != returnType) {
+            if (!children.get(children.size() - 1).getType().equals(returnType)) {
                 castChild(returnType, children.size() - 1);
             }
         }
