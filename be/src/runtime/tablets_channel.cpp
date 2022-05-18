@@ -139,6 +139,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                  google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
     Status st = writer->close_wait();
+#ifndef BE_TEST
     if (st.ok()) {
         if (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()) {
             PTabletInfo* tablet_info = tablet_vec->Add();
@@ -150,6 +151,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
         tablet_error->set_tablet_id(writer->tablet_id());
         tablet_error->set_msg(st.get_error_msg());
     }
+#endif
 }
 
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
