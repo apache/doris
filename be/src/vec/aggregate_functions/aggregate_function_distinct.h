@@ -126,7 +126,7 @@ struct AggregateFunctionDistinctMultipleGenericData : public AggregateFunctionDi
 
         Set::LookupResult it;
         bool inserted;
-        auto key_holder = SerializedKeyHolder {value, *arena};
+        auto key_holder = SerializedKeyHolder {value, arena};
         set.emplace(key_holder, it, inserted);
     }
 

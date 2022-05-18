@@ -125,12 +125,9 @@ struct HashMethodSerialized
                          const HashMethodContextPtr&)
             : key_columns(key_columns_), keys_size(key_columns_.size()) {}
 
-protected:
-    friend class columns_hashing_impl::HashMethodBase<Self, Value, Mapped, false>;
-
     ALWAYS_INLINE SerializedKeyHolder get_key_holder(size_t row, Arena& pool) const {
         return SerializedKeyHolder {
-                serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), pool};
+                serialize_keys_to_pool_contiguous(row, keys_size, key_columns, pool), &pool};
     }
 };
 

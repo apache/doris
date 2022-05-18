@@ -132,15 +132,30 @@ public:
         return emplaceImpl(key_holder, data);
     }
 
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplace_key(Data& data, KeyHolder& key_holder, size_t hash_value) {
+        return emplaceImpl(key_holder, data, hash_value);
+    }
+
     template <typename Data>
     ALWAYS_INLINE FindResult find_key(Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
         return find_key_impl(key_holder_get_key(key_holder), data);
     }
 
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE FindResult find_key(Data& data, KeyHolder& key_holder, size_t hash_value) {
+        return find_key_impl(key_holder_get_key(key_holder), data, hash_value);
+    }
+
     template <typename Data>
     ALWAYS_INLINE size_t get_hash(const Data& data, size_t row, Arena& pool) {
         auto key_holder = static_cast<Derived&>(*this).get_key_holder(row, pool);
+        return data.hash(key_holder_get_key(key_holder));
+    }
+
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE size_t get_hash(const Data& data, KeyHolder& key_holder) {
         return data.hash(key_holder_get_key(key_holder));
     }
 
@@ -207,6 +222,49 @@ protected:
             return EmplaceResult(inserted);
     }
 
+    template <typename Data, typename KeyHolder>
+    ALWAYS_INLINE EmplaceResult emplaceImpl(KeyHolder& key_holder, Data& data, size_t hash_value) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.found && cache.check(key_holder_get_key(key_holder))) {
+                if constexpr (has_mapped)
+                    return EmplaceResult(cache.value.second, cache.value.second, false);
+                else
+                    return EmplaceResult(false);
+            }
+        }
+
+        typename Data::LookupResult it;
+        bool inserted = false;
+        data.emplace(key_holder, it, inserted, hash_value);
+
+        [[maybe_unused]] Mapped* cached = nullptr;
+        if constexpr (has_mapped) cached = lookup_result_get_mapped(it);
+
+        if (inserted) {
+            if constexpr (has_mapped) {
+                new (lookup_result_get_mapped(it)) Mapped();
+            }
+        }
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = true;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = *lookup_result_get_key(it);
+                cache.value.second = *lookup_result_get_mapped(it);
+                cached = &cache.value.second;
+            } else {
+                cache.value = *lookup_result_get_key(it);
+            }
+        }
+
+        if constexpr (has_mapped)
+            return EmplaceResult(*lookup_result_get_mapped(it), *cached, inserted);
+        else
+            return EmplaceResult(inserted);
+    }
+
     template <typename Data, typename Key>
     ALWAYS_INLINE FindResult find_key_impl(Key key, Data& data) {
         if constexpr (Cache::consecutive_keys_optimization) {
@@ -219,6 +277,39 @@ protected:
         }
 
         auto it = data.find(key);
+
+        if constexpr (consecutive_keys_optimization) {
+            cache.found = it != nullptr;
+            cache.empty = false;
+
+            if constexpr (has_mapped) {
+                cache.value.first = key;
+                if (it) {
+                    cache.value.second = *lookup_result_get_mapped(it);
+                }
+            } else {
+                cache.value = key;
+            }
+        }
+
+        if constexpr (has_mapped)
+            return FindResult(it ? lookup_result_get_mapped(it) : nullptr, it != nullptr);
+        else
+            return FindResult(it != nullptr);
+    }
+
+    template <typename Data, typename Key>
+    ALWAYS_INLINE FindResult find_key_impl(Key key, Data& data, size_t hash_value) {
+        if constexpr (Cache::consecutive_keys_optimization) {
+            if (cache.check(key)) {
+                if constexpr (has_mapped)
+                    return FindResult(&cache.value.second, cache.found);
+                else
+                    return FindResult(cache.found);
+            }
+        }
+
+        auto it = data.find(key, hash_value);
 
         if constexpr (consecutive_keys_optimization) {
             cache.found = it != nullptr;

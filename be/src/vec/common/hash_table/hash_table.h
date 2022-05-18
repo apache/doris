@@ -760,6 +760,12 @@ public:
         __builtin_prefetch(&buf[place_value]);
     }
 
+    template <const bool READ>
+    void ALWAYS_INLINE prefetch_by_hash(const size_t hash_value) {
+        auto place_value = grower.place(hash_value);
+        __builtin_prefetch(&buf[place_value], READ ? 0 : 1, 3);
+    }
+
     /// Reinsert node pointed to by iterator
     void ALWAYS_INLINE reinsert(iterator& it, size_t hash_value) {
         reinsert(*it.get_ptr(), hash_value);

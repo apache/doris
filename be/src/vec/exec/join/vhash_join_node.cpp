@@ -25,8 +25,10 @@
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
-
 namespace doris::vectorized {
+
+static constexpr size_t CACHE_NUM = 4096;
+static constexpr size_t PREFETCH_NUM = 16;
 
 std::variant<std::false_type, std::true_type> static inline make_bool_variant(bool condition) {
     if (condition) {
@@ -65,6 +67,8 @@ struct ProcessHashTableBuild {
 
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
 
+        using KeyHolderType = decltype(key_getter.get_key_holder(0, _join_node->_arena));
+
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
         // only not build_unique, we need expanse hash table before insert data
         if constexpr (!build_unique) {
@@ -77,18 +81,40 @@ struct ProcessHashTableBuild {
             inserted_rows.reserve(_batch_size);
         }
 
+        std::vector<size_t> cached_hash_values(CACHE_NUM);
+        std::vector<KeyHolderType> cached_key_holders(CACHE_NUM);
+
+        size_t cached_count = 0;
         for (size_t k = 0; k < _rows; ++k) {
+            if (UNLIKELY(k % CACHE_NUM == 0)) {
+                cached_count = std::min(CACHE_NUM, _rows - k);
+                for (size_t i = 0; i < cached_count; ++i) {
+                    if constexpr (ignore_null) {
+                        if ((*null_map)[i + k]) {
+                            continue;
+                        }
+                    }
+
+                    cached_key_holders[i] = key_getter.get_key_holder(i + k, _join_node->_arena);
+                    cached_hash_values[i] =
+                            key_getter.get_hash(hash_table_ctx.hash_table, cached_key_holders[i]);
+                }
+            }
+
+            if ((k % CACHE_NUM + PREFETCH_NUM) < cached_count) {
+                hash_table_ctx.hash_table.template prefetch_by_hash<false>(
+                        cached_hash_values[k % CACHE_NUM + PREFETCH_NUM]);
+            }
+
             if constexpr (ignore_null) {
                 if ((*null_map)[k]) {
                     continue;
                 }
             }
 
-            auto emplace_result =
-                    key_getter.emplace_key(hash_table_ctx.hash_table, k, _join_node->_arena);
-            if (k + 1 < _rows) {
-                key_getter.prefetch(hash_table_ctx.hash_table, k + 1, _join_node->_arena);
-            }
+            auto emplace_result = key_getter.emplace_key(hash_table_ctx.hash_table,
+                                                         cached_key_holders[k % CACHE_NUM],
+                                                         cached_hash_values[k % CACHE_NUM]);
 
             if (emplace_result.is_inserted()) {
                 new (&emplace_result.get_mapped()) Mapped({k, _offset});
@@ -273,9 +299,36 @@ struct ProcessHashTableProbe {
         constexpr auto probe_all = JoinOpType::value == TJoinOp::LEFT_OUTER_JOIN ||
                                    JoinOpType::value == TJoinOp::FULL_OUTER_JOIN;
 
+        using KeyHolderType = decltype(key_getter.get_key_holder(0, _arena));
+
         {
             SCOPED_TIMER(_search_hashtable_timer);
-            for (; _probe_index < _probe_rows;) {
+            std::vector<size_t> cached_hash_values(CACHE_NUM);
+            std::vector<KeyHolderType> cached_key_holders(CACHE_NUM);
+
+            size_t cached_count = 0;
+            for (size_t k = 0; _probe_index < _probe_rows; ++k) {
+                if (UNLIKELY(k % CACHE_NUM) == 0) {
+                    cached_count = std::min(CACHE_NUM, _probe_rows - _probe_index);
+                    for (size_t i = 0; i < cached_count; ++i) {
+                        if constexpr (ignore_null) {
+                            if ((*null_map)[i + _probe_index]) {
+                                continue;
+                            }
+                        }
+
+                        cached_key_holders[i] =
+                                std::move(key_getter.get_key_holder(i + _probe_index, _arena));
+                        cached_hash_values[i] = key_getter.get_hash(hash_table_ctx.hash_table,
+                                                                    cached_key_holders[i]);
+                    }
+                }
+
+                if (((k % CACHE_NUM) + PREFETCH_NUM) < cached_count) {
+                    hash_table_ctx.hash_table.template prefetch_by_hash<false>(
+                            cached_hash_values[(k % CACHE_NUM) + PREFETCH_NUM]);
+                }
+
                 if constexpr (ignore_null) {
                     if ((*null_map)[_probe_index]) {
                         _items_counts[_probe_index++] = (uint32_t)0;
@@ -283,12 +336,15 @@ struct ProcessHashTableProbe {
                     }
                 }
                 int last_offset = current_offset;
-                auto find_result = (*null_map)[_probe_index]
-                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
-                                                                          _probe_index,
-                                                                          _arena)) {nullptr, false}
-                                           : key_getter.find_key(hash_table_ctx.hash_table,
-                                                                 _probe_index, _arena);
+                auto find_result =
+                        (*null_map)[_probe_index]
+                                ? decltype(key_getter.find_key(
+                                          hash_table_ctx.hash_table,
+                                          cached_key_holders[k % CACHE_NUM],
+                                          cached_hash_values[k % CACHE_NUM])) {nullptr, false}
+                                : key_getter.find_key(hash_table_ctx.hash_table,
+                                                      cached_key_holders[k % CACHE_NUM],
+                                                      cached_hash_values[k % CACHE_NUM]);
 
                 if constexpr (JoinOpType::value == TJoinOp::LEFT_ANTI_JOIN) {
                     if (!find_result.is_found()) {
@@ -312,11 +368,6 @@ struct ProcessHashTableProbe {
                                 ++current_offset;
                             }
                         } else {
-                            // prefetch is more useful while matching to multiple rows
-                            if (_probe_index + 2 < _probe_rows)
-                                key_getter.prefetch(hash_table_ctx.hash_table, _probe_index + 2,
-                                                    _arena);
-
                             for (auto it = mapped.begin(); it.ok(); ++it) {
                                 if constexpr (!is_right_semi_anti_join) {
                                     if (current_offset < _batch_size) {

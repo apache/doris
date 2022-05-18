@@ -33,7 +33,7 @@ static auto get_key_holder(const IColumn& column, size_t row_num, Arena& arena) 
         const char* begin = nullptr;
         StringRef serialized = column.serialize_value_into_arena(row_num, arena, begin);
         assert(serialized.data != nullptr);
-        return SerializedKeyHolder {serialized, arena};
+        return SerializedKeyHolder {serialized, &arena};
     }
 }
 

@@ -120,7 +120,7 @@ namespace doris::vectorized {
   */
 struct SerializedKeyHolder {
     StringRef key;
-    Arena& pool;
+    Arena* pool;
 };
 
 } // namespace doris::vectorized
@@ -132,7 +132,7 @@ inline StringRef& ALWAYS_INLINE key_holder_get_key(doris::vectorized::Serialized
 inline void ALWAYS_INLINE key_holder_persist_key(doris::vectorized::SerializedKeyHolder&) {}
 
 inline void ALWAYS_INLINE key_holder_discard_key(doris::vectorized::SerializedKeyHolder& holder) {
-    [[maybe_unused]] void* new_head = holder.pool.rollback(holder.key.size);
+    [[maybe_unused]] void* new_head = holder.pool->rollback(holder.key.size);
     assert(new_head == holder.key.data);
     holder.key.data = nullptr;
     holder.key.size = 0;
