@@ -57,6 +57,7 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
+    Status flush_single_memtable(const vectorized::Block* block) override;
 
     RowsetSharedPtr build() override;
 
@@ -71,6 +72,8 @@ public:
 private:
     template <typename RowType>
     Status _add_row(const RowType& row);
+    Status _add_block(const vectorized::Block* block,
+                      std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
