@@ -133,4 +133,8 @@ public class StoragePolicyResource extends Resource {
             result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
         }
     }
+
+    public String getStorageCooldownTime() {
+        return properties.get(COOLDOWN_DATETIME);
+    }
 }

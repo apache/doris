@@ -70,7 +70,7 @@ public class TableProperty implements Writable {
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     // remote storage resource, for cold data
-    private String remoteStorageResource;
+    private String storagePolicy;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -153,8 +153,8 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildRemoteStorageResource() {
-        remoteStorageResource = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE, "");
+    public TableProperty buildStoragePolicy() {
+        storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
     }
 
@@ -175,10 +175,9 @@ public class TableProperty implements Writable {
                 replicaAlloc.toCreateStmt());
     }
 
-    public void setRemoteStorageResource(String resourceName) {
-        this.remoteStorageResource = resourceName;
-        properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE,
-                resourceName);
+    public void setStoragePolicy(String resourceName) {
+        this.storagePolicy = resourceName;
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, resourceName);
     }
 
     public ReplicaAllocation getReplicaAllocation() {
@@ -223,8 +222,8 @@ public class TableProperty implements Writable {
         return dataSortInfo;
     }
 
-    public String getRemoteStorageResource() {
-        return remoteStorageResource;
+    public String getStoragePolicy() {
+        return storagePolicy;
     }
 
     public void buildReplicaAllocation() {
@@ -251,7 +250,7 @@ public class TableProperty implements Writable {
                 .buildInMemory()
                 .buildStorageFormat()
                 .buildDataSortInfo()
-                .buildRemoteStorageResource();
+                .buildStoragePolicy();
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

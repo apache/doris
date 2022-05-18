@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StoragePolicyResource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -44,6 +45,9 @@ import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -58,7 +62,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
-    public static final String PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME = "remote_storage_cooldown_time";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -87,7 +90,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
-    public static final String PROPERTIES_REMOTE_STORAGE_RESOURCE = "remote_storage_resource";
+    public static final String PROPERTIES_STORAGE_POLICY = "storage_policy";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
@@ -115,13 +118,11 @@ public class PropertyAnalyzer {
 
         TStorageMedium storageMedium = null;
         long cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
-        String remoteStorageResourceName = "";
-        long remoteCooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        String storagePolicy = "";
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
-        boolean hasRemoteStorageResource = false;
-        boolean hasRemoteCooldown = false;
+        boolean hasStoragePolicy = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -140,16 +141,10 @@ public class PropertyAnalyzer {
                 if (cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
                     hasCooldown = true;
                 }
-            } else if (!hasRemoteStorageResource && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+            } else if (!hasStoragePolicy && key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 if (!Strings.isNullOrEmpty(value)) {
-                    hasRemoteStorageResource = true;
-                    remoteStorageResourceName = value;
-                }
-            } else if (!hasRemoteCooldown && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
-                remoteCooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                if (remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
-                    hasRemoteCooldown = true;
+                    hasStoragePolicy = true;
+                    storagePolicy = value;
                 }
             }
         } // end for properties
@@ -162,8 +157,7 @@ public class PropertyAnalyzer {
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
         properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
-        properties.remove(PROPERTIES_REMOTE_STORAGE_RESOURCE);
-        properties.remove(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_POLICY);
 
 
         if (hasCooldown && !hasMedium) {
@@ -189,28 +183,33 @@ public class PropertyAnalyzer {
         }
 
         // check remote_storage_resource and remote_storage_cooldown_time
-        if ((!hasRemoteCooldown && hasRemoteStorageResource) || (hasRemoteCooldown && !hasRemoteStorageResource)) {
-            throw new AnalysisException("Invalid data property, " +
-                    "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
-        }
-        if (hasRemoteStorageResource && hasRemoteCooldown) {
+        if (hasStoragePolicy) {
             // check remote resource
-            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName);
-            if (resource == null) {
-                throw new AnalysisException("Invalid data property, " +
-                        "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(storagePolicy);
+            if (resource == null || !(resource instanceof StoragePolicyResource)) {
+                throw new AnalysisException("Invalid data property, `storage_policy` ["
+                                            + storagePolicy + "] dose not exist.");
+            }
+            StoragePolicyResource storagePolicyResource = (StoragePolicyResource) resource;
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            Date remoteStorageCooldownTime = null;
+            try {
+                remoteStorageCooldownTime = df.parse(storagePolicyResource.getStorageCooldownTime());
+            } catch (ParseException e) {
+                throw new AnalysisException("Invalid remoteStorageCooldownTime: "
+                                            + storagePolicyResource.getStorageCooldownTime());
             }
             // check remote storage cool down timestamp
-            if (remoteCooldownTimeStamp <= currentTimeMs) {
+            if (remoteStorageCooldownTime.getTime() <= currentTimeMs) {
                 throw new AnalysisException("Remote storage cool down time should later than now");
             }
-            if (hasCooldown && (remoteCooldownTimeStamp <= cooldownTimeStamp)) {
-                throw new AnalysisException("`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
+            if (hasCooldown && (remoteStorageCooldownTime.getTime() <= cooldownTimeStamp)) {
+                throw new AnalysisException("`remoteStorageCooldownTime` should later than `storage_cooldown_time`.");
             }
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStorageResourceName, remoteCooldownTimeStamp);
+        return new DataProperty(storageMedium, cooldownTimeStamp, storagePolicy);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -468,18 +467,18 @@ public class PropertyAnalyzer {
     }
 
     // analyze remote storage resource
-    public static String analyzeRemoteStorageResource(Map<String, String> properties) throws AnalysisException {
-        String resourceName = "";
-        if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
-            resourceName = properties.get(PROPERTIES_REMOTE_STORAGE_RESOURCE);
+    public static String analyzeStoragePolicy(Map<String, String> properties) throws AnalysisException {
+        String storagePolicyName = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_POLICY)) {
+            storagePolicyName = properties.get(PROPERTIES_STORAGE_POLICY);
             // check resource existence
-            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(storagePolicyName);
             if (resource == null) {
-                throw new AnalysisException("Resource does not exist, name: " + resourceName);
+                throw new AnalysisException("Resource does not exist, name: " + storagePolicyName);
             }
         }
 
-        return resourceName;
+        return storagePolicyName;
     }
 
     // analyze property like : "type" = "xxx";

@@ -118,7 +118,7 @@ public class ResourceMgr implements Writable {
                         List<Long> partitionIds = ((OlapTable) table).getPartitionIds();
                         for (Long partitionId : partitionIds) {
                             DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                            if (resourceName.equals(dataProperty.getRemoteStorageResourceName())) {
+                            if (resourceName.equals(dataProperty.getStoragePolicy())) {
                                 usedTables.add(db.getFullName() + "." + table.getName());
                                 break;
                             }

@@ -270,8 +270,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
                 partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
-                partitionInfo.add(dataProperty.getRemoteStorageResourceName());
-                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getRemoteCooldownTimeMs()));
+                partitionInfo.add(dataProperty.getStoragePolicy());
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 

@@ -96,18 +96,14 @@ public class ModifyPartitionClause extends AlterTableClause {
     // 3. in_memory
     // 4. tablet type
     private void checkProperties(Map<String, String> properties) throws AnalysisException {
-        // 1. data property, can not modify partition property remote_storage_resource
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
-            throw new AnalysisException("Do not support modify partition data property `remote_storage_resource`.");
-        }
 
-        // 2. replica allocation
+        // 1. replica allocation
         PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
 
-        // 3. in memory
+        // 2. in memory
         PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
 
-        // 4. tablet type
+        // 3. tablet type
         PropertyAnalyzer.analyzeTabletType(properties);
     }
 

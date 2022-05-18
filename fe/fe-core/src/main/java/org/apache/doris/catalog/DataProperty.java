@@ -41,10 +41,8 @@ public class DataProperty implements Writable {
     private TStorageMedium storageMedium;
     @SerializedName(value =  "cooldownTimeMs")
     private long cooldownTimeMs;
-    @SerializedName(value = "remoteStorageResourceName")
-    private String remoteStorageResourceName;
-    @SerializedName(value = "remoteCooldownTimeMs")
-    private long remoteCooldownTimeMs;
+    @SerializedName(value = "storagePolicy")
+    private String storagePolicy;
 
     private DataProperty() {
         // for persist
@@ -58,16 +56,13 @@ public class DataProperty implements Writable {
         } else {
             this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
-        this.remoteStorageResourceName = "";
-        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        this.storagePolicy = "";
     }
 
-    public DataProperty(TStorageMedium medium, long cooldown,
-                        String remoteStorageResourceName, long remoteCooldownTimeMs) {
+    public DataProperty(TStorageMedium medium, long cooldown, String storagePolicy) {
         this.storageMedium = medium;
         this.cooldownTimeMs = cooldown;
-        this.remoteStorageResourceName = remoteStorageResourceName;
-        this.remoteCooldownTimeMs = remoteCooldownTimeMs;
+        this.storagePolicy = storagePolicy;
     }
 
     public TStorageMedium getStorageMedium() {
@@ -78,12 +73,8 @@ public class DataProperty implements Writable {
         return cooldownTimeMs;
     }
 
-    public long getRemoteCooldownTimeMs() {
-        return remoteCooldownTimeMs;
-    }
-
-    public String getRemoteStorageResourceName() {
-        return remoteStorageResourceName;
+    public String getStoragePolicy() {
+        return storagePolicy;
     }
 
     public static DataProperty read(DataInput in) throws IOException {
@@ -105,8 +96,7 @@ public class DataProperty implements Writable {
     public void readFields(DataInput in) throws IOException {
         storageMedium = TStorageMedium.valueOf(Text.readString(in));
         cooldownTimeMs = in.readLong();
-        remoteStorageResourceName = "";
-        remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        storagePolicy = "";
     }
 
     @Override
@@ -123,8 +113,7 @@ public class DataProperty implements Writable {
 
         return this.storageMedium == other.storageMedium
                 && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs
-                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
+                && this.storagePolicy.equals(other.storagePolicy);
     }
 
     @Override
@@ -132,8 +121,7 @@ public class DataProperty implements Writable {
         StringBuilder sb = new StringBuilder();
         sb.append("Storage medium[").append(this.storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
-        sb.append("remote storage resource name[").append(this.remoteStorageResourceName).append("]. ");
-        sb.append("remote cool down[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("].");
+        sb.append("storage policy[").append(this.storagePolicy).append("].");;
         return sb.toString();
     }
 }

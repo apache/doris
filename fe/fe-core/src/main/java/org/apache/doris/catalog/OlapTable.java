@@ -1541,12 +1541,12 @@ public class OlapTable extends Table {
         tableProperty.buildDataSortInfo();
     }
 
-    public void setRemoteStorageResource(String resourceName) {
+    public void setStoragePolicy(String storagePolicyName) {
         if (tableProperty == null) {
             tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.setRemoteStorageResource(resourceName);
-        tableProperty.buildRemoteStorageResource();
+        tableProperty.setStoragePolicy(storagePolicyName);
+        tableProperty.buildStoragePolicy();
     }
 
     // return true if partition with given name already exist, both in partitions and temp partitions.
@@ -1701,11 +1701,11 @@ public class OlapTable extends Table {
         return tableProperty.getDataSortInfo();
     }
 
-    public String getRemoteStorageResource() {
+    public String getStoragePolicy() {
         if (tableProperty == null) {
             return "";
         }
-        return tableProperty.getRemoteStorageResource();
+        return tableProperty.getStoragePolicy();
     }
 
     // For non partitioned table:
