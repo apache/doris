@@ -448,5 +448,4 @@ public class PlannerTest {
         expectedEx.expectMessage("String Type should not be used in key column[k1].");
         UtFrameUtils.parseAndAnalyzeStmt(createTbl1, ctx);
     }
-
 }
