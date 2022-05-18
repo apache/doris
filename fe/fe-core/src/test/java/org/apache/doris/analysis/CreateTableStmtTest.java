@@ -259,20 +259,41 @@ public class CreateTableStmtTest {
     }
 
     @Test
-    public void testCreateIcebergTable() throws UserException {
+    public void testCreateIcebergTableFromHiveCatalog() throws UserException {
         Map<String, String> properties = new HashMap<>();
         properties.put("iceberg.database", "doris");
         properties.put("iceberg.table", "test");
-        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        properties.put("iceberg.catalog.type", "hive");
+        properties.put("iceberg.catalog.uri", "thrift://127.0.0.1:9087");
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
-                + "\n"
-                + ") ENGINE = iceberg\n"
-                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
-                + "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
-                + "\"iceberg.table\"  =  \"test\")", stmt.toString());
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
+                "\n" +
+                ") ENGINE = iceberg\n" +
+                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
+                "\"iceberg.table\" = \"test\",\n" +
+                "\"iceberg.catalog.type\" = \"hive\",\n" +
+                "\"iceberg.catalog.uri\"  =  \"thrift://127.0.0.1:9087\"", stmt.toString());
+    }
+
+    @Test
+    public void testCreateIcebergTableFromHadoopCatalog() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.table", "test");
+        properties.put("iceberg.catalog.type", "hadoop");
+        properties.put("iceberg.catalog.warehouse", "hdfs://nn:8020/warehouse/path");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
+                "\n" +
+                ") ENGINE = iceberg\n" +
+                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
+                "\"iceberg.table\" = \"test\",\n" +
+                "\"iceberg.catalog.type\" = \"hadoop\",\n" +
+                "\"iceberg.catalog.warehouse\"  =  \"hdfs://nn:8020/warehouse/path\"", stmt.toString());
     }
 
     @Test

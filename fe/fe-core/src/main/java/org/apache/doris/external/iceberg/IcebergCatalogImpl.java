@@ -14,54 +14,48 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
 package org.apache.doris.external.iceberg;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.catalog.IcebergProperty;
-
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * HiveCatalog of Iceberg
- */
-public class HiveCatalog implements IcebergCatalog {
-    private static final Logger LOG = LogManager.getLogger(HiveCatalog.class);
+public class IcebergCatalogImpl implements IcebergCatalog {
+    private static final Logger LOG = LogManager.getLogger(IcebergCatalogImpl.class);
 
-    private org.apache.iceberg.hive.HiveCatalog hiveCatalog;
-
-    public HiveCatalog() {
-        hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-    }
+    private String catalogType;
+    private Catalog icebergCatalog;
 
     @Override
     public void initialize(IcebergProperty icebergProperty) {
-        // set hadoop conf
+        this.catalogType = icebergProperty.getCatalogType();
+        Map<String, String> properties = Maps.newHashMap(icebergProperty.getExtraProperties());
+        properties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, icebergProperty.getCatalogType());
+        // Hadoop configuration
         Configuration conf = new Configuration();
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put("uri", icebergProperty.getHiveMetastoreUris());
-        hiveCatalog.initialize("hive", catalogProperties);
+        this.icebergCatalog = CatalogUtil.buildIcebergCatalog(icebergProperty.getCatalogType(), properties, conf);
     }
 
     @Override
     public boolean tableExists(TableIdentifier tableIdentifier) {
-        return hiveCatalog.tableExists(tableIdentifier);
+        return icebergCatalog.tableExists(tableIdentifier);
     }
 
     @Override
     public Table loadTable(TableIdentifier tableIdentifier) throws DorisIcebergException {
         try {
-            return hiveCatalog.loadTable(tableIdentifier);
+            return icebergCatalog.loadTable(tableIdentifier);
         } catch (Exception e) {
             LOG.warn("Failed to load table[{}] from database[{}], with error: {}",
                     tableIdentifier.name(), tableIdentifier.namespace(), e.getMessage());
@@ -73,7 +67,7 @@ public class HiveCatalog implements IcebergCatalog {
     @Override
     public List<TableIdentifier> listTables(String db) throws DorisIcebergException {
         try {
-            return hiveCatalog.listTables(Namespace.of(db));
+            return icebergCatalog.listTables(Namespace.of(db));
         } catch (Exception e) {
             LOG.warn("Failed to list table in database[{}], with error: {}", db, e.getMessage());
             throw new DorisIcebergException(String.format("Failed to list table in database[%s]", db), e);
@@ -82,6 +76,11 @@ public class HiveCatalog implements IcebergCatalog {
 
     @Override
     public boolean databaseExists(String db) {
-        return hiveCatalog.namespaceExists(Namespace.of(db));
+        if (icebergCatalog instanceof SupportsNamespaces) {
+            return ((SupportsNamespaces) icebergCatalog).namespaceExists(Namespace.of(db));
+        } else {
+            LOG.warn("Iceberg catalog: {} does not support namespace operation", catalogType);
+            throw new DorisIcebergException(String.format("Iceberg catalog: %s does not support namespace operation", catalogType));
+        }
     }
 }

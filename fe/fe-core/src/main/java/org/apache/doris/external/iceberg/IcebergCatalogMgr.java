@@ -28,9 +28,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.SystemIdGenerator;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
 
-import com.google.common.base.Enums;
 import com.google.common.base.Strings;
-import com.google.common.collect.Maps;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,83 +49,62 @@ public class IcebergCatalogMgr {
 
     // hive metastore uri -> iceberg catalog
     // used to cache iceberg catalogs
-    private static final ConcurrentHashMap<String, IcebergCatalog> metastoreUriToCatalog = new ConcurrentHashMap();
+    private static final ConcurrentHashMap<IcebergProperty, IcebergCatalog> propertiesToCatalog = new ConcurrentHashMap();
 
-    // TODO:(qjl) We'll support more types of Iceberg catalog.
     public enum CatalogType {
         HIVE_CATALOG
     }
 
     public static IcebergCatalog getCatalog(IcebergProperty icebergProperty) throws DdlException {
-        String uri = icebergProperty.getHiveMetastoreUris();
-        if (!metastoreUriToCatalog.containsKey(uri)) {
-            metastoreUriToCatalog.put(uri, createCatalog(icebergProperty));
+        if (!propertiesToCatalog.containsKey(icebergProperty)) {
+            propertiesToCatalog.put(icebergProperty, createCatalog(icebergProperty));
         }
-        return metastoreUriToCatalog.get(uri);
+        return propertiesToCatalog.get(icebergProperty);
     }
 
     private static IcebergCatalog createCatalog(IcebergProperty icebergProperty) throws DdlException {
-        CatalogType type = CatalogType.valueOf(icebergProperty.getCatalogType());
-        IcebergCatalog catalog;
-        switch (type) {
-            case HIVE_CATALOG:
-                catalog = new HiveCatalog();
-                break;
-            default:
-                throw new DdlException("Unsupported catalog type: " + type);
-        }
+        IcebergCatalog catalog = new IcebergCatalogImpl();
         catalog.initialize(icebergProperty);
         return catalog;
     }
 
     public static void validateProperties(Map<String, String> properties, boolean isTable) throws DdlException {
         if (properties.size() == 0) {
-            throw new DdlException("Please set properties of iceberg, "
-                    + "they are: iceberg.database and 'iceberg.hive.metastore.uris'");
+            throw new DdlException("Please at lease set property of iceberg: iceberg.database");
         }
 
-        Map<String, String> copiedProps = Maps.newHashMap(properties);
-        String icebergDb = copiedProps.get(IcebergProperty.ICEBERG_DATABASE);
+        // check iceberg catalog type
+        String icebergCatalogType = properties.get(IcebergProperty.ICEBERG_CATALOG_TYPE);
+        if (Strings.isNullOrEmpty(icebergCatalogType)) {
+            LOG.info("{} is not set, set to HiveCatalog as default", IcebergProperty.ICEBERG_CATALOG_TYPE);
+            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_HIVE);
+        } else if (CatalogType.HIVE_CATALOG.name().equals(icebergCatalogType)) {
+            LOG.warn(String.format("Property Value of iceberg.catalog.type: %s is deprecated. Please use 'hive' for HiveCatalog directly",
+                    CatalogType.HIVE_CATALOG));
+            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_HIVE);
+        }
+
+        // check iceberg.hive.metastore.uris
+        if (properties.containsKey(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS)) {
+            LOG.warn(String.format("Property %s is deprecated. Please use iceberg.catalog.uri for HiveCatalog directly",
+                    IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
+            properties.put("iceberg.catalog.uri", properties.remove(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
+        }
+
+        // check database
+        String icebergDb = properties.get(IcebergProperty.ICEBERG_DATABASE);
         if (Strings.isNullOrEmpty(icebergDb)) {
             throw new DdlException(String.format(PROPERTY_MISSING_MSG,
                     IcebergProperty.ICEBERG_DATABASE, IcebergProperty.ICEBERG_DATABASE));
         }
-        copiedProps.remove(IcebergProperty.ICEBERG_DATABASE);
-
-        // check hive properties
-        // hive.metastore.uris
-        String hiveMetastoreUris = copiedProps.get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
-        if (Strings.isNullOrEmpty(hiveMetastoreUris)) {
-            throw new DdlException(String.format(PROPERTY_MISSING_MSG,
-                    IcebergProperty.ICEBERG_HIVE_METASTORE_URIS, IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
-        }
-        copiedProps.remove(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS);
-
-        // check iceberg catalog type
-        String icebergCatalogType = copiedProps.get(IcebergProperty.ICEBERG_CATALOG_TYPE);
-        if (Strings.isNullOrEmpty(icebergCatalogType)) {
-            icebergCatalogType = IcebergCatalogMgr.CatalogType.HIVE_CATALOG.name();
-            properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, icebergCatalogType);
-        } else {
-            copiedProps.remove(IcebergProperty.ICEBERG_CATALOG_TYPE);
-        }
-
-        if (!Enums.getIfPresent(IcebergCatalogMgr.CatalogType.class, icebergCatalogType).isPresent()) {
-            throw new DdlException("Unknown catalog type: " + icebergCatalogType + ". Current only support HiveCatalog.");
-        }
 
         // only check table property when it's an iceberg table
         if (isTable) {
-            String icebergTbl = copiedProps.get(IcebergProperty.ICEBERG_TABLE);
+            String icebergTbl = properties.get(IcebergProperty.ICEBERG_TABLE);
             if (Strings.isNullOrEmpty(icebergTbl)) {
                 throw new DdlException(String.format(PROPERTY_MISSING_MSG,
                         IcebergProperty.ICEBERG_TABLE, IcebergProperty.ICEBERG_TABLE));
             }
-            copiedProps.remove(IcebergProperty.ICEBERG_TABLE);
-        }
-
-        if (!copiedProps.isEmpty()) {
-            throw new DdlException("Unknown table properties: " + copiedProps.toString());
         }
     }
 
@@ -159,7 +137,6 @@ public class IcebergCatalogMgr {
         IcebergTable table = new IcebergTable(tableId, tableName, columns, icebergProperty, icebergTable);
 
         return table;
-
     }
 
     /**

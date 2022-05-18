@@ -51,25 +51,36 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
 
     ```sql
     -- 语法
+    -- Syntax
     CREATE [EXTERNAL] TABLE table_name 
     ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "iceberg.database" = "iceberg_db_name",
-    "iceberg.table" = "icberg_table_name",
-    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_database",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-
-    -- 例子：挂载 Iceberg 中 iceberg_db 下的 iceberg_table 
-    CREATE TABLE `t_iceberg` 
+    -- 例子：挂载 Iceberg 中 iceberg_hive_catalog_db 下的 iceberg_hive_catalog_table
+    CREATE TABLE `t_iceberg`
     ENGINE = ICEBERG
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.table" = "iceberg_table",
-    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.table" = "iceberg_hive_catalog_table",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- 例子：挂载 Iceberg 中 iceberg_hadoop_catalog_db 下的 iceberg_hadoop_catalog_table
+    CREATE TABLE `t_iceberg`
+    ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.table" = "iceberg_hadoop_catalog_table",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -82,16 +93,25 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     [COMMENT "comment"]
     PROPERTIES (
     "iceberg.database" = "iceberg_db_name",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-    -- 例子：挂载 Iceberg 中的 iceberg_db，同时挂载该 db 下的所有 table
+    -- 例子：挂载 Iceberg 中的 iceberg_hive_catalog_db，同时挂载该 db 下的所有 table
     CREATE DATABASE `iceberg_test_db`
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- 例子：挂载 Iceberg 中的 iceberg_hadoop_catalog_db，同时挂载该 db 下的所有 table
+    CREATE DATABASE `iceberg_test_db`
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -106,24 +126,37 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     CREATE [EXTERNAL] TABLE table_name (
         col_name col_type [NULL | NOT NULL] [COMMENT "comment"]
     ) ENGINE = ICEBERG
-    [COMMENT "comment"]
+    [COMMENT "comment"] )
     PROPERTIES (
     "iceberg.database" = "iceberg_db_name",
     "iceberg.table" = "icberg_table_name",
-    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-    -- 例子：挂载 Iceberg 中 iceberg_db 下的 iceberg_table 
+    -- 例子：挂载 Iceberg 中 iceberg_hive_catalog_db 下的 iceberg_hive_catalog_table
     CREATE TABLE `t_iceberg` (
         `id` int NOT NULL COMMENT "id number",
         `name` varchar(10) NOT NULL COMMENT "user name"
     ) ENGINE = ICEBERG
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.table" = "iceberg_table",
-    "iceberg.hive.metastore.uris"  =  "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type"  =  "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.table" = "iceberg_hive_catalog_table",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- 例子：挂载 Iceberg 中 iceberg_hadoop_catalog_db 下的 iceberg_hadoop_catalog_table
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.table" = "iceberg_hadoop_catalog_table",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -134,10 +167,15 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     - 列的顺序需要与 Iceberg 表一致
 - ENGINE 需要指定为 ICEBERG
 - PROPERTIES 属性：
-    - `iceberg.hive.metastore.uris`：Hive Metastore 服务地址
-    - `iceberg.database`：挂载 Iceberg 对应的数据库名
-    - `iceberg.table`：挂载 Iceberg 对应的表名，挂载 Iceberg database 时无需指定。
-    - `iceberg.catalog.type`：Iceberg 中使用的 catalog 方式，默认为 `HIVE_CATALOG`，当前仅支持该方式，后续会支持更多的 Iceberg catalog 接入方式。
+    - `iceberg.database`: 挂载 Iceberg 对应的数据库名
+    - `iceberg.table`: 挂载 Iceberg 对应的表名，挂载 Iceberg database 时无需指定
+    - `iceberg.catalog.type`: Iceberg 中使用的 catalog 类型，默认是`HIVE`（全类名为：`org.apache.iceberg.hive.HiveCatalog`)
+    - `iceberg.catalog.pro_key_1`: Iceberg catalog的属性参数。例如，可以为 Iceberg HiveCatalog 设置 `iceberg.catalog.uri`, 为Iceberg HadoopCatalog 设置 `iceberg.catalog.warehouse`
+- 弃用的属性键：
+    - `iceberg.hive.metastore.uris`: 请使用 `iceberg.catalog.uri` 来设置 Iceberg HiveCatalog HMS URI地址
+- 弃用的属性值.
+    - `HIVE_CATALOG`: 请使用 `HIVE` 来选择 Iceberg HiveCatalog
+
 
 ### 展示表结构
 

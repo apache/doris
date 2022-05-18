@@ -55,21 +55,31 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     ENGINE = ICEBERG
     [COMMENT "comment"]
     PROPERTIES (
-    "iceberg.database" = "iceberg_db_name",
-    "iceberg.table" = "icberg_table_name",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_database",
+    "iceberg.table" = "iceberg_table",
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-
-    -- Example: Mount iceberg_table under iceberg_db in Iceberg 
-    CREATE TABLE `t_iceberg` 
+    -- Example: Mount iceberg_hive_catalog_table (managed by HiveCatalog) under iceberg_hive_catalog_db in Iceberg
+    CREATE TABLE `t_iceberg`
     ENGINE = ICEBERG
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.table" = "iceberg_table",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.table" = "iceberg_hive_catalog_table",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- Example: Mount iceberg_hadoop_catalog_table (managed by HadoopCatalog) under iceberg_hadoop_catalog_db in Iceberg
+    CREATE TABLE `t_iceberg`
+    ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.table" = "iceberg_hadoop_catalog_table",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -82,16 +92,25 @@ Iceberg tables can be created in Doris in two ways. You do not need to declare t
     [COMMENT "comment"]
     PROPERTIES (
     "iceberg.database" = "iceberg_db_name",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-    -- Example: mount the iceberg_db in Iceberg and mount all tables under that db
+    -- Example: mount the iceberg_hive_catalog_db in Iceberg and mount all tables under that db
     CREATE DATABASE `iceberg_test_db`
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- Example: mount the iceberg_hadoop_catalog_db in Iceberg and mount all tables under that db
+    CREATE DATABASE `iceberg_test_db`
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -111,20 +130,33 @@ You can also create an Iceberg table by explicitly specifying the column definit
     PROPERTIES (
     "iceberg.database" = "iceberg_db_name",
     "iceberg.table" = "icberg_table_name",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.catalog.type" = "catalog_type",
+    "iceberg.catalog.catalog_prop_key1" = "catalog_prop_value1",
+    "iceberg.catalog.catalog_prop_key2" = "catalog_prop_value2",
     );
 
-    -- Example: Mount iceberg_table under iceberg_db in Iceberg 
+    -- Example: Mount iceberg_hive_catalog_table under iceberg_hive_catalog_db in Iceberg
     CREATE TABLE `t_iceberg` (
         `id` int NOT NULL COMMENT "id number",
         `name` varchar(10) NOT NULL COMMENT "user name"
     ) ENGINE = ICEBERG
     PROPERTIES (
-    "iceberg.database" = "iceberg_db",
-    "iceberg.table" = "iceberg_table",
-    "iceberg.hive.metastore.uris" = "thrift://192.168.0.1:9083",
-    "iceberg.catalog.type" = "HIVE_CATALOG"
+    "iceberg.database" = "iceberg_hive_catalog_db",
+    "iceberg.table" = "iceberg_hive_catalog_table",
+    "iceberg.catalog.type" = "hive",
+    "iceberg.catalog.uri" = "thrift://192.168.0.1:9083",
+    );
+
+    -- Example: Mount iceberg_hadoop_catalog_table under iceberg_hadoop_catalog_db in Iceberg
+    CREATE TABLE `t_iceberg` (
+        `id` int NOT NULL COMMENT "id number",
+        `name` varchar(10) NOT NULL COMMENT "user name"
+    ) ENGINE = ICEBERG
+    PROPERTIES (
+    "iceberg.database" = "iceberg_hadoop_catalog_db",
+    "iceberg.table" = "iceberg_hadoop_catalog_table",
+    "iceberg.catalog.type" = "hadoop",
+    "iceberg.catalog..warehouse" = "hdfs://nn:8020/warehouse/path",
     );
     ```
 
@@ -135,10 +167,14 @@ You can also create an Iceberg table by explicitly specifying the column definit
     - The order of the columns needs to be consistent with the Iceberg table
 - ENGINE needs to be specified as ICEBERG
 - PROPERTIES property.
-    - `iceberg.hive.metastore.uris`: Hive Metastore service address
     - `iceberg.database`: the name of the database to which Iceberg is mounted
     - `iceberg.table`: the name of the table to which Iceberg is mounted, not required when mounting Iceberg database.
-    - `iceberg.catalog.type`: the catalog method used in Iceberg, the default is `HIVE_CATALOG`, currently only this method is supported, more Iceberg catalog access methods will be supported in the future.
+    - `iceberg.catalog.type`: the catalog type used in Iceberg, the default is `HIVE` (simple name of `org.apache.iceberg.hive.HiveCatalog`).
+    - `iceberg.catalog.pro_key_1`: the catalog properties for `iceberg.catalog.type`. For example, `iceberg.catalog.uri` for Iceberg HiveCatalog, `iceberg.catalog.warehouse` for Iceberg HadoopCatalog.
+- Deprecated property key.
+    - `iceberg.hive.metastore.uris`: Please use `iceberg.catalog.uri` for Iceberg HiveCatalog directly.
+- Deprecated property value.
+    - `HIVE_CATALOG` for `iceberg.catalog.type`: Please use `HIVE` to use Iceberg HiveCatalog.
 
 ### Show table structure
 

@@ -69,7 +69,7 @@ public class IcebergTable extends Table {
     private String hostUri;
     // location analyze flag
     private boolean isAnalyzed = false;
-    private Map<String, String> icebergProperties = Maps.newHashMap();
+    private Map<String, String> icebergProperties;
 
     private org.apache.iceberg.Table icebergTable;
 
@@ -86,10 +86,7 @@ public class IcebergTable extends Table {
         this.icebergDb = icebergProperty.getDatabase();
         this.icebergTbl = icebergProperty.getTable();
 
-        icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
-                icebergProperty.getHiveMetastoreUris());
-        icebergProperties.put(IcebergProperty.ICEBERG_CATALOG_TYPE,
-                icebergProperty.getCatalogType());
+        icebergProperties = icebergProperty.toMap();
         this.icebergTable = icebergTable;
     }
 
@@ -186,9 +183,10 @@ public class IcebergTable extends Table {
             IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
             try {
                 this.icebergTable = icebergCatalog.loadTable(TableIdentifier.of(icebergDb, icebergTbl));
-                LOG.info("finished to load iceberg table: {}", name);
+                LOG.info("Finished to load iceberg table: {}", name);
             } catch (Exception e) {
-                LOG.warn("failed to load iceberg table {} from {}", name, icebergProperty.getHiveMetastoreUris(), e);
+                LOG.warn("Failed to load iceberg table {} from catalog: {} with catalog properties: {}",
+                        name, icebergProperty.getCatalogType(), icebergProperty.getExtraProperties(), e);
                 throw e;
             }
 
@@ -199,8 +197,6 @@ public class IcebergTable extends Table {
 
     private IcebergProperty getIcebergProperty() {
         Map<String, String> properties = Maps.newHashMap(icebergProperties);
-        properties.put(IcebergProperty.ICEBERG_DATABASE, icebergDb);
-        properties.put(IcebergProperty.ICEBERG_TABLE, icebergTbl);
         return new IcebergProperty(properties);
     }
 
@@ -243,6 +239,7 @@ public class IcebergTable extends Table {
 
         icebergDb = Text.readString(in);
         icebergTbl = Text.readString(in);
+        icebergProperties = Maps.newHashMap();
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             String key = Text.readString(in);

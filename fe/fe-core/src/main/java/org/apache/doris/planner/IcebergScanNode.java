@@ -21,7 +21,6 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
@@ -102,9 +101,6 @@ public class IcebergScanNode extends BrokerScanNode {
         StringBuilder output = new StringBuilder();
         if (!isLoad()) {
             output.append(prefix).append("TABLE: ").append(icebergTable.getName()).append("\n");
-            output.append(prefix).append("PATH: ")
-                    .append(icebergTable.getIcebergProperties().get(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS))
-                    .append("\n");
         }
         return output.toString();
     }

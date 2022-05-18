@@ -144,8 +144,8 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             } catch (DdlException e) {
                 addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
-                LOG.warn("Failed get Iceberg catalog, hive.metastore.uris[{}], error: {}",
-                        icebergProperty.getHiveMetastoreUris(), e.getMessage());
+                LOG.warn("Failed get Iceberg catalog(catalog type: {}), catalog properties[{}], error: {}",
+                        icebergProperty.getCatalogType(), icebergProperty.getExtraProperties(), e.getMessage());
             }
             List<TableIdentifier> icebergTables = null;
             try {
@@ -154,8 +154,8 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
             } catch (DorisIcebergException e) {
                 addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
-                LOG.warn("Failed list remote Iceberg database, hive.metastore.uris[{}], database[{}], error: {}",
-                        icebergProperty.getHiveMetastoreUris(), icebergProperty.getDatabase(), e.getMessage());
+                LOG.warn("Failed list remote Iceberg database, catalog properties[{}], database[{}], error: {}",
+                        icebergProperty, icebergProperty.getDatabase(), e.getMessage());
             }
             for (TableIdentifier identifier : icebergTables) {
                 IcebergProperty tableProperties = new IcebergProperty(icebergProperty);
