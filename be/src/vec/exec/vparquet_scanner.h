@@ -54,17 +54,13 @@ public:
 private:
     Status _next_arrow_batch();
     Status _init_arrow_batch_if_necessary();
-    Status _init_src_block(Block* block);
+    Status _init_src_block() override;
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
-    Status _eval_conjunts(Block* block);
-    Status _materialize_block(Block* block, Block* dest_block);
-    void _fill_columns_from_path(Block* block);
 
 private:
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
-    int _num_of_columns_from_file;
 };
 
 } // namespace doris::vectorized
