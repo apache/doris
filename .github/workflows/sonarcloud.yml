@@ -84,7 +84,7 @@ jobs:
           cd thirdparty/installed/bin/ && ln -s /usr/bin/thrift thrift
 
       - name: Analyze FE
-        if: steps.java-changes.outputs.any_changed == 'true'
+        #if: steps.java-changes.outputs.any_changed == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
