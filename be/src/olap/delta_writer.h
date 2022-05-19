@@ -67,9 +67,6 @@ public:
     Status close();
     // wait for all memtables to be flushed.
     // mem_consumption() should be 0 after this function returns.
-    Status close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                      bool is_broken);
     Status close_wait();
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
