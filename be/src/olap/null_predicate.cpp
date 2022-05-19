@@ -165,4 +165,17 @@ void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, 
         if (_is_null) memset(flags, false, size);
     }
 }
+
+
+void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            flags[i] = (null_map[i] == _is_null);
+        }
+        return;
+    }
+    if (_is_null) memset(flags, false, size);
+}
+
 } //namespace doris
