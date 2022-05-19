@@ -137,6 +137,23 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
     return Status::OK();
 }
 
+void TabletsChannel::_close_wait(DeltaWriter* writer,
+                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
+                                 google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
+    Status st = writer->close_wait();
+    if (st.ok()) {
+        if (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()) {
+            PTabletInfo* tablet_info = tablet_vec->Add();
+            tablet_info->set_tablet_id(writer->tablet_id());
+            tablet_info->set_schema_hash(writer->schema_hash());
+        }
+    } else {
+        PTabletError* tablet_error = tablet_errors->Add();
+        tablet_error->set_tablet_id(writer->tablet_id());
+        tablet_error->set_msg(st.get_error_msg());
+    }
+}
+
 Status TabletsChannel::reduce_mem_usage(int64_t mem_limit) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
