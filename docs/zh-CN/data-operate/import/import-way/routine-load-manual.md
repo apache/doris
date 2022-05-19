@@ -80,7 +80,7 @@ under the License.
 
 ### 创建任务
 
-创建例行导入任务的的详细语法可以连接到 Doris 后，查看[CREATE ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md)命令手册，或者执行 `HELP ROUTINE LOAD;` 查看语法帮助。
+创建例行导入任务的详细语法可以连接到 Doris 后，查看[CREATE ROUTINE LOAD](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-ROUTINE-LOAD.md)命令手册，或者执行 `HELP ROUTINE LOAD;` 查看语法帮助。
 
 下面我们以几个例子说明如何创建Routine Load任务：
 

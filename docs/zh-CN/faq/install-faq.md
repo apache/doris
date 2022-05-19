@@ -151,7 +151,7 @@ Observer 角色和这个单词的含义一样，仅仅作为观察者来同步�
 
    3. 查看be.INFO中是否有F开头的日志。
 
-      F开头的的日志是 Fatal 日志。如 F0916 ，表示9月16号的Fatal日志。Fatal日志通常表示程序断言错误，断言错误会直接导致进程退出（说明程序出现了Bug）。欢迎前往微信群、github discussion 或dev邮件组寻求帮助。
+      F开头的日志是 Fatal 日志。如 F0916 ，表示9月16号的Fatal日志。Fatal日志通常表示程序断言错误，断言错误会直接导致进程退出（说明程序出现了Bug）。欢迎前往微信群、github discussion 或dev邮件组寻求帮助。
 
    4. Minidump
 
@@ -282,7 +282,7 @@ cp fe-core/target/generated-sources/cup/org/apache/doris/analysis/action_table.d
 ```
 
 ### Q14. Doris 升级到1.0 以后版本通过ODBC访问MySQL外表报错 `Failed to set ciphers to use (2026)`
-这个问题出现在doris 升级到1.0 版本以后，且使用 Connector/ODBC 8.0.x 以上版本，Connector/ODBC 8.0.x 有多种获取方式，比如通过yum安装的的方式获取的 `/usr/lib64/libmyodbc8w.so` 依赖的是 `libssl.so.10` 和 `libcrypto.so.10`
+这个问题出现在doris 升级到1.0 版本以后，且使用 Connector/ODBC 8.0.x 以上版本，Connector/ODBC 8.0.x 有多种获取方式，比如通过yum安装的方式获取的 `/usr/lib64/libmyodbc8w.so` 依赖的是 `libssl.so.10` 和 `libcrypto.so.10`
 而doris 1.0 以后版本中openssl 已经升级到1.1 且内置在doris 二进制包中，因此会导致 openssl 的冲突进而出现 类似 如下的错误
 ```
 ERROR 1105 (HY000): errCode = 2, detailMessage = driver connect Error: HY000 [MySQL][ODBC 8.0(w) Driver]SSL connection error: Failed to set ciphers to use (2026)

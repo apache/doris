@@ -163,7 +163,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     ```time_unit="DAY/WEEK/MONTH", end=3, start=-3, reserved_history_periods="[2020-06-01,2020-06-20],[2020-10-31,2020-11-15]"```.
 
-    The the system will automatically reserve following partitions in following period :
+    The system will automatically reserve following partitions in following period :
 
     ```
     ["2020-06-01","2020-06-20"],
@@ -173,7 +173,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     ```time_unit="HOUR", end=3, start=-3, reserved_history_periods="[2020-06-01 00:00:00,2020-06-01 03:00:00]"```.
 
-    The the system will automatically reserve following partitions in following period :
+    The system will automatically reserve following partitions in following period :
 
     ```
     ["2020-06-01 00:00:00","2020-06-01 03:00:00"]

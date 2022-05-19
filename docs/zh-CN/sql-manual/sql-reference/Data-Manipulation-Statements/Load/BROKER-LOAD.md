@@ -390,7 +390,7 @@ WITH BROKER broker_name
    )
    ```
 
-   `my_table` 必须是是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
+   `my_table` 必须是 Unqiue Key 模型表，并且指定了 Sequcence Col。数据会按照源数据中 `source_sequence` 列的值来保证顺序性。
 
 ### Keywords
 
