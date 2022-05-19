@@ -291,6 +291,9 @@ void MemTable::_collect_vskiplist_results() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
+    if (_keys_type == KeysType::DUP_KEYS) {
+        return;
+    }
     _collect_vskiplist_results<false>();
 }
 
@@ -299,7 +302,8 @@ bool MemTable::is_flush() {
 }
 
 bool MemTable::need_to_agg() {
-    return memory_usage() >= config::memtable_max_buffer_size;
+    return _keys_type == KeysType::DUP_KEYS ? is_flush()
+                                            : memory_usage() >= config::memtable_max_buffer_size;
 }
 
 Status MemTable::flush() {
