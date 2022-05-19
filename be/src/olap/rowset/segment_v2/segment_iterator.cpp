@@ -797,7 +797,7 @@ void SegmentIterator::_init_current_block(
         auto cid = _schema.column_id(i);
         auto column_desc = _schema.column(cid);
 
-        // the column in in block must clear() here to insert new data
+        // the column in block must clear() here to insert new data
         if (_is_pred_column[cid] ||
             i >= block->columns()) { //todo(wb) maybe we can release it after output block
             current_columns[cid]->clear();
@@ -818,7 +818,7 @@ void SegmentIterator::_output_non_pred_columns(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
     for (auto cid : _non_predicate_columns) {
         auto loc = _schema_block_id_map[cid];
-        // if loc < block->block->columns() means the the column is delete column and should
+        // if loc < block->block->columns() means the column is delete column and should
         // not output by block, so just skip the column.
         if (loc < block->columns()) {
             block->replace_by_position(loc, std::move(_current_return_columns[cid]));

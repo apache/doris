@@ -704,7 +704,7 @@ CONF_Int32(max_minidump_file_number, "10");
 // and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
 CONF_String(kafka_broker_version_fallback, "0.10.0");
 
-// The the number of pool siz of routine load consumer.
+// The number of pool siz of routine load consumer.
 // If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
 // Change this size to 0 to fix it temporarily.
 CONF_Int32(routine_load_consumer_pool_size, "10");
