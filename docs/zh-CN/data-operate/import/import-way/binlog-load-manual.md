@@ -382,7 +382,7 @@ FROM BINLOG
 );
 ```
 
-创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+创建数据同步作业的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
 语法：
 ```
