@@ -166,7 +166,6 @@ void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, 
     }
 }
 
-
 void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         auto& null_map = nullable->get_null_map_data();
