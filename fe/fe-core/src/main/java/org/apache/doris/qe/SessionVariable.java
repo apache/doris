@@ -439,7 +439,7 @@ public class SessionVariable implements Serializable, Writable {
     public double autoBroadcastJoinThreshold = 0.8;
   
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
-    private boolean enableProjection = false;
+    private boolean enableProjection = true;
 
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
