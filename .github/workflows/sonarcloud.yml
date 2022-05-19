@@ -22,7 +22,7 @@ on:
     branches:
       - master
   pull_request_target:
-  
+
 jobs:
   build:
     name: Build
@@ -76,7 +76,7 @@ jobs:
         if: steps.java-changes.outputs.any_changed == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
-          SONAR_TOKEN: ${{ secrets.SONARCLOUD_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           cd fe
           mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=apache_incubator-doris -DskipTests
