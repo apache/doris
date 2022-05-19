@@ -227,7 +227,6 @@ typedef struct LRUHandle {
     void* value;
     void (*deleter)(const CacheKey&, void* value);
     LRUHandle* next_hash = nullptr; // next entry in hash table
-    LRUHandle* prev_hash = nullptr; // previous entry in hash table
     LRUHandle* next = nullptr;      // next entry in lru list
     LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
@@ -277,7 +276,8 @@ public:
 
     // Remove element from hash table by "h", it would be faster
     // than the function above.
-    void remove(const LRUHandle* h);
+    // Return whether h is found and removed.
+    bool remove(const LRUHandle* h);
 
 private:
     FRIEND_TEST(CacheTest, HandleTableTest);
@@ -292,9 +292,6 @@ private:
     // matches key/hash.  If there is no such cache entry, return a
     // pointer to the trailing slot in the corresponding linked list.
     LRUHandle** _find_pointer(const CacheKey& key, uint32_t hash);
-
-    // Insert "handle" after "head".
-    void _head_insert(LRUHandle* head, LRUHandle* handle);
 
     void _resize();
 };
