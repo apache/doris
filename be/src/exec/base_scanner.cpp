@@ -78,6 +78,7 @@ Status BaseScanner::open() {
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
 
+    DCHECK(!_ranges.empty());
     const auto& range = _ranges[0];
     _num_of_columns_from_file = range.__isset.num_of_columns_from_file
                                         ? implicit_cast<int>(range.num_of_columns_from_file)
@@ -326,7 +327,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         int dest_index = ctx_idx++;
 
         auto* ctx = _dest_vexpr_ctx[dest_index];
-        int result_column_id = 0;
+        int result_column_id = -1;
         // PT1 => dest primitive type
         RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
         auto column_ptr = _src_block.get_by_position(result_column_id).column;
@@ -345,7 +346,6 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
                                     return _src_block.dump_one_line(i, _num_of_columns_from_file);
                                 },
                                 [&]() -> std::string {
-                                    // Type of the slot is must be Varchar in _temp_block.
                                     auto raw_value =
                                             _src_block.get_by_position(ctx_idx).column->get_data_at(
                                                     i);
