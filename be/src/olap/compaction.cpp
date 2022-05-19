@@ -76,7 +76,10 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
-    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
+    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    string merge_type = use_vectorized_compaction ? "v" : "";
+
+    LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
@@ -87,7 +90,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
     Status res;
-    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+
     if (use_vectorized_compaction) {
         res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                      _output_rs_writer.get(), &stats);
@@ -95,7 +98,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                     _output_rs_writer.get(), &stats);
     }
-    string merge_type = use_vectorized_compaction ? "v" : "";
+
     if (!res.ok()) {
         LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
