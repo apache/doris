@@ -73,9 +73,6 @@ uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
 Cache::~Cache() {}
 
 HandleTable::~HandleTable() {
-    for (uint32_t i = 0; i < _length; i++) {
-        delete _list[i];
-    }
     delete[] _list;
 }
 
@@ -85,13 +82,13 @@ LRUHandle* HandleTable::lookup(const CacheKey& key, uint32_t hash) {
 }
 
 LRUHandle* HandleTable::insert(LRUHandle* h) {
-    LRUHandle* old = remove(h->key(), h->hash);
-    LRUHandle* head = _list[h->hash & (_length - 1)];
-
-    _head_insert(head, h);
-    ++_elems;
+    LRUHandle** ptr = _find_pointer(h->key(), h->hash);
+    LRUHandle* old = *ptr;
+    h->next_hash = old ? old->next_hash : nullptr;
+    *ptr = h;
 
     if (old == nullptr) {
+        ++_elems;
         if (_elems > _length) {
             // Since each cache entry is fairly large, we aim for a small
             // average linked list length (<= 1).
@@ -106,38 +103,36 @@ LRUHandle* HandleTable::remove(const CacheKey& key, uint32_t hash) {
     LRUHandle** ptr = _find_pointer(key, hash);
     LRUHandle* result = *ptr;
 
-    remove(result);
+    if (result != nullptr) {
+        *ptr = result->next_hash;
+        _elems--;
+    }
 
     return result;
 }
 
-void HandleTable::remove(const LRUHandle* h) {
-    if (h != nullptr) {
-        if (h->next_hash != nullptr) {
-            h->next_hash->prev_hash = h->prev_hash;
-        }
-        DCHECK(h->prev_hash != nullptr);
-        h->prev_hash->next_hash = h->next_hash;
-        --_elems;
+bool HandleTable::remove(const LRUHandle* h) {
+    LRUHandle** ptr = &(_list[h->hash & (_length - 1)]);
+    while (*ptr != nullptr && *ptr != h) {
+        ptr = &(*ptr)->next_hash;
     }
+
+    LRUHandle* result = *ptr;
+    if (result != nullptr) {
+        *ptr = result->next_hash;
+        _elems--;
+        return true;
+    }
+    return false;
 }
 
 LRUHandle** HandleTable::_find_pointer(const CacheKey& key, uint32_t hash) {
-    LRUHandle** ptr = &(_list[hash & (_length - 1)]->next_hash);
+    LRUHandle** ptr = &(_list[hash & (_length - 1)]);
     while (*ptr != nullptr && ((*ptr)->hash != hash || key != (*ptr)->key())) {
         ptr = &(*ptr)->next_hash;
     }
 
     return ptr;
-}
-
-void HandleTable::_head_insert(LRUHandle* head, LRUHandle* handle) {
-    handle->next_hash = head->next_hash;
-    if (handle->next_hash != nullptr) {
-        handle->next_hash->prev_hash = handle;
-    }
-    handle->prev_hash = head;
-    head->next_hash = handle;
 }
 
 void HandleTable::_resize() {
@@ -148,29 +143,22 @@ void HandleTable::_resize() {
 
     LRUHandle** new_list = new (std::nothrow) LRUHandle*[new_length];
     memset(new_list, 0, sizeof(new_list[0]) * new_length);
-    for (uint32_t i = 0; i < new_length; i++) {
-        // The first node in the linked-list is a dummy node used for
-        // inserting new node mainly.
-        new_list[i] = new LRUHandle();
-    }
 
     uint32_t count = 0;
     for (uint32_t i = 0; i < _length; i++) {
-        LRUHandle* h = _list[i]->next_hash;
+        LRUHandle* h = _list[i];
         while (h != nullptr) {
             LRUHandle* next = h->next_hash;
             uint32_t hash = h->hash;
-            LRUHandle* head = new_list[hash & (new_length - 1)];
-            _head_insert(head, h);
+            LRUHandle** ptr = &new_list[hash & (new_length - 1)];
+            h->next_hash = *ptr;
+            *ptr = h;
             h = next;
             count++;
         }
     }
 
     DCHECK_EQ(_elems, count);
-    for (uint32_t i = 0; i < _length; i++) {
-        delete _list[i];
-    }
     delete[] _list;
     _list = new_list;
     _length = new_length;
@@ -240,7 +228,8 @@ void LRUCache::release(Cache::Handle* handle) {
             // only exists in cache
             if (_usage > _capacity) {
                 // take this opportunity and remove the item
-                _table.remove(e);
+                bool removed = _table.remove(e);
+                DCHECK(removed);
                 e->in_cache = false;
                 _unref(e);
                 _usage -= e->total_size;
@@ -285,7 +274,8 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
     DCHECK(e->in_cache);
     DCHECK(e->refs == 1); // LRU list contains elements which may be evicted
     _lru_remove(e);
-    _table.remove(e);
+    bool removed = _table.remove(e);
+    DCHECK(removed);
     e->in_cache = false;
     _unref(e);
     _usage -= e->total_size;

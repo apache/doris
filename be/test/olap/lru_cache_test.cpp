@@ -228,35 +228,35 @@ TEST_F(CacheTest, Usage) {
     LRUCache cache(LRUCacheType::SIZE);
     cache.set_capacity(1050);
 
-    // The lru usage is handle_size + charge = 96 - 1 = 95
-    // 95 + 3 means handle_size + key size
+    // The lru usage is handle_size + charge.
+    // handle_size = sizeof(handle) - 1 + key size = 88 - 1 + 3 = 90
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    EXPECT_EQ(198, cache.get_usage()); // 100 + 95 + 3
+    ASSERT_EQ(190, cache.get_usage()); // 100 + 90
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    EXPECT_EQ(496, cache.get_usage()); // 198 + 200 + 95 + 3
+    ASSERT_EQ(480, cache.get_usage()); // 190 + 290(d)
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    EXPECT_EQ(894, cache.get_usage()); // 496 + 300 + 95 + 3
+    ASSERT_EQ(870, cache.get_usage()); // 190 + 290(d) + 390
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    EXPECT_EQ(796, cache.get_usage()); // 894 + 400 + 95 + 3 - (300 + 100 + (95 + 3) * 2)
+    ASSERT_EQ(780, cache.get_usage()); // 290(d) + 490
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    EXPECT_EQ(896, cache.get_usage()); // 796 + 500 + 95 + 3 - (400 + 95 +3)
+    ASSERT_EQ(880, cache.get_usage()); // 290(d) + 590
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    EXPECT_EQ(996, cache.get_usage()); // 896 + 600 + 95 +3 - (500 + 95 + 3)
+    ASSERT_EQ(980, cache.get_usage()); // 290(d) + 690
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    EXPECT_EQ(1048, cache.get_usage()); // 996 + 950 + 95 +3 - (200 + 600 + (95 + 3) * 2)
+    ASSERT_EQ(1040, cache.get_usage()); // 1040(d)
 }
 
 TEST_F(CacheTest, Prune) {
@@ -360,9 +360,7 @@ TEST(CacheHandleTest, HandleTableTest) {
     HandleTable ht;
 
     for (uint32_t i = 0; i < ht._length; ++i) {
-        EXPECT_NE(ht._list[i], nullptr);
-        EXPECT_EQ(ht._list[i]->next_hash, nullptr);
-        EXPECT_EQ(ht._list[i]->prev_hash, nullptr);
+        EXPECT_EQ(ht._list[i], nullptr);
     }
 
     const int count = 10;
@@ -380,7 +378,6 @@ TEST(CacheHandleTest, HandleTableTest) {
         h->hash = 1; // make them in a same hash table linked-list
         h->refs = 0;
         h->next = h->prev = nullptr;
-        h->prev_hash = nullptr;
         h->next_hash = nullptr;
         h->in_cache = false;
         h->priority = CachePriority::NORMAL;
@@ -392,18 +389,15 @@ TEST(CacheHandleTest, HandleTableTest) {
         hs[i] = h;
     }
     EXPECT_EQ(ht._elems, count);
-    LRUHandle* h = ht.lookup(CacheKey(std::to_string(count - 1)), 1);
-    LRUHandle* head = ht._list[1 & (ht._length - 1)];
-    EXPECT_EQ(head, h->prev_hash);
-    EXPECT_EQ(head->next_hash, h);
-    int index = count - 1;
+    LRUHandle* h = ht.lookup(keys[0], 1);
+    LRUHandle** head_ptr = &(ht._list[1 & (ht._length - 1)]);
+    LRUHandle* head = *head_ptr;
+    ASSERT_EQ(head, h);
+    int index = 0;
     while (h != nullptr) {
         EXPECT_EQ(hs[index], h) << index;
         h = h->next_hash;
-        if (h != nullptr) {
-            EXPECT_EQ(hs[index], h->prev_hash);
-        }
-        --index;
+        ++index;
     }
 
     for (int i = 0; i < count; ++i) {
@@ -417,7 +411,6 @@ TEST(CacheHandleTest, HandleTableTest) {
         h->hash = 1; // make them in a same hash table linked-list
         h->refs = 0;
         h->next = h->prev = nullptr;
-        h->prev_hash = nullptr;
         h->next_hash = nullptr;
         h->in_cache = false;
         h->priority = CachePriority::NORMAL;
@@ -434,28 +427,21 @@ TEST(CacheHandleTest, HandleTableTest) {
         EXPECT_EQ(ht.lookup(keys[i], 1), hs[i]);
     }
 
-    LRUHandle* old = ht.remove(CacheKey("9"), 1); // first in hash table linked-list
-    EXPECT_EQ(old, hs[9]);
-    EXPECT_EQ(old->prev_hash, head);
-    EXPECT_EQ(old->next_hash, hs[8]); // hs[8] is the new first node
-    EXPECT_EQ(head->next_hash, hs[8]);
-    EXPECT_EQ(hs[8]->prev_hash, head);
+    LRUHandle* old = ht.remove(CacheKey("0"), 1); // first in hash table linked-list
+    ASSERT_EQ(old, hs[0]);
+    ASSERT_EQ(old->next_hash, hs[1]); // hs[1] is the new first node
+    ASSERT_EQ(*head_ptr, hs[1]);
 
-    old = ht.remove(CacheKey("0"), 1); // last in hash table linked-list
-    EXPECT_EQ(old, hs[0]);
-    EXPECT_EQ(old->prev_hash, hs[1]); // hs[1] is the new last node
-    EXPECT_EQ(old->prev_hash->next_hash, nullptr);
+    old = ht.remove(CacheKey("9"), 1); // last in hash table linked-list
+    ASSERT_EQ(old, hs[9]);
 
     old = ht.remove(CacheKey("5"), 1); // middle in hash table linked-list
-    EXPECT_EQ(old, hs[5]);
-    EXPECT_EQ(old->prev_hash, hs[6]);
-    EXPECT_EQ(old->next_hash, hs[4]);
-    EXPECT_EQ(hs[6]->next_hash, hs[4]);
-    EXPECT_EQ(hs[4]->prev_hash, hs[6]);
+    ASSERT_EQ(old, hs[5]);
+    ASSERT_EQ(old->next_hash, hs[6]);
+    ASSERT_EQ(hs[4]->next_hash, hs[6]);
 
     ht.remove(hs[4]); // middle in hash table linked-list
-    EXPECT_EQ(hs[6]->next_hash, hs[3]);
-    EXPECT_EQ(hs[3]->prev_hash, hs[6]);
+    ASSERT_EQ(hs[3]->next_hash, hs[6]);
 
     EXPECT_EQ(ht._elems, count - 4);
 
