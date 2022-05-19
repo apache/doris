@@ -234,10 +234,10 @@ public class BackupJobTest {
         snapshotFiles.add("1.dat");
         snapshotFiles.add("1.idx");
         snapshotFiles.add("1.hdr");
-        TStatus task_status = new TStatus(TStatusCode.OK);
+        TStatus taskStatus = new TStatus(TStatusCode.OK);
         TBackend tBackend = new TBackend("", 0, 1);
         TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.MAKE_SNAPSHOT,
-                snapshotTask.getSignature(), task_status);
+                snapshotTask.getSignature(), taskStatus);
         request.setSnapshotFiles(snapshotFiles);
         request.setSnapshotPath(snapshotPath);
         Assert.assertTrue(job.finishTabletSnapshotTask(snapshotTask, request));
@@ -268,7 +268,7 @@ public class BackupJobTest {
         Assert.assertEquals(BackupJobState.UPLOADING, job.getState());
         Map<Long, List<String>> tabletFileMap = Maps.newHashMap();
         request = new TFinishTaskRequest(tBackend, TTaskType.UPLOAD,
-                upTask.getSignature(), task_status);
+                upTask.getSignature(), taskStatus);
         request.setTabletFiles(tabletFileMap);
 
         Assert.assertFalse(job.finishSnapshotUploadTask(upTask, request));

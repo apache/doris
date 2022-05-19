@@ -56,7 +56,7 @@ public abstract class QueryStmt extends StatementBase {
     /////////////////////////////////////////
     // BEGIN: Members that need to be reset()
 
-    protected WithClause withClause_;
+    protected WithClause withClause;
 
     protected ArrayList<OrderByElement> orderByElements;
     // Limit element could not be null, the default limit element is NO_LIMIT
@@ -173,10 +173,14 @@ public abstract class QueryStmt extends StatementBase {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         super.analyze(analyzer);
         analyzeLimit(analyzer);
-        if (hasWithClause()) withClause_.analyze(analyzer);
+        if (hasWithClause()) {
+            withClause.analyze(analyzer);
+        }
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
@@ -205,8 +209,7 @@ public abstract class QueryStmt extends StatementBase {
      * (3) a mix of correlated table refs and table refs rooted at those refs
      *     (the statement is 'self-contained' with respect to correlation)
      */
-    public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer)
-            throws AnalysisException {
+    public List<TupleId> getCorrelatedTupleIds(Analyzer analyzer) throws AnalysisException {
         // Correlated tuple ids of this stmt.
         List<TupleId> correlatedTupleIds = Lists.newArrayList();
         // First correlated and absolute table refs. Used for error detection/reporting.
@@ -219,7 +222,9 @@ public abstract class QueryStmt extends StatementBase {
         List<TableRef> tblRefs = Lists.newArrayList();
         collectTableRefs(tblRefs);
         for (TableRef tblRef : tblRefs) {
-            if (absoluteRef == null && !tblRef.isRelative()) absoluteRef = tblRef;
+            if (absoluteRef == null && !tblRef.isRelative()) {
+                absoluteRef = tblRef;
+            }
             /*if (tblRef.isCorrelated()) {
              *
              *   // Check if the correlated table ref is rooted at a tuple descriptor from within
@@ -386,7 +391,9 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected Expr getFirstAmbiguousAlias(List<Expr> exprs) {
         for (Expr exp : exprs) {
-            if (ambiguousAliasList.contains(exp)) return exp;
+            if (ambiguousAliasList.contains(exp)) {
+                return exp;
+            }
         }
         return null;
     }
@@ -426,9 +433,13 @@ public abstract class QueryStmt extends StatementBase {
     // select list items.  Return null if not an ordinal expression.
     private Expr trySubstituteOrdinal(Expr expr, String errorPrefix,
                                       Analyzer analyzer) throws AnalysisException {
-        if (!(expr instanceof IntLiteral)) return null;
+        if (!(expr instanceof IntLiteral)) {
+            return null;
+        }
         expr.analyze(analyzer);
-        if (!expr.getType().isIntegerType()) return null;
+        if (!expr.getType().isIntegerType()) {
+            return null;
+        }
         long pos = ((IntLiteral) expr).getLongValue();
         if (pos < 1) {
             throw new AnalysisException(
@@ -445,14 +456,14 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public void getWithClauseTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
-        if (withClause_ != null) {
-            withClause_.getTables(analyzer, tableMap, parentViewNameSet);
+        if (withClause != null) {
+            withClause.getTables(analyzer, tableMap, parentViewNameSet);
         }
     }
 
     public void getWithClauseTableRefs(Analyzer analyzer, List<TableRef> tblRefs, Set<String> parentViewNameSet) {
-        if (withClause_ != null) {
-            withClause_.getTableRefs(analyzer, tblRefs, parentViewNameSet);
+        if (withClause != null) {
+            withClause.getTableRefs(analyzer, tblRefs, parentViewNameSet);
         }
     }
 
@@ -561,15 +572,15 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public void setWithClause(WithClause withClause) {
-        this.withClause_ = withClause;
+        this.withClause = withClause;
     }
 
     public boolean hasWithClause() {
-        return withClause_ != null;
+        return withClause != null;
     }
 
     public WithClause getWithClause() {
-        return withClause_;
+        return withClause;
     }
 
     public boolean hasOrderByClause() {
@@ -690,15 +701,19 @@ public abstract class QueryStmt extends StatementBase {
     }
 
     public ArrayList<OrderByElement> cloneOrderByElements() {
-        if (orderByElements == null) return null;
+        if (orderByElements == null) {
+            return null;
+        }
         ArrayList<OrderByElement> result =
                 Lists.newArrayListWithCapacity(orderByElements.size());
-        for (OrderByElement o : orderByElements) result.add(o.clone());
+        for (OrderByElement o : orderByElements) {
+            result.add(o.clone());
+        }
         return result;
     }
 
     public WithClause cloneWithClause() {
-        return withClause_ != null ? withClause_.clone() : null;
+        return withClause != null ? withClause.clone() : null;
     }
 
     public OutFileClause cloneOutfileCluse() {
@@ -714,7 +729,7 @@ public abstract class QueryStmt extends StatementBase {
      */
     protected QueryStmt(QueryStmt other) {
         super(other);
-        withClause_ = other.cloneWithClause();
+        withClause = other.cloneWithClause();
         outFileClause = other.cloneOutfileCluse();
         orderByElements = other.cloneOrderByElements();
         limitElement = other.limitElement.clone();
@@ -731,8 +746,9 @@ public abstract class QueryStmt extends StatementBase {
     public void reset() {
         super.reset();
         if (orderByElements != null) {
-            for (OrderByElement o : orderByElements)
+            for (OrderByElement o : orderByElements) {
                 o.getExpr().reset();
+            }
         }
         limitElement.reset();
         resultExprs.clear();

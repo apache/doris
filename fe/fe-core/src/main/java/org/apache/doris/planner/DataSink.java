@@ -35,7 +35,7 @@ import org.apache.doris.thrift.TExplainLevel;
  */
 public abstract class DataSink {
     // Fragment that this DataSink belongs to. Set by the PlanFragment enclosing this sink.
-    protected PlanFragment fragment_;
+    protected PlanFragment fragment;
 
     /**
      * Return an explain string for the DataSink. Each line of the explain will be prefixed
@@ -48,8 +48,8 @@ public abstract class DataSink {
 
     protected abstract TDataSink toThrift();
 
-    public void setFragment(PlanFragment fragment) { fragment_ = fragment; }
-    public PlanFragment getFragment() { return fragment_; }
+    public void setFragment(PlanFragment fragment) { this.fragment = fragment; }
+    public PlanFragment getFragment() { return fragment; }
 
     public abstract PlanNodeId getExchNodeId();
 

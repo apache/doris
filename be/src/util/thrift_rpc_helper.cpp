@@ -96,9 +96,4 @@ template Status ThriftRpcHelper::rpc<TPaloBrokerServiceClient>(
         const std::string& ip, const int32_t port,
         std::function<void(ClientConnection<TPaloBrokerServiceClient>&)> callback, int timeout_ms);
 
-template Status ThriftRpcHelper::rpc<TExtDataSourceServiceClient>(
-        const std::string& ip, const int32_t port,
-        std::function<void(ClientConnection<TExtDataSourceServiceClient>&)> callback,
-        int timeout_ms);
-
 } // namespace doris

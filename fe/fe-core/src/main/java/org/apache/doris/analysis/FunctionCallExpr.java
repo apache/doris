@@ -481,10 +481,6 @@ public class FunctionCallExpr extends Expr {
                         "group_concat requires one or two parameters: " + this.toSql());
             }
 
-            if (fnParams.isDistinct()) {
-                throw new AnalysisException("group_concat does not support DISTINCT");
-            }
-
             Expr arg0 = getChild(0);
             if (!arg0.type.isStringType() && !arg0.type.isNull()) {
                 throw new AnalysisException(
@@ -1162,7 +1158,9 @@ public class FunctionCallExpr extends Expr {
         // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We should
         // rework logic so that we do not call this function on unanalyzed exprs.
         // Aggregate functions are never constant.
-        if (fn instanceof AggregateFunction || fn == null) return false;
+        if (fn instanceof AggregateFunction || fn == null) {
+            return false;
+        }
 
         final String fnName = this.fnName.getFunction();
         // Non-deterministic functions are never constant.
@@ -1170,7 +1168,9 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         // Sleep is a special function for testing.
-        if (fnName.equalsIgnoreCase("sleep")) return false;
+        if (fnName.equalsIgnoreCase("sleep")) {
+            return false;
+        }
         return super.isConstantImpl();
     }
 

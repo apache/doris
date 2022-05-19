@@ -57,7 +57,6 @@ set(EXEC_FILES
     csv_scan_node.cpp
     csv_scanner.cpp
     table_function_node.cpp
-    es_scan_node.cpp
     es_http_scan_node.cpp
     es_http_scanner.cpp
     es/es_predicate.cpp

@@ -84,6 +84,9 @@ under the License.
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
 
+5. If a help document has not been generated, go to the docs directory and run`sh build_help_zip.sh`，
+   Then copy help-resource.zip from build to fe/fe-core/target/classes
+
 ## 2. Debug
 
 1. Import `./fe` into IDEA

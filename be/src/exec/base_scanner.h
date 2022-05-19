@@ -22,6 +22,7 @@
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -34,6 +35,7 @@ class RuntimeState;
 class ExprContext;
 
 namespace vectorized {
+class VExprContext;
 class IColumn;
 using MutableColumnPtr = IColumn::MutablePtr;
 } // namespace vectorized
@@ -75,10 +77,17 @@ public:
     virtual void close() = 0;
     Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
 
+    Status fill_dest_block(vectorized::Block* dest_block,
+                           std::vector<vectorized::MutableColumnPtr>& columns);
+
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+
+    Status filter_block(vectorized::Block* temp_block, size_t slot_num);
+
+    Status execute_exprs(vectorized::Block* output_block, vectorized::Block* temp_block);
 
 protected:
     RuntimeState* _state;

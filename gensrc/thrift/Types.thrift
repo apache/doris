@@ -498,7 +498,8 @@ enum TTableType {
     ES_TABLE,
     ODBC_TABLE,
     HIVE_TABLE,
-    ICEBERG_TABLE
+    ICEBERG_TABLE,
+    HUDI_TABLE
 }
 
 enum TOdbcTableType {

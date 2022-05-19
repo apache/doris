@@ -627,6 +627,10 @@ If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-2x.
 
 If `yarn_client_path` is not set correctly. An error `yarn client does not exist in path: XXX/yarn-client/hadoop/bin/yarn` will be reported.
 
+* When using spark load, the `JAVA_HOME` environment variable is no set in the `hadoop-config.sh` on the yarn clinet.
+
+If the `JAVA_HOME`  environment variable is not set, the error `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` will be reported.
+
 ## More Help
 
 For more detailed syntax used by **Spark Load**,  you can enter `HELP SPARK LOAD` on the Mysql client command line for more help.

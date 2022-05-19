@@ -71,8 +71,8 @@ public class AdminShowReplicaTest extends TestWithFeService {
         Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
         OlapTable olapTable = db.getOlapTableOrAnalysisException("tbl1");
         for (Partition partition : olapTable.getPartitions()) {
-            for (MaterializedIndex mIndex : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
-                for (Tablet tablet : mIndex.getTablets()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
                     for (Replica replica : tablet.getReplicas()) {
                         replica.updateStat(1024, 2);
                     }

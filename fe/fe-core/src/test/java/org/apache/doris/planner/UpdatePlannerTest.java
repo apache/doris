@@ -45,8 +45,8 @@ import java.util.List;
 
 public class UpdatePlannerTest {
 
-    private final IdGenerator<TupleId> tupleIdGenerator_ = TupleId.createGenerator();
-    private final IdGenerator<SlotId> slotIdGenerator_ = SlotId.createGenerator();
+    private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
+    private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
 
     /**
      * Full columns: k1, k2 v1, shadow_column
@@ -59,7 +59,7 @@ public class UpdatePlannerTest {
                                                                  @Injectable Column k1,
                                                                  @Injectable Column k2,
                                                                  @Injectable Column v1,
-                                                                 @Injectable Column shadow_v1,
+                                                                 @Injectable Column shadowV1,
                                                                  @Injectable Analyzer analyzer) {
         List<Expr> setExprs = Lists.newArrayList();
         TableName tableName = new TableName(null, "test");
@@ -68,21 +68,21 @@ public class UpdatePlannerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 slotRef, intLiteral);
         setExprs.add(binaryPredicate);
-        TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator_.getNextId());
-        SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator.getNextId());
+        SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         k1SlotDesc.setColumn(k1);
         srcTupleDesc.addSlot(k1SlotDesc);
-        SlotDescriptor k2SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        SlotDescriptor k2SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         k2SlotDesc.setColumn(k2);
         srcTupleDesc.addSlot(k2SlotDesc);
-        SlotDescriptor v1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        SlotDescriptor v1SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         v1SlotDesc.setColumn(v1);
         srcTupleDesc.addSlot(v1SlotDesc);
         List<Column> fullSchema = Lists.newArrayList();
         fullSchema.add(k1);
         fullSchema.add(k2);
         fullSchema.add(v1);
-        fullSchema.add(shadow_v1);
+        fullSchema.add(shadowV1);
 
         new Expectations(){
             {
@@ -94,7 +94,7 @@ public class UpdatePlannerTest {
                 result = "k2";
                 v1.getName();
                 result = "v1";
-                shadow_v1.getName();
+                shadowV1.getName();
                 result = SchemaChangeHandler.SHADOW_NAME_PRFIX + "v1";
             }
         };
@@ -121,7 +121,7 @@ public class UpdatePlannerTest {
                                             @Injectable Column k1,
                                             @Injectable Column k2,
                                             @Injectable Column v1,
-                                            @Injectable Column new_v2,
+                                            @Injectable Column newV2,
                                             @Injectable Analyzer analyzer) throws AnalysisException {
         List<Expr> setExprs = Lists.newArrayList();
         TableName tableName = new TableName(null, "test");
@@ -130,21 +130,21 @@ public class UpdatePlannerTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                 slotRef, intLiteral);
         setExprs.add(binaryPredicate);
-        TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator_.getNextId());
-        SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        TupleDescriptor srcTupleDesc = new TupleDescriptor(tupleIdGenerator.getNextId());
+        SlotDescriptor k1SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         k1SlotDesc.setColumn(k1);
         srcTupleDesc.addSlot(k1SlotDesc);
-        SlotDescriptor k2SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        SlotDescriptor k2SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         k2SlotDesc.setColumn(k2);
         srcTupleDesc.addSlot(k2SlotDesc);
-        SlotDescriptor v1SlotDesc = new SlotDescriptor(slotIdGenerator_.getNextId(), srcTupleDesc);
+        SlotDescriptor v1SlotDesc = new SlotDescriptor(slotIdGenerator.getNextId(), srcTupleDesc);
         v1SlotDesc.setColumn(v1);
         srcTupleDesc.addSlot(v1SlotDesc);
         List<Column> fullSchema = Lists.newArrayList();
         fullSchema.add(k1);
         fullSchema.add(k2);
         fullSchema.add(v1);
-        fullSchema.add(new_v2);
+        fullSchema.add(newV2);
 
         new Expectations(){
             {
@@ -156,11 +156,11 @@ public class UpdatePlannerTest {
                 result = "k2";
                 v1.getName();
                 result = "v1";
-                new_v2.getName();
+                newV2.getName();
                 result = "v2";
-                new_v2.getDefaultValue();
+                newV2.getDefaultValue();
                 result = "1";
-                new_v2.getDefaultValueExpr();
+                newV2.getDefaultValueExpr();
                 result = new IntLiteral(1);
             }
         };

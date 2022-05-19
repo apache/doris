@@ -67,8 +67,12 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             PartitionMove that = (PartitionMove) o;
             return Objects.equal(partitionId, that.partitionId) &&
                     Objects.equal(indexId, that.indexId) &&
@@ -292,9 +296,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             moveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
 
             skewMap.remove(skew, partitionBalanceInfo);
-            long min_count = newInfo.beByReplicaCount.keySet().first();
-            long max_count = newInfo.beByReplicaCount.keySet().last();
-            skewMap.put(max_count - min_count, newInfo);
+            long minCount = newInfo.beByReplicaCount.keySet().first();
+            long maxCount = newInfo.beByReplicaCount.keySet().last();
+            skewMap.put(maxCount - minCount, newInfo);
         } catch (IllegalStateException e) {
             // If touch IllegalState, the skew map doesn't be modified, so we should rollback the move of beByTotalReplicaCount
             moveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);

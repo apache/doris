@@ -224,7 +224,8 @@ module.exports = [
           "doris-on-es",
           "odbc-of-doris",
           "hive-of-doris",
-          "iceberg-of-doris"
+          "iceberg-of-doris",
+          "hudi-external-table"
         ],
       },
       "audit-plugin",
@@ -777,6 +778,7 @@ module.exports = [
               "SHOW-STREAM-LOAD",
               "SHOW-SYNC-JOB",
               "SHOW-TABLE-ID",
+              "SHOW-TABLES",			  
               "SHOW-TABLE-STATUS",
               "SHOW-TABLET",
               "SHOW-TRANSACTION",
@@ -805,6 +807,7 @@ module.exports = [
               "FLOAT",
               "HLL",
               "INT",
+              "LARGEINT",              
               "SMALLINT",
               "STRING",
               "TINYINT",

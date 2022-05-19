@@ -104,6 +104,7 @@ public:
 
     void reset() override {
         _count = 0;
+        _finished = false;
         _rle_encoder->Clear();
         _rle_encoder->Reserve(RLE_PAGE_HEADER_SIZE, 0);
     }

@@ -718,7 +718,9 @@ public class StmtExecutor implements ProfileWriter {
                 if (LOG.isTraceEnabled()) {
                     LOG.trace("rewrittenStmt: " + parsedStmt.toSql());
                 }
-                if (explainOptions != null) parsedStmt.setIsExplain(explainOptions);
+                if (explainOptions != null) {
+                    parsedStmt.setIsExplain(explainOptions);
+                }
             }
         }
         plannerProfile.setQueryAnalysisFinishTime();

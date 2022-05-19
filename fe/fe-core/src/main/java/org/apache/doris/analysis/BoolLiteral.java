@@ -152,4 +152,19 @@ public class BoolLiteral extends LiteralExpr {
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(value);
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        BoolLiteral that = (BoolLiteral) o;
+        return value == that.value;
+    }
 }

@@ -154,6 +154,7 @@ public abstract class LoadErrorHub {
                     break;
                 case BROKER_TYPE:
                     Preconditions.checkState(false, "hadoop load do not support broker error hub");
+                    break;
                 case NULL_TYPE:
                     break;
                 default:

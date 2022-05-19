@@ -111,6 +111,21 @@ public class BetweenPredicate extends Predicate {
     public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
 
     @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        BetweenPredicate that = (BetweenPredicate) o;
+        return isNotBetween == that.isNotBetween;
+    }
+
+    @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(isNotBetween);
     }

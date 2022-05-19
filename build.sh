@@ -213,6 +213,10 @@ if [[ -z ${STRIP_DEBUG_INFO} ]]; then
     STRIP_DEBUG_INFO=OFF
 fi
 
+if [[ -z ${USE_DWARF} ]]; then
+    USE_DWARF=OFF
+fi
+
 echo "Get params:
     BUILD_FE            -- $BUILD_FE
     BUILD_BE            -- $BUILD_BE
@@ -229,6 +233,7 @@ echo "Get params:
     USE_AVX2            -- $USE_AVX2
     USE_LIBCPP          -- $USE_LIBCPP
     USE_LLD             -- $USE_LLD
+    USE_DWARF           -- $USE_DWARF
     STRIP_DEBUG_INFO    -- $STRIP_DEBUG_INFO
 "
 
@@ -266,6 +271,7 @@ FE_MODULES=$(IFS=, ; echo "${modules[*]}")
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
+    if [ -e ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ]; then rm -f ${DORIS_HOME}/gensrc/build/gen_cpp/version.h ; fi
     CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
     echo "Build Backend: ${CMAKE_BUILD_TYPE}"
     CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
@@ -289,6 +295,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
             -DUSE_LLD=${USE_LLD} \
             -DBUILD_JAVA_UDF=${BUILD_JAVA_UDF} \
             -DSTRIP_DEBUG_INFO=${STRIP_DEBUG_INFO} \
+            -DUSE_DWARF=${USE_DWARF} \
             -DUSE_AVX2=${USE_AVX2} \
             -DGLIBC_COMPATIBILITY=${GLIBC_COMPATIBILITY} ../
     ${BUILD_SYSTEM} -j ${PARALLEL}

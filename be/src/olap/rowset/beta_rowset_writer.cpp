@@ -104,23 +104,28 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     if (UNLIKELY(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
     }
+    return _add_block(block, &_segment_writer);
+}
+
+Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
+                                    std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
     size_t row_offset = 0;
 
     do {
-        auto max_row_add = _segment_writer->max_row_to_add(row_avg_size_in_bytes);
+        auto max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
         if (UNLIKELY(max_row_add < 1)) {
             // no space for another signle row, need flush now
-            RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
-            RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
-            max_row_add = _segment_writer->max_row_to_add(row_avg_size_in_bytes);
+            RETURN_NOT_OK(_flush_segment_writer(segment_writer));
+            RETURN_NOT_OK(_create_segment_writer(segment_writer));
+            max_row_add = (*segment_writer)->max_row_to_add(row_avg_size_in_bytes);
             DCHECK(max_row_add > 0);
         }
 
         size_t input_row_num = std::min(block_row_num - row_offset, size_t(max_row_add));
-        auto s = _segment_writer->append_block(block, row_offset, input_row_num);
+        auto s = (*segment_writer)->append_block(block, row_offset, input_row_num);
         if (UNLIKELY(!s.ok())) {
             LOG(WARNING) << "failed to append block: " << s.to_string();
             return Status::OLAPInternalError(OLAP_ERR_WRITER_DATA_WRITE_ERROR);
@@ -247,6 +252,17 @@ Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flus
     }
 
     *flush_size = (_total_data_size + _total_index_size) - current_flush_size;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+    std::unique_ptr<segment_v2::SegmentWriter> writer;
+    RETURN_NOT_OK(_create_segment_writer(&writer));
+    RETURN_NOT_OK(_add_block(block, &writer));
+    RETURN_NOT_OK(_flush_segment_writer(&writer));
     return Status::OK();
 }
 

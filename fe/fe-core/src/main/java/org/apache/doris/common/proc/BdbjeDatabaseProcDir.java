@@ -27,13 +27,13 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 // SHOW PROC "/bdbje/dbname/"
-public class BDBJEDatabaseProcDir implements ProcDirInterface  {
+public class BdbjeDatabaseProcDir implements ProcDirInterface  {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JournalId").build();
 
     private String dbName;
 
-    public BDBJEDatabaseProcDir(String dbName){
+    public BdbjeDatabaseProcDir(String dbName){
         this.dbName = dbName;
     }
 
@@ -44,7 +44,7 @@ public class BDBJEDatabaseProcDir implements ProcDirInterface  {
 
     @Override
     public ProcNodeInterface lookup(String journalId) throws AnalysisException {
-        return new BDBJEJournalDataProcNode(dbName, Long.valueOf(journalId));
+        return new BdbjeJournalDataProcNode(dbName, Long.valueOf(journalId));
     }
 
     @Override

@@ -15,19 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.backup;
+package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.NodeType;
 
-import java.util.Map;
+/**
+ * Equal to expression: a = b.
+ */
+public class EqualTo<LEFT_CHILD_TYPE extends Expression, RIGHT_CHILD_TYPE extends Expression>
+        extends ComparisonPredicate<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-// TODO: extend BlobStorage
-public class HDFSStorage {
-    public static final String HDFS_DEFAULT_FS = "fs.defaultFS";
+    public EqualTo(LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
+        super(NodeType.EQUAL_TO, left, right);
+    }
 
-    public static void checkHDFS(Map<String, String> properties) throws UserException {
-        if (!properties.containsKey(HDFS_DEFAULT_FS)) {
-            throw new UserException(HDFS_DEFAULT_FS + " not found. This is required field");
-        }
+    @Override
+    public boolean nullable() throws UnboundException {
+        return left().nullable() || right().nullable();
+    }
+
+    @Override
+    public String toString() {
+        return "(" + left() + " = " + right() + ")";
     }
 }

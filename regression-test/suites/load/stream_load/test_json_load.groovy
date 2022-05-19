@@ -36,7 +36,7 @@ suite("test_json_load", "load") {
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
         
         // insert 1 row to check whether the table is ok
-        def result2 = sql "INSERT INTO test_json_load (id, city, code) VALUES (200, 'shenzhen', 0755)"
+        def result2 = sql "INSERT INTO test_json_load (id, city, code) VALUES (200, 'changsha', 3456789)"
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
@@ -95,6 +95,39 @@ suite("test_json_load", "load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+    }
+    
+    def load_from_hdfs1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+                        LOAD LABEL ${label} (
+                            DATA INFILE("${hdfsFilePath}")
+                            INTO TABLE ${testTablex} 
+                            FORMAT as "${format}"
+                            PRECEDING FILTER id > 1 and id < 10)
+                        with BROKER "${brokerName}"
+                        ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
+                        """
+        
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+    }
+    
+    def load_from_hdfs2 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
+        def result1= sql """
+                        LOAD LABEL ${label} (
+                            DATA INFILE("${hdfsFilePath}")
+                            INTO TABLE ${testTablex} 
+                            FORMAT as "${format}"
+                            PRECEDING FILTER id < 10
+                            where id > 1 and id < 5)
+                        with BROKER "${brokerName}"
+                        ("username"="${hdfsUser}", "password"="${hdfsPasswd}");
+                        """
+        
+        assertTrue(result1.size() == 1)
+        assertTrue(result1[0].size() == 1)
+        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
 
     // case1: import simple json
@@ -165,8 +198,30 @@ suite("test_json_load", "load") {
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
+    
+    // case4: import json and apply jsonpaths & exprs
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+        
+        create_test_table2.call(testTable)
+        
+        load_json_data.call('true', '', 'json', 'code = id * 10 + 200', '[\"$.id\"]',
+                            '', '', '', 'simple_json.json')
 
-    // case4: import json with line reader
+        def result3 = sql "select * from test_json_load order by id"
+        assertTrue(result3.size() == 11)
+        assertTrue(result3[0].size() == 2)
+        assertTrue(result3[0][0] == 1)
+        assertTrue(result3[0][1] == 210)
+        assertTrue(result3[9].size() == 2)
+        assertTrue(result3[9][0] == 10)
+        assertTrue(result3[9][1] == 300)
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // case5: import json with line reader
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         
@@ -188,7 +243,7 @@ suite("test_json_load", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
-    // case5: import json use exprs and jsonpaths
+    // case6: import json use exprs and jsonpaths
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -210,7 +265,7 @@ suite("test_json_load", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
-    // case6: import json use where
+    // case7: import json use where
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -234,7 +289,7 @@ suite("test_json_load", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
-    // case7: import json use fuzzy_parse
+    // case8: import json use fuzzy_parse
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -258,7 +313,7 @@ suite("test_json_load", "load") {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
-    // case8: import json use json_root
+    // case9: import json use json_root
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
 
@@ -279,5 +334,69 @@ suite("test_json_load", "load") {
         assertTrue(result3[1][2] == 2345672)
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+    
+    // if 'enableHdfs' in regression-conf.groovy has been set to true,
+    // the test will run these case as below.
+    if (enableHdfs()) {
+        brokerName =getBrokerName()
+        hdfsUser = getHdfsUser()
+        hdfsPasswd = getHdfsPasswd()
+        def hdfs_file_path = uploadToHdfs "stream_load/simple_object_json.json"
+        def format = "json" 
+
+        // case10: import json use pre-filter exprs
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            
+            create_test_table1.call(testTable)
+            
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs1.call(testTable, test_load_label, hdfs_file_path, format,
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            // wait to load finished
+            sleep(5000)
+    
+            def result3 = sql "select * from test_json_load order by id"
+            assertTrue(result3.size() == 9)
+            assertTrue(result3[0].size() == 3)
+            assertTrue(result3[0][0] == 2)
+            assertTrue(result3[0][1] == "shanghai")
+            assertTrue(result3[0][2] == 2345672)
+            assertTrue(result3[7].size() == 3)
+            assertTrue(result3[7][0] == 9)
+            assertTrue(result3[7][1] == "xian")
+            assertTrue(result3[7][2] == 2345679)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
+
+        // case11: import json use pre-filter and where exprs
+        try {
+            sql "DROP TABLE IF EXISTS ${testTable}"
+            
+            create_test_table1.call(testTable)
+            
+            def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+            load_from_hdfs2.call(testTable, test_load_label, hdfs_file_path, format,
+                                brokerName, hdfsUser, hdfsPasswd)
+            
+            // wait to load finished
+            sleep(5000)
+    
+            def result3 = sql "select * from test_json_load order by id"
+            assertTrue(result3.size() == 4)
+            assertTrue(result3[0].size() == 3)
+            assertTrue(result3[0][0] == 2)
+            assertTrue(result3[0][1] == "shanghai")
+            assertTrue(result3[0][2] == 2345672)
+            assertTrue(result3[2].size() == 3)
+            assertTrue(result3[2][0] == 4)
+            assertTrue(result3[2][1] == "shenzhen")
+            assertTrue(result3[2][2] == 2345674)
+        } finally {
+            try_sql("DROP TABLE IF EXISTS ${testTable}")
+        }
     }
 }

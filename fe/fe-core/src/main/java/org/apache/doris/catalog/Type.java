@@ -192,6 +192,10 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.STRING);
     }
 
+    public boolean isVarchar() {
+        return isScalarType(PrimitiveType.VARCHAR);
+    }
+
     // only metric types have the following constraint:
     // 1. don't support as key column
     // 2. don't support filter
@@ -476,7 +480,9 @@ public abstract class Type {
      * MAP<STRING,STRUCT<f1:INT>> --> 3
      */
     private boolean exceedsMaxNestingDepth(int d) {
-        if (d >= MAX_NESTING_DEPTH) return true;
+        if (d >= MAX_NESTING_DEPTH) {
+            return true;
+        }
         if (isStructType()) {
             StructType structType = (StructType) this;
             for (StructField f : structType.getFields()) {
@@ -575,7 +581,7 @@ public abstract class Type {
         TTypeNode node = col.getTypes().get(nodeIdx);
         Type type = null;
         int tmpNodeIdx = nodeIdx;
-        switch (node.getType()) {
+        switch (node.getType()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case SCALAR: {
                 Preconditions.checkState(node.isSetScalarType());
                 TScalarType scalarType = node.getScalarType();
@@ -657,8 +663,12 @@ public abstract class Type {
      * Null is returned for for data types where the column size is not applicable.
      */
     public Integer getColumnSize() {
-        if (!isScalarType()) return null;
-        if (isNumericType()) return getPrecision();
+        if (!isScalarType()) {
+            return null;
+        }
+        if (isNumericType()) {
+            return getPrecision();
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case CHAR:
@@ -707,7 +717,9 @@ public abstract class Type {
      * For non-numeric types, returns null.
      */
     public Integer getPrecision() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case TINYINT:
@@ -738,7 +750,9 @@ public abstract class Type {
      * component.
      */
     public Integer getDecimalDigits() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case BOOLEAN:
@@ -771,7 +785,9 @@ public abstract class Type {
      * types where NUM_PREC_RADIX is not applicable.
      */
     public Integer getNumPrecRadix() {
-        if (!isScalarType()) return null;
+        if (!isScalarType()) {
+            return null;
+        }
         ScalarType t = (ScalarType) this;
         switch (t.getPrimitiveType()) {
             case TINYINT:
@@ -1042,15 +1058,27 @@ public abstract class Type {
                 PrimitiveType t1 = PrimitiveType.values()[i];
                 PrimitiveType t2 = PrimitiveType.values()[j];
                 // DECIMAL, NULL, and INVALID_TYPE  are handled separately.
-                if (t1 == PrimitiveType.INVALID_TYPE ||
-                        t2 == PrimitiveType.INVALID_TYPE) continue;
-                if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) continue;
-                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
-                if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
-                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
-                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
-                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) continue;
-                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) continue;
+                if (t1 == PrimitiveType.INVALID_TYPE || t2 == PrimitiveType.INVALID_TYPE) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.NULL_TYPE || t2 == PrimitiveType.NULL_TYPE) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP) {
+                    continue;
+                }
+                if (t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) {
+                    continue;
+                }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }

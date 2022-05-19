@@ -287,6 +287,29 @@ public class HiveMetaStoreClientHelper {
     }
 
     /**
+     * Get hive table with dbName and tableName.
+     *
+     * @param dbName database name
+     * @param tableName table name
+     * @param metaStoreUris hive metastore uris
+     * @return HiveTable
+     * @throws DdlException when get table from hive metastore failed.
+     */
+    public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
+        HiveMetaStoreClient client = getClient(metaStoreUris);
+        Table table;
+        try {
+            table = client.getTable(dbName, tableName);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        } finally {
+            client.close();
+        }
+        return table;
+    }
+
+    /**
      * Convert Doris expr to Hive expr, only for partition column
      * @param dorisExpr
      * @param partitions

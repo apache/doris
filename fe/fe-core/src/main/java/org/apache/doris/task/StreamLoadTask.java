@@ -260,6 +260,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
+            // fall through to case FILE_LOCAL
+            case FILE_LOCAL:
                 path = request.getPath();
                 break;
             default:

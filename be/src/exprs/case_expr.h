@@ -38,6 +38,7 @@ public:
     virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row) override;
     virtual IntVal get_int_val(ExprContext* ctx, TupleRow* row) override;
     virtual BigIntVal get_big_int_val(ExprContext* ctx, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
     virtual FloatVal get_float_val(ExprContext* ctx, TupleRow* row) override;
     virtual DoubleVal get_double_val(ExprContext* ctx, TupleRow* row) override;
     virtual StringVal get_string_val(ExprContext* ctx, TupleRow* row) override;

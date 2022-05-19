@@ -55,7 +55,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Finally, close this journal.
  * This class encapsulates the read, write APIs of bdbje
  */
-public class BDBJEJournal implements Journal {
+public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
     public static final Logger LOG = LogManager.getLogger(BDBJEJournal.class);
     private static final int OUTPUT_BUFFER_INIT_SIZE = 128;
     private static final int RETRY_TIME = 3;

@@ -43,19 +43,19 @@ import java.util.Set;
 public class AuditLogBuilder extends Plugin implements AuditPlugin {
     private static final Logger LOG = LogManager.getLogger(AuditLogBuilder.class);
 
-    private PluginInfo pluginInfo;
+    private final PluginInfo pluginInfo;
 
-    private final String[] LOAD_ANNONATION_NAMES = {"JobId", "Label", "LoadType", "Db", "TableList",
+    private final static String[] LOAD_ANNONATION_NAMES = {"JobId", "Label", "LoadType", "Db", "TableList",
         "FilePathList", "BrokerUser", "Timestamp", "LoadStartTime", "LoadFinishTime", "ScanRows",
         "ScanBytes", "FileNumber"};
 
-    private Set<String> loadAnnotationSet;
+    private final Set<String> loadAnnotationSet;
 
-    private final String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "Db", "Table", "User", "ClientIp",
+    private final static String[] STREAM_LOAD_ANNONATION_NAMES = {"Label", "Db", "Table", "User", "ClientIp",
             "Status", "Message", "Url", "TotalRows", "LoadedRows", "FilteredRows", "UnselectedRows",
             "LoadBytes", "StartTime", "FinishTime"};
 
-    private Set<String> streamLoadAnnotationSet;
+    private final Set<String> streamLoadAnnotationSet;
 
     public AuditLogBuilder() {
         pluginInfo = new PluginInfo(PluginMgr.BUILTIN_PLUGIN_PREFIX + "AuditLogBuilder", PluginType.AUDIT,

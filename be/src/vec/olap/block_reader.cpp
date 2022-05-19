@@ -64,7 +64,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
         }
     }
 
-    _vcollect_iter.build_heap(*valid_rs_readers);
+    RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
     if (_vcollect_iter.is_merge()) {
         auto status = _vcollect_iter.current_row(&_next_row);
         _eof = status.precise_code() == OLAP_ERR_DATA_EOF;

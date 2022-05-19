@@ -36,8 +36,8 @@ import java.io.IOException;
  * listener for accept mysql connections.
  */
 public class AcceptListener implements ChannelListener<AcceptingChannel<StreamConnection>> {
-    private final Logger LOG = LogManager.getLogger(this.getClass());
-    private ConnectScheduler connectScheduler;
+    private final static Logger LOG = LogManager.getLogger(AcceptListener.class);
+    private final ConnectScheduler connectScheduler;
 
     public AcceptListener(ConnectScheduler connectScheduler) {
         this.connectScheduler = connectScheduler;

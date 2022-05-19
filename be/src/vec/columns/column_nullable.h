@@ -163,8 +163,8 @@ public:
         return false;
     }
 
-    bool is_date_type() override { return get_nested_column().is_date_type(); }
-    bool is_datetime_type() override { return get_nested_column().is_datetime_type(); }
+    bool is_date_type() const override { return get_nested_column().is_date_type(); }
+    bool is_datetime_type() const override { return get_nested_column().is_datetime_type(); }
     void set_date_type() override { get_nested_column().set_date_type(); }
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
