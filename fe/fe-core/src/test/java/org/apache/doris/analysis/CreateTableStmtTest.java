@@ -268,13 +268,13 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
-                "\n" +
-                ") ENGINE = iceberg\n" +
-                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.catalog.uri\"  =  \"thrift://127.0.0.1:9087\",\n" +
-                "\"iceberg.table\"  =  \"test\",\n" +
-                "\"iceberg.catalog.type\"  =  \"hive\")", stmt.toString());
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = iceberg\n"
+                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
+                + "\"iceberg.catalog.uri\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"iceberg.table\"  =  \"test\",\n"
+                + "\"iceberg.catalog.type\"  =  \"hive\")", stmt.toString());
     }
 
     @Test
@@ -287,13 +287,13 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
-                "\n" +
-                ") ENGINE = iceberg\n" +
-                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.catalog.warehouse\"  =  \"hdfs://nn:8020/warehouse/path\",\n" +
-                "\"iceberg.table\"  =  \"test\",\n" +
-                "\"iceberg.catalog.type\"  =  \"hadoop\")", stmt.toString());
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = iceberg\n"
+                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
+                + "\"iceberg.catalog.warehouse\"  =  \"hdfs://nn:8020/warehouse/path\",\n"
+                + "\"iceberg.table\"  =  \"test\",\n"
+                + "\"iceberg.catalog.type\"  =  \"hadoop\")", stmt.toString());
     }
 
     @Test

@@ -21,8 +21,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 import java.util.Objects;
@@ -31,18 +29,19 @@ import java.util.Objects;
  * Iceberg property contains information to connect a remote iceberg db or table.
  */
 public class IcebergProperty {
-    private static final Logger LOG = LogManager.getLogger(IcebergProperty.class);
-    private static final String ICEBERG_CATALOG_PREFIX = "iceberg.catalog.";
-
     public static final String ICEBERG_DATABASE = "iceberg.database";
     public static final String ICEBERG_TABLE = "iceberg.table";
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
+    public static final String ICEBERG_CATALOG_IMPL = "iceberg.catalog.catalog-impl";
     public static final String ICEBERG_HIVE_METASTORE_URIS = "iceberg.hive.metastore.uris";
+
+    private static final String ICEBERG_CATALOG_PREFIX = "iceberg.catalog.";
 
     private final boolean exist;
     private final String database;
     private final String catalogType;
-    private final Map<String, String> extraProperties;
+    private final String catalogImpl;
+    private final Map<String, String> catalogProperties;
 
     private String table;
 
@@ -52,20 +51,22 @@ public class IcebergProperty {
             this.database = properties.get(ICEBERG_DATABASE);
             this.table = properties.get(ICEBERG_TABLE);
             this.catalogType = properties.get(ICEBERG_CATALOG_TYPE);
+            this.catalogImpl = properties.get(ICEBERG_CATALOG_IMPL);
 
-            // extra properties
-            ImmutableMap.Builder<String, String> extraPropertiesBuilder = ImmutableMap.builder();
+            // catalog properties
+            ImmutableMap.Builder<String, String> catalogPropertiesBuilder = ImmutableMap.builder();
             properties.forEach((k, v) -> {
                 if (k.startsWith(ICEBERG_CATALOG_PREFIX)) {
-                    extraPropertiesBuilder.put(k.replace(ICEBERG_CATALOG_PREFIX, ""), v);
+                    catalogPropertiesBuilder.put(k.replace(ICEBERG_CATALOG_PREFIX, ""), v);
                 }
             });
-            this.extraProperties = extraPropertiesBuilder.build();
+            this.catalogProperties = catalogPropertiesBuilder.build();
         } else {
             this.exist = false;
             this.database = null;
             this.catalogType = null;
-            this.extraProperties = ImmutableMap.of();
+            this.catalogImpl = null;
+            this.catalogProperties = ImmutableMap.of();
         }
     }
 
@@ -75,7 +76,8 @@ public class IcebergProperty {
         this.database = otherProperty.database;
         this.table = otherProperty.table;
         this.catalogType = otherProperty.catalogType;
-        this.extraProperties = otherProperty.extraProperties;
+        this.catalogImpl = otherProperty.catalogImpl;
+        this.catalogProperties = otherProperty.catalogProperties;
     }
 
     public void setTable(String table) {
@@ -98,22 +100,35 @@ public class IcebergProperty {
         return catalogType;
     }
 
-    public Map<String, String> getExtraProperties() {
-        return extraProperties;
+    public String getCatalogImpl() {
+        return catalogImpl;
     }
 
-    public Map<String, String> toMap() {
+    public Map<String, String> getCatalogProperties() {
+        return catalogProperties;
+    }
+
+    /**
+     * Return catalog type or catalog impl. Because we do not allow to have both catalog type and catalog impl.
+     * So we will return one of them which is not null.
+     */
+    public String getCatalogTypeOrImpl() {
+        return catalogType != null ? catalogType : catalogImpl;
+    }
+
+    /**
+     * Return the catalog properties, and the key of the map is prefixed with "iceberg.catalog.".
+     */
+    public Map<String, String> getCatalogPropertiesWithPrefix() {
         Map<String, String> map = Maps.newHashMap();
-        map.put(ICEBERG_DATABASE, database);
-        map.put(ICEBERG_TABLE, table);
-        map.put(ICEBERG_CATALOG_TYPE, catalogType);
-        extraProperties.forEach((k, v) -> map.put(ICEBERG_CATALOG_PREFIX + k, v));
+        // catalog type and catalog-impl also existed in catalogProperties
+        catalogProperties.forEach((k, v) -> map.put(ICEBERG_CATALOG_PREFIX + k, v));
         return map;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(exist, database, table, catalogType, extraProperties);
+        return Objects.hash(exist, database, table, catalogType, catalogImpl, catalogProperties);
     }
 
     @Override
@@ -127,11 +142,12 @@ public class IcebergProperty {
         }
 
         IcebergProperty that = (IcebergProperty) other;
-        return this.exist == that.exist &&
-            Objects.equals(database, that.database) &&
-            Objects.equals(table, that.table) &&
-            Objects.equals(catalogType, that.catalogType) &&
-            Objects.equals(extraProperties, that.extraProperties);
+        return this.exist == that.exist
+            && Objects.equals(database, that.database)
+            && Objects.equals(table, that.table)
+            && Objects.equals(catalogType, that.catalogType)
+            && Objects.equals(catalogImpl, that.catalogImpl)
+            && Objects.equals(catalogProperties, that.catalogProperties);
     }
 
     @Override
@@ -139,8 +155,7 @@ public class IcebergProperty {
         return MoreObjects.toStringHelper(this)
             .add("database", database)
             .add("table", table)
-            .add("catalogType", catalogType)
-            .add("extraProperties", Joiner.on(",").withKeyValueSeparator(":").join(extraProperties))
+            .add("catalogProperties", Joiner.on(",").withKeyValueSeparator(":").join(catalogProperties))
             .toString();
     }
 }

@@ -126,7 +126,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     CREATE [EXTERNAL] TABLE table_name (
         col_name col_type [NULL | NOT NULL] [COMMENT "comment"]
     ) ENGINE = ICEBERG
-    [COMMENT "comment"] )
+    [COMMENT "comment"]
     PROPERTIES (
     "iceberg.database" = "iceberg_db_name",
     "iceberg.table" = "icberg_table_name",
@@ -170,6 +170,7 @@ Iceberg External Table of Doris 提供了 Doris 直接访问 Iceberg 外部表�
     - `iceberg.database`: 挂载 Iceberg 对应的数据库名
     - `iceberg.table`: 挂载 Iceberg 对应的表名，挂载 Iceberg database 时无需指定
     - `iceberg.catalog.type`: Iceberg 中使用的 catalog 类型，默认是`HIVE`（全类名为：`org.apache.iceberg.hive.HiveCatalog`)
+    - `iceberg.catalog.catalog-impl`: 可以用这个属性来设置需要使用的 Iceberg Catalog 全类名。请注意不要同时使用： `iceberg.catalog.type` 和 `iceberg.catalog.catalog-impl`
     - `iceberg.catalog.pro_key_1`: Iceberg catalog的属性参数。例如，可以为 Iceberg HiveCatalog 设置 `iceberg.catalog.uri`, 为Iceberg HadoopCatalog 设置 `iceberg.catalog.warehouse`
 - 弃用的属性键：
     - `iceberg.hive.metastore.uris`: 请使用 `iceberg.catalog.uri` 来设置 Iceberg HiveCatalog HMS URI地址

@@ -86,7 +86,7 @@ public class IcebergTable extends Table {
         this.icebergDb = icebergProperty.getDatabase();
         this.icebergTbl = icebergProperty.getTable();
 
-        icebergProperties = icebergProperty.toMap();
+        this.icebergProperties = icebergProperty.getCatalogPropertiesWithPrefix();
         this.icebergTable = icebergTable;
     }
 
@@ -186,7 +186,7 @@ public class IcebergTable extends Table {
                 LOG.info("Finished to load iceberg table: {}", name);
             } catch (Exception e) {
                 LOG.warn("Failed to load iceberg table {} from catalog: {} with catalog properties: {}",
-                        name, icebergProperty.getCatalogType(), icebergProperty.getExtraProperties(), e);
+                        name, icebergProperty.getCatalogTypeOrImpl(), icebergProperty.getCatalogProperties(), e);
                 throw e;
             }
 

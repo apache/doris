@@ -31,6 +31,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Iceberg catalog implementation based on {@link org.apache.iceberg.catalog.Catalog}.
+ */
 public class IcebergCatalogImpl implements IcebergCatalog {
     private static final Logger LOG = LogManager.getLogger(IcebergCatalogImpl.class);
 
@@ -39,12 +42,12 @@ public class IcebergCatalogImpl implements IcebergCatalog {
 
     @Override
     public void initialize(IcebergProperty icebergProperty) {
-        this.catalogType = icebergProperty.getCatalogType();
-        Map<String, String> properties = Maps.newHashMap(icebergProperty.getExtraProperties());
-        properties.put(CatalogUtil.ICEBERG_CATALOG_TYPE, icebergProperty.getCatalogType());
+        this.catalogType = icebergProperty.getCatalogTypeOrImpl();
+        Map<String, String> properties = Maps.newHashMap(icebergProperty.getCatalogProperties());
         // Hadoop configuration
         Configuration conf = new Configuration();
-        this.icebergCatalog = CatalogUtil.buildIcebergCatalog(icebergProperty.getCatalogType(), properties, conf);
+        this.icebergCatalog =
+                CatalogUtil.buildIcebergCatalog(icebergProperty.getCatalogTypeOrImpl(), properties, conf);
     }
 
     @Override
@@ -80,7 +83,8 @@ public class IcebergCatalogImpl implements IcebergCatalog {
             return ((SupportsNamespaces) icebergCatalog).namespaceExists(Namespace.of(db));
         } else {
             LOG.warn("Iceberg catalog: {} does not support namespace operation", catalogType);
-            throw new DorisIcebergException(String.format("Iceberg catalog: %s does not support namespace operation", catalogType));
+            throw new DorisIcebergException(
+                    String.format("Iceberg catalog: %s does not support namespace operation", catalogType));
         }
     }
 }

@@ -47,19 +47,20 @@ public class IcebergCatalogMgr {
     private static final String PROPERTY_MISSING_MSG = "Iceberg %s is null. "
             + "Please add properties('%s'='xxx') when create iceberg database.";
 
-    // hive metastore uri -> iceberg catalog
+    // catalog properties -> iceberg catalog
     // used to cache iceberg catalogs
-    private static final ConcurrentHashMap<IcebergProperty, IcebergCatalog> propertiesToCatalog = new ConcurrentHashMap();
+    private static final ConcurrentHashMap<Map<String, String>, IcebergCatalog> propertiesToCatalog =
+        new ConcurrentHashMap();
 
     public enum CatalogType {
         HIVE_CATALOG
     }
 
     public static IcebergCatalog getCatalog(IcebergProperty icebergProperty) throws DdlException {
-        if (!propertiesToCatalog.containsKey(icebergProperty)) {
-            propertiesToCatalog.put(icebergProperty, createCatalog(icebergProperty));
+        if (!propertiesToCatalog.containsKey(icebergProperty.getCatalogProperties())) {
+            propertiesToCatalog.put(icebergProperty.getCatalogProperties(), createCatalog(icebergProperty));
         }
-        return propertiesToCatalog.get(icebergProperty);
+        return propertiesToCatalog.get(icebergProperty.getCatalogProperties());
     }
 
     private static IcebergCatalog createCatalog(IcebergProperty icebergProperty) throws DdlException {
@@ -73,20 +74,28 @@ public class IcebergCatalogMgr {
             throw new DdlException("Please at lease set property of iceberg: iceberg.database");
         }
 
-        // check iceberg catalog type
+        // check iceberg catalog type and catalog impl
         String icebergCatalogType = properties.get(IcebergProperty.ICEBERG_CATALOG_TYPE);
-        if (Strings.isNullOrEmpty(icebergCatalogType)) {
+        String icebergCatalogImpl = properties.get(IcebergProperty.ICEBERG_CATALOG_IMPL);
+        if (!Strings.isNullOrEmpty(icebergCatalogType) && !Strings.isNullOrEmpty(icebergCatalogImpl)) {
+            // both catalog type and catalog impl are set
+            throw new DdlException(String.format(
+                    "Both catalog type: %s and catalog impl %s are set. You should set only one of them",
+                    icebergCatalogType, icebergCatalogImpl));
+        } else if (Strings.isNullOrEmpty(icebergCatalogType) && Strings.isNullOrEmpty(icebergCatalogImpl)) {
+            // both catalog type and catalog impl are not set, we set 'HIVE' as default
             LOG.info("{} is not set, set to HiveCatalog as default", IcebergProperty.ICEBERG_CATALOG_TYPE);
             properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE);
         } else if (CatalogType.HIVE_CATALOG.name().equals(icebergCatalogType)) {
-            LOG.warn(String.format("Property Value of 'iceberg.catalog.type': %s is deprecated. Please use 'hive' for HiveCatalog directly",
-                    CatalogType.HIVE_CATALOG));
+            LOG.warn(String.format("Property Value of 'iceberg.catalog.type': %s is deprecated. Please use " +
+                    "'hive' for HiveCatalog directly", CatalogType.HIVE_CATALOG));
             properties.put(IcebergProperty.ICEBERG_CATALOG_TYPE, CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE);
         }
 
         // check iceberg.hive.metastore.uris
         if (properties.containsKey(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS)) {
-            LOG.warn(String.format("Property '%s' is deprecated. Please use 'iceberg.catalog.uri' for HiveCatalog directly",
+            LOG.warn(String.format(
+                    "Property '%s' is deprecated. Please use 'iceberg.catalog.uri' for HiveCatalog directly",
                     IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
             properties.put("iceberg.catalog.uri", properties.remove(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS));
         }

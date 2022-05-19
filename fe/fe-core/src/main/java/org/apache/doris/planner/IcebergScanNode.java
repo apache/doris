@@ -101,6 +101,9 @@ public class IcebergScanNode extends BrokerScanNode {
         StringBuilder output = new StringBuilder();
         if (!isLoad()) {
             output.append(prefix).append("TABLE: ").append(icebergTable.getName()).append("\n");
+            icebergTable.getIcebergProperties().forEach((k, v) -> {
+                output.append(prefix).append(k).append(": ").append(v).append("\n");
+            });
         }
         return output.toString();
     }
