@@ -30,6 +30,7 @@
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
 #include "util/mem_util.hpp"
+#include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"

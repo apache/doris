@@ -20,13 +20,14 @@
 
 #pragma once
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include "exec/exec_node.h"
 #include "exprs/expr.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/buffered_tuple_stream2.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/tuple.h"
-#include "thrift/protocol/TDebugProtocol.h"
 
 namespace doris {
 

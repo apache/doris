@@ -20,21 +20,26 @@
 #include <type_traits>
 
 #include "common/object_pool.h"
-#include "common/status.h"
 #include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
-#include "udf/udf.h"
+
+namespace doris_udf {
+class FunctionContext;
+struct AnyVal;
+} // namespace doris_udf
 
 namespace doris {
 
+using doris_udf::FunctionContext;
 using doris_udf::AnyVal;
 
 using MemFootprint = std::pair<int64_t, uint8_t*>;
 using GenMemFootprintFunc = std::function<MemFootprint(int size)>;
 
-struct TypeDescriptor;
 struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
+class Status;
+struct TypeDescriptor;
 
 template <PrimitiveType type>
 struct ArrayIteratorFunctions;

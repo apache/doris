@@ -29,6 +29,8 @@
 
 #include "exprs/agg_fn_evaluator.h"
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <sstream>
 
 #include "common/logging.h"
@@ -38,7 +40,6 @@
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/user_function_cache.h"
-#include "thrift/protocol/TDebugProtocol.h"
 #include "udf/udf_internal.h"
 #include "util/debug_util.h"
 

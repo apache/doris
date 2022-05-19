@@ -28,15 +28,10 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "exec/file_reader.h"
-#include "gen_cpp/PaloBrokerService_types.h"
-#include "gen_cpp/TPaloBrokerService.h"
-#include "runtime/broker_mgr.h"
-#include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
+#include "runtime/string_value.h"
 #include "runtime/tuple.h"
-#include "util/thrift_util.h"
 
 namespace doris {
 

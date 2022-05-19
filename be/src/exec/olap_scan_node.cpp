@@ -30,13 +30,13 @@
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/exec_env.h"
+#include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/priority_thread_pool.hpp"
-#include "util/priority_work_stealing_thread_pool.hpp"
 #include "util/runtime_profile.h"
 
 namespace doris {
