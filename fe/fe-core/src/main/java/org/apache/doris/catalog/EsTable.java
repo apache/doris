@@ -45,8 +45,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Elasticsearch table.
+ **/
 public class EsTable extends Table {
-    private static final Logger LOG = LogManager.getLogger(EsTable.class);
 
     public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS = new HashSet<>(Arrays.asList("text"));
 
@@ -64,6 +66,24 @@ public class EsTable extends Table {
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
+
+    private static final Logger LOG = LogManager.getLogger(EsTable.class);
+
+    // Solr doc_values vs stored_fields performance-smackdown indicate:
+    // It is possible to notice that retrieving an high number of fields leads
+    // to a sensible worsening of performance if DocValues are used.
+    // Instead,  the (almost) surprising thing is that, by returning less than 20 fields,
+    // DocValues performs better than stored fields and the difference
+    // gets little as the number of fields returned increases.
+    // Asking for 9 DocValues fields and 1 stored field takes an average query time is 6.86
+    // (more than returning 10 stored fields)
+    // Here we have a slightly conservative value of 20, but at the same time
+    // we also provide configurable parameters for expert-using
+    // @see `MAX_DOCVALUE_FIELDS`
+    private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
+
+    // version would be used to be compatible with different ES Cluster
+    public EsMajorVersion majorVersion = null;
 
     private String hosts;
     private String[] seeds;
@@ -93,24 +113,12 @@ public class EsTable extends Table {
 
     private boolean httpSslEnabled = false;
 
-    // Solr doc_values vs stored_fields performance-smackdown indicate:
-    // It is possible to notice that retrieving an high number of fields leads to a sensible worsening of performance
-    // if DocValues are used. Instead, the (almost) surprising thing is that, by returning less than 20 fields,
-    // DocValues performs better than stored fields and the difference gets little as the number of fields
-    // returned increases. Asking for 9 DocValues fields and 1 stored field takes an average query time is 6.86
-    // (more than returning 10 stored fields) Here we have a slightly conservative value of 20, but at the same time
-    // we also provide configurable parameters for expert-using
-    // @see `MAX_DOCVALUE_FIELDS`
-    private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
-
-    // version would be used to be compatible with different ES Cluster
-    public EsMajorVersion majorVersion = null;
-
     // tableContext is used for being convenient to persist some configuration parameters uniformly
     private Map<String, String> tableContext = new HashMap<>();
 
     // record the latest and recently exception when sync ES table metadata (mapping, shard location)
     private Throwable lastMetaDataSyncException = null;
+
     // connect es.
     private EsRestClient client = null;
 
@@ -168,10 +176,6 @@ public class EsTable extends Table {
 
     public boolean isHttpSslEnabled() {
         return httpSslEnabled;
-    }
-
-    public EsRestClient getClient() {
-        return client;
     }
 
     private void validate(Map<String, String> properties) throws DdlException {
@@ -431,8 +435,7 @@ public class EsTable extends Table {
     }
 
     /**
-     * sync es index meta from remote ES Cluster
-     *
+     * Sync es index meta from remote ES Cluster.
      */
     public void syncTableMetaData() {
         if (esMetaStateTracker == null) {
@@ -491,7 +494,6 @@ public class EsTable extends Table {
                 return Type.STRING;
             case "date":
                 return Type.DATETIME;
-
             default:
                 return Type.INVALID;
         }
