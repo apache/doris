@@ -198,6 +198,13 @@ public class AlterTest {
                 "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
                 ");");
 
+        createPolicyResource(" * CREATE RESOURCE \"storage_policy_name\"\n" +
+                "PROPERTIES(\n" +
+                "   \"type\"=\"storage_policy\",\n" +
+                "   \"cooldown_ttl\" = \"1h\"， // data is transfter to medium after 1 hour\n" +
+                "   \"s3_resource\" = \"my_s3\" // point to a s3 resource\n" +
+                ");");
+
         createTable("CREATE TABLE test.tbl_remote\n" +
                 "(\n" +
                 "    k1 date,\n" +
@@ -218,7 +225,7 @@ public class AlterTest {
                 "    'in_memory' = 'false',\n" +
                 "    'storage_medium' = 'SSD',\n" +
                 "    'storage_cooldown_time' = '2122-04-01 20:24:00',\n" +
-                "    'storage_policy' = 'remote_s3'" +
+                "    'storage_policy' = 'storage_policy_name'" +
                 ");");
     }
 
@@ -234,6 +241,11 @@ public class AlterTest {
     }
 
     private static void createRemoteStorageResource(String sql) throws Exception {
+        CreateResourceStmt stmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().getResourceMgr().createResource(stmt);
+    }
+
+    private static void createPolicyResource(String sql) throws Exception {
         CreateResourceStmt stmt = (CreateResourceStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().getResourceMgr().createResource(stmt);
     }
