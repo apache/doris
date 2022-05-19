@@ -214,7 +214,7 @@ ps -ef | grep palo*
 
 其中的15200即为当前运行的 be 的进程 id.
 
-一个完整的 lainch.json 的例子如下：
+一个完整的 launch.json 的例子如下：
 
 ```
  {
