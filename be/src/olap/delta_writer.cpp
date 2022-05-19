@@ -310,6 +310,10 @@ Status DeltaWriter::close() {
     return Status::OK();
 }
 
+Status DeltaWriter::close_wait() {
+    return Status::OK();
+}
+
 Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                                bool is_broken) {
