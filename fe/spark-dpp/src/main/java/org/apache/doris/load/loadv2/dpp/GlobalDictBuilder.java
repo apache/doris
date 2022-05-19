@@ -309,8 +309,9 @@ public class GlobalDictBuilder {
         sql.append("insert overwrite table ").append(globalDictTableName).append(" partition(dict_column='").append(distinctColumnName).append("') ")
                 .append(" select dict_key,dict_value from ").append(globalDictTableName).append(" where dict_column='").append(distinctColumnName).append("' ");
         for (Map.Entry<String, Long> entry : distinctKeyMap.entrySet()) {
-            sql.append(" union all select dict_key, (row_number() over(order by dict_key)) ")
-                    .append(String.format(" +(%s) as dict_value from %s", entry.getValue(), entry.getKey()));
+            sql.append(" union all select dict_key, CAST((row_number() over(order by dict_key)) as BIGINT) ")
+                    .append(String.format("+ CAST(%s as BIGINT) as dict_value from %s",
+                            entry.getValue(), entry.getKey()));
         }
         return sql.toString();
     }
@@ -334,7 +335,9 @@ public class GlobalDictBuilder {
     private String getBuildGlobalDictSql(long maxGlobalDictValue, String distinctColumnName) {
         return "insert overwrite table " + globalDictTableName + " partition(dict_column='" + distinctColumnName + "') "
                 + " select dict_key,dict_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "' "
-                + " union all select t1.dict_key as dict_key,(row_number() over(order by t1.dict_key)) + (" + maxGlobalDictValue + ") as dict_value from "
+                + " union all select t1.dict_key as dict_key,"
+                + "CAST((row_number() over(order by t1.dict_key)) as BIGINT) + "
+                + "CAST(" + maxGlobalDictValue + " as BIGINT) as dict_value from "
                 + "(select dict_key from " + distinctKeyTableName + " where dict_column='" + distinctColumnName + "' and dict_key is not null)t1 left join "
                 + " (select dict_key,dict_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "' )t2 " +
                 "on t1.dict_key = t2.dict_key where t2.dict_value is null";
