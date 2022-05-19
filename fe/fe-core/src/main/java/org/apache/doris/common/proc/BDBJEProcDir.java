@@ -28,8 +28,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-// SHOW PROC "/bdbje"
-public class BdbjeProcDir implements ProcDirInterface  {
+/**
+ * SHOW PROC "/bdbje".
+ */
+public class BDBJEProcDir implements ProcDirInterface  { // CHECKSTYLE IGNORE THIS LINE: BDBJE should use uppercase
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbNames").add("JournalNumber").add("Comment").build();
 

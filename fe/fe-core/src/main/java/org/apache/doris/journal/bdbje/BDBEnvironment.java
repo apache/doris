@@ -20,7 +20,7 @@ package org.apache.doris.journal.bdbje;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.ha.BDBStateChangeListener;
-import org.apache.doris.ha.BdbHA;
+import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.HAProtocol;
 
 import com.sleepycat.je.Database;
@@ -167,7 +167,7 @@ public class BDBEnvironment {
                 replicationGroupAdmin = new ReplicationGroupAdmin(PALO_JOURNAL_GROUP, adminNodes);
 
                 // get a BDBHA object and pass the reference to Catalog
-                HAProtocol protocol = new BdbHA(this, selfNodeName);
+                HAProtocol protocol = new BDBHA(this, selfNodeName);
                 Catalog.getCurrentCatalog().setHaProtocol(protocol);
 
                 // start state change listener

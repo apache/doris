@@ -150,23 +150,25 @@ public class LoadSubmitter {
         }
     }
 
+    // CHECKSTYLE OFF: These name must match the name in json, case-sensitive.
     public static class SubmitResult {
-        public String txnId;
-        public String label;
-        public String status;
-        public String existingJobStatus;
-        public String message;
-        public String numberTotalRows;
-        public String numberLoadedRows;
-        public String numberFilteredRows;
-        public String numberUnselectedRows;
-        public String loadBytes;
-        public String loadTimeMs;
-        public String beginTxnTimeMs;
-        public String streamLoadPutTimeMs;
-        public String readDataTimeMs;
-        public String writeDataTimeMs;
-        public String commitAndPublishTimeMs;
-        public String errorURL;
+        public String TxnId;
+        public String Label;
+        public String Status;
+        public String ExistingJobStatus;
+        public String Message;
+        public String NumberTotalRows;
+        public String NumberLoadedRows;
+        public String NumberFilteredRows;
+        public String NumberUnselectedRows;
+        public String LoadBytes;
+        public String LoadTimeMs;
+        public String BeginTxnTimeMs;
+        public String StreamLoadPutTimeMs;
+        public String ReadDataTimeMs;
+        public String WriteDataTimeMs;
+        public String CommitAndPublishTimeMs;
+        public String ErrorURL;
     }
+    // CHECKSTYLE ON
 }

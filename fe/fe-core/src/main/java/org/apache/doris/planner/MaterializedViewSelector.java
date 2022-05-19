@@ -81,7 +81,7 @@ public class MaterializedViewSelector {
     //    private Map<String, Set<AggregatedColumn>> aggregateColumnsInQuery = Maps.newHashMap();
     private Map<Long, Set<String>> columnNamesInQueryOutput = Maps.newHashMap();
 
-    private boolean disableSpjgView;
+    private boolean disableSPJGView;
 
     // The Following 2 variables should be reset each time before calling selectBestMV();
     // Unlike the "isPreAggregation" in OlapScanNode which defaults to false,
@@ -330,7 +330,7 @@ public class MaterializedViewSelector {
                 continue;
             }
             // When the query is SPJ type but the candidate index is SPJG type, it will not pass directly.
-            if (isSPJQuery || disableSpjgView) {
+            if (isSPJQuery || disableSPJGView) {
                 iterator.remove();
                 continue;
             }
@@ -360,7 +360,7 @@ public class MaterializedViewSelector {
                 continue;
             }
             // When the query is SPJ type but the candidate index is SPJG type, it will not pass directly.
-            if (isSPJQuery || disableSpjgView) {
+            if (isSPJQuery || disableSPJGView) {
                 iterator.remove();
                 continue;
             }
@@ -447,7 +447,7 @@ public class MaterializedViewSelector {
                 // TODO(ml): support count(*)
                 if (tableIdToAggColumnNames.size() != 1) {
                     reasonOfDisable = "aggExpr[" + aggExpr.debugString() + "] should involved only one column";
-                    disableSpjgView = true;
+                    disableSPJGView = true;
                     break;
                 }
                 addAggColumnInQuery(tableIdToAggColumnNames.keySet().stream().findFirst().get(), aggExpr);
