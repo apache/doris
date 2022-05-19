@@ -133,7 +133,7 @@ fi
 # check java version and choose correct JAVA_OPTS
 java_version=$(jdk_version)
 final_java_opt=$JAVA_OPTS_4G
-MemTotal=`free -g | grep "Mem"  | awk '{print $7}'`
+MemTotal="$(cat /proc/meminfo | grep 'MemAvailable' | awk '{print int($2 / 1024 / 1024)}')"
 if [ $MemTotal > 8 ] ; then
    final_java_opt=$JAVA_OPTS_8G
 if
