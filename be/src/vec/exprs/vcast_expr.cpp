@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "vec/core/field.h"
 #include "vec/data_types/data_type_factory.hpp"
+#include "vec/exprs/vexpr.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -77,8 +78,8 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     int column_id = 0;
     _children[0]->execute(context, block, &column_id);
 
-    size_t const_param_id = block->columns();
-    block->insert_and_resize({_cast_param, _cast_param_data_type, _target_data_type_name});
+    size_t const_param_id = VExpr::insert_param(
+            block, {_cast_param, _cast_param_data_type, _target_data_type_name});
 
     // call function
     size_t num_columns_without_result = block->columns();

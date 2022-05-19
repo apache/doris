@@ -123,9 +123,7 @@ void VLiteral::init(const TExprNode& node) {
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    size_t res = block->columns();
-    block->insert_and_resize({_column_ptr, _data_type, _expr_name});
-    *result_column_id = res;
+    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name});
     return Status::OK();
 }
 } // namespace doris::vectorized

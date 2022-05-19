@@ -84,11 +84,10 @@ struct ConvertImpl {
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
             if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType>) ||
-                          !IsDataTypeDecimalOrNumber<ToDataType>) {
+                          !IsDataTypeDecimalOrNumber<ToDataType>)
                 return Status::RuntimeError(
                         fmt::format("Illegal column {} of first argument of function {}",
                                     named_from.column->get_name(), Name::name));
-            }
         }
 
         if (const ColVecFrom* col_from =
@@ -97,9 +96,8 @@ struct ConvertImpl {
             if constexpr (IsDataTypeDecimal<ToDataType>) {
                 UInt32 scale = additions;
                 col_to = ColVecTo::create(0, scale);
-            } else {
+            } else
                 col_to = ColVecTo::create();
-            }
 
             const auto& vec_from = col_from->get_data();
             auto& vec_to = col_to->get_data();
@@ -108,20 +106,18 @@ struct ConvertImpl {
 
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-                    if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                  IsDataTypeDecimal<ToDataType>) {
+                    if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>)
                         vec_to[i] = convert_decimals<FromDataType, ToDataType>(
                                 vec_from[i], vec_from.get_scale(), vec_to.get_scale());
-                    } else if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                         IsDataTypeNumber<ToDataType>) {
+                    else if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                       IsDataTypeNumber<ToDataType>)
                         vec_to[i] = convert_from_decimal<FromDataType, ToDataType>(
                                 vec_from[i], vec_from.get_scale());
-                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
+                    else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                       IsDataTypeDecimal<ToDataType>)
                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
                                 vec_from[i], vec_to.get_scale());
-                    } else if constexpr (IsTimeType<FromDataType> &&
-                                         IsDataTypeDecimal<ToDataType>) {
+                    else if constexpr (IsTimeType<FromDataType> && IsDataTypeDecimal<ToDataType>) {
                         vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(),
                                 vec_to.get_scale());
@@ -138,9 +134,8 @@ struct ConvertImpl {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
                     }
-                } else {
+                } else
                     vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
-                }
             }
 
             // TODO: support boolean cast more reasonable
@@ -341,7 +336,7 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
     }
 }
 
-// Monotonicity.
+/// Monotonicity.
 
 struct PositiveMonotonicity {
     static bool has() { return true; }
@@ -362,38 +357,30 @@ struct ToNumberMonotonicity {
     static bool has() { return true; }
 
     static UInt64 divide_by_range_of_type(UInt64 x) {
-        if constexpr (sizeof(T) < sizeof(UInt64)) {
+        if constexpr (sizeof(T) < sizeof(UInt64))
             return x >> (sizeof(T) * 8);
-        } else {
+        else
             return 0;
-        }
     }
 
     static IFunction::Monotonicity get(const IDataType& type, const Field& left,
                                        const Field& right) {
-        if (!type.is_value_represented_by_number()) {
-            return {};
-        }
+        if (!type.is_value_represented_by_number()) return {};
 
-        // If type is same, the conversion is always monotonic.
-        // (Enum has separate case, because it is different data type)
+        /// If type is same, the conversion is always monotonic.
+        /// (Enum has separate case, because it is different data type)
         if (check_and_get_data_type<DataTypeNumber<T>>(
-                    &type) /*|| check_and_get_data_type<DataTypeEnum<T>>(&type)*/) {
+                    &type) /*|| check_and_get_data_type<DataTypeEnum<T>>(&type)*/)
             return {true, true, true};
-        }
 
-        // Float cases.
+        /// Float cases.
 
-        // When converting to Float, the conversion is always monotonic.
-        if (std::is_floating_point_v<T>) {
-            return {true, true, true};
-        }
+        /// When converting to Float, the conversion is always monotonic.
+        if (std::is_floating_point_v<T>) return {true, true, true};
 
-        // If converting from Float, for monotonicity, arguments must fit in range of result type.
+        /// If converting from Float, for monotonicity, arguments must fit in range of result type.
         if (WhichDataType(type).is_float()) {
-            if (left.is_null() || right.is_null()) {
-                return {};
-            }
+            if (left.is_null() || right.is_null()) return {};
 
             Float64 left_float = left.get<Float64>();
             Float64 right_float = right.get<Float64>();
@@ -401,14 +388,13 @@ struct ToNumberMonotonicity {
             if (left_float >= std::numeric_limits<T>::min() &&
                 left_float <= static_cast<Float64>(std::numeric_limits<T>::max()) &&
                 right_float >= std::numeric_limits<T>::min() &&
-                right_float <= static_cast<Float64>(std::numeric_limits<T>::max())) {
+                right_float <= static_cast<Float64>(std::numeric_limits<T>::max()))
                 return {true};
-            }
 
             return {};
         }
 
-        // Integer cases.
+        /// Integer cases.
 
         const bool from_is_unsigned = type.is_value_represented_by_unsigned_integer();
         const bool to_is_unsigned = std::is_unsigned_v<T>;
@@ -422,61 +408,47 @@ struct ToNumberMonotonicity {
         const bool right_in_first_half =
                 right.is_null() ? !from_is_unsigned : (right.get<Int64>() >= 0);
 
-        // Size of type is the same.
+        /// Size of type is the same.
         if (size_of_from == size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) {
-                return {true, true, true};
-            }
+            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
 
-            if (left_in_first_half == right_in_first_half) {
-                return {true};
-            }
+            if (left_in_first_half == right_in_first_half) return {true};
 
             return {};
         }
 
-        // Size of type is expanded.
+        /// Size of type is expanded.
         if (size_of_from < size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) {
-                return {true, true, true};
-            }
+            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
 
-            if (!to_is_unsigned) {
-                return {true, true, true};
-            }
+            if (!to_is_unsigned) return {true, true, true};
 
-            // signed -> unsigned. If arguments from the same half, then function is monotonic.
-            if (left_in_first_half == right_in_first_half) {
-                return {true};
-            }
+            /// signed -> unsigned. If arguments from the same half, then function is monotonic.
+            if (left_in_first_half == right_in_first_half) return {true};
 
             return {};
         }
 
-        // Size of type is shrinked.
+        /// Size of type is shrinked.
         if (size_of_from > size_of_to) {
-            // Function cannot be monotonic on unbounded ranges.
-            if (left.is_null() || right.is_null()) {
-                return {};
-            }
+            /// Function cannot be monotonic on unbounded ranges.
+            if (left.is_null() || right.is_null()) return {};
 
             if (from_is_unsigned == to_is_unsigned) {
-                // all bits other than that fits, must be same.
+                /// all bits other than that fits, must be same.
                 if (divide_by_range_of_type(left.get<UInt64>()) ==
-                    divide_by_range_of_type(right.get<UInt64>())) {
+                    divide_by_range_of_type(right.get<UInt64>()))
                     return {true};
-                }
 
                 return {};
             } else {
-                // When signedness is changed, it's also required for arguments to be from the same half.
-                // And they must be in the same half after converting to the result type.
+                /// When signedness is changed, it's also required for arguments to be from the same half.
+                /// And they must be in the same half after converting to the result type.
                 if (left_in_first_half == right_in_first_half &&
                     (T(left.get<Int64>()) >= 0) == (T(right.get<Int64>()) >= 0) &&
                     divide_by_range_of_type(left.get<UInt64>()) ==
-                            divide_by_range_of_type(right.get<UInt64>())) {
+                            divide_by_range_of_type(right.get<UInt64>()))
                     return {true};
-                }
 
                 return {};
             }
@@ -497,9 +469,7 @@ struct ToStringMonotonicity {
         IFunction::Monotonicity positive(true, true);
         IFunction::Monotonicity not_monotonic;
 
-        if (left.is_null() || right.is_null()) {
-            return {};
-        }
+        if (left.is_null() || right.is_null()) return {};
 
         if (left.get_type() == Field::Types::UInt64 && right.get_type() == Field::Types::UInt64) {
             return (left.get<Int64>() == 0 && right.get<Int64>() == 0) ||
@@ -572,7 +542,7 @@ private:
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         Status ret_status;
-        // Generic conversion of any type to String.
+        /// Generic conversion of any type to String.
         if constexpr (std::is_same_v<ToDataType, DataTypeString>) {
             return ConvertImplGenericToString::execute(block, arguments, result);
         } else {
@@ -594,14 +564,14 @@ private:
 
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count, scale);
-                } else {
+                } else
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             block, arguments, result, input_rows_count);
-                }
                 return true;
             };
 
-            if (!call_on_index_and_data_type<ToDataType>(from_type->get_type_id(), call)) {
+            bool done = call_on_index_and_data_type<ToDataType>(from_type->get_type_id(), call);
+            if (!done) {
                 ret_status = Status::RuntimeError(fmt::format(
                         "Illegal type {} of argument of function {}",
                         block.get_by_position(arguments[0]).type->get_name(), get_name()));
@@ -718,12 +688,11 @@ public:
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        // drop second argument, pass others
+        /// drop second argument, pass others
         ColumnNumbers new_arguments {arguments.front()};
-        if (arguments.size() > 2) {
+        if (arguments.size() > 2)
             new_arguments.insert(std::end(new_arguments), std::next(std::begin(arguments), 2),
                                  std::end(arguments));
-        }
 
         return wrapper_function(context, block, new_arguments, result, input_rows_count);
     }
@@ -749,7 +718,11 @@ struct ConvertThroughParsing {
 
     using ToFieldType = typename ToDataType::FieldType;
 
-    static bool is_all_read(ReadBuffer& in) { return in.eof(); }
+    static bool is_all_read(ReadBuffer& in) {
+        if (in.eof()) return true;
+
+        return false;
+    }
 
     template <typename Additions = void*>
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
@@ -775,9 +748,8 @@ struct ConvertThroughParsing {
 
         if constexpr (IsDataTypeDecimal<ToDataType>) {
             col_to = ColVecTo::create(size, 9);
-        } else {
+        } else
             col_to = ColVecTo::create(size);
-        }
 
         typename ColVecTo::Container& vec_to = col_to->get_data();
 
@@ -807,14 +779,19 @@ struct ConvertThroughParsing {
 
             ReadBuffer read_buffer(&(*chars)[current_offset], string_size);
 
-            bool unparsed = !try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone) ||
-                            !is_all_read(read_buffer);
+            {
+                bool parsed;
 
-            if (unparsed) {
-                vec_to[i] = 0;
+                {
+                    parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, local_time_zone);
+
+                    parsed = parsed && is_all_read(read_buffer);
+                }
+
+                if (!parsed) vec_to[i] = 0;
+
+                (*vec_null_map_to)[i] = !parsed;
             }
-
-            (*vec_null_map_to)[i] = unparsed;
 
             current_offset = next_offset;
         }
@@ -841,32 +818,45 @@ public:
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
+        DataTypePtr res;
         if constexpr (IsDataTypeDecimal<ToDataType>) {
-            auto res = create_decimal(27, 9);
+            res = create_decimal(27, 9);
+
             if (!res) {
                 LOG(FATAL) << "Someting wrong with toDecimalNNOrZero() or toDecimalNNOrNull()";
             }
-            return res;
-        } else {
-            return std::make_shared<ToDataType>();
-        }
+
+        } else
+            res = std::make_shared<ToDataType>();
+
+        return res;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
-        if (check_and_get_data_type<DataTypeString>(from_type)) {
-            return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
-                    block, arguments, result, input_rows_count);
-        } else {
+        bool ok = true;
+
+        {
+            if (check_and_get_data_type<DataTypeString>(from_type)) {
+                return ConvertThroughParsing<DataTypeString, ToDataType, Name>::execute(
+                        block, arguments, result, input_rows_count);
+            }
+
+            else
+                ok = false;
+        }
+
+        if (!ok) {
             return Status::RuntimeError(fmt::format(
                     "Illegal type {} of argument of function {} . Only String or FixedString "
-                    "argument is accepted for try-conversion function. For other arguments, "
-                    "use "
+                    "argument is accepted for try-conversion function. For other arguments, use "
                     "function without 'orZero' or 'orNull'.",
                     block.get_by_position(arguments[0]).type->get_name(), get_name()));
         }
+
+        return Status::OK();
     }
 };
 
@@ -887,7 +877,8 @@ public:
     // This function should not be called for get DateType Ptr
     // using the FunctionCast::get_return_type_impl
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return std::make_shared<ToDataType>();
+        auto res = std::make_shared<ToDataType>();
+        return res;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -967,8 +958,8 @@ private:
 
         if (requested_result_is_nullable &&
             check_and_get_data_type<DataTypeString>(from_type.get())) {
-            // In case when converting to Nullable type, we apply different parsing rule,
-            // that will not throw an exception but return NULL in case of malformed input.
+            /// In case when converting to Nullable type, we apply different parsing rule,
+            /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable && IsTimeType<DataType> &&
                    !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
@@ -978,7 +969,7 @@ private:
             function = FunctionTo<DataType>::Type::create();
         }
 
-        // Check conversion using underlying function
+        /// Check conversion using underlying function
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -990,7 +981,7 @@ private:
     WrapperType create_string_wrapper(const DataTypePtr& from_type) const {
         FunctionPtr function = FunctionToString::create();
 
-        // Check conversion using underlying function
+        /// Check conversion using underlying function
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1022,7 +1013,7 @@ private:
             auto function =
                     FunctionConvertFromString<DataTypeDecimal<FieldType>, NameCast>::create();
 
-            // Check conversion using underlying function
+            /// Check conversion using underlying function
             { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
             return [function](FunctionContext* context, Block& block,
@@ -1046,7 +1037,7 @@ private:
                         return true;
                     });
 
-            // Additionally check if call_on_index_and_data_type wasn't called at all.
+            /// Additionally check if call_on_index_and_data_type wasn't called at all.
             if (!res) {
                 auto to = DataTypeDecimal<FieldType>(precision, scale);
                 return Status::RuntimeError(fmt::format("Conversion from {} to {} is not supported",
@@ -1068,7 +1059,7 @@ private:
         ColumnPtr res = to_type->create_column_const_with_default_value(1);
         return [res](FunctionContext* context, Block& block, const ColumnNumbers&,
                      const size_t result, size_t input_rows_count) {
-            // Column of Nothing type is trivially convertible to any other column
+            /// Column of Nothing type is trivially convertible to any other column
             block.get_by_position(result).column =
                     res->clone_resized(input_rows_count)->convert_to_full_column_if_const();
             return Status::OK();
@@ -1094,7 +1085,7 @@ private:
             };
         }
 
-        constexpr bool skip_not_null_check = false;
+        bool skip_not_null_check = false;
 
         auto wrapper = prepare_remove_nullable(from_nested, to_nested, skip_not_null_check);
 
@@ -1103,7 +1094,7 @@ private:
 
     WrapperType prepare_remove_nullable(const DataTypePtr& from_type, const DataTypePtr& to_type,
                                         bool skip_not_null_check) const {
-        // Determine whether pre-processing and/or post-processing must take place during conversion.
+        /// Determine whether pre-processing and/or post-processing must take place during conversion.
 
         bool source_is_nullable = from_type->is_nullable();
         bool result_is_nullable = to_type->is_nullable();
@@ -1115,28 +1106,27 @@ private:
             return [wrapper, source_is_nullable](FunctionContext* context, Block& block,
                                                  const ColumnNumbers& arguments,
                                                  const size_t result, size_t input_rows_count) {
-                // Create a temporary block on which to perform the operation.
+                /// Create a temporary block on which to perform the operation.
                 auto& res = block.get_by_position(result);
                 const auto& ret_type = res.type;
                 const auto& nullable_type = static_cast<const DataTypeNullable&>(*ret_type);
                 const auto& nested_type = nullable_type.get_nested_type();
 
                 Block tmp_block;
-                if (source_is_nullable) {
+                if (source_is_nullable)
                     tmp_block = create_block_with_nested_columns(block, arguments);
-                } else {
+                else
                     tmp_block = block;
-                }
 
                 size_t tmp_res_index = block.columns();
                 tmp_block.insert({nullptr, nested_type, ""});
 
-                // Perform the requested conversion.
+                /// Perform the requested conversion.
                 wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count);
 
                 const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
 
-                // May happen in fuzzy tests. For debug purpose.
+                /// May happen in fuzzy tests. For debug purpose.
                 if (!tmp_res.column.get()) {
                     return Status::RuntimeError(fmt::format(
                             "Couldn't convert {} to {} in prepare_remove_nullable wrapper.",
@@ -1150,16 +1140,16 @@ private:
                 return Status::OK();
             };
         } else if (source_is_nullable) {
-            // Conversion from Nullable to non-Nullable.
+            /// Conversion from Nullable to non-Nullable.
 
             return [wrapper, skip_not_null_check](FunctionContext* context, Block& block,
                                                   const ColumnNumbers& arguments,
                                                   const size_t result, size_t input_rows_count) {
                 Block tmp_block = create_block_with_nested_columns(block, arguments, result);
 
-                // Check that all values are not-NULL.
-                // Check can be skipped in case if LowCardinality dictionary is transformed.
-                // In that case, correctness will be checked beforehand.
+                /// Check that all values are not-NULL.
+                /// Check can be skipped in case if LowCardinality dictionary is transformed.
+                /// In that case, correctness will be checked beforehand.
                 if (!skip_not_null_check) {
                     const auto& col = block.get_by_position(arguments[0]).column;
                     const auto& nullable_col = assert_cast<const ColumnNullable&>(*col);
@@ -1175,20 +1165,18 @@ private:
                 block.get_by_position(result).column = tmp_block.get_by_position(result).column;
                 return Status::OK();
             };
-        } else {
+        } else
             return wrapper;
-        }
     }
 
-    // 'from_type' and 'to_type' are nested types in case of Nullable.
-    // 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
+    /// 'from_type' and 'to_type' are nested types in case of Nullable.
+    /// 'requested_result_is_nullable' is true if CAST to Nullable type is requested.
     WrapperType prepare_impl(const DataTypePtr& from_type, const DataTypePtr& to_type,
                              bool requested_result_is_nullable) const {
-        if (from_type->equals(*to_type)) {
+        if (from_type->equals(*to_type))
             return create_identity_wrapper(from_type);
-        } else if (WhichDataType(from_type).is_nothing()) {
+        else if (WhichDataType(from_type).is_nothing())
             return create_nothing_wrapper(to_type.get());
-        }
 
         WrapperType ret;
 
@@ -1225,9 +1213,8 @@ private:
             return false;
         };
 
-        if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper)) {
+        if (call_on_index_and_data_type<void>(to_type->get_type_id(), make_default_wrapper))
             return ret;
-        }
 
         switch (to_type->get_type_id()) {
         case TypeIndex::String:
@@ -1247,10 +1234,10 @@ class FunctionBuilderCast : public FunctionBuilderImpl {
 public:
     using MonotonicityForRange = FunctionCast::MonotonicityForRange;
 
-    static constexpr auto name = NameCast::name;
+    static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
-    FunctionBuilderCast() = default;
+    FunctionBuilderCast() {}
 
     String get_name() const override { return name; }
 
@@ -1263,9 +1250,7 @@ protected:
                                const DataTypePtr& return_type) const override {
         DataTypes data_types(arguments.size());
 
-        for (size_t i = 0; i < arguments.size(); ++i) {
-            data_types[i] = arguments[i].type;
-        }
+        for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
 
         auto monotonicity = get_monotonicity_information(arguments.front().type, return_type.get());
         return std::make_shared<FunctionCast>(name, std::move(monotonicity), data_types,
@@ -1311,37 +1296,27 @@ private:
 
     MonotonicityForRange get_monotonicity_information(const DataTypePtr& from_type,
                                                       const IDataType* to_type) const {
-        if (const auto type = check_and_get_data_type<DataTypeUInt8>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeUInt8>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeUInt16>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeUInt16>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeUInt32>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeUInt32>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeUInt64>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeUInt64>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeInt8>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeInt8>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeInt16>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeInt16>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeInt32>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeInt32>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeInt64>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeInt64>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeFloat32>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeFloat32>(to_type))
             return monotonicity_for_type(type);
-        }
-        if (const auto type = check_and_get_data_type<DataTypeFloat64>(to_type)) {
+        if (const auto type = check_and_get_data_type<DataTypeFloat64>(to_type))
             return monotonicity_for_type(type);
-        }
-        // other types like Null, FixedString, Array and Tuple have no monotonicity defined
+        /// other types like Null, FixedString, Array and Tuple have no monotonicity defined
         return {};
     }
 };
