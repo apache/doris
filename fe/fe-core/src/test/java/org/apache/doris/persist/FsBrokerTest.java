@@ -87,7 +87,6 @@ public class FsBrokerTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         FsBroker fsBroker = new FsBroker("127.0.0.1", 8118);
-        long time = System.currentTimeMillis();
         BrokerHbResponse hbResponse = new BrokerHbResponse("broker", "127.0.0.1", 8118, "got exception");
         fsBroker.handleHbResponse(hbResponse);
         fsBroker.write(dos);

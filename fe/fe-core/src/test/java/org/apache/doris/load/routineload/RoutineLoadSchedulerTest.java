@@ -74,7 +74,7 @@ public class RoutineLoadSchedulerTest {
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", clusterName, 1L, 1L,
                 "xxx", "test");
-        Deencapsulation.setField(kafkaRoutineLoadJob,"state", RoutineLoadJob.JobState.NEED_SCHEDULE);
+        Deencapsulation.setField(kafkaRoutineLoadJob, "state", RoutineLoadJob.JobState.NEED_SCHEDULE);
         List<RoutineLoadJob> routineLoadJobList = new ArrayList<>();
         routineLoadJobList.add(kafkaRoutineLoadJob);
 
@@ -127,7 +127,7 @@ public class RoutineLoadSchedulerTest {
     public void functionTest(@Mocked Catalog catalog,
                              @Mocked SystemInfoService systemInfoService,
                              @Injectable Database database) throws DdlException, InterruptedException {
-        new Expectations(){
+        new Expectations() {
             {
                 connectContext.toResourceCtx();
                 minTimes = 0;
@@ -143,7 +143,7 @@ public class RoutineLoadSchedulerTest {
         List<Long> backendIds = new ArrayList<>();
         backendIds.add(1L);
 
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getRoutineLoadManager();
                 minTimes = 0;

@@ -275,8 +275,8 @@ public class ProfileTreeBuilder {
             node.setParentNode(root);
         }
 
-        if ((node.name.equals(PROFILE_NAME_EXCHANGE_NODE) ||
-            node.name.equals(PROFILE_NAME_VEXCHANGE_NODE)) && instanceId == null) {
+        if ((node.name.equals(PROFILE_NAME_EXCHANGE_NODE)
+                || node.name.equals(PROFILE_NAME_VEXCHANGE_NODE)) && instanceId == null) {
             exchangeNodes.add(node);
         }
 

@@ -88,9 +88,8 @@ public class MysqlPassword {
         random.nextBytes(bytes);
         // NOTE: MySQL challenge string can't contain 0.
         for (int i = 0; i < len; ++i) {
-            if ((bytes[i] >= 'a' && bytes[i] <= 'z')
-                    || (bytes[i] >= 'A' && bytes[i] <='Z')) {
-            } else {
+            if (!((bytes[i] >= 'a' && bytes[i] <= 'z')
+                    || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
                 bytes[i] = (byte) ('a' + (bytes[i] % 26));
             }
         }

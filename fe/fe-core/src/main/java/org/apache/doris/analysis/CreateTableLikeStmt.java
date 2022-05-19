@@ -51,7 +51,7 @@ public class CreateTableLikeStmt extends DdlStmt {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
-        if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup){
+        if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup) {
             throw new DdlException("Either all or part of the rollup can be copied, not both");
         }
         this.rollupNames = rollupNames;
@@ -108,10 +108,10 @@ public class CreateTableLikeStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
-        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)){
+        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)) {
             sb.append(" WITH ROLLUP");
         }
-        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)){
+        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)) {
             sb.append(" WITH ROLLUP (").append(Joiner.on(",").join(rollupNames)).append(")");
         }
         return sb.toString();

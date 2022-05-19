@@ -69,7 +69,7 @@ public final class HttpAuthManager {
         return null;
     }
 
-    public void removeSession(String sessionId){
+    public void removeSession(String sessionId) {
         if (!Strings.isNullOrEmpty(sessionId)) {
             authSessions.invalidate(sessionId);
             LOG.debug("remove session id: {}, left size: {}", sessionId, authSessions.size());

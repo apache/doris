@@ -89,7 +89,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         // update the max slot num of each backend periodically
         updateBackendSlotIfNecessary();
 
-        long start = System.currentTimeMillis();
         // if size of queue is zero, tasks will be submitted by batch
         int idleSlotNum = routineLoadManager.getClusterIdleSlotNum();
         // scheduler will be blocked when there is no slot for task in cluster
@@ -142,8 +141,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             }
         } catch (UserException e) {
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).
-                    updateState(JobState.PAUSED,
-                    new ErrorReason(e.getErrorCode(), e.getMessage()), false);
+                    updateState(JobState.PAUSED, new ErrorReason(e.getErrorCode(), e.getMessage()), false);
             throw e;
         } catch (Exception e) {
             // exception happens, PAUSE the job

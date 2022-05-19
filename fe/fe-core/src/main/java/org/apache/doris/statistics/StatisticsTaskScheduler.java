@@ -63,7 +63,7 @@ public class StatisticsTaskScheduler extends MasterDaemon {
 
         if (!tasks.isEmpty()) {
             ThreadPoolExecutor executor = ThreadPoolManager.newDaemonCacheThreadPool(tasks.size(),
-                "statistic-pool", false);
+                    "statistic-pool", false);
             StatisticsJobManager jobManager = Catalog.getCurrentCatalog().getStatisticsJobManager();
             Map<Long, StatisticsJob> statisticsJobs = jobManager.getIdToStatisticsJob();
             Map<Long, List<Map<Long, Future<StatisticsTaskResult>>>> resultMap = Maps.newLinkedHashMap();

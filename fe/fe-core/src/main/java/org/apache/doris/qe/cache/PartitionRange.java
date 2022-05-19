@@ -244,6 +244,7 @@ public class PartitionRange {
             try {
                 dt = df8.parse(String.valueOf(value));
             } catch (Exception e) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
             return dt;
         }

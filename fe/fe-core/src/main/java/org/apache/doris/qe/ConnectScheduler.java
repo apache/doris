@@ -139,8 +139,8 @@ public class ConnectScheduler {
         List<ConnectContext.ThreadInfo> infos = Lists.newArrayList();
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
-            if (!ctx.getQualifiedUser().equals(user) &&
-                    !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
+            if (!ctx.getQualifiedUser().equals(user)
+                    && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
                             PrivPredicate.GRANT)) {
                 continue;
             }

@@ -104,7 +104,7 @@ public class HiveTable extends Table {
 
         if (!copiedProps.isEmpty()) {
             Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
-            while(iter.hasNext()) {
+            while (iter.hasNext()) {
                 Map.Entry<String, String> entry = iter.next();
                 if (entry.getKey().startsWith(HIVE_HDFS_PREFIX)) {
                     hiveProperties.put(entry.getKey(), entry.getValue());

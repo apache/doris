@@ -80,7 +80,6 @@ public class TrashProcDir implements ProcDirInterface {
             Long trashUsedCapacityB = null;
             boolean ok = false;
             try {
-                long start = System.currentTimeMillis();
                 address = new TNetworkAddress(backend.getHost(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 trashUsedCapacityB = client.getTrashUsedCapacity();

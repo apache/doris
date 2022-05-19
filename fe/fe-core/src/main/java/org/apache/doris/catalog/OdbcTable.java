@@ -111,8 +111,8 @@ public class OdbcTable extends Table {
     private void validate(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             throw new DdlException("Please set properties of odbc table, "
-                    + "they are: odbc_catalog_resource or [host, port, user, password, driver, odbc_type]" +
-                    " and database and table");
+                    + "they are: odbc_catalog_resource or [host, port, user, password, driver, odbc_type]"
+                    + " and database and table");
         }
         if (properties.containsKey(ODBC_CATALOG_RESOURCE)) {
             odbcCatalogResourceName = properties.get(ODBC_CATALOG_RESOURCE);
@@ -383,7 +383,7 @@ public class OdbcTable extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog){
+    public void resetIdsForRestore(Catalog catalog) {
         id = catalog.getNextId();
     }
 

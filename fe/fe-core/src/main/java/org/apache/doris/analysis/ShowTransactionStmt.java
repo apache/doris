@@ -129,8 +129,8 @@ public class ShowTransactionStmt extends ShowStmt {
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label' " +
-                    "or status = 'prepare/precommitted/committed/visible/aborted'");
+            throw new AnalysisException("Where clause should looks like one of them: id = 123 or label = 'label' "
+                    + "or status = 'prepare/precommitted/committed/visible/aborted'");
         }
     }
 

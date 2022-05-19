@@ -154,8 +154,8 @@ public class ShowAction extends RestBaseController {
         // Get thread count
         ThreadGroup parentThread;
         for (parentThread = Thread.currentThread().getThreadGroup();
-             parentThread.getParent() != null;
-             parentThread = parentThread.getParent()) {
+                parentThread.getParent() != null;
+                parentThread = parentThread.getParent()) {
         }
         feInfo.put("thread_cnt", String.valueOf(parentThread.activeCount()));
 

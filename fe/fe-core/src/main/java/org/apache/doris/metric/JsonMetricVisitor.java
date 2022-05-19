@@ -63,7 +63,7 @@ public class JsonMetricVisitor extends MetricVisitor {
             }
         }
         sb.append("\n\t},\n");
-        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append( "\",\n");
+        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append("\",\n");
 
         // value
         sb.append("\t\"value\":").append(metric.getValue().toString()).append("\n}");

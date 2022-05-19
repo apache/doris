@@ -48,13 +48,13 @@ public class Daemon extends Thread {
     public Daemon(Runnable runnable) {
         super(runnable);
         this.runnable = runnable;
-        this.setName(((Object)runnable).toString());
+        this.setName(runnable.toString());
     }
 
     public Daemon(ThreadGroup group, Runnable runnable) {
         super(group, runnable);
         this.runnable = runnable;
-        this.setName(((Object) runnable).toString());
+        this.setName(runnable.toString());
     }
 
     public Daemon(String name) {

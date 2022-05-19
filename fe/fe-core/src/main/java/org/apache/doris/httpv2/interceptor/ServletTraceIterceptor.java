@@ -36,19 +36,19 @@ public class ServletTraceIterceptor implements Filter {
 
     private static final Logger LOG = LogManager.getLogger(ServletTraceIterceptor.class);
     @Override
-    public void init( FilterConfig filterConfig) throws ServletException {
+    public void init(FilterConfig filterConfig) throws ServletException {
 
     }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
-        throws IOException, ServletException {
+            throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
         if ("TRACE".equalsIgnoreCase(httpRequest.getMethod())) {
             httpResponse.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
-            LOG.warn ("Trace method is not allowed to be called, has been intercepted, IP address:"
-                + request.getRemoteAddr());
+            LOG.warn("Trace method is not allowed to be called, has been intercepted, IP address:"
+                    + request.getRemoteAddr());
             return;
         }
         chain.doFilter(request, response);

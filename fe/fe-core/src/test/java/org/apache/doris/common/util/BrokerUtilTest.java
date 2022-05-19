@@ -73,16 +73,18 @@ public class BrokerUtilTest {
 
         path = "/path/to/dir/k1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
             Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k2"));
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k2"));
             Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=v2/k1=v1/xxx.csv";
@@ -105,16 +107,18 @@ public class BrokerUtilTest {
 
         path = "/path/to/dir/k2=v2/a/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
             Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k2=v2/k1=v1/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2", "k3"));
             Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k2=v2//k1=v1//xxx.csv";
@@ -137,14 +141,15 @@ public class BrokerUtilTest {
 
         path = "/path/to/dir/k2==v2=//k1=v1/";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
+            BrokerUtil.parseColumnsFromPath(path, Lists.newArrayList("k1", "k2"));
             Assert.fail();
         } catch (UserException ignored) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         path = "/path/to/dir/k1=2/a/xxx.csv";
         try {
-            List<String> columns = BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
+            BrokerUtil.parseColumnsFromPath(path, Collections.singletonList("k1"));
             Assert.fail();
         } catch (UserException ignored) {
             ignored.printStackTrace();

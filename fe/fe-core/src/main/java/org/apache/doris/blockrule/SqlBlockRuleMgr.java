@@ -80,13 +80,13 @@ public class SqlBlockRuleMgr implements Writable {
 
     // check limitation's  effectiveness of a sql_block_rule
     public static void verifyLimitations(SqlBlockRule sqlBlockRule) throws DdlException {
-        if (sqlBlockRule.getPartitionNum() < 0){
+        if (sqlBlockRule.getPartitionNum() < 0) {
             throw new DdlException("the value of partition_num can't be a negative");
         }
-        if (sqlBlockRule.getTabletNum() < 0){
+        if (sqlBlockRule.getTabletNum() < 0) {
             throw new DdlException("the value of tablet_num can't be a negative");
         }
-        if (sqlBlockRule.getCardinality() < 0){
+        if (sqlBlockRule.getCardinality() < 0) {
             throw new DdlException("the value of cardinality can't be a negative");
         }
     }
@@ -210,12 +210,14 @@ public class SqlBlockRuleMgr implements Writable {
 
     public void matchSql(SqlBlockRule rule, String originSql, String sqlHash) throws AnalysisException {
         if (rule.getEnable()) {
-            if (StringUtils.isNotEmpty(rule.getSqlHash()) &&
-                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSqlHash()) && rule.getSqlHash().equals(sqlHash))) {
+            if (StringUtils.isNotEmpty(rule.getSqlHash())
+                    && (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSqlHash())
+                    && rule.getSqlHash().equals(sqlHash))) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match hash sql block rule: " + rule.getName());
-            } else if (StringUtils.isNotEmpty(rule.getSql()) &&
-                    (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSql()) && rule.getSqlPattern().matcher(originSql).find())) {
+            } else if (StringUtils.isNotEmpty(rule.getSql())
+                    && (!CreateSqlBlockRuleStmt.STRING_NOT_SET.equals(rule.getSql())
+                    && rule.getSqlPattern().matcher(originSql).find())) {
                 MetricRepo.COUNTER_HIT_SQL_BLOCK_RULE.increase(1L);
                 throw new AnalysisException("sql match regex sql block rule: " + rule.getName());
             }

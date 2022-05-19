@@ -53,7 +53,7 @@ public class TagTest {
         Map<String, String> map = Maps.newHashMap();
         map.put("location", "zone1, zone2");
         map.put("unknown", "tag1, tag2");
-        TagSet tagSet = TagSet.create(map);
+        TagSet.create(map);
     }
 
     @Test(expected = AnalysisException.class)
@@ -61,7 +61,7 @@ public class TagTest {
         Map<String, String> map = Maps.newHashMap();
         map.put("location", "zone1, zone2");
         map.put("type", "tag1, _tag2");
-        TagSet tagSet = TagSet.create(map);
+        TagSet.create(map);
     }
 
     @Test

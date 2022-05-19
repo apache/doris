@@ -470,65 +470,65 @@ public class Text implements Writable {
             int aByte = ((int) utf8[count] & 0xFF);
 
             switch (state) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
-            case LEAD_BYTE:
-                leadByte = aByte;
-                length = bytesFromUTF8[aByte];
+                case LEAD_BYTE:
+                    leadByte = aByte;
+                    length = bytesFromUTF8[aByte];
 
-                switch (length) {
-                case 0: // check for ASCII
-                    if (leadByte > 0x7F) {
-                        throw new MalformedInputException(count);
-                    }
+                    switch (length) {
+                        case 0: // check for ASCII
+                            if (leadByte > 0x7F) {
+                                throw new MalformedInputException(count);
+                            }
+                            break;
+                        case 1:
+                            if (leadByte < 0xC2 || leadByte > 0xDF) {
+                                throw new MalformedInputException(count);
+                            }
+                            state = TRAIL_BYTE_1;
+                            break;
+                        case 2:
+                            if (leadByte < 0xE0 || leadByte > 0xEF) {
+                                throw new MalformedInputException(count);
+                            }
+                            state = TRAIL_BYTE_1;
+                            break;
+                        case 3:
+                            if (leadByte < 0xF0 || leadByte > 0xF4) {
+                                throw new MalformedInputException(count);
+                            }
+                            state = TRAIL_BYTE_1;
+                            break;
+                        default:
+                            // too long! Longest valid UTF-8 is 4 bytes (lead + three)
+                            // or if < 0 we got a trail byte in the lead byte position
+                            throw new MalformedInputException(count);
+                    } // switch (length)
                     break;
-                case 1:
-                    if (leadByte < 0xC2 || leadByte > 0xDF) {
-                        throw new MalformedInputException(count);
-                    }
-                    state = TRAIL_BYTE_1;
-                    break;
-                case 2:
-                    if (leadByte < 0xE0 || leadByte > 0xEF) {
-                        throw new MalformedInputException(count);
-                    }
-                    state = TRAIL_BYTE_1;
-                    break;
-                case 3:
-                    if (leadByte < 0xF0 || leadByte > 0xF4) {
-                        throw new MalformedInputException(count);
-                    }
-                    state = TRAIL_BYTE_1;
-                    break;
-                default:
-                    // too long! Longest valid UTF-8 is 4 bytes (lead + three)
-                    // or if < 0 we got a trail byte in the lead byte position
-                    throw new MalformedInputException(count);
-                } // switch (length)
-                break;
 
-            case TRAIL_BYTE_1:
-                if (leadByte == 0xF0 && aByte < 0x90) {
-                    throw new MalformedInputException(count);
-                }
-                if (leadByte == 0xF4 && aByte > 0x8F) {
-                    throw new MalformedInputException(count);
-                }
-                if (leadByte == 0xE0 && aByte < 0xA0) {
-                    throw new MalformedInputException(count);
-                }
-                if (leadByte == 0xED && aByte > 0x9F) {
-                    throw new MalformedInputException(count);
-                }
-                // falls through to regular trail-byte test!!
-            case TRAIL_BYTE:
-                if (aByte < 0x80 || aByte > 0xBF) {
-                    throw new MalformedInputException(count);
-                }
-                if (--length == 0) {
-                    state = LEAD_BYTE;
-                } else {
-                    state = TRAIL_BYTE;
-                }
-                break;
+                case TRAIL_BYTE_1:
+                    if (leadByte == 0xF0 && aByte < 0x90) {
+                        throw new MalformedInputException(count);
+                    }
+                    if (leadByte == 0xF4 && aByte > 0x8F) {
+                        throw new MalformedInputException(count);
+                    }
+                    if (leadByte == 0xE0 && aByte < 0xA0) {
+                        throw new MalformedInputException(count);
+                    }
+                    if (leadByte == 0xED && aByte > 0x9F) {
+                        throw new MalformedInputException(count);
+                    }
+                    // falls through to regular trail-byte test!!
+                case TRAIL_BYTE:
+                    if (aByte < 0x80 || aByte > 0xBF) {
+                        throw new MalformedInputException(count);
+                    }
+                    if (--length == 0) {
+                        state = LEAD_BYTE;
+                    } else {
+                        state = TRAIL_BYTE;
+                    }
+                    break;
             } // switch (state)
             count++;
         }
@@ -577,29 +577,29 @@ public class Text implements Writable {
         int ch = 0;
 
         switch (extraBytesToRead) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
-        case 5:
-            ch += (bytes.get() & 0xFF);
-            ch <<= 6; /* remember, illegal UTF-8 */
-            // CHECKSTYLE IGNORE THIS LINE: fall through
-        case 4:
-            ch += (bytes.get() & 0xFF);
-            ch <<= 6; /* remember, illegal UTF-8 */
-            // CHECKSTYLE IGNORE THIS LINE: fall through
-        case 3:
-            ch += (bytes.get() & 0xFF);
-            ch <<= 6;
-            // CHECKSTYLE IGNORE THIS LINE: fall through
-        case 2:
-            ch += (bytes.get() & 0xFF);
-            ch <<= 6;
-            // CHECKSTYLE IGNORE THIS LINE: fall through
-        case 1:
-            ch += (bytes.get() & 0xFF);
-            ch <<= 6;
-            // CHECKSTYLE IGNORE THIS LINE: fall through
-        case 0:
-            ch += (bytes.get() & 0xFF);
-            // CHECKSTYLE IGNORE THIS LINE: fall through, missing switch default
+            case 5:
+                ch += (bytes.get() & 0xFF);
+                ch <<= 6; /* remember, illegal UTF-8 */
+                // CHECKSTYLE IGNORE THIS LINE: fall through
+            case 4:
+                ch += (bytes.get() & 0xFF);
+                ch <<= 6; /* remember, illegal UTF-8 */
+                // CHECKSTYLE IGNORE THIS LINE: fall through
+            case 3:
+                ch += (bytes.get() & 0xFF);
+                ch <<= 6;
+                // CHECKSTYLE IGNORE THIS LINE: fall through
+            case 2:
+                ch += (bytes.get() & 0xFF);
+                ch <<= 6;
+                // CHECKSTYLE IGNORE THIS LINE: fall through
+            case 1:
+                ch += (bytes.get() & 0xFF);
+                ch <<= 6;
+                // CHECKSTYLE IGNORE THIS LINE: fall through
+            case 0:
+                ch += (bytes.get() & 0xFF);
+                // CHECKSTYLE IGNORE THIS LINE: fall through, missing switch default
         }
         ch -= offsetsFromUTF8[extraBytesToRead];
 

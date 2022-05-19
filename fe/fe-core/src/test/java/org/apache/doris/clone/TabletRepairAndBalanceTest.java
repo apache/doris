@@ -218,47 +218,47 @@ public class TabletRepairAndBalanceTest {
 
         // create table
         // 1. no default tag, create will fail
-        String createStr = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10;";
+        String createStr = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr));
 
         // nodes of zone2 not enough, create will fail
-        String createStr2 = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n" +
-                ")";
+        String createStr2 = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 3\"\n"
+                + ")";
         ExceptionChecker.expectThrows(DdlException.class, () -> createTable(createStr2));
 
         // normal, create success
-        String createStr3 = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n" +
-                ")";
+        String createStr3 = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr3));
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
@@ -321,35 +321,35 @@ public class TabletRepairAndBalanceTest {
         // [0, 1]:      zone1
         // [2, 3, 4]:   zone2
         // begin to test colocation table
-        String createStr4 = "create table test.col_tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\",\n" +
-                "    \"colocate_with\" = \"g1\"\n" +
-                ")";
+        String createStr4 = "create table test.col_tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\",\n"
+                + "    \"colocate_with\" = \"g1\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr4));
-        String createStr5 = "create table test.col_tbl2\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\",\n" +
-                "    \"colocate_with\" = \"g1\"\n" +
-                ")";
+        String createStr5 = "create table test.col_tbl2\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_allocation\" = \"tag.location.zone1: 2, tag.location.zone2: 1\",\n"
+                + "    \"colocate_with\" = \"g1\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr5));
 
         OlapTable colTbl1 = (OlapTable) db.getTableNullable("col_tbl1");
@@ -426,15 +426,15 @@ public class TabletRepairAndBalanceTest {
         Assert.assertEquals(Tag.DEFAULT_BACKEND_TAG, backends.get(4).getTag());
 
         // create table tbl2 with "replication_num" property
-        String createStmt = "create table test.tbl2\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10;";
+        String createStmt = "create table test.tbl2\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStmt));
         OlapTable tbl2 = (OlapTable) db.getTableNullable("tbl2");
         ReplicaAllocation defaultAlloc = new ReplicaAllocation((short) 3);
@@ -460,14 +460,14 @@ public class TabletRepairAndBalanceTest {
         ExceptionChecker.expectThrowsNoException(() -> testColocateTableIndexSerialization(colocateTableIndex));
 
         // test colocate tablet repair
-        String createStr6 = "create table test.col_tbl3\n" +
-                "(k1 date, k2 int)\n" +
-                "distributed by hash(k2) buckets 1\n" +
-                "properties\n" +
-                "(\n" +
-                "    \"replication_num\" = \"3\",\n" +
-                "    \"colocate_with\" = \"g3\"\n" +
-                ")";
+        String createStr6 = "create table test.col_tbl3\n"
+                + "(k1 date, k2 int)\n"
+                + "distributed by hash(k2) buckets 1\n"
+                + "properties\n"
+                + "(\n"
+                + "    \"replication_num\" = \"3\",\n"
+                + "    \"colocate_with\" = \"g3\"\n"
+                + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr6));
 
         OlapTable tbl3 = db.getOlapTableOrDdlException("col_tbl3");

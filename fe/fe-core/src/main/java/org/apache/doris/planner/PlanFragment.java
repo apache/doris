@@ -323,7 +323,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         this.dataPartition = dataPartition;
     }
 
-    public PlanFragmentId getId() { return fragmentId; }
+    public PlanFragmentId getId() {
+        return fragmentId;
+    }
 
     public PlanFragment getDestFragment() {
         if (destNode == null) {

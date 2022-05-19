@@ -629,7 +629,7 @@ public class OlapTable extends Table {
     public KeysType getKeysTypeByIndexId(long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         Preconditions.checkNotNull(indexMeta, "index id:" + indexId + " meta is null");
-         return indexMeta.getKeysType();
+        return indexMeta.getKeysType();
     }
 
     public PartitionInfo getPartitionInfo() {
@@ -704,8 +704,8 @@ public class OlapTable extends Table {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
 
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE ||
-                    partitionInfo.getType() == PartitionType.LIST);
+            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE
+                    || partitionInfo.getType() == PartitionType.LIST);
 
             if (!isForceDrop) {
                 // recycle partition
@@ -1177,7 +1177,7 @@ public class OlapTable extends Table {
             partitionInfo = RangePartitionInfo.read(in);
         } else if (partType == PartitionType.LIST) {
             partitionInfo = ListPartitionInfo.read(in);
-        }else {
+        } else {
             throw new IOException("invalid partition type: " + partType);
         }
 
@@ -1475,7 +1475,7 @@ public class OlapTable extends Table {
 
     public Column getBaseColumn(String columnName) {
         for (Column column : getBaseSchema()) {
-            if (column.getName().equalsIgnoreCase(columnName)){
+            if (column.getName().equalsIgnoreCase(columnName)) {
                 return column;
             }
         }
@@ -1719,15 +1719,15 @@ public class OlapTable extends Table {
         if (groupingExps == null || groupingExps.isEmpty()) {
             return false;
         }
-        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null ?
-                aggregateInfo.getPartitionExprs() : groupingExps;
+        List<Expr> partitionExps = aggregateInfo.getPartitionExprs() != null
+                ? aggregateInfo.getPartitionExprs() : groupingExps;
         DistributionInfo distribution = getDefaultDistributionInfo();
-        if(distribution instanceof HashDistributionInfo) {
+        if (distribution instanceof HashDistributionInfo) {
             List<Column> distributeColumns =
-                    ((HashDistributionInfo)distribution).getDistributionColumns();
+                    ((HashDistributionInfo) distribution).getDistributionColumns();
             PartitionInfo partitionInfo = getPartitionInfo();
             if (partitionInfo instanceof RangePartitionInfo) {
-                List<Column> rangeColumns = ((RangePartitionInfo)partitionInfo).getPartitionColumns();
+                List<Column> rangeColumns = partitionInfo.getPartitionColumns();
                 if (!distributeColumns.containsAll(rangeColumns)) {
                     return false;
                 }

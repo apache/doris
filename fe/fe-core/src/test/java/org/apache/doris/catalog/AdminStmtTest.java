@@ -41,15 +41,15 @@ public class AdminStmtTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        createTable( "CREATE TABLE test.tbl1 (\n" +
-                         "  `id` int(11) NULL COMMENT \"\",\n" +
-                         "  `id2` bitmap bitmap_union NULL\n" +
-                         ") ENGINE=OLAP\n" +
-                         "AGGREGATE KEY(`id`)\n" +
-                         "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n" +
-                         "PROPERTIES (\n" +
-                         " \"replication_num\" = \"1\"\n" +
-                         ");");
+        createTable("CREATE TABLE test.tbl1 (\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `id2` bitmap bitmap_union NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`id`)\n"
+                + "DISTRIBUTED BY HASH(`id`) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
     }
 
     @Test

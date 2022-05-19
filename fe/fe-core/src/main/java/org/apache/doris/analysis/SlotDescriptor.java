@@ -213,12 +213,29 @@ public class SlotDescriptor {
         return slotOffset;
     }
 
-    public String getLabel() { return label; }
-    public void setLabel(String label) { this.label = label; }
-    public void setSourceExprs(List<Expr> exprs) { sourceExprs = exprs; }
-    public void setSourceExpr(Expr expr) { sourceExprs = Collections.singletonList(expr); }
-    public void addSourceExpr(Expr expr) { sourceExprs.add(expr); }
-    public List<Expr> getSourceExprs() { return sourceExprs; }
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public void setSourceExprs(List<Expr> exprs) {
+        sourceExprs = exprs;
+    }
+
+    public void setSourceExpr(Expr expr) {
+        sourceExprs = Collections.singletonList(expr);
+    }
+
+    public void addSourceExpr(Expr expr) {
+        sourceExprs.add(expr);
+    }
+
+    public List<Expr> getSourceExprs() {
+        return sourceExprs;
+    }
 
 
     /**

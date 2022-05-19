@@ -113,7 +113,7 @@ public class LoadManagerTest {
     public void testSerializationNormal(@Mocked Catalog catalog,
                                         @Injectable Database database,
                                         @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;
@@ -148,7 +148,7 @@ public class LoadManagerTest {
                                                 @Mocked Catalog catalog,
                                                 @Injectable Database database,
                                                 @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
                 catalog.getDbNullable(anyLong);
                 minTimes = 0;

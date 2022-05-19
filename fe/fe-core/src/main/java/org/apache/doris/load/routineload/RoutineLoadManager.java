@@ -494,7 +494,7 @@ public class RoutineLoadManager implements Writable {
         // return all of routine load job
         List<RoutineLoadJob> result;
         RESULT:
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             if (dbFullName == null) {
                 result = new ArrayList<>(idToRoutineLoadJob.values());
                 sortRoutineLoadJob(result);
@@ -522,7 +522,7 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
             return null;
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         if (!includeHistory) {
             result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());

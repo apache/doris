@@ -138,8 +138,11 @@ public class OdbcScanNode extends ScanNode {
         }
 
         // Other DataBase use limit do top n
-        if (shouldPushDownLimit() && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
-            sql.append(" LIMIT " + limit);
+        if (shouldPushDownLimit()
+                && (odbcType == TOdbcTableType.MYSQL
+                || odbcType == TOdbcTableType.POSTGRESQL
+                || odbcType == TOdbcTableType.MONGODB)) {
+            sql.append(" LIMIT ").append(limit);
         }
 
         return sql.toString();

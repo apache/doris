@@ -69,11 +69,11 @@ public class CreateDbStmtTest {
         CreateDbStmt stmt = new CreateDbStmt(false, "test", properties);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:test", stmt.getFullDbName());
-        Assert.assertEquals("CREATE DATABASE `testCluster:test`\n" +
-                "PROPERTIES (\n" +
-                "\"iceberg.database\" = \"doris\",\n" +
-                "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n" +
-                ")", stmt.toString());
+        Assert.assertEquals("CREATE DATABASE `testCluster:test`\n"
+                + "PROPERTIES (\n"
+                + "\"iceberg.database\" = \"doris\",\n"
+                + "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n"
+                + ")", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

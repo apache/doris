@@ -214,7 +214,7 @@ public class DataDescriptionTest {
         properties.put("jsonpaths",  "[\"$.h1.h2.k1\",\"$.h1.h2.v1\",\"$.h1.h2.v2\"]");
         properties.put("json_root", "$.RECORDS");
         properties.put("read_json_by_line", "true");
-        properties.put("num_as_string","true");
+        properties.put("num_as_string", "true");
         desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
                 Lists.newArrayList("col1", "col2"), new Separator(","), "json", null, false, null,
                 null, null, LoadTask.MergeType.APPEND, null, null, properties);
@@ -341,7 +341,7 @@ public class DataDescriptionTest {
 
                 tbl.hasSequenceCol();
                 minTimes = 0;
-                result =true;
+                result = true;
             }
         };
         desc.analyze("testDb");
@@ -360,7 +360,7 @@ public class DataDescriptionTest {
 
                 tbl.hasSequenceCol();
                 minTimes = 0;
-                result =true;
+                result = true;
             }
         };
         desc.analyze("testDb");

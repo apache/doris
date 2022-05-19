@@ -75,11 +75,11 @@ public class AnalyticEvalNode extends PlanNode {
     private final TupleDescriptor bufferedTupleDesc;
 
     public AnalyticEvalNode(
-        PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
-        List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-        AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-        TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-        Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
+            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
         super(id, input.getTupleIds(), "ANALYTIC");
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
@@ -185,8 +185,7 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
         msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
-        msg.analytic_node.setOrderByExprs(
-            Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
+        msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
 
         if (analyticWindow == null) {
@@ -260,8 +259,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(
-                prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
         }
 
         return output.toString();

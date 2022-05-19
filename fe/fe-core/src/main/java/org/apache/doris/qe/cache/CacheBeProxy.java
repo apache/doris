@@ -109,6 +109,7 @@ public class CacheBeProxy extends CacheProxy {
                 try {
                     Thread.sleep(1000); //sleep 1 second
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
             if (retry >= 3) {
@@ -135,7 +136,6 @@ public class CacheBeProxy extends CacheProxy {
             }
         } catch (Exception e) {
             LOG.warn("clear cache exception, backendId {}", backend.getId(), e);
-        } finally {
         }
         return false;
     }

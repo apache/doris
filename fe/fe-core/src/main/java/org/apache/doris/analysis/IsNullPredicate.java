@@ -39,19 +39,19 @@ public class IsNullPredicate extends Predicate {
     private static final String IS_NOT_NULL = "is_not_null_pred";
 
     public static void initBuiltins(FunctionSet functionSet) {
-        for (Type t: Type.getSupportedTypes()) {
+        for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {
                 continue;
             }
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +
-                        "EES3_PNS2_15FunctionContextERKT_";
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE"
+                        + "EES3_PNS2_15FunctionContextERKT_";
             } else {
                 String udfType = Function.getUdfType(t.getPrimitiveType());
-                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf" +
-                        udfType.length() + udfType +
-                        "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
+                isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf"
+                        + udfType.length() + udfType
+                        + "EEENS2_10BooleanValEPNS2_15FunctionContextERKT_";
             }
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -150,7 +150,7 @@ public class IsNullPredicate extends Predicate {
     public Expr getResultValue() throws AnalysisException {
         recursiveResetChildrenResult();
         final Expr childValue = getChild(0);
-        if(!(childValue instanceof LiteralExpr)) {
+        if (!(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

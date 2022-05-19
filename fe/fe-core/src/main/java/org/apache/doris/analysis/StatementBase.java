@@ -123,7 +123,9 @@ public abstract class StatementBase implements ParseNode {
      * if not applicable (not all statements produce an output result set).
      * Subclasses must override this as necessary.
      */
-    public List<String> getColLabels() { return Collections.<String>emptyList();  }
+    public List<String> getColLabels() {
+        return Collections.<String>emptyList();
+    }
 
     /**
      * Sets the column labels of this statement, if applicable. No-op of the statement does
@@ -143,7 +145,9 @@ public abstract class StatementBase implements ParseNode {
      * empty list if not applicable (not all statements produce an output result set).
      * Subclasses must override this as necessary.
      */
-    public List<Expr> getResultExprs() { return Collections.<Expr>emptyList(); }
+    public List<Expr> getResultExprs() {
+        return Collections.<Expr>emptyList();
+    }
 
     /**
      * Casts the result expressions and derived members (e.g., destination column types for

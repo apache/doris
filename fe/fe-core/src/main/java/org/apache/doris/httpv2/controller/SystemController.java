@@ -65,7 +65,7 @@ public class SystemController extends BaseController {
             currentPath = "/";
         }
         LOG.debug("get /system request, thread id: {}", Thread.currentThread().getId());
-        ResponseEntity entity = appendSystemInfo(currentPath, currentPath,request);
+        ResponseEntity entity = appendSystemInfo(currentPath, currentPath, request);
         return entity;
     }
 
@@ -87,7 +87,6 @@ public class SystemController extends BaseController {
 
     private ResponseEntity appendSystemInfo(String procPath, String path, HttpServletRequest request) {
         UrlValidator validator = new UrlValidator();
-        Map<String, Object> map = new HashMap<>();
 
         ProcNodeInterface procNode = getProcNode(procPath);
         if (procNode == null) {

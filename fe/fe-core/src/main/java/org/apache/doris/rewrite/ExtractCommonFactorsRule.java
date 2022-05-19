@@ -198,8 +198,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 }
                 SlotRef columnName = (SlotRef) predicate.getChild(0);
                 if (predicate instanceof BinaryPredicate) {
-                    Range<LiteralExpr> predicateRange = ((BinaryPredicate)predicate).convertToRange();
-                    if (predicateRange == null){
+                    Range<LiteralExpr> predicateRange = ((BinaryPredicate) predicate).convertToRange();
+                    if (predicateRange == null) {
                         continue;
                     }
                     Range<LiteralExpr> range = columnNameToRange.get(columnName);
@@ -233,7 +233,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         // 2. merge clause
         Map<SlotRef, RangeSet<LiteralExpr>> resultRangeMap = Maps.newHashMap();
-        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry: columnNameToRangeList.get(0).entrySet()) {
+        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry : columnNameToRangeList.get(0).entrySet()) {
             RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
             rangeSet.add(entry.getValue());
             resultRangeMap.put(entry.getKey(), rangeSet);
@@ -310,7 +310,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, RangeSet<LiteralExpr>> mergeTwoClauseRange(Map<SlotRef, RangeSet<LiteralExpr>> clause1,
                                                                     Map<SlotRef, Range<LiteralExpr>> clause2) {
         Map<SlotRef, RangeSet<LiteralExpr>> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             Range<LiteralExpr> clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -336,7 +336,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, InPredicate> mergeTwoClauseIn(Map<SlotRef, InPredicate> clause1,
                                                        Map<SlotRef, InPredicate> clause2) {
         Map<SlotRef, InPredicate> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, InPredicate> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, InPredicate> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             InPredicate clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -434,7 +434,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.GE, slotRef, lowerBound));
                 }
             }
-            if (upperBound !=null) {
+            if (upperBound != null) {
                 if (range.upperBoundType() == BoundType.OPEN) {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.LT, slotRef, upperBound));
                 } else {

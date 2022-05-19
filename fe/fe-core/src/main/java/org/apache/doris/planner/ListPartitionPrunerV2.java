@@ -51,8 +51,8 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
             idToPartitionItem.forEach((id, item) -> {
                 List<PartitionKey> keys = item.getItems();
                 List<Range<PartitionKey>> ranges = keys.stream()
-                    .map(key -> Range.closed(key, key))
-                    .collect(Collectors.toList());
+                        .map(key -> Range.closed(key, key))
+                        .collect(Collectors.toList());
                 for (int i = 0; i < ranges.size(); i++) {
                     uidToPartitionRange.put(new ListPartitionUniqueId(id, i), ranges.get(i));
                 }
@@ -66,8 +66,8 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
         idToPartitionItem.forEach((id, item) -> {
             List<PartitionKey> keys = item.getItems();
             List<Range<PartitionKey>> ranges = keys.stream()
-                .map(key -> Range.closed(key, key))
-                .collect(Collectors.toList());
+                    .map(key -> Range.closed(key, key))
+                    .collect(Collectors.toList());
             for (int i = 0; i < ranges.size(); i++) {
                 candidate.put(mapPartitionKeyRange(ranges.get(i), 0),
                     new ListPartitionUniqueId(id, i));
@@ -101,7 +101,7 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
 
     @Override
     Collection<Long> pruneMultipleColumnPartition(
-        Map<Column, FinalFilters> columnToFilters) throws AnalysisException {
+            Map<Column, FinalFilters> columnToFilters) throws AnalysisException {
         Map<Range<PartitionKey>, UniqueId> rangeToId = Maps.newHashMap();
         uidToPartitionRange.forEach((uid, range) -> rangeToId.put(range, uid));
         return doPruneMultiple(columnToFilters, rangeToId, 0);
@@ -125,11 +125,9 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
                 // Grouping partition ranges by the range of column value indexed by `columnIdx`,
                 // so that to compare with the filters.
                 Map<Range<ColumnBound>, List<UniqueId>> grouped =
-                    partitionRangeToUid
-                        .entrySet()
-                        .stream()
-                        .collect(Collectors.groupingBy(entry -> mapPartitionKeyRange(entry.getKey(), columnIdx),
-                            Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+                        partitionRangeToUid.entrySet().stream()
+                                .collect(Collectors.groupingBy(entry -> mapPartitionKeyRange(entry.getKey(), columnIdx),
+                                        Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
 
                 // Convert the grouped map to a RangeMap.
                 TreeRangeMap<ColumnBound, List<UniqueId>> candidateRangeMap = TreeRangeMap.create();
@@ -138,14 +136,13 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
                 return finalFilters.filters.stream()
                     .map(filter -> {
                         RangeMap<ColumnBound, List<UniqueId>> filtered =
-                            candidateRangeMap.subRangeMap(filter);
+                                candidateRangeMap.subRangeMap(filter);
                         // Find PartitionKey ranges according to filtered UniqueIds.
                         Map<Range<PartitionKey>, UniqueId> filteredPartitionRange =
-                            filtered.asMapOfRanges().values()
-                                .stream()
-                                .flatMap(List::stream)
-                                .collect(Collectors.toMap(
-                                    uidToPartitionRange::get, Function.identity()));
+                                filtered.asMapOfRanges().values()
+                                        .stream()
+                                        .flatMap(List::stream)
+                                        .collect(Collectors.toMap(uidToPartitionRange::get, Function.identity()));
                         return doPruneMultiple(columnToFilters, filteredPartitionRange,
                             columnIdx + 1);
                     })
