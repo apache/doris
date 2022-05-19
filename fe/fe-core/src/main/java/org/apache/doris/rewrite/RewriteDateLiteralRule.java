@@ -40,7 +40,9 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BinaryPredicate)) return expr;
+        if (!(expr instanceof BinaryPredicate)) {
+            return expr;
+        }
         Expr lchild = expr.getChild(0);
         if (!lchild.getType().isDateType()) {
             return expr;

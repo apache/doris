@@ -388,7 +388,7 @@ public class Util {
     // not support encode negative value now
     public static void encodeVarint64(long source, DataOutput out) throws IOException {
         assert source >= 0;
-        short B = 128;
+        short B = 128; // CHECKSTYLE IGNORE THIS LINE
 
         while (source > B) {
             out.write((int)(source & (B - 1) | B));
@@ -401,7 +401,7 @@ public class Util {
     public static long decodeVarint64(DataInput in) throws IOException {
         long result = 0;
         int shift = 0;
-        short B = 128;
+        short B = 128; // CHECKSTYLE IGNORE THIS LINE
 
         while (true) {
             int oneByte = in.readUnsignedByte();

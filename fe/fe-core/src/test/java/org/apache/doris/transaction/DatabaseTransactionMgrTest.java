@@ -80,7 +80,7 @@ public class DatabaseTransactionMgrTest {
     }
 
     public Map<String, Long> addTransactionToTransactionMgr() throws UserException {
-        Map<String, Long> LabelToTxnId = Maps.newHashMap();
+        Map<String, Long> labelToTxnId = Maps.newHashMap();
         FakeCatalog.setCatalog(masterCatalog);
         long transactionId1 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLabel1,
@@ -100,7 +100,7 @@ public class DatabaseTransactionMgrTest {
         Table testTable1 = masterCatalog.getDbOrMetaException(CatalogTestUtil.testDbId1).getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1), transactionId1, transTablets);
         masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId1, null);
-        LabelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel1, transactionId1);
 
         TransactionState.TxnCoordinator beTransactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.BE, "be1");
         long transactionId2 = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
@@ -115,15 +115,15 @@ public class DatabaseTransactionMgrTest {
                 CatalogTestUtil.testTxnLabel4,
                 beTransactionSource,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, Config.stream_load_default_timeout_second);
-        LabelToTxnId.put(CatalogTestUtil.testTxnLabel2, transactionId2);
-        LabelToTxnId.put(CatalogTestUtil.testTxnLabel3, transactionId3);
-        LabelToTxnId.put(CatalogTestUtil.testTxnLabel4, transactionId4);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel2, transactionId2);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel3, transactionId3);
+        labelToTxnId.put(CatalogTestUtil.testTxnLabel4, transactionId4);
 
         TransactionState transactionState1 = fakeEditLog.getTransaction(transactionId1);
 
         FakeCatalog.setCatalog(slaveCatalog);
         slaveTransMgr.replayUpsertTransactionState(transactionState1);
-        return LabelToTxnId;
+        return labelToTxnId;
     }
 
     @Test

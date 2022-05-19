@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HDFSStorage;
+import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -319,6 +319,7 @@ public class OutFileClause {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
                         column.add("byte_array");
                     }
+                    break;
                 default:
                     throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
             }
@@ -438,7 +439,7 @@ public class OutFileClause {
         if (storageType == StorageBackend.StorageType.S3) {
             S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HDFSStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
+            HdfsStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);

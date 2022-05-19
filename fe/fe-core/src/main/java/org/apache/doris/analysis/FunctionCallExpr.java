@@ -1158,7 +1158,9 @@ public class FunctionCallExpr extends Expr {
         // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We should
         // rework logic so that we do not call this function on unanalyzed exprs.
         // Aggregate functions are never constant.
-        if (fn instanceof AggregateFunction || fn == null) return false;
+        if (fn instanceof AggregateFunction || fn == null) {
+            return false;
+        }
 
         final String fnName = this.fnName.getFunction();
         // Non-deterministic functions are never constant.
@@ -1166,7 +1168,9 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         // Sleep is a special function for testing.
-        if (fnName.equalsIgnoreCase("sleep")) return false;
+        if (fnName.equalsIgnoreCase("sleep")) {
+            return false;
+        }
         return super.isConstantImpl();
     }
 

@@ -145,6 +145,8 @@ public class CompoundPredicate extends Predicate {
             case NOT:
                 selectivity = 1.0 - getChild(0).selectivity;
                 break;
+            default:
+                throw new AnalysisException("not support operator: " + op);
         }
         selectivity = Math.max(0.0, Math.min(1.0, selectivity));
         if (LOG.isDebugEnabled()) {
@@ -180,7 +182,9 @@ public class CompoundPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-        if (op == Operator.NOT) return getChild(0);
+        if (op == Operator.NOT) {
+            return getChild(0);
+        }
         Expr negatedLeft = getChild(0).negate();
         Expr negatedRight = getChild(1).negate();
         Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;

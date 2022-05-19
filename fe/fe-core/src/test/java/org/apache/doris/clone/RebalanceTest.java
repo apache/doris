@@ -110,7 +110,7 @@ public class RebalanceTest {
                 catalog.getNextId();
                 minTimes = 0;
                 result = new Delegate() {
-                    long a() {
+                    long ignored() {
                         return id++;
                     }
                 };

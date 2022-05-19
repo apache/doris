@@ -218,26 +218,26 @@ public class TableQueryPlanAction extends RestBaseController {
         UUID uuid = UUID.randomUUID();
         tQueryPlanInfo.query_id = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
-        Map<Long, TTabletVersionInfo> tablet_info = new HashMap<>();
+        Map<Long, TTabletVersionInfo> tabletInfo = new HashMap<>();
         // acquire resolved tablet distribution
         Map<String, Node> tabletRoutings = assemblePrunedPartitions(scanRangeLocations);
         tabletRoutings.forEach((tabletId, node) -> {
             long tablet = Long.parseLong(tabletId);
-            tablet_info.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
+            tabletInfo.put(tablet, new TTabletVersionInfo(tablet, node.version, 0L /*version hash*/, node.schemaHash));
         });
-        tQueryPlanInfo.tablet_info = tablet_info;
+        tQueryPlanInfo.tablet_info = tabletInfo;
 
         // serialize TQueryPlanInfo and encode plan with Base64 to string in order to translate by json format
         TSerializer serializer = new TSerializer();
-        String opaqued_query_plan;
+        String opaquedQueryPlan;
         try {
-            byte[] query_plan_stream = serializer.serialize(tQueryPlanInfo);
-            opaqued_query_plan = Base64.getEncoder().encodeToString(query_plan_stream);
+            byte[] queryPlanStream = serializer.serialize(tQueryPlanInfo);
+            opaquedQueryPlan = Base64.getEncoder().encodeToString(queryPlanStream);
         } catch (TException e) {
             throw new DorisHttpException(HttpResponseStatus.INTERNAL_SERVER_ERROR, "TSerializer failed to serialize PlanFragment, reason [ " + e.getMessage() + " ]");
         }
         result.put("partitions", tabletRoutings);
-        result.put("opaqued_query_plan", opaqued_query_plan);
+        result.put("opaqued_query_plan", opaquedQueryPlan);
         result.put("status", 200);
     }
 

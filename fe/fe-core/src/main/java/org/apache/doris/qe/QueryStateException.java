@@ -31,7 +31,7 @@ public class QueryStateException extends UserException {
 
     public void createQueryState(MysqlStateType stateType, String msg) {
         this.queryState = new QueryState();
-        switch (stateType) {
+        switch (stateType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case OK:
                 queryState.setOk(0L, 0, msg);
                 break;

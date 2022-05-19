@@ -31,7 +31,7 @@ public final class FakeTransactionIDGenerator extends MockUp<TransactionIdGenera
     private long currentId = 1000L;
 
     @Mock
-    public void $init() {
+    public void $init() { // CHECKSTYLE IGNORE THIS LINE
         // do nothing
     }
 

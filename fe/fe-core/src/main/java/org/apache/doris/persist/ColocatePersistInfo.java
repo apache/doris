@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * PersistInfo for ColocateTableIndex
@@ -115,6 +116,11 @@ public class ColocatePersistInfo implements Writable {
             }
             backendsPerBucketSeqList.add(beLists);
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupId, tableId, backendsPerBucketSeq);
     }
 
     @Override

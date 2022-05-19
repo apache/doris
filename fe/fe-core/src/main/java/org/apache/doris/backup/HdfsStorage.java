@@ -22,7 +22,7 @@ import org.apache.doris.common.UserException;
 import java.util.Map;
 
 // TODO: extend BlobStorage
-public class HDFSStorage {
+public class HdfsStorage {
     public static final String HDFS_DEFAULT_FS = "fs.defaultFS";
 
     public static void checkHDFS(Map<String, String> properties) throws UserException {

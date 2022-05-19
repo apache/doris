@@ -302,9 +302,9 @@ public class PartitionCacheTest {
         short shortKeyColumnCount = 1;
         table.setIndexMeta(10001, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.DUP_KEYS);
 
-        List<Column> idx_columns = Lists.newArrayList();
-        idx_columns.add(column1);
-        table.setIndexMeta(new Long(1), "test", idx_columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+        List<Column> idxColumns = Lists.newArrayList();
+        idxColumns.add(column1);
+        table.setIndexMeta(1L, "test", idxColumns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
                 KeysType.DUP_KEYS);
         Deencapsulation.setField(table, "baseIndexId", 1000);
 
@@ -367,9 +367,9 @@ public class PartitionCacheTest {
         short shortKeyColumnCount = 1;
         table.setIndexMeta(20001, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
 
-        List<Column> idx_columns = Lists.newArrayList();
-        idx_columns.add(column2);
-        table.setIndexMeta(new Long(2), "test", idx_columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
+        List<Column> idxColumns = Lists.newArrayList();
+        idxColumns.add(column2);
+        table.setIndexMeta(2L, "test", idxColumns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN,
                 KeysType.AGG_KEYS);
 
         Deencapsulation.setField(table, "baseIndexId", 1000);
@@ -501,7 +501,7 @@ public class PartitionCacheTest {
     public void testCacheNode() throws Exception {
         Catalog.getCurrentSystemInfo();
         CacheCoordinator cp = CacheCoordinator.getInstance();
-        cp.DebugModel = true;
+        cp.debugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
         bd1.updateOnce(0, 0, 0);
         Backend bd2 = new Backend(2, "", 2000);

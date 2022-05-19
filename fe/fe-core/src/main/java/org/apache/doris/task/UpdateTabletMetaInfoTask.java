@@ -146,6 +146,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 break;
             }
+            default:
+                break;
         }
         updateTabletMetaInfoReq.setTabletMetaInfos(metaInfos);
         return updateTabletMetaInfoReq;

@@ -80,8 +80,9 @@ public class OdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
                 return mysqlProperName(name);
+            default:
+                return name;
         }
-        return name;
     }
 
     private String odbcCatalogResourceName;

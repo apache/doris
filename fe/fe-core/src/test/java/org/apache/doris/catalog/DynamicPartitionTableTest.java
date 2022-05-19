@@ -74,7 +74,7 @@ public class DynamicPartitionTableTest {
     }
 
     @AfterClass
-    public static void TearDown() {
+    public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 

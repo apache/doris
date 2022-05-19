@@ -47,12 +47,8 @@ public abstract class CacheProxy {
     }
 
     public static CacheProxy getCacheProxy(CacheProxyType type) {
-        switch (type) {
-            case BE:
-                return new CacheBeProxy();
-            case FE:
-            case OUTER:
-                return null;
+        if (CacheProxyType.BE == type) {
+            return new CacheBeProxy();
         }
         return null;
     }
