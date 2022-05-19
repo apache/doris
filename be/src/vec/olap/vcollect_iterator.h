@@ -49,7 +49,7 @@ public:
 
     OLAPStatus add_child(RowsetReaderSharedPtr rs_reader);
 
-    void build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
+    OLAPStatus build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
     // Get top row of the heap, nullptr if reach end.
     OLAPStatus current_row(IteratorRowRef* ref) const;
 

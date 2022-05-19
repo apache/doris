@@ -25,6 +25,14 @@ namespace vectorized {
 
 VCollectIterator::~VCollectIterator() {}
 
+#define RETURN_IF_NOT_EOF_AND_OK(stmt)                                                  \
+    do {                                                                                \
+        OLAPStatus _status_ = (stmt);                                                   \
+        if (UNLIKELY(_status_ != OLAP_SUCCESS && _status_ != OLAP_ERR_DATA_EOF)) {      \
+            return _status_;                                                            \
+        }                                                                               \
+    } while (false)
+
 void VCollectIterator::init(TabletReader* reader) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
@@ -44,20 +52,24 @@ OLAPStatus VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // Build a merge heap. If _merge is true, a rowset with the max rownum
 // status will be used as the base rowset, and the other rowsets will be merged first and
 // then merged with the base rowset.
-void VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
+OLAPStatus VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
     DCHECK(rs_readers.size() == _children.size());
     _skip_same = _reader->_tablet->tablet_schema().keys_type() == KeysType::UNIQUE_KEYS;
     if (_children.empty()) {
         _inner_iter.reset(nullptr);
-        return;
+        return OLAP_SUCCESS;
     } else if (_merge) {
         DCHECK(!rs_readers.empty());
         for (auto [c_iter, r_iter] = std::pair {_children.begin(), rs_readers.begin()};
              c_iter != _children.end();) {
-            if ((*c_iter)->init() != OLAP_SUCCESS) {
+            OLAPStatus s = (*c_iter)->init();
+            if (s != OLAP_SUCCESS) {
                 delete (*c_iter);
                 c_iter = _children.erase(c_iter);
                 r_iter = rs_readers.erase(r_iter);
+                if (s != OLAP_ERR_DATA_EOF) {
+                    return s;
+                }
             } else {
                 ++c_iter;
                 ++r_iter;
@@ -90,7 +102,7 @@ void VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers
             }
             Level1Iterator* cumu_iter = new Level1Iterator(cumu_children, _reader,
                                                            cumu_children.size() > 1, _skip_same);
-            cumu_iter->init();
+            RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
             children.push_back(cumu_iter);
@@ -102,9 +114,10 @@ void VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers
     } else {
         _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _skip_same));
     }
-    _inner_iter->init();
+    RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
     _children.clear();
+    return OLAP_SUCCESS;
 }
 
 bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, LevelIterator* rhs) {
@@ -194,8 +207,12 @@ OLAPStatus VCollectIterator::Level0Iterator::_refresh_current_row() {
             _ref.row_pos = 0;
             _block->clear_column_data();
             auto res = _rs_reader->next_block(_block.get());
-            if (res != OLAP_SUCCESS) {
+            if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
                 return res;
+            }
+            if (res == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+                _ref.row_pos = -1;
+                return OLAP_ERR_DATA_EOF;
             }
         }
     } while (_block->rows() != 0);
@@ -206,13 +223,25 @@ OLAPStatus VCollectIterator::Level0Iterator::_refresh_current_row() {
 OLAPStatus VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
     _ref.row_pos++;
     RETURN_NOT_OK(_refresh_current_row());
-
     *ref = _ref;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus VCollectIterator::Level0Iterator::next(Block* block) {
-    return _rs_reader->next_block(block);
+    if (UNLIKELY(_ref.block->rows() > 0 && _ref.row_pos == 0)) {
+        block->swap(*_ref.block);
+        _ref.row_pos = -1;
+        return OLAP_SUCCESS;
+    } else {
+        auto res = _rs_reader->next_block(block);
+        if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
+            return res;
+        }
+        if (res == OLAP_ERR_DATA_EOF && _block->rows() == 0) {
+            return OLAP_ERR_DATA_EOF;
+        }
+        return OLAP_SUCCESS;
+    }
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(

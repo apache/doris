@@ -346,7 +346,10 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
             delete ctx;
         }
     }
-
+    if (!_merge_heap.empty()) {
+        return Status::OK();
+    }
+    // Still last batch needs to be processed
     return Status::EndOfFile("no more data in segment");
 }
 
