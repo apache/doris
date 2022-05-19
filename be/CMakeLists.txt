@@ -370,7 +370,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD AND NOT MAKE_TEST)
+if (USE_LLD)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
 endif ()
 
@@ -421,6 +421,10 @@ endif()
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
 set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
+
+if (USE_DWARF)
+    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
+endif()
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
