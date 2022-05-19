@@ -130,8 +130,6 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
     size_t input_size = block->allocated_bytes() * num_rows / block->rows();
     _mem_usage += input_size;
     _mem_tracker->consume(input_size);
-    // when new data inserted, the mem_usage of memtable should be re-shrunk again.
-    _is_shrunk_by_agg = false;
 
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
@@ -244,7 +242,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
     }
 }
 template <bool is_final>
-void MemTable::_collect_vskiplist_to_output() {
+void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     // TODO: should try to insert data by column, not by row. to opt the the code
@@ -270,11 +268,14 @@ void MemTable::_collect_vskiplist_to_output() {
                     function->destroy(it.key()->_agg_places[i]);
                 }
             }
-            // re-index the row_pos in VSkipList
-            it.key()->_row_pos = idx;
-            idx++;
+            if constexpr (!is_final) {
+                // re-index the row_pos in VSkipList
+                it.key()->_row_pos = idx;
+                idx++;
+            }
         }
         if constexpr (!is_final) {
+            // if is not final, we collect the agg results to input_block and then continue to insert
             size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
             _mem_tracker->consume(shrunked_after_agg - _mem_usage);
             _mem_usage = shrunked_after_agg;
@@ -290,11 +291,7 @@ void MemTable::_collect_vskiplist_to_output() {
 }
 
 void MemTable::shrink_memtable_by_agg() {
-    if (_is_shrunk_by_agg) {
-        return;
-    }
-    _collect_vskiplist_to_output<false>();
-    _is_shrunk_by_agg = true;
+    _collect_vskiplist_results<false>();
 }
 
 bool MemTable::is_flush() {
@@ -336,8 +333,7 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
             RETURN_NOT_OK(st);
         }
     } else {
-        shrink_memtable_by_agg();
-        _collect_vskiplist_to_output<true>();
+        _collect_vskiplist_results<true>();
         vectorized::Block block = _output_mutable_block.to_block();
         RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
         _flush_size = block.allocated_bytes();

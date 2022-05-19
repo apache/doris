@@ -203,10 +203,8 @@ private:
     vectorized::MutableBlock _output_mutable_block;
 
     template <bool is_final>
-    void _collect_vskiplist_to_output();
+    void _collect_vskiplist_results();
     bool _is_first_insertion;
-
-    bool _is_shrunk_by_agg = false;
 
     void _init_agg_functions(const vectorized::Block* block);
     std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
