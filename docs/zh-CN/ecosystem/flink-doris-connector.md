@@ -427,7 +427,7 @@ outputFormat.close();
 | doris.request.read.timeout.ms    | 30000             | 向 Doris 发送请求的读取超时时间                                |
 | doris.request.query.timeout.s    | 3600              | 查询 Doris 的超时时间，默认值为1小时，-1表示无超时限制             |
 | doris.request.tablet.size        | Integer. MAX_VALUE | 一个 Partition 对应的 Doris Tablet 个数。<br />此数值设置越小，则会生成越多的 Partition。从而提升 Flink 侧的并行度，但同时会对 Doris 造成更大的压力。 |
-| doris.batch.size                 | 1024              | 一次从 BE 读取数据的最大行数。增大此数值可减少 Flink 与 Doris 之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
+| doris.batch.size                 | 1024              | 一次从 BE 读取数据的最大行数。增大此数值可减少 Flink 与 Doris 之间建立连接的次数。<br />从而减轻网络延迟所带来的额外时间开销。 |
 | doris.exec.mem.limit             | 2147483648        | 单个查询的内存限制。默认为 2GB，单位为字节                      |
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换 Arrow 格式到 flink-doris-connector 迭代所需的 RowBatch            |
 | doris.deserialize.queue.size     | 64                | 异步转换 Arrow 格式的内部处理队列，当 doris.deserialize.arrow.async 为 true 时生效        |

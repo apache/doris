@@ -123,7 +123,7 @@ Let's assume that this is a table that records the user's behavior in accessing 
 | 10 | User's visit, time to stay on the page|
 | 10 | User's current visit, time spent on the page (redundancy)|
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is is as follows:
+Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
 
 |user\_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|---|---|---|---|
@@ -178,7 +178,7 @@ The imported data are as follows:
 | 10004 | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is is as follows:
+Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
 
 |user_id|date|timestamp|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|---|---|---|---|---|
@@ -212,7 +212,7 @@ We imported a new batch of data:
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 11:22:00 | 44 | 19 | 19|
 | 10005 | 2017-10-03 | Changsha | 29 | 1 | 2017-10-03 18:11:02 | 3 | 1 | 1|
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is is as follows:
+Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
 
 |user_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|---|---|---|---|
