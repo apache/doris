@@ -114,7 +114,7 @@ public class UdfExecutorTest {
             assert (UdfUtils.UNSAFE.getInt(outputBuffer + 4 * i) == (2000 + i));
         }
     }
-    
+
     @Test
     public void testDecimalUdf() throws Exception {
         TScalarFunction scalarFunction = new TScalarFunction();
