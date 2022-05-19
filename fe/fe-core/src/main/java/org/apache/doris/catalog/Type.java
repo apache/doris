@@ -658,7 +658,7 @@ public abstract class Type {
      * For datetime types this is the length in characters of the String representation
      * (assuming the maximum allowed precision of the fractional seconds component).
      * For binary data this is the length in bytes.
-     * Null is returned for for data types where the column size is not applicable.
+     * Null is returned for data types where the column size is not applicable.
      */
     public Integer getColumnSize() {
         if (!isScalarType()) return null;

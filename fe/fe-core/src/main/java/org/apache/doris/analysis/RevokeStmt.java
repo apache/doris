@@ -100,7 +100,7 @@ public class RevokeStmt extends DdlStmt {
         } else {
             // TODO(wyb): spark-load
             if (!Config.enable_spark_load) {
-                throw new AnalysisException("REVOKE ON RESOURCE is comming soon");
+                throw new AnalysisException("REVOKE ON RESOURCE is coming soon");
             }
             resourcePattern.analyze();
         }

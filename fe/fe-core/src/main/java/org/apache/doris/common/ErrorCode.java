@@ -947,7 +947,7 @@ public enum ErrorCode {
             "past and ON COMPLETION NOT PRESERVE is set. The event was dropped immediately after creation."),
     ERR_EVENT_CANNOT_ALTER_IN_THE_PAST(1589, new byte[]{'H', 'Y', '0', '0', '0'}, "Event execution time is in the " +
             "past and ON COMPLETION NOT PRESERVE is set. The event was dropped immediately after creation."),
-    ERR_SLAVE_INCIDENT(1590, new byte[]{'H', 'Y', '0', '0', '0'}, "The incident %s occured on the master. Message: %s"),
+    ERR_SLAVE_INCIDENT(1590, new byte[]{'H', 'Y', '0', '0', '0'}, "The incident %s occurred on the master. Message: %s"),
     ERR_NO_PARTITION_FOR_GIVEN_VALUE_SILENT(1591, new byte[]{'H', 'Y', '0', '0', '0'}, "Table has no partition for " +
             "some existing values"),
     ERR_BINLOG_UNSAFE_STATEMENT(1592, new byte[]{'H', 'Y', '0', '0', '0'}, "Unsafe statement written to the binary " +

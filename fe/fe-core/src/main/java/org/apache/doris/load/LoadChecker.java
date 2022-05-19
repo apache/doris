@@ -370,7 +370,7 @@ public class LoadChecker extends MasterDaemon {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist. id: {}", tableId);
-                // if table is dropped during load, the the job is failed
+                // if table is dropped during load, the job is failed
                 return null;
             }
             TableLoadInfo tableLoadInfo = tableEntry.getValue();

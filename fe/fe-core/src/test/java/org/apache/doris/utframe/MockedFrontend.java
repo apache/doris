@@ -99,7 +99,7 @@ public class MockedFrontend {
     private boolean isInit = false;
 
     // init the fe process. This must be called before starting the frontend process.
-    // 1. check if all neccessary environment variables are set.
+    // 1. check if all necessary environment variables are set.
     // 2. clear and create 3 dirs: runningDir/log/, runningDir/palo-meta/, runningDir/conf/
     // 3. init fe.conf
     //      The content of "fe.conf" is a merge set of input `feConf` and MIN_FE_CONF

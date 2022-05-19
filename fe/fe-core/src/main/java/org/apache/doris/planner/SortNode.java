@@ -254,8 +254,8 @@ public class SortNode extends PlanNode {
 
         // Remap the ordering exprs to the tuple materialized by this sort node. The mapping
         // is a composition of the childSmap and the outputSmap_ because the child node may
-        // have also remapped its input (e.g., as in a a series of (sort->analytic)* nodes).
-        // Parent nodes have have to do the same so set the composition as the outputSmap_.
+        // have also remapped its input (e.g., as in a series of (sort->analytic)* nodes).
+        // Parent nodes have to do the same so set the composition as the outputSmap_.
         outputSmap = ExprSubstitutionMap.compose(childSmap, outputSmap, analyzer);
         info.substituteOrderingExprs(outputSmap, analyzer);
 

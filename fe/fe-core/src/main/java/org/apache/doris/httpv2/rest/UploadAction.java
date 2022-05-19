@@ -165,7 +165,7 @@ public class UploadAction extends RestBaseController {
 
     /**
      * Get all uploaded file or specified file
-     * If preview is true, also return the the preview of the file
+     * If preview is true, also return the preview of the file
      * @param ns
      * @param dbName
      * @param tblName

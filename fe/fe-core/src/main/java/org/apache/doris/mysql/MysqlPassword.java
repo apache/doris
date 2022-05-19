@@ -110,7 +110,7 @@ public class MysqlPassword {
     }
 
     // Check that scrambled message corresponds to the password; the function
-    // is used by server to check that recieved reply is authentic.
+    // is used by server to check that received reply is authentic.
     // This function does not check lengths of given strings: message must be
     // null-terminated, reply and hash_stage2 must be at least SHA1_HASH_SIZE
     // long (if not, something fishy is going on).
