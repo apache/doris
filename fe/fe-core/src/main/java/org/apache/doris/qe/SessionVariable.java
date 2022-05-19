@@ -437,7 +437,7 @@ public class SessionVariable implements Serializable, Writable {
     public double autoBroadcastJoinThreshold = 0.8;
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
-    private boolean enableProjection = false;
+    private boolean enableProjection = true;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
