@@ -402,6 +402,8 @@ public final class SparkDpp implements java.io.Serializable {
                     return false;
                 }
                 break;
+            default:
+                return true;
         }
         return true;
     }

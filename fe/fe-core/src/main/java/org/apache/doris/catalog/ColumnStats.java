@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Statistics for a single column.
@@ -138,6 +139,11 @@ public class ColumnStats implements Writable {
         return columnStats;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(avgSerializedSize, maxSize, numDistinctValues, numNulls);
+    }
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -176,9 +182,13 @@ public class ColumnStats implements Writable {
       ColumnStats stats = new ColumnStats(expr.getType().getPrimitiveType());
       stats.setNumDistinctValues(expr.getNumDistinctValues());
       SlotRef slotRef = expr.unwrapSlotRef();
-      if (slotRef == null) return stats;
+      if (slotRef == null) {
+          return stats;
+      }
       ColumnStats slotStats = slotRef.getDesc().getStats();
-      if (slotStats == null) return stats;
+      if (slotStats == null) {
+          return stats;
+      }
       stats.numNulls = slotStats.getNumNulls();
       stats.avgSerializedSize = slotStats.getAvgSerializedSize();
       stats.maxSize = slotStats.getMaxSize();

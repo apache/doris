@@ -185,6 +185,8 @@ public class AliasFunction extends Function {
                             typeDefParams.add(scalarType.getLenStr());
                         }
                         break;
+                    default:
+                        throw new AnalysisException("Alias type is invalid: " + primitiveType);
                 }
             }
         } else {

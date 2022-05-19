@@ -77,7 +77,9 @@ public class ExchangeNode extends PlanNode {
             this.conjuncts = Lists.newArrayList();
         }
         // Only apply the limit at the receiver if there are multiple senders.
-        if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
+        if (inputNode.getFragment().isPartitioned()) {
+            limit = inputNode.limit;
+        }
         computeTupleIds();
     }
 

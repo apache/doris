@@ -27,6 +27,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Objects;
+
 /**
  * Describes an ARRAY type.
  */
@@ -88,6 +90,11 @@ public class ArrayType extends Type {
     @Override
     public String toSql(int depth) {
         return String.format("ARRAY<%s>", itemType.toSql(depth + 1));
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(itemType);
     }
 
     @Override

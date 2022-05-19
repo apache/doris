@@ -79,14 +79,14 @@ public class ReflectionUtils {
      * @param title a string title for the stack trace
      */
     public static void printThreadInfo(PrintWriter stream, String title) {
-        final int STACK_DEPTH = 20;
+        final int stackDepth = 20;
         boolean contention = threadBean.isThreadContentionMonitoringEnabled();
         long[] threadIds = threadBean.getAllThreadIds();
         stream.println("Process Thread Dump: " + title);
         stream.println(threadIds.length + " active threads");
 
         for (long tid: threadIds) {
-            ThreadInfo info = threadBean.getThreadInfo(tid, STACK_DEPTH);
+            ThreadInfo info = threadBean.getThreadInfo(tid, stackDepth);
             if (info == null) {
                 stream.println("  Inactive");
                 continue;

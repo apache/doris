@@ -157,23 +157,23 @@ public class UtFrameUtils {
             file.mkdir();
         }
 
-        int fe_http_port = findValidPort();
-        int fe_rpc_port = findValidPort();
-        int fe_query_port = findValidPort();
-        int fe_edit_log_port = findValidPort();
+        int feHttpPort = findValidPort();
+        int feRpcPort = findValidPort();
+        int feQueryPort = findValidPort();
+        int feEditLogPort = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
-        feConfMap.put("http_port", String.valueOf(fe_http_port));
-        feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
-        feConfMap.put("query_port", String.valueOf(fe_query_port));
-        feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
+        feConfMap.put("http_port", String.valueOf(feHttpPort));
+        feConfMap.put("rpc_port", String.valueOf(feRpcPort));
+        feConfMap.put("query_port", String.valueOf(feQueryPort));
+        feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
-        return fe_rpc_port;
+        return feRpcPort;
     }
 
     public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,
@@ -183,9 +183,9 @@ public class UtFrameUtils {
 
     public static void createDorisCluster(String runningDir, int backendNum) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
-        int fe_rpc_port = startFEServer(runningDir);
+        int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
-            createBackend("127.0.0.1", fe_rpc_port);
+            createBackend("127.0.0.1", feRpcPort);
             // sleep to wait first heartbeat
             Thread.sleep(6000);
         }
@@ -197,27 +197,27 @@ public class UtFrameUtils {
             FeStartException, NotInitException, DdlException, InterruptedException {
         // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
         FeConstants.runningUnitTest = true;
-        int fe_rpc_port = startFEServer(runningDir);
+        int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             String host = "127.0.0." + (i + 1);
-            createBackend(host, fe_rpc_port);
+            createBackend(host, feRpcPort);
         }
         // sleep to wait first heartbeat
         Thread.sleep(6000);
     }
 
-    public static void createBackend(String beHost, int fe_rpc_port) throws IOException, InterruptedException {
-        int be_heartbeat_port = findValidPort();
-        int be_thrift_port = findValidPort();
-        int be_brpc_port = findValidPort();
-        int be_http_port = findValidPort();
+    public static void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
+        int beHeartbeatPort = findValidPort();
+        int beThriftPort = findValidPort();
+        int beBrpcPort = findValidPort();
+        int beHttpPort = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
-                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
+                beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
+                new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", fe_rpc_port));
+        backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
@@ -231,9 +231,9 @@ public class UtFrameUtils {
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
         be.setOwnerClusterName(SystemInfoService.DEFAULT_CLUSTER);
-        be.setBePort(be_thrift_port);
-        be.setHttpPort(be_http_port);
-        be.setBrpcPort(be_brpc_port);
+        be.setBePort(beThriftPort);
+        be.setHttpPort(beHttpPort);
+        be.setBrpcPort(beBrpcPort);
         Catalog.getCurrentSystemInfo().addBackend(be);
     }
 

@@ -288,10 +288,12 @@ public enum ExpressionFunctions {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o)
+            if (this == o) {
                 return true;
-            if (o == null || getClass() != o.getClass())
+            }
+            if (o == null || getClass() != o.getClass()) {
                 return false;
+            }
             FEFunctionSignature signature = (FEFunctionSignature) o;
             return Objects.equals(name, signature.name) && Arrays.equals(argTypes, signature.argTypes)
                     && Objects.equals(returnType, signature.returnType);

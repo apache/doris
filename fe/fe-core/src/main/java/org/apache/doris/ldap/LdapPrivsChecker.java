@@ -216,7 +216,9 @@ public class LdapPrivsChecker {
 
     public static Map<TablePattern, PrivBitSet> getLdapAllDbPrivs(UserIdentity userIdentity) {
         Map<TablePattern, PrivBitSet> ldapDbPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapDbPrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapDbPrivs;
+        }
         for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
                 .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.DATABASE)) {
@@ -228,7 +230,9 @@ public class LdapPrivsChecker {
 
     public static Map<TablePattern, PrivBitSet> getLdapAllTblPrivs(UserIdentity userIdentity) {
         Map<TablePattern, PrivBitSet> ldapTblPrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapTblPrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapTblPrivs;
+        }
         for (Map.Entry<TablePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
                 .getTblPatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)) {
@@ -240,7 +244,9 @@ public class LdapPrivsChecker {
 
     public static Map<ResourcePattern, PrivBitSet> getLdapAllResourcePrivs(UserIdentity userIdentity) {
         Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = Maps.newConcurrentMap();
-        if (!hasLdapPrivs(userIdentity)) return ldapResourcePrivs;
+        if (!hasLdapPrivs(userIdentity)) {
+            return ldapResourcePrivs;
+        }
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : ConnectContext.get().getLdapGroupsPrivs()
                 .getResourcePatternToPrivs().entrySet()) {
             if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.RESOURCE)) {

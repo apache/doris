@@ -361,6 +361,7 @@ public class ArithmeticExpr extends Expr {
                     if (isConstant()) {
                         castUpperInteger(t1, t2);
                     }
+                    break;
                 case MOD:
                     if (t1.isDecimalV2() || t2.isDecimalV2()) {
                         castBinaryOp(findCommonType(t1, t2));

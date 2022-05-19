@@ -428,8 +428,8 @@ public class DateLiteral extends LiteralExpr {
     private long makePackedDatetime() {
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;
-        long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
-        return packed_datetime;
+        long packedDatetime = ((ymd << 17) | hms) << 24 + microsecond;
+        return packedDatetime;
     }
 
     @Override
@@ -446,9 +446,9 @@ public class DateLiteral extends LiteralExpr {
         out.writeLong(makePackedDatetime());
     }
 
-    private void fromPackedDatetime(long packed_time) {
-        microsecond = (packed_time % (1L << 24));
-        long ymdhms = (packed_time >> 24);
+    private void fromPackedDatetime(long packedTime) {
+        microsecond = (packedTime % (1L << 24));
+        long ymdhms = (packedTime >> 24);
         long ymd = ymdhms >> 17;
         long hms = ymdhms % (1 << 17);
 
@@ -467,11 +467,11 @@ public class DateLiteral extends LiteralExpr {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        short date_literal_type = in.readShort();
+        short dateLiteralType = in.readShort();
         fromPackedDatetime(in.readLong());
-        if (date_literal_type == DateLiteralType.DATETIME.value()) {
+        if (dateLiteralType == DateLiteralType.DATETIME.value()) {
             this.type = Type.DATETIME;
-        } else if (date_literal_type == DateLiteralType.DATE.value()) {
+        } else if (dateLiteralType == DateLiteralType.DATE.value()) {
             this.type = Type.DATE;
         } else {
             throw new IOException("Error date literal type : " + type);
@@ -815,8 +815,7 @@ public class DateLiteral extends LiteralExpr {
                     case 'I':
                     case 'l':
                         usaTime = true;
-                        // Fall through
-                    case 'k':
+                    case 'k': // CHECKSTYLE IGNORE THIS LINE: Fall through
                     case 'H':
                         tmp = findNumber(value, vp, 2);
                         intValue = strToLong(value.substring(vp, tmp));
@@ -1024,12 +1023,12 @@ public class DateLiteral extends LiteralExpr {
             }
             long days = calcDaynr(strictWeekNumber ? strictWeekNumberYear : this.year, 1, 1);
 
-            long weekday_b = calcWeekday(days, sundayFirst);
+            long weekdayB = calcWeekday(days, sundayFirst);
 
             if (sundayFirst) {
-                days += ((weekday_b == 0) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday % 7;
+                days += ((weekdayB == 0) ? 0 : 7) - weekdayB + (weekNum - 1) * 7 + weekday % 7;
             } else {
-                days += ((weekday_b <= 3) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday - 1;
+                days += ((weekdayB <= 3) ? 0 : 7) - weekdayB + (weekNum - 1) * 7 + weekday - 1;
             }
             getDateFromDaynr(days);
         }
@@ -1194,12 +1193,12 @@ public class DateLiteral extends LiteralExpr {
         int fieldLen = yearLen;
         while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && fieldIdx < MAX_DATE_PARTS - 1) {
             int start = pre;
-            int temp_val = 0;
+            int tempVal = 0;
             boolean scanToDelim = (!isIntervalFormat) && (fieldIdx != 6);
             while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && (scanToDelim || fieldLen-- != 0)) {
-                temp_val = temp_val * 10 + (dateStr.charAt(pre++) - '0');
+                tempVal = tempVal * 10 + (dateStr.charAt(pre++) - '0');
             }
-            dateVal[fieldIdx] = temp_val;
+            dateVal[fieldIdx] = tempVal;
             dateLen[fieldIdx] = pre - start;
             fieldLen = 2;
 

@@ -188,7 +188,7 @@ public abstract class SyncJob implements Writable {
     }
 
     private void checkStateTransform(JobState newState) throws UserException {
-        switch (jobState) {
+        switch (jobState) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case PENDING:
                 break;
             case RUNNING:

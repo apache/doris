@@ -20,7 +20,7 @@ package org.apache.doris.common;
 import org.junit.Assert;
 import org.junit.Test;
 
-public class CIDRTest {
+public class CidrTest {
     @Test
     public void testWrongFormat() {
         // no mask

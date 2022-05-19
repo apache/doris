@@ -152,7 +152,7 @@ public class CacheAnalyzer {
             return Long.compare(table.latestTime, this.latestTime);
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(), latestPartitionId, latestVersion, latestTime);
         }
     }
@@ -213,7 +213,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
-        latestTable.Debug();
+        latestTable.debug();
 
         addAllViewStmt(selectStmt);
         String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");

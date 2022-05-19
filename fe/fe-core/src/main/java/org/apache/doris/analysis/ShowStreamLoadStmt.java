@@ -51,9 +51,9 @@ public class ShowStreamLoadStmt extends ShowStmt {
     }
 
     private String dbName;
-    private Expr whereClause;
-    private LimitElement limitElement;
-    private List<OrderByElement> orderByElements;
+    private final Expr whereClause;
+    private final LimitElement limitElement;
+    private final List<OrderByElement> orderByElements;
 
     private String labelValue;
     private String stateValue;
@@ -61,7 +61,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
 
     private ArrayList<OrderByPair> orderByPairs;
 
-    private ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Label").add("Db").add("Table").add("User")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")

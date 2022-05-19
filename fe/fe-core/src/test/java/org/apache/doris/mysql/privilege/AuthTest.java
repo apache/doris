@@ -85,6 +85,8 @@ public class AuthTest {
                     resolvedIPs.add("20.1.1.2");
                     resolvedIPs.add("20.1.1.3");
                     break;
+                default:
+                    break;
             }
             return true;
         }

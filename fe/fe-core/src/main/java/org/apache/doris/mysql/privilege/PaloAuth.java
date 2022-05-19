@@ -985,7 +985,7 @@ public class PaloAuth implements Writable {
                             boolean errOnNonExist) throws DdlException {
         writeLock();
         try {
-            switch (resourcePattern.getPrivLevel()) {
+            switch (resourcePattern.getPrivLevel()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                 case GLOBAL:
                     revokeGlobalPrivs(userIdent, privs, errOnNonExist);
                     break;

@@ -60,12 +60,16 @@ public class InPredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+            if (t.isNull()) {
+                continue;
+            }
             // TODO we do not support codegen for CHAR and the In predicate must be codegened
             // because it has variable number of arguments. This will force CHARs to be
             // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
             // semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
+            if (t.getPrimitiveType() == PrimitiveType.CHAR) {
+                continue;
+            }
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 

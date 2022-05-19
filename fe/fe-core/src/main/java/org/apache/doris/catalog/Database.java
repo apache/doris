@@ -49,6 +49,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -679,6 +680,11 @@ public class Database extends MetaObject implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, fullQualifiedName, dataQuotaBytes);
     }
 
     @Override

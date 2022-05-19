@@ -118,15 +118,15 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         while (isQueueFull()) {
             StreamLoadItem record = streamLoadRecordHeap.poll();
             if (record != null) {
-                String de_label = record.getLabel();
-                long de_dbId = record.getDbId();
+                String deLabel = record.getLabel();
+                long deDbId = record.getDbId();
 
-                Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(de_dbId);
-                Iterator<Map.Entry<String, StreamLoadRecord>> iter_record = labelToStreamLoadRecord.entrySet().iterator();
-                while (iter_record.hasNext()) {
-                    String labelInMap = iter_record.next().getKey();
-                    if (labelInMap.equals(de_label)) {
-                        iter_record.remove();
+                Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(deDbId);
+                Iterator<Map.Entry<String, StreamLoadRecord>> iterRecord = labelToStreamLoadRecord.entrySet().iterator();
+                while (iterRecord.hasNext()) {
+                    String labelInMap = iterRecord.next().getKey();
+                    if (labelInMap.equals(deLabel)) {
+                        iterRecord.remove();
                         break;
                     }
                 }

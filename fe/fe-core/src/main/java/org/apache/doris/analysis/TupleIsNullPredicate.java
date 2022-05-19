@@ -31,6 +31,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Internal expr that returns true if all of the given tuples are NULL, otherwise false.
@@ -64,7 +65,9 @@ public class TupleIsNullPredicate extends Predicate {
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
         for (TupleId tid : tids) {
-            if (tupleIds.contains(tid)) return true;
+            if (tupleIds.contains(tid)) {
+                return true;
+            }
         }
         return false;
     }
@@ -87,6 +90,10 @@ public class TupleIsNullPredicate extends Predicate {
         return tupleIds;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
+    }
 
     @Override
     public boolean equals(Object o) {

@@ -50,7 +50,7 @@ public class GroupByClause implements ParseNode {
     // max num of distinct sets in grouping sets clause
     private final static int MAX_GROUPING_SETS_NUM = 64;
     // max num of distinct expressions
-    private boolean analyzed_ = false;
+    private boolean analyzed = false;
     private boolean exprGenerated = false;
     private GroupingType groupingType;
     private ArrayList<Expr> groupingExprs;
@@ -96,7 +96,7 @@ public class GroupByClause implements ParseNode {
 
     public void reset() {
         groupingExprs = new ArrayList<>();
-        analyzed_ = false;
+        analyzed = false;
         exprGenerated = false;
         if (oriGroupingExprs != null) {
             Expr.resetList(oriGroupingExprs);
@@ -169,7 +169,7 @@ public class GroupByClause implements ParseNode {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (analyzed_) {
+        if (analyzed) {
             return;
         }
         genGroupingExprs();
@@ -206,7 +206,7 @@ public class GroupByClause implements ParseNode {
             throw new AnalysisException("Too many sets in GROUP BY clause, the max grouping sets item is "
                     + MAX_GROUPING_SETS_NUM);
         }
-        analyzed_ = true;
+        analyzed = true;
     }
 
     // check if group by clause is contain grouping set/rollup/cube

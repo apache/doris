@@ -181,8 +181,12 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             ListPartitionUniqueId that = (ListPartitionUniqueId) o;
             return partitionId == that.partitionId && partitionKeyIndex == that.partitionKeyIndex;
         }

@@ -109,7 +109,9 @@ public class LimitElement {
     }
 
     public void analyze(Analyzer analyzer) {
-        if (limit == 0) analyzer.setHasEmptyResultSet();
+        if (limit == 0) {
+            analyzer.setHasEmptyResultSet();
+        }
     }
 
     public void reset() {
