@@ -273,6 +273,8 @@ public class CanalSyncJob extends SyncJob {
                 case CANCELLED:
                     updateState(JobState.CANCELLED, true);
                     break;
+                default:
+                    throw new UserException("job state is invalid: " + jobState);
             }
         } catch (UserException e) {
             LOG.error(new LogBuilder(LogKey.SYNC_JOB, id)

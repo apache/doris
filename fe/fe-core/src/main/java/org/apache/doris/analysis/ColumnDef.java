@@ -280,6 +280,7 @@ public class ColumnDef {
                 if (floatLiteral.getType().equals(Type.DOUBLE)) {
                     throw new AnalysisException("Default value will loose precision: " + defaultValue);
                 }
+                break;
             case DOUBLE:
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;

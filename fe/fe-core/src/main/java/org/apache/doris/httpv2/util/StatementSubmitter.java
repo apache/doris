@@ -124,7 +124,9 @@ public class StatementSubmitter {
                     LOG.warn("failed to close stmt", se2);
                 }
                 try {
-                    if (conn != null) conn.close();
+                    if (conn != null) {
+                        conn.close();
+                    }
                 } catch (SQLException se) {
                     LOG.warn("failed to close connection", se);
                 }

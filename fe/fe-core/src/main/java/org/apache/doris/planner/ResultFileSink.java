@@ -41,7 +41,7 @@ public class ResultFileSink extends DataSink {
     private DataPartition outputPartition;
     private TupleId outputTupleId;
     private String header = "";
-    private String header_type = "";
+    private String headerType = "";
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause) {
         this.exchNodeId = exchNodeId;
@@ -69,7 +69,7 @@ public class ResultFileSink extends DataSink {
                 outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
             header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
         }
-        header_type = outFileClause.getHeaderType();
+        headerType = outFileClause.getHeaderType();
     }
 
     public String getBrokerName() {
@@ -118,7 +118,7 @@ public class ResultFileSink extends DataSink {
         tResultFileSink.setFileOptions(fileSinkOptions);
         tResultFileSink.setStorageBackendType(storageType.toThrift());
         tResultFileSink.setDestNodeId(exchNodeId.asInt());
-        tResultFileSink.setHeaderType(header_type);
+        tResultFileSink.setHeaderType(headerType);
         tResultFileSink.setHeader(header);
         if (outputTupleId != null) {
             tResultFileSink.setOutputTupleId(outputTupleId.asInt());

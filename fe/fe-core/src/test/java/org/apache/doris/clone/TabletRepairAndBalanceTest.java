@@ -151,7 +151,7 @@ public class TabletRepairAndBalanceTest {
     }
 
     @AfterClass
-    public static void TearDown() {
+    public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 

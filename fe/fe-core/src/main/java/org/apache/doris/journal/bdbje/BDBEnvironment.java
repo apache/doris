@@ -19,8 +19,8 @@ package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.BDBStateChangeListener;
+import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.HAProtocol;
 
 import com.sleepycat.je.Database;

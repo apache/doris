@@ -2440,6 +2440,7 @@ public class Catalog {
                             LOG.error(msg);
                             Util.stdoutWithTime(msg);
                             System.exit(-1);
+                            break;
                         }
                         default:
                             break;
@@ -5262,7 +5263,7 @@ public class Catalog {
     public EsRepository getEsRepository() {
         return this.esRepository;
     }
-    
+
     public PolicyMgr getPolicyMgr() {
         return this.policyMgr;
     }

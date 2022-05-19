@@ -42,7 +42,9 @@ public final class BetweenToCompoundRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        if (!(expr instanceof BetweenPredicate)) return expr;
+        if (!(expr instanceof BetweenPredicate)) {
+            return expr;
+        }
         BetweenPredicate bp = (BetweenPredicate) expr;
         Expr result = null;
         if (bp.isNotBetween()) {

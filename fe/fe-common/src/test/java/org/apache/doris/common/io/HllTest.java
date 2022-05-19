@@ -38,7 +38,7 @@ public class HllTest {
     }
 
     @Test
-    public void HllBasicTest() throws IOException {
+    public void hllBasicTest() throws IOException {
         // test empty
         Hll emptyHll = new Hll();
 

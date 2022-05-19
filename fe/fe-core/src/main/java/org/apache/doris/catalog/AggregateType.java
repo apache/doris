@@ -87,13 +87,13 @@ public enum AggregateType {
 
         primitiveTypeList.clear();
         // all types except object stored column type, such as bitmap hll quantile_state.
-        EnumSet<PrimitiveType> exc_object_stored = EnumSet.allOf(PrimitiveType.class);
-        exc_object_stored.remove(PrimitiveType.BITMAP);
-        exc_object_stored.remove(PrimitiveType.HLL);
-        exc_object_stored.remove(PrimitiveType.QUANTILE_STATE);
-        compatibilityMap.put(REPLACE, EnumSet.copyOf(exc_object_stored));
+        EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
+        excObjectStored.remove(PrimitiveType.BITMAP);
+        excObjectStored.remove(PrimitiveType.HLL);
+        excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
+        compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
 
-        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(exc_object_stored));
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.copyOf(excObjectStored));
 
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
@@ -107,7 +107,7 @@ public enum AggregateType {
         primitiveTypeList.add(PrimitiveType.QUANTILE_STATE);
         compatibilityMap.put(QUANTILE_UNION, EnumSet.copyOf(primitiveTypeList));
 
-        compatibilityMap.put(NONE, EnumSet.copyOf(exc_object_stored));
+        compatibilityMap.put(NONE, EnumSet.copyOf(excObjectStored));
     }
     private final String sqlName;
 

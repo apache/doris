@@ -26,7 +26,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 // SHOW PROC "/bdbje/dbname/journalID"
-public class BDBJEJournalDataProcNode implements ProcNodeInterface  {
+public class BdbjeJournalDataProcNode implements ProcNodeInterface  {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JournalId").add("OpType").add("Data").build();
@@ -34,7 +34,7 @@ public class BDBJEJournalDataProcNode implements ProcNodeInterface  {
     private String dbName;
     private Long journalId;
 
-    public BDBJEJournalDataProcNode(String dbName, Long journalId) {
+    public BdbjeJournalDataProcNode(String dbName, Long journalId) {
         this.dbName = dbName;
         this.journalId = journalId;
     }

@@ -164,10 +164,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * different fragment.
      */
     public void setFragmentInPlanTree(PlanNode node) {
-        if (node == null) return;
+        if (node == null) {
+            return;
+        }
         node.setFragment(this);
-        if (node instanceof ExchangeNode) return;
-        for (PlanNode child : node.getChildren()) setFragmentInPlanTree(child);
+        if (node instanceof ExchangeNode) {
+            return;
+        }
+        for (PlanNode child : node.getChildren()) {
+            setFragmentInPlanTree(child);
+        }
     }
 
     /**
@@ -320,7 +326,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragmentId getId() { return fragmentId; }
 
     public PlanFragment getDestFragment() {
-        if (destNode == null) return null;
+        if (destNode == null) {
+            return null;
+        }
         return destNode.getFragment();
     }
 

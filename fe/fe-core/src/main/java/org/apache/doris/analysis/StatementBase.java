@@ -72,7 +72,9 @@ public abstract class StatementBase implements ParseNode {
      * tables/views get collected in the Analyzer before failing analyze().
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         this.analyzer = analyzer;
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -129,7 +131,9 @@ public abstract class StatementBase implements ParseNode {
      */
     public void setColLabels(List<String> colLabels) {
         List<String> oldLabels = getColLabels();
-        if (oldLabels == colLabels) return;
+        if (oldLabels == colLabels) {
+            return;
+        }
         oldLabels.clear();
         oldLabels.addAll(colLabels);
     }

@@ -99,7 +99,9 @@ public class CanalDestination implements Writable {
 
     @Override
     public boolean equals(Object other) {
-        if (other == this) return true;
+        if (other == this) {
+            return true;
+        }
         if (!(other instanceof CanalDestination)) {
             return false;
         }

@@ -85,8 +85,12 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         DppColumns dppColumns = (DppColumns) o;
         return Objects.equals(columns, dppColumns.columns);
     }

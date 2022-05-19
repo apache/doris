@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class FunctionSet<min_initIN9doris_udf12DecimalV2ValEEEvPNS2_15FunctionContextEPT_> {
+public class FunctionSet<T> {
     private static final Logger LOG = LogManager.getLogger(FunctionSet.class);
 
     // All of the registered user functions. The key is the user facing name (e.g. "myUdf"),
