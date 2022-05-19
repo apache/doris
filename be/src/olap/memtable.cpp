@@ -245,7 +245,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
 vectorized::Block MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
-    // TODO: should try to insert data by column, not by row. to opt the the code
+    // TODO: should try to insert data by column, not by row. to opt the code
     if (_keys_type == KeysType::DUP_KEYS) {
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
