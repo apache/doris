@@ -1,5 +1,3 @@
-import org.codehaus.groovy.runtime.IOGroovyMethods
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +14,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_compaction_uniq_keys") {
     def tableName = "compaction_uniq_keys_regression_test"
