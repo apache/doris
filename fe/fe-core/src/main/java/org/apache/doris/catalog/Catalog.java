@@ -4182,6 +4182,7 @@ public class Catalog {
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
         List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
         if (getDdlForLike) {
             columns = table.getBaseSchema(false);
         } else {
