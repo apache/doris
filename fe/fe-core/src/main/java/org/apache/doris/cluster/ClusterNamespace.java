@@ -22,11 +22,11 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import com.google.common.base.Strings;
 
 /**
- * used to isolate the use for the database name and user name in the catalog, 
- * all using the database name and user name place need to call the appropriate 
- * method to makeup full name or get real name, full name is made up generally 
+ * used to isolate the use for the database name and user name in the catalog,
+ * all using the database name and user name place need to call the appropriate
+ * method to makeup full name or get real name, full name is made up generally
  * in stmt's analyze.
- * 
+ *
  */
 
 public class ClusterNamespace {

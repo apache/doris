@@ -5,8 +5,7 @@
 // These are weird things we need to do to get this compiling on
 // random systems (and on SWIG).
 
-#ifndef BASE_PORT_H_
-#define BASE_PORT_H_
+#pragma once
 
 #include <limits.h> // So we can set the bounds of our types
 #include <stdlib.h> // for free()
@@ -1198,5 +1197,3 @@ enum { kPlatformUsesOPDSections = 1 };
 enum { kPlatformUsesOPDSections = 0 };
 #define FUNC_PTR_TO_CHAR_PTR(func) (reinterpret_cast<char*>(func))
 #endif
-
-#endif // BASE_PORT_H_

@@ -217,7 +217,7 @@ Status ColumnDataWriter::_flush_row_block(bool finalize) {
 
     // 在SegmentGroup中记录的不是数据文件的偏移,而是block的编号
     if (!_segment_group->add_row_block(*_row_block, _block_id++)) {
-        OLAP_LOG_WARNING("fail to update index.");
+        LOG(WARNING) << "fail to update index.";
         return Status::OLAPInternalError(OLAP_ERR_WRITER_INDEX_WRITE_ERROR);
     }
 
@@ -233,7 +233,7 @@ Status ColumnDataWriter::_add_segment() {
     std::string file_name;
 
     if (nullptr != _segment_writer) {
-        OLAP_LOG_WARNING("previous segment is not finalized before add new segment.");
+        LOG(WARNING) << "previous segment is not finalized before add new segment.";
         return Status::OLAPInternalError(OLAP_ERR_WRITER_SEGMENT_NOT_FINALIZED);
     }
 
@@ -243,7 +243,7 @@ Status ColumnDataWriter::_add_segment() {
                           _compress_kind, _bloom_filter_fpp);
 
     if (nullptr == _segment_writer) {
-        OLAP_LOG_WARNING("fail to allocate SegmentWriter");
+        LOG(WARNING) << "fail to allocate SegmentWriter";
         return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
@@ -255,7 +255,7 @@ Status ColumnDataWriter::_add_segment() {
     }
 
     if (!res.ok()) {
-        OLAP_LOG_WARNING("fail to init segment writer");
+        LOG(WARNING) << "fail to init segment writer";
         return res;
     }
 
@@ -285,12 +285,12 @@ Status ColumnDataWriter::_finalize_segment() {
     uint32_t data_segment_size;
     Status res = _segment_writer->finalize(&data_segment_size);
     if (res != Status::OK()) {
-        OLAP_LOG_WARNING("fail to finish segment from olap_data.");
+        LOG(WARNING) << "fail to finish segment from olap_data.";
         return res;
     }
     res = _segment_group->finalize_segment(data_segment_size, _num_rows);
     if (res != Status::OK()) {
-        OLAP_LOG_WARNING("fail to finish segment from olap_index.");
+        LOG(WARNING) << "fail to finish segment from olap_index.";
         return res;
     }
 

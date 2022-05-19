@@ -25,12 +25,10 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.junit.Assert;
-import org.junit.Test;
-
 import mockit.Expectations;
 import mockit.Injectable;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class SchemaChangeHandlerTest {
 

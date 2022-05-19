@@ -62,7 +62,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1051,8 +1050,9 @@ public class MaterializedViewHandler extends AlterHandler {
             if (cancelAlterTableStmt.getAlterJobIdList() != null) {
                 for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
                     AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
-                    if (alterJobV2 == null)
+                    if (alterJobV2 == null) {
                         continue;
+                    }
                     rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
                 }
             } else {

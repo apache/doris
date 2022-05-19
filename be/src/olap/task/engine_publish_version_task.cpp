@@ -98,7 +98,7 @@ Status EnginePublishVersionTask::finish() {
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
             if (publish_status != Status::OK() &&
-                publish_status != Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+                publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id="
                              << rowset->rowset_id() << ", tablet_id=" << tablet_info.tablet_id
                              << ", txn_id=" << transaction_id << ", res=" << publish_status;
@@ -118,8 +118,8 @@ Status EnginePublishVersionTask::finish() {
             if (!_publish_version_req.strict_mode) {
                 break;
             }
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                    tablet_info.tablet_id, tablet_info.schema_hash);
+            TabletSharedPtr tablet =
+                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id);
             if (tablet == nullptr) {
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
             } else {

@@ -21,9 +21,9 @@
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
+#include "vec/exec/vset_operation_node.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/exec/vset_operation_node.h"
 namespace doris {
 namespace vectorized {
 

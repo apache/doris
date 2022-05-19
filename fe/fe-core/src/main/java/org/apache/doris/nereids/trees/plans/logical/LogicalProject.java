@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -30,7 +31,9 @@ import java.util.List;
 /**
  * Logical project plan node.
  */
-public class LogicalProject extends LogicalUnary {
+public class LogicalProject<CHILD_TYPE extends Plan>
+        extends LogicalUnary<LogicalProject<CHILD_TYPE>, CHILD_TYPE> {
+
     private final List<? extends NamedExpression> projects;
 
     /**
@@ -39,7 +42,7 @@ public class LogicalProject extends LogicalUnary {
      * @param projects project list
      * @param child child plan node
      */
-    public LogicalProject(List<? extends NamedExpression> projects, LogicalPlan child) {
+    public LogicalProject(List<? extends NamedExpression> projects, CHILD_TYPE child) {
         super(NodeType.LOGICAL_PROJECT, child);
         this.projects = projects;
         updateOutput();
@@ -63,7 +66,7 @@ public class LogicalProject extends LogicalUnary {
         output = Lists.newArrayListWithCapacity(projects.size());
         for (NamedExpression projection : projects) {
             try {
-                output.add(projection.toAttribute());
+                output.add(projection.toSlot());
             } catch (UnboundException e) {
                 output.clear();
                 break;

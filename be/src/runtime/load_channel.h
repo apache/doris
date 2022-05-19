@@ -81,7 +81,8 @@ protected:
         bool finished = false;
         auto index_id = request.index_id();
         RETURN_IF_ERROR(channel->close(request.sender_id(), request.backend_id(), &finished,
-                                       request.partition_ids(), response->mutable_tablet_vec()));
+                                       request.partition_ids(), response->mutable_tablet_vec(),
+                                       response->mutable_tablet_errors()));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -127,7 +128,7 @@ private:
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannel::add_batch(const TabletWriterAddRequest& request,
                               TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;

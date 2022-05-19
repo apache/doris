@@ -43,11 +43,18 @@ public enum NodeType {
     UNBOUND_STAR,
     LITERAL,
     SLOT_REFERENCE,
-    BINARY_PREDICATE,
+    COMPARISON_PREDICATE,
+    EQUAL_TO,
+    LESS_THAN,
+    GREATER_THAN,
+    LESS_THAN_EQUAL,
+    GREATER_THAN_EQUAL,
+    NULL_SAFE_EQUAL,
+    NOT,
     ALIAS,
 
     // pattern
     PATTERN,
-    PATTERN_LEAF,
-    PATTERN_MULTI_LEAF,
+    ANY,
+    MULTI,
 }

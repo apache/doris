@@ -33,13 +33,9 @@ The formatting of the Java part of the code in Doris is usually done automatical
 ```
 org.apache.doris
 <blank line>
-com
+third party package
 <blank line>
-org
-<blank line>
-java
-<blank line>
-javax
+standard java package
 <blank line>
 ```
 
@@ -58,6 +54,6 @@ Click the plus sign under Configuration File, select `Use a local Checkstyle fil
 
 The automatic formatting function of `IDEA` is also recommended.
 
-Go to `Preferences->Editor->Code Style->Java` click the config sign and select `Import Scheme`，select `CheckStyle Configuration`，and select the `fe/check/checkstyle/checkstyle.xml` file.
+Go to `Preferences->Editor->Code Style->Java` click the config sign and select `Import Scheme`，select `IntelliJ IDEA code style XML`，and select the `build-support/IntelliJ-code-format.xml` file.
 
 If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture.

@@ -128,7 +128,7 @@ DECOMMISSION 语句如下：
      > 		```CANCEL DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
      > 	命令取消。取消后，该 BE 上的数据将维持当前剩余的数据量。后续 Doris 重新进行负载均衡
 
-**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../multi-tenant.html)。**
+**对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../multi-tenant.md)。**
 
 ## Broker 扩容缩容
 

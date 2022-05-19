@@ -32,9 +32,9 @@ CREATE EXTERNAL TABLE
 
 ### Description
 
-This statement is used to create an external table, see [CREATE TABLE](./CREATE-TABLE.html) for the specific syntax.
+This statement is used to create an external table, see [CREATE TABLE](./CREATE-TABLE.md) for the specific syntax.
 
-Which type of external table is mainly identified by the ENGINE type, currently MYSQL, BROKER, HIVE, ICEBERG are optional
+Which type of external table is mainly identified by the ENGINE type, currently MYSQL, BROKER, HIVE, ICEBERG, HUDI are optional
 
 1. If it is mysql, you need to provide the following information in properties:
 
@@ -48,6 +48,7 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    "table" = "table_name"
    )
    ````
+   and there is an optional propertiy "charset" which can set character fom mysql connection, default value is "utf8". You can set another value "utf8mb4" instead of "utf8" when you need.
 
    Notice:
 
@@ -110,6 +111,20 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    hive.metastore.uris is the hive metastore service address;
    catalog.type defaults to HIVE_CATALOG. Currently only HIVE_CATALOG is supported, more Iceberg catalog types will be supported in the future.
 
+5. In case of hudi, you need to provide the following information in properties:
+
+   ```sql
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   )
+   ````
+
+   Where hudi.database is the corresponding database name in HiveMetaStore;
+   hudi.table is the corresponding table name in HiveMetaStore;
+   hive.metastore.uris is the hive metastore service address;
+
 ### Example
 
 1. Create a MYSQL external table
@@ -133,7 +148,8 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    "user" = "mysql_user",
    "password" = "mysql_passwd",
    "database" = "mysql_db_test",
-   "table" = "mysql_table_test"
+   "table" = "mysql_table_test",
+   "charset" = "utf8mb4"
    )
    ````
 
@@ -223,6 +239,32 @@ Which type of external table is mainly identified by the ENGINE type, currently 
    );
    ````
 
+5. Create an Hudi external table
+
+   create hudi table without schema(recommend)
+   ```sql
+   CREATE TABLE example_db.t_hudi
+   ENGINE=HUDI
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   );
+   ````
+
+   create hudi table with schema
+   ```sql
+   CREATE TABLE example_db.t_hudi (
+      `id` int NOT NULL COMMENT "id number",
+      `name` varchar(10) NOT NULL COMMENT "user name"
+   )
+   ENGINE=HUDI
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   );
+   ````
 
 ### Keywords
 

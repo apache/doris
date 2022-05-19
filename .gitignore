@@ -20,6 +20,7 @@ derby.log
 dependency-reduced-pom.xml
 package-lock.json
 yarn.lock
+ut_dir
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -65,6 +66,7 @@ samples/doris-demo/remote-udf-cpp-demo/function_server_demo
 
 # FE
 fe/mocked/
+fe/fe-core/gen/
 fe/fe-core/src/main/resources/static/
 
 # BE

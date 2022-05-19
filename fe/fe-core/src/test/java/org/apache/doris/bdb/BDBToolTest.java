@@ -32,7 +32,6 @@ import com.sleepycat.je.DatabaseException;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.OperationStatus;
-
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -134,7 +133,7 @@ public class BDBToolTest {
         BDBTool tool = new BDBTool(path, options);
         Assert.assertTrue(tool.run());
     }
-    
+
     @Test
     public void testDbStat() {
         // wrong db name

@@ -21,7 +21,6 @@
 #pragma once
 
 #include "exprs/hybrid_set.h"
-
 #include "vec/columns/column_dummy.h"
 
 namespace doris::vectorized {

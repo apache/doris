@@ -32,7 +32,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
@@ -50,6 +49,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+/**
+ * This class is deprecated.
+ * If you want to start a FE server in unit test, please let your
+ * test class extend {@link TestWithFeService}.
+ */
+@Deprecated
 public class DorisAssert {
 
     private ConnectContext ctx;
@@ -60,12 +65,6 @@ public class DorisAssert {
 
     public DorisAssert(ConnectContext ctx) {
         this.ctx = ctx;
-    }
-
-    public DorisAssert withEnableMV() {
-        ctx.getSessionVariable().setTestMaterializedView(true);
-        Config.enable_materialized_view = true;
-        return this;
     }
 
     public DorisAssert withDatabase(String dbName) throws Exception {

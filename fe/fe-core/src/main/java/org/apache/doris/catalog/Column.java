@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TColumnType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,6 +43,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * This class represents the column-related metadata.
@@ -343,7 +343,7 @@ public class Column implements Writable {
         tColumn.setDefaultValue(this.defaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
-        
+
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -528,6 +528,13 @@ public class Column implements Writable {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(name, getDataType(), aggregationType, isAggregationTypeImplicit,
+                isKey, isAllowNull, getDefaultValue(), getStrLen(), getPrecision(), getScale(),
+                comment, visible, children);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
@@ -645,10 +652,13 @@ public class Column implements Writable {
                 break;
             case ARRAY:
                 sb.append(type.toString());
+                break;
             case MAP:
                 sb.append(type.toString());
+                break;
             case STRUCT:
                 sb.append(type.toString());
+                break;
             default:
                 sb.append(typeStringMap.get(dataType));
                 break;

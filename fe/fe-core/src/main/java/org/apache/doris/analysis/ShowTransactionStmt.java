@@ -27,10 +27,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.TransProcDir;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
-
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

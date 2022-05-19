@@ -17,11 +17,10 @@
 
 package org.apache.doris.common.util;
 
-import java.util.Objects;
-
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang.StringUtils;
 
-import com.google.gson.annotations.SerializedName;
+import java.util.Objects;
 
 /**
  * Parse software's version, like XX.YY.ZZ, where xx is major version, yy is minor version and ZZ is revision

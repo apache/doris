@@ -85,7 +85,7 @@ public class ShowRollupStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
     }
-    
+
     @Override
     public RedirectStatus getRedirectStatus() {
         return RedirectStatus.FORWARD_NO_SYNC;

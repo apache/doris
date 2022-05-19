@@ -20,28 +20,28 @@
 
 namespace doris {
 
-#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                    \
-    do {                                                             \
-        if (r_len > str.size()) {                                    \
-            memcpy(cur, str.c_str(), str.size());                    \
-            r_len -= str.size();                                     \
-            cur += str.size();                                       \
-        } else {                                                     \
-            OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(nullptr, 0);                             \
-        }                                                            \
+#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
+    do {                                                           \
+        if (r_len > str.size()) {                                  \
+            memcpy(cur, str.c_str(), str.size());                  \
+            r_len -= str.size();                                   \
+            cur += str.size();                                     \
+        } else {                                                   \
+            LOG(WARNING) << "construct cache key buf not enough."; \
+            return CacheKey(nullptr, 0);                           \
+        }                                                          \
     } while (0)
 
-#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)               \
-    do {                                                             \
-        if (r_len > sizeof(numeric)) {                               \
-            memcpy(cur, &numeric, sizeof(numeric));                  \
-            r_len -= sizeof(numeric);                                \
-            cur += sizeof(numeric);                                  \
-        } else {                                                     \
-            OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(nullptr, 0);                             \
-        }                                                            \
+#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)             \
+    do {                                                           \
+        if (r_len > sizeof(numeric)) {                             \
+            memcpy(cur, &numeric, sizeof(numeric));                \
+            r_len -= sizeof(numeric);                              \
+            cur += sizeof(numeric);                                \
+        } else {                                                   \
+            LOG(WARNING) << "construct cache key buf not enough."; \
+            return CacheKey(nullptr, 0);                           \
+        }                                                          \
     } while (0)
 
 class Cache;

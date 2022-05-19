@@ -33,7 +33,6 @@
 #include "exec/cross_join_node.h"
 #include "exec/empty_set_node.h"
 #include "exec/es_http_scan_node.h"
-#include "exec/es_scan_node.h"
 #include "exec/except_node.h"
 #include "exec/exchange_node.h"
 #include "exec/hash_join_node.h"
@@ -67,6 +66,7 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
+#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vcross_join_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/ves_http_scan_node.h"
@@ -82,7 +82,6 @@
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vunion_node.h"
-#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -428,10 +427,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new OdbcScanNode(pool, tnode, descs));
         return Status::OK();
 
-    case TPlanNodeType::ES_SCAN_NODE:
-        *node = pool->add(new EsScanNode(pool, tnode, descs));
-        return Status::OK();
-
     case TPlanNodeType::ES_HTTP_SCAN_NODE:
         if (state->enable_vectorized_exec()) {
             *node = pool->add(new vectorized::VEsHttpScanNode(pool, tnode, descs));
@@ -662,7 +657,6 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::ES_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
 }
 

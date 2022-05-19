@@ -110,10 +110,10 @@ public class TableNameStoredLowercaseTest {
 
     @Test
     public void testCreateSameTableFailed() {
-        String TABle2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
+        String table2 = "create table db1.TABle2(k1 int, k2 varchar(32), k3 varchar(32)) "
                 + "AGGREGATE KEY(k1, k2, k3) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         try {
-            dorisAssert.withTable(TABle2);
+            dorisAssert.withTable(table2);
             Assert.fail("The table name is case insensitive, " +
                     "but the tables 'TABLE2' and 'table2' were successfully created");
         } catch (Exception e) {

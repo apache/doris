@@ -18,8 +18,7 @@
 // https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/exec/merge-node.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_MERGE_NODE_H
+#pragma once
 
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
@@ -92,5 +91,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

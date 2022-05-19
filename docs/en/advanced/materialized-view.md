@@ -148,11 +148,13 @@ You can see that the current `mv_test` table has three materialized views: mv\_1
 
 If the user no longer needs the materialized view, you can delete the materialized view by 'DROP' commen.
 
-The specific syntax can be viewed through the following command:
+You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md)
 
-```
-HELP DROP MATERIALIZED VIEW
-```
+### View the materialized view that has been created
+
+Users can view the created materialized views by using commands
+
+You can view the specific syntax[SHOW CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW.md)
 
 ## Best Practice 1
 
@@ -487,4 +489,4 @@ Note: The bitmap type only supports positive integers. If there are negative Num
 
 ## More Help
 
-For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED- VIEW.html) and [DROP MATERIALIZED VIEW](../../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.html) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.
+For more detailed syntax and best practices for using materialized views, see [CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) and [DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MATERIALIZED-VIEW.md) command manual, you can also Enter `HELP CREATE MATERIALIZED VIEW` and `HELP DROP MATERIALIZED VIEW` at the command line of the MySql client for more help information.

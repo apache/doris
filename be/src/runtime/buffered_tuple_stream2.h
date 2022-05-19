@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.10.0/be/src/runtime/buffered-tuple-stream.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
-#define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H
+#pragma once
 
 #include <vector>
 
@@ -411,5 +410,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_H

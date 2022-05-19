@@ -28,13 +28,13 @@
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/ref_counted.h"
+#include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/tablets_channel.h"
 #include "runtime/thread_context.h"
 #include "util/countdown_latch.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
-#include "olap/lru_cache.h"
 
 namespace doris {
 
@@ -57,6 +57,8 @@ public:
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
+
+    std::shared_ptr<MemTracker> mem_tracker() { return _mem_tracker; }
 
 private:
     static LoadChannel* _create_load_channel(const UniqueId& load_id, int64_t mem_limit,
@@ -116,7 +118,6 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
 template <typename TabletWriterAddRequest, typename TabletWriterAddResult>
 Status LoadChannelMgr::add_batch(const TabletWriterAddRequest& request,
                                  TabletWriterAddResult* response) {
-    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;

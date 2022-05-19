@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TRepeatNode;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

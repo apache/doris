@@ -22,13 +22,13 @@
 
 #include <cmath>
 
+#include "olap/decimal12.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_impl.h"
 #include "vec/columns/column_vector_helper.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/field.h"
-#include "olap/decimal12.h"
 
 namespace doris::vectorized {
 
@@ -71,6 +71,7 @@ private:
     friend class COWHelper<ColumnVectorHelper, Self>;
 
 public:
+    using value_type = T;
     using Container = DecimalPaddedPODArray<T>;
 
 private:

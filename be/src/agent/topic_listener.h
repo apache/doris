@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_TOPIC_LISTENER_H
-#define DORIS_BE_SRC_AGENT_TOPIC_LISTENER_H
+#pragma once
 
 #include "gen_cpp/AgentService_types.h"
 
@@ -34,4 +33,3 @@ public:
                                const TTopicUpdate& topic_update) = 0;
 };
 } // namespace doris
-#endif

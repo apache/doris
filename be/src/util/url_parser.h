@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_URL_PARSER_H
-#define DORIS_BE_SRC_COMMON_UTIL_URL_PARSER_H
+#pragma once
 
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
@@ -88,5 +87,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

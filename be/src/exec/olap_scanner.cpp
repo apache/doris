@@ -49,10 +49,14 @@ OlapScanner::OlapScanner(RuntimeState* runtime_state, OlapScanNode* parent, bool
           _is_open(false),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _mem_tracker(MemTracker::create_tracker(
-                  tracker->limit(), tracker->label() + ":OlapScanner:" + tls_ctx()->thread_id_str(),
-                  tracker)) {}
+          _version(-1) {
+#ifndef NDEBUG
+    _mem_tracker = MemTracker::create_tracker(tracker->limit(),
+                                              "OlapScanner:" + tls_ctx()->thread_id_str(), tracker);
+#else
+    _mem_tracker = tracker;
+#endif
+}
 
 Status OlapScanner::prepare(
         const TPaloScanRange& scan_range, const std::vector<OlapScanRange*>& key_ranges,

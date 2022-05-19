@@ -46,27 +46,27 @@ import java.util.List;
  */
 public class FromClause implements ParseNode, Iterable<TableRef> {
 
-    private final ArrayList<TableRef> tableRefs_;
+    private final ArrayList<TableRef> tablerefs;
 
-    private boolean analyzed_ = false;
+    private boolean analyzed = false;
     private boolean needToSql = false;
 
     public FromClause(List<TableRef> tableRefs) {
-        tableRefs_ = Lists.newArrayList(tableRefs);
+        tablerefs = Lists.newArrayList(tableRefs);
         // Set left table refs to ensure correct toSql() before analysis.
-        for (int i = 1; i < tableRefs_.size(); ++i) {
-            tableRefs_.get(i).setLeftTblRef(tableRefs_.get(i - 1));
+        for (int i = 1; i < tablerefs.size(); ++i) {
+            tablerefs.get(i).setLeftTblRef(tablerefs.get(i - 1));
         }
     }
 
-    public FromClause() { tableRefs_ = Lists.newArrayList(); }
-    public List<TableRef> getTableRefs() { return tableRefs_; }
+    public FromClause() { tablerefs = Lists.newArrayList(); }
+    public List<TableRef> getTableRefs() { return tablerefs; }
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
     }
 
     private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : tableRefs_) {
+        for (TableRef tblRef : tablerefs) {
             if (!(tblRef instanceof BaseTableRef)) {
                 continue;
             }
@@ -99,7 +99,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
      * because the table t1 in the on clause cannot be recognized.
      */
     private void sortTableRefKeepSequenceOfOnClause() {
-        Collections.sort(this.tableRefs_, new Comparator<TableRef>() {
+        Collections.sort(this.tablerefs, new Comparator<TableRef>() {
             @Override
             public int compare(TableRef tableref1, TableRef tableref2) {
                 int i1 = 0;
@@ -117,10 +117,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (analyzed_) return;
+        if (analyzed) {
+            return;
+        }
 
-        if (tableRefs_.isEmpty()) {
-            analyzed_ = true;
+        if (tablerefs.isEmpty()) {
+            analyzed = true;
             return;
         }
 
@@ -135,11 +137,11 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
         // Start out with table refs to establish aliases.
         TableRef leftTblRef = null;  // the one to the left of tblRef
-        for (int i = 0; i < tableRefs_.size(); ++i) {
+        for (int i = 0; i < tablerefs.size(); ++i) {
             // Resolve and replace non-InlineViewRef table refs with a BaseTableRef or ViewRef.
-            TableRef tblRef = tableRefs_.get(i);
+            TableRef tblRef = tablerefs.get(i);
             tblRef = analyzer.resolveTableRef(tblRef);
-            tableRefs_.set(i, Preconditions.checkNotNull(tblRef));
+            tablerefs.set(i, Preconditions.checkNotNull(tblRef));
             tblRef.setLeftTblRef(leftTblRef);
             if (tblRef instanceof InlineViewRef) {
                 ((InlineViewRef) tblRef).setNeedToSql(needToSql);
@@ -151,12 +153,14 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         // TODO: remove when query from hive table is supported
         checkFromHiveTable(analyzer);
 
-        analyzed_ = true;
+        analyzed = true;
     }
 
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tableRefs_) clone.add(tblRef.clone());
+        for (TableRef tblRef: tablerefs) {
+            clone.add(tblRef.clone());
+        }
         return new FromClause(clone);
     }
 
@@ -178,29 +182,40 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
             // }
             get(i).reset();
         }
-        this.analyzed_ = false;
+        this.analyzed = false;
     }
 
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        if (!tableRefs_.isEmpty()) {
+        if (!tablerefs.isEmpty()) {
             builder.append(" FROM");
-            for (int i = 0; i < tableRefs_.size(); ++i) {
-                builder.append(" " + tableRefs_.get(i).toSql());
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toSql());
             }
         }
         return builder.toString();
     }
 
-    public boolean isEmpty() { return tableRefs_.isEmpty(); }
+    public String toDigest() {
+        StringBuilder builder = new StringBuilder();
+        if (!tablerefs.isEmpty()) {
+            builder.append(" FROM");
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toDigest());
+            }
+        }
+        return builder.toString();
+    }
+
+    public boolean isEmpty() { return tablerefs.isEmpty(); }
 
     @Override
-    public Iterator<TableRef> iterator() { return tableRefs_.iterator(); }
-    public int size() { return tableRefs_.size(); }
-    public TableRef get(int i) { return tableRefs_.get(i); }
-    public void set(int i, TableRef tableRef) { tableRefs_.set(i, tableRef); }
-    public void add(TableRef t) { tableRefs_.add(t); }
-    public void addAll(List<TableRef> t) { tableRefs_.addAll(t); }
-    public void clear() { tableRefs_.clear(); }
+    public Iterator<TableRef> iterator() { return tablerefs.iterator(); }
+    public int size() { return tablerefs.size(); }
+    public TableRef get(int i) { return tablerefs.get(i); }
+    public void set(int i, TableRef tableRef) { tablerefs.set(i, tableRef); }
+    public void add(TableRef t) { tablerefs.add(t); }
+    public void addAll(List<TableRef> t) { tablerefs.addAll(t); }
+    public void clear() { tablerefs.clear(); }
 }

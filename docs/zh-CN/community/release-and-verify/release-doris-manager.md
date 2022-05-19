@@ -299,4 +299,4 @@ xxx
 
 ## 完成发布
 
-请参阅 [完成发布](https://doris.apache.org/zh-CN/community/release-and-verify/release-complete.html) 文档完成所有发布流程。
+请参阅 [完成发布](./release-complete.md) 文档完成所有发布流程。

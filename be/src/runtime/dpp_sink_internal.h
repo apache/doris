@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
-#define DORIS_BE_RUNTIME_DPP_SINK_INTERNAL_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -220,5 +219,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

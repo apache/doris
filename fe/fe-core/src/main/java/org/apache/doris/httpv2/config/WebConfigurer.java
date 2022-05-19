@@ -72,4 +72,3 @@ public class WebConfigurer implements WebMvcConfigurer {
         return multipartResolver;
     }
 }
-

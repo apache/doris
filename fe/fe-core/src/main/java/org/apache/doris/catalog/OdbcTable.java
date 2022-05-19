@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,8 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
-import static java.util.stream.Collectors.joining;
+import java.util.stream.Collectors;
 
 public class OdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
@@ -82,8 +80,9 @@ public class OdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
                 return mysqlProperName(name);
+            default:
+                return name;
         }
-        return name;
     }
 
     private String odbcCatalogResourceName;
@@ -193,7 +192,7 @@ public class OdbcTable extends Table {
 
             charset = properties.get(ODBC_CHARSET);
             copiedProperties.remove(ODBC_CHARSET);
-            
+
             String tableType = properties.get(ODBC_TYPE);
             if (Strings.isNullOrEmpty(tableType)) {
                 throw new DdlException("Type of Odbc table is null. "
@@ -244,7 +243,7 @@ public class OdbcTable extends Table {
         return ";" + extraMap.entrySet()
                 .stream()
                 .map(e -> e.getKey() + "=" + e.getValue())
-                .collect(joining(";"));
+                .collect(Collectors.joining(";"));
     }
 
     public String getExtraParam() {

@@ -35,8 +35,8 @@ public class MetaContext {
 
     public void setMetaVersion(int metaVersion) {
         if (metaVersion < FeMetaVersion.MINIMUM_VERSION_REQUIRED) {
-            throw new IllegalArgumentException("Could not set meta version to " 
-                    + metaVersion + " since it is lower than minimum required version " 
+            throw new IllegalArgumentException("Could not set meta version to "
+                    + metaVersion + " since it is lower than minimum required version "
                     + FeMetaVersion.MINIMUM_VERSION_REQUIRED);
         }
         this.metaVersion = metaVersion;
@@ -49,7 +49,7 @@ public class MetaContext {
     public void setThreadLocalInfo() {
         threadLocalInfo.set(this);
     }
-    
+
     public static MetaContext get() {
         return threadLocalInfo.get();
     }

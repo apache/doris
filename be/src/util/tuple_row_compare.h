@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
-#define INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
+#pragma once
 
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
@@ -143,5 +142,3 @@ private:
     typedef int (*CompareFn)(ExprContext* const*, ExprContext* const*, TupleRow*, TupleRow*);
 };
 } // namespace doris
-
-#endif

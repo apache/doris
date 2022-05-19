@@ -41,15 +41,15 @@ There are three main commands for resource management: `create resource`, `drop 
 
 1. CREATE RESOURCE
 
-    This statement is used to create a resource. For details, please refer to [CREATE RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.html).
+    This statement is used to create a resource. For details, please refer to [CREATE RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE.md).
 
 2. DROP RESOURCE
 
-    This command can delete an existing resource. For details, see [DROP RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE.html).
+    This command can delete an existing resource. For details, see [DROP RESOURCE](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-RESOURCE.md).
 
 3. SHOW RESOURCES
 
-    This command can view the resources that the user has permission to use. For details, see [SHOW RESOURCES](../sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES.html).
+    This command can view the resources that the user has permission to use. For details, see [SHOW RESOURCES](../sql-manual/sql-reference/Show-Statements/SHOW-RESOURCES.md).
 
 ## Resources Supported
 
@@ -132,7 +132,7 @@ PROPERTIES
 `driver`: Indicates the driver dynamic library used by the ODBC external table.
 The ODBC external table referring to the resource is required. The old MySQL external table referring to the resource is optional.
 
-For the usage of ODBC resource, please refer to [ODBC of Doris](../ecosystem/external-table/odbc-of-doris.html)
+For the usage of ODBC resource, please refer to [ODBC of Doris](../ecosystem/external-table/odbc-of-doris.md)
 
 
 #### Example

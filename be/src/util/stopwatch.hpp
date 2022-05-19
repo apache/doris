@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/stopwatch.hpp
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_STOPWATCH_HPP
+#pragma once
 
 #include <time.h>
 
@@ -94,5 +93,3 @@ using MonotonicStopWatch = CustomStopWatch<CLOCK_MONOTONIC>;
 using ThreadCpuStopWatch = CustomStopWatch<CLOCK_THREAD_CPUTIME_ID>;
 
 } // namespace doris
-
-#endif

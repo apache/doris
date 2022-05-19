@@ -48,7 +48,8 @@ void init_hook() {
     MallocHook::AddDeleteHook(&delete_hook);
 }
 
-void destroy_hook() {
-    MallocHook::RemoveNewHook(&new_hook);
-    MallocHook::RemoveDeleteHook(&delete_hook);
-}
+// For later debug.
+// static void destroy_hook() {
+//     MallocHook::RemoveNewHook(&new_hook);
+//     MallocHook::RemoveDeleteHook(&delete_hook);
+// }

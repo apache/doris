@@ -48,7 +48,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -172,7 +171,7 @@ public class HashJoinNode extends PlanNode {
         isColocate = colocate;
         colocateReason = reason;
     }
-    
+
     /**
      * Calculate the slots output after going through the hash table in the hash join node.
      * The most essential difference between 'hashOutputSlots' and 'outputSlots' is that
@@ -329,17 +328,27 @@ public class HashJoinNode extends PlanNode {
          * table/column of at least one side is missing stats.
          */
         public static EqJoinConjunctScanSlots create(Expr eqJoinConjunct) {
-            if (!Expr.IS_EQ_BINARY_PREDICATE.apply(eqJoinConjunct)) return null;
+            if (!Expr.IS_EQ_BINARY_PREDICATE.apply(eqJoinConjunct)) {
+                return null;
+            }
             SlotDescriptor lhsScanSlot = eqJoinConjunct.getChild(0).findSrcScanSlot();
-            if (lhsScanSlot == null || !hasNumRowsAndNdvStats(lhsScanSlot)) return null;
+            if (lhsScanSlot == null || !hasNumRowsAndNdvStats(lhsScanSlot)) {
+                return null;
+            }
             SlotDescriptor rhsScanSlot = eqJoinConjunct.getChild(1).findSrcScanSlot();
-            if (rhsScanSlot == null || !hasNumRowsAndNdvStats(rhsScanSlot)) return null;
+            if (rhsScanSlot == null || !hasNumRowsAndNdvStats(rhsScanSlot)) {
+                return null;
+            }
             return new EqJoinConjunctScanSlots(eqJoinConjunct, lhsScanSlot, rhsScanSlot);
         }
 
         private static boolean hasNumRowsAndNdvStats(SlotDescriptor slotDesc) {
-            if (slotDesc.getColumn() == null) return false;
-            if (!slotDesc.getStats().hasNumDistinctValues()) return false;
+            if (slotDesc.getColumn() == null) {
+                return false;
+            }
+            if (!slotDesc.getStats().hasNumDistinctValues()) {
+                return false;
+            }
             return true;
         }
 
@@ -382,7 +391,9 @@ public class HashJoinNode extends PlanNode {
         List<EqJoinConjunctScanSlots> eqJoinConjunctSlots = new ArrayList<>();
         for (Expr eqJoinConjunct : eqJoinConjuncts) {
             EqJoinConjunctScanSlots slots = EqJoinConjunctScanSlots.create(eqJoinConjunct);
-            if (slots != null) eqJoinConjunctSlots.add(slots);
+            if (slots != null) {
+                eqJoinConjunctSlots.add(slots);
+            }
         }
 
         if (eqJoinConjunctSlots.isEmpty()) {

@@ -221,7 +221,9 @@ void MemPool::acquire_data(MemPool* src, bool keep_current) {
 
 void MemPool::exchange_data(MemPool* other) {
     int64_t delta_size = other->total_reserved_bytes_ - total_reserved_bytes_;
-    other->_mem_tracker->transfer_to(_mem_tracker, delta_size);
+    if (other->_mem_tracker != _mem_tracker) {
+        other->_mem_tracker->transfer_to(_mem_tracker, delta_size);
+    }
 
     std::swap(current_chunk_idx_, other->current_chunk_idx_);
     std::swap(next_chunk_size_, other->next_chunk_size_);

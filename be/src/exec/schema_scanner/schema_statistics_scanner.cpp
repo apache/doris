@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/schema_scanner/schema_statistics_scanner.h"
+
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 

@@ -49,7 +49,7 @@ public:
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
-    void build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
+    Status build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers);
     // Get top row of the heap, nullptr if reach end.
     Status current_row(IteratorRowRef* ref) const;
 

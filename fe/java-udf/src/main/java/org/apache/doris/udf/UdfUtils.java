@@ -17,8 +17,6 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Preconditions;
-
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -28,6 +26,7 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 
+import com.google.common.base.Preconditions;
 import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;

@@ -21,10 +21,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.EsTable;
 
+import org.junit.Assert;
 import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
 public class EsShardPartitionsTest extends EsTestCase {
 
@@ -36,8 +34,8 @@ public class EsShardPartitionsTest extends EsTestCase {
         EsShardPartitions esShardPartitions = EsShardPartitions.findShardPartitions("doe",
                 loadJsonFromFile("data/es/test_search_shards.json"));
         EsTablePartitions esTablePartitions = EsTablePartitions.fromShardPartitions(esTable, esShardPartitions);
-        assertNotNull(esTablePartitions);
-        assertEquals(1, esTablePartitions.getUnPartitionedIndexStates().size());
-        assertEquals(5, esTablePartitions.getEsShardPartitions("doe").getShardRoutings().size());
+        Assert.assertNotNull(esTablePartitions);
+        Assert.assertEquals(1, esTablePartitions.getUnPartitionedIndexStates().size());
+        Assert.assertEquals(5, esTablePartitions.getEsShardPartitions("doe").getShardRoutings().size());
     }
 }

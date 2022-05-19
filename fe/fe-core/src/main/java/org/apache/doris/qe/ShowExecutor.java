@@ -36,6 +36,7 @@ import org.apache.doris.analysis.ShowColumnStatsStmt;
 import org.apache.doris.analysis.ShowColumnStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.ShowCreateFunctionStmt;
+import org.apache.doris.analysis.ShowCreateMaterializedViewStmt;
 import org.apache.doris.analysis.ShowCreateRoutineLoadStmt;
 import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataSkewStmt;
@@ -59,6 +60,7 @@ import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionIdStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.ShowPluginsStmt;
+import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowQueryProfileStmt;
@@ -102,6 +104,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -169,7 +172,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -340,6 +342,10 @@ public class ShowExecutor {
             handleAdminShowTabletStorageFormat();
         } else if (stmt instanceof AdminDiagnoseTabletStmt) {
             handleAdminDiagnoseTablet();
+        } else if (stmt instanceof ShowCreateMaterializedViewStmt) {
+            handleShowCreateMaterializedView();
+        } else if (stmt instanceof ShowPolicyStmt) {
+            handleShowPolicy();
         } else {
             handleEmtpy();
         }
@@ -392,7 +398,8 @@ public class ShowExecutor {
         rowSet.add(Lists.newArrayList("HIVE", "YES", "HIVE database which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ICEBERG", "YES", "ICEBERG data lake which data is in it", "NO", "NO", "NO"));
         rowSet.add(Lists.newArrayList("ODBC", "YES", "ODBC driver which data we can connect", "NO", "NO", "NO"));
-        
+        rowSet.add(Lists.newArrayList("HUDI", "YES", "HUDI data lake which data is in it", "NO", "NO", "NO"));
+
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
@@ -1352,7 +1359,7 @@ public class ShowExecutor {
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows;
-        //Only SchemaChangeProc support where/order by/limit syntax 
+        //Only SchemaChangeProc support where/order by/limit syntax
         if (procNodeI instanceof SchemaChangeProcDir) {
             rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
@@ -1746,7 +1753,7 @@ public class ShowExecutor {
         List<List<String>> infos = Catalog.getCurrentCatalog().getAuth().getRoleInfo();
         resultSet = new ShowResultSet(showStmt.getMetaData(), infos);
     }
-    
+
     private void handleShowTrash() {
         ShowTrashStmt showStmt = (ShowTrashStmt) stmt;
         List<List<String>> infos = Lists.newArrayList();
@@ -2176,6 +2183,34 @@ public class ShowExecutor {
         List<List<String>> resultRowSet = Diagnoser.diagnoseTablet(showStmt.getTabletId());
         ShowResultSetMetaData showMetaData = showStmt.getMetaData();
         resultSet = new ShowResultSet(showMetaData, resultRowSet);
+    }
+
+    private void handleShowCreateMaterializedView() throws AnalysisException {
+        List<List<String>> resultRowSet = new ArrayList<>();
+        ShowCreateMaterializedViewStmt showStmt = (ShowCreateMaterializedViewStmt) stmt;
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(showStmt.getTableName().getDb());
+        Table table = db.getTableOrAnalysisException(showStmt.getTableName().getTbl());
+        if (table instanceof OlapTable) {
+            OlapTable baseTable = ((OlapTable) table);
+            Long indexIdByName = baseTable.getIndexIdByName(showStmt.getMvName());
+            if (indexIdByName != null) {
+                MaterializedIndexMeta meta = baseTable.getIndexMetaByIndexId(indexIdByName);
+                if (meta != null && meta.getDefineStmt() != null) {
+                    String originStmt = meta.getDefineStmt().originStmt;
+                    List<String> data = new ArrayList<>();
+                    data.add(showStmt.getTableName().getTbl());
+                    data.add(showStmt.getMvName());
+                    data.add(originStmt);
+                    resultRowSet.add(data);
+                }
+            }
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRowSet);
+    }
+
+    public void handleShowPolicy() throws AnalysisException {
+        ShowPolicyStmt showStmt = (ShowPolicyStmt) stmt;
+        resultSet = Catalog.getCurrentCatalog().getPolicyMgr().showPolicy(showStmt);
     }
 
 }

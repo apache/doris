@@ -22,18 +22,18 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.UnaryExpression;
 
 import java.util.List;
 
 /**
  * Expression for unbound alias.
  */
-public class UnboundAlias extends NamedExpression {
-    private final Expression child;
+public class UnboundAlias<CHILD_TYPE extends Expression> extends NamedExpression<UnboundAlias<CHILD_TYPE>>
+        implements UnaryExpression<UnboundAlias<CHILD_TYPE>, CHILD_TYPE> {
 
-    public UnboundAlias(Expression child) {
-        super(NodeType.UNBOUND_ALIAS);
-        this.child = child;
+    public UnboundAlias(CHILD_TYPE child) {
+        super(NodeType.UNBOUND_ALIAS, child);
     }
 
     @Override
@@ -58,6 +58,6 @@ public class UnboundAlias extends NamedExpression {
 
     @Override
     public String toString() {
-        return "UnboundAlias(" + child + ", None)";
+        return "UnboundAlias(" + child() + ", None)";
     }
 }

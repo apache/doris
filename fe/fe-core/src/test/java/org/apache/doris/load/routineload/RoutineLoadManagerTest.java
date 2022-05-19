@@ -48,7 +48,11 @@ import org.apache.doris.thrift.TResourceInfo;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -58,12 +62,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 
 public class RoutineLoadManagerTest {
 
@@ -370,7 +368,7 @@ public class RoutineLoadManagerTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Config.max_routine_load_task_num_per_be = 0;
         Map<Long, RoutineLoadJob> routineLoadJobMap = Maps.newHashMap();
-        routineLoadJobMap.put(1l, routineLoadJob);
+        routineLoadJobMap.put(1L, routineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", routineLoadJobMap);
 
 
@@ -817,7 +815,7 @@ public class RoutineLoadManagerTest {
         };
 
         Map<Long, Integer> result = Deencapsulation.invoke(routineLoadManager, "getBeCurrentTasksNumMap");
-        Assert.assertEquals(1, (int) result.get(1l));
+        Assert.assertEquals(1, (int) result.get(1L));
 
     }
 

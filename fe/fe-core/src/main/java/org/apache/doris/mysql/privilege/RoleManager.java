@@ -131,7 +131,7 @@ public class RoleManager implements Writable {
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
             info.add(Joiner.on(", ").join(role.getUsers()));
-            
+
             // global
             boolean hasGlobal = false;
             for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
@@ -158,8 +158,8 @@ public class RoleManager implements Writable {
             } else {
                 info.add(Joiner.on("; ").join(tmp));
             }
-            
-            
+
+
             // tbl
             tmp.clear();
             for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {

@@ -23,16 +23,16 @@
 #include <vector>
 
 #include "common/object_pool.h"
-#include "exprs/binary_predicate.h"
-#include "runtime/primitive_type.h"
-#include "exprs/slot_ref.h"
-#include "exprs/literal.h"
-#include "runtime/mem_tracker.h"
 #include "exec/local_file_reader.h"
+#include "exprs/binary_predicate.h"
 #include "exprs/cast_functions.h"
+#include "exprs/literal.h"
+#include "exprs/slot_ref.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 
@@ -46,6 +46,7 @@ public:
     VBrokerScanNodeTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
+        _runtime_state._query_options.enable_vectorized_engine = true;
     }
     void init();
     static void SetUpTestCase() {
@@ -277,7 +278,7 @@ void VBrokerScanNodeTest::init_desc_table() {
             type.types.push_back(node);
         }
         slot_desc.slotType = type;
-        slot_desc.columnPos = 1;
+        slot_desc.columnPos = 2;
         slot_desc.byteOffset = 32;
         slot_desc.nullIndicatorByte = 0;
         slot_desc.nullIndicatorBit = -1;
@@ -304,7 +305,7 @@ void VBrokerScanNodeTest::init_desc_table() {
             type.types.push_back(node);
         }
         slot_desc.slotType = type;
-        slot_desc.columnPos = 1;
+        slot_desc.columnPos = 3;
         slot_desc.byteOffset = 48;
         slot_desc.nullIndicatorByte = 0;
         slot_desc.nullIndicatorBit = -1;
@@ -466,37 +467,31 @@ TEST_F(VBrokerScanNodeTest, normal) {
     doris::vectorized::Block block;
     bool eos = false;
     status = scan_node.get_next(&_runtime_state, &block, &eos);
-    ASSERT_EQ(3, block.rows());
+    ASSERT_EQ(4, block.rows());
     ASSERT_EQ(4, block.columns());
-    ASSERT_FALSE(eos);
+    ASSERT_TRUE(eos);
 
-    auto columns = block.get_columns();
-    ASSERT_EQ(columns[0]->get_int(0), 1);
-    ASSERT_EQ(columns[0]->get_int(1), 4);
-    ASSERT_EQ(columns[0]->get_int(2), 8);
+    auto columns = block.get_columns_with_type_and_name();
+    ASSERT_EQ(columns.size(), 4);
+    ASSERT_EQ(columns[0].to_string(0), "1");
+    ASSERT_EQ(columns[0].to_string(1), "4");
+    ASSERT_EQ(columns[0].to_string(2), "8");
+    ASSERT_EQ(columns[0].to_string(3), "4");
 
-    ASSERT_EQ(columns[1]->get_int(0), 2);
-    ASSERT_EQ(columns[1]->get_int(1), 5);
-    ASSERT_EQ(columns[1]->get_int(2), 9);
+    ASSERT_EQ(columns[1].to_string(0), "2");
+    ASSERT_EQ(columns[1].to_string(1), "5");
+    ASSERT_EQ(columns[1].to_string(2), "9");
+    ASSERT_EQ(columns[1].to_string(3), "5");
 
-    ASSERT_EQ(columns[2]->get_int(0), 3);
-    ASSERT_EQ(columns[2]->get_int(1), 6);
-    ASSERT_EQ(columns[2]->get_int(2), 10);
+    ASSERT_EQ(columns[2].to_string(0), "3");
+    ASSERT_EQ(columns[2].to_string(1), "6");
+    ASSERT_EQ(columns[2].to_string(2), "10");
+    ASSERT_EQ(columns[2].to_string(3), "6");
 
-    ASSERT_EQ(columns[3]->get_int(0), 1);
-    ASSERT_EQ(columns[3]->get_int(1), 1);
-    ASSERT_EQ(columns[3]->get_int(2), 1);
-
-    block.clear();
-    status = scan_node.get_next(&_runtime_state, &block, &eos);
-    ASSERT_EQ(1, block.rows());
-    ASSERT_FALSE(eos);
-
-    columns = block.get_columns();
-    ASSERT_EQ(columns[0]->get_int(0), 4);
-    ASSERT_EQ(columns[1]->get_int(0), 5);
-    ASSERT_EQ(columns[2]->get_int(0), 6);
-    ASSERT_EQ(columns[3]->get_int(0), 2);
+    ASSERT_EQ(columns[3].to_string(0), "1");
+    ASSERT_EQ(columns[3].to_string(1), "1");
+    ASSERT_EQ(columns[3].to_string(2), "1");
+    ASSERT_EQ(columns[3].to_string(3), "2");
 
     block.clear();
     status = scan_node.get_next(&_runtime_state, &block, &eos);
@@ -610,20 +605,21 @@ TEST_F(VBrokerScanNodeTest, where_binary_pre) {
     ASSERT_EQ(2, block.rows());
     ASSERT_EQ(4, block.columns());
 
-    auto columns = block.get_columns();
-    ASSERT_EQ(columns[0]->get_int(0), 1);
-    ASSERT_EQ(columns[0]->get_int(1), 4);
+    auto columns = block.get_columns_with_type_and_name();
+    ASSERT_EQ(columns.size(), 4);
+    ASSERT_EQ(columns[0].to_string(0), "1");
+    ASSERT_EQ(columns[0].to_string(1), "4");
 
-    ASSERT_EQ(columns[1]->get_int(0), 2);
-    ASSERT_EQ(columns[1]->get_int(1), 5);
+    ASSERT_EQ(columns[1].to_string(0), "2");
+    ASSERT_EQ(columns[1].to_string(1), "5");
 
-    ASSERT_EQ(columns[2]->get_int(0), 3);
-    ASSERT_EQ(columns[2]->get_int(1), 6);
+    ASSERT_EQ(columns[2].to_string(0), "3");
+    ASSERT_EQ(columns[2].to_string(1), "6");
 
-    ASSERT_EQ(columns[3]->get_int(0), 1);
-    ASSERT_EQ(columns[3]->get_int(1), 1);
+    ASSERT_EQ(columns[3].to_string(0), "1");
+    ASSERT_EQ(columns[3].to_string(1), "1");
 
-    ASSERT_FALSE(eos);
+    ASSERT_TRUE(eos);
 
     block.clear();
     status = scan_node.get_next(&_runtime_state, &block, &eos);

@@ -29,10 +29,9 @@
 #if __has_include(<sanitizer/asan_interface.h>)
 #include <sanitizer/asan_interface.h>
 #endif
+#include "gutil/dynamic_annotations.h"
 #include "vec/common/allocator.h"
 #include "vec/common/memcpy_small.h"
-
-#include "gutil/dynamic_annotations.h"
 
 namespace doris::vectorized {
 

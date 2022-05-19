@@ -21,8 +21,8 @@
 #include "vec/data_types/data_type_date.h"
 
 #include "runtime/datetime_value.h"
-#include "vec/columns/columns_number.h"
 #include "util/binary_cast.hpp"
+#include "vec/columns/columns_number.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 bool DataTypeDate::equals(const IDataType& rhs) const {
@@ -63,6 +63,12 @@ void DataTypeDate::cast_to_date(Int64& x) {
     auto value = binary_cast<Int64, VecDateTimeValue>(x);
     value.cast_to_date();
     x = binary_cast<VecDateTimeValue, Int64>(value);
+}
+
+MutableColumnPtr DataTypeDate::create_column() const {
+    auto col = DataTypeNumberBase<Int64>::create_column();
+    col->set_date_type();
+    return col;
 }
 
 } // namespace doris::vectorized

@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,12 +76,12 @@ public class AnalyticPlanner {
     private final AnalyticInfo analyticInfo;
     private final Analyzer analyzer;
 
-    private final PlannerContext ctx_;
+    private final PlannerContext ctx;
 
     public AnalyticPlanner(AnalyticInfo analyticInfo, Analyzer analyzer, PlannerContext ctx) {
         this.analyticInfo = analyticInfo;
         this.analyzer = analyzer;
-        this.ctx_ = ctx;
+        this.ctx = ctx;
     }
 
     /**
@@ -343,7 +342,9 @@ public class AnalyticPlanner {
             for (int i = 0; i < inputSmap.size(); ++i) {
                 Expr rhsExpr = inputSmap.getRhs().get(i);
                 // Ignore substitutions that are irrelevant at this plan node and its ancestors.
-                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) continue;
+                if (!rhsExpr.isBoundByTupleIds(input.getTupleIds())) {
+                    continue;
+                }
                 rhsExpr.collect(TupleIsNullPredicate.class, tupleIsNullPredsToMaterialize);
             }
             Expr.removeDuplicates(tupleIsNullPredsToMaterialize);
@@ -415,7 +416,7 @@ public class AnalyticPlanner {
             }
 
             SortInfo sortInfo = createSortInfo(newRoot, sortExprs, isAsc, nullsFirst);
-            SortNode sortNode = new SortNode(ctx_.getNextNodeId(), newRoot, sortInfo, false, false, 0);
+            SortNode sortNode = new SortNode(ctx.getNextNodeId(), newRoot, sortInfo, false, false, 0);
 
             // if this sort group does not have partitioning exprs, we want the sort
             // to be executed like a regular distributed sort
@@ -483,7 +484,7 @@ public class AnalyticPlanner {
                 LOG.trace("orderByEq: " + orderByEq.debugString());
             }
 
-            AnalyticEvalNode node = new AnalyticEvalNode(ctx_.getNextNodeId(), newRoot,
+            AnalyticEvalNode node = new AnalyticEvalNode(ctx.getNextNodeId(), newRoot,
                     windowGroup.analyticFnCalls, windowGroup.partitionByExprs,
                     windowGroup.orderByElements,
                     windowGroup.window,

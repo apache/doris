@@ -22,16 +22,14 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class JoinCostEvaluationTest {
 

@@ -62,11 +62,10 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import mockit.Expectations;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
 
 public class CatalogMocker {
     // user
@@ -83,7 +82,7 @@ public class CatalogMocker {
     // db
     public static final String TEST_DB_NAME = "test_db";
     public static final long TEST_DB_ID = 20000;
-    
+
     // single partition olap table
     public static final String TEST_TBL_NAME = "test_tbl";
     public static final long TEST_TBL_ID = 30000;
@@ -104,7 +103,7 @@ public class CatalogMocker {
     public static final String MYSQL_PWD = "mysql-pwd";
     public static final String MYSQL_DB = "mysql-db";
     public static final String MYSQL_TBL = "mysql-tbl";
-    
+
     // partition olap table with a rollup
     public static final String TEST_TBL2_NAME = "test_tbl2";
     public static final long TEST_TBL2_ID = 30002;
@@ -290,7 +289,7 @@ public class CatalogMocker {
         Partition partition2 =
                 new Partition(TEST_PARTITION2_ID, TEST_PARTITION2_NAME, baseIndexP2, distributionInfo2);
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
-        
+
         PartitionKey rangeP1Lower =
                 PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
@@ -361,11 +360,11 @@ public class CatalogMocker {
         Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
         Replica replica11 = new Replica(TEST_REPLICA11_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
-        
+
         rollupTabletP1.addReplica(replica9);
         rollupTabletP1.addReplica(replica10);
         rollupTabletP1.addReplica(replica11);
-        
+
         partition1.createRollupIndex(rollupIndexP1);
 
         // rollup index p2

@@ -23,15 +23,14 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import mockit.Mocked;
-
 public class DropUserStmtTest {
     private Analyzer analyzer;
-    
+
     @Mocked
     private PaloAuth auth;
     @Mocked

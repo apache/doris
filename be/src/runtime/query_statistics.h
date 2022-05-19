@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_EXEC_QUERY_STATISTICS_H
-#define DORIS_BE_EXEC_QUERY_STATISTICS_H
+#pragma once
 
 #include <mutex>
 
@@ -137,5 +136,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

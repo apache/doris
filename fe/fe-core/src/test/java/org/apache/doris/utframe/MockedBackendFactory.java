@@ -68,23 +68,21 @@ import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.thrift.TException;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
+import io.grpc.stub.StreamObserver;
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 
-import io.grpc.stub.StreamObserver;
-
 /*
  * This class is used to create mock backends.
  * Usage can be found in Demon.java's beforeClass()
- * 
- * 
+ *
+ *
  */
 public class MockedBackendFactory {
 
@@ -118,14 +116,14 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
+        public THeartbeatResult heartbeat(TMasterInfo masterInfo) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }
     }
-    
+
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {
@@ -232,12 +230,12 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TAgentResult makeSnapshot(TSnapshotRequest snapshot_request) throws TException {
+        public TAgentResult makeSnapshot(TSnapshotRequest snapshotRequest) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult releaseSnapshot(String snapshot_path) throws TException {
+        public TAgentResult releaseSnapshot(String snapshotPath) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
@@ -267,18 +265,18 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TExportStatusResult getExportStatus(TUniqueId task_id) throws TException {
+        public TExportStatusResult getExportStatus(TUniqueId taskId) throws TException {
             return new TExportStatusResult(new TStatus(TStatusCode.OK), TExportState.FINISHED);
         }
 
         @Override
-        public TStatus eraseExportTask(TUniqueId task_id) throws TException {
+        public TStatus eraseExportTask(TUniqueId taskId) throws TException {
             return new TStatus(TStatusCode.OK);
         }
 
         @Override
         public long getTrashUsedCapacity() throws TException {
-            return  0l;
+            return  0L;
         }
 
         @Override
@@ -312,7 +310,7 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
+        public TStreamLoadRecordResult getStreamLoadRecord(long lastStreamRecordTime) throws TException {
             return new TStreamLoadRecordResult(Maps.newHashMap());
         }
 

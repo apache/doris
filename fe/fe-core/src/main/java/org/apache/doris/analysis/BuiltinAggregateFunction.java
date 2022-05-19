@@ -34,21 +34,21 @@ import java.util.ArrayList;
  * Internal representation of a builtin aggregate function.
  */
 public class BuiltinAggregateFunction extends Function {
-    private final Operator                          op_;
+    private final Operator op;
     // this is to judge the analytic function
     private boolean isAnalyticFn = false;
-    
+
     public boolean isAnalyticFn() {
         return isAnalyticFn;
     }
     // TODO: this is not used yet until the planner understand this.
-    private org.apache.doris.catalog.Type intermediateType_;
+    private org.apache.doris.catalog.Type intermediateType;
     private boolean reqIntermediateTuple = false;
 
     public boolean isReqIntermediateTuple() {
         return reqIntermediateTuple;
     }
-    
+
     public BuiltinAggregateFunction(Operator op, ArrayList<Type> argTypes,
       Type retType, org.apache.doris.catalog.Type intermediateType, boolean isAnalyticFn)
       throws AnalysisException {
@@ -58,8 +58,8 @@ public class BuiltinAggregateFunction extends Function {
         Preconditions.checkState(op != null);
         // may be no need to analyze
         // intermediateType.analyze();
-        op_ = op;
-        intermediateType_ = intermediateType;
+        this.op = op;
+        this.intermediateType = intermediateType;
         if (isAnalyticFn && !intermediateType.equals(retType)) {
             reqIntermediateTuple = true;
         }
@@ -71,25 +71,25 @@ public class BuiltinAggregateFunction extends Function {
     public TFunction toThrift() {
         TFunction fn = super.toThrift();
         // TODO: for now, just put the op_ enum as the id.
-        if (op_ == BuiltinAggregateFunction.Operator.FIRST_VALUE_REWRITE) {
+        if (op == BuiltinAggregateFunction.Operator.FIRST_VALUE_REWRITE) {
             fn.setId(0);
         } else {
-            fn.setId(op_.thriftOp.ordinal());
+            fn.setId(op.thriftOp.ordinal());
         }
-        fn.setAggregateFn(new TAggregateFunction(intermediateType_.toThrift()));
+        fn.setAggregateFn(new TAggregateFunction(intermediateType.toThrift()));
         return fn;
     }
 
     public Operator op() {
-        return op_;
+        return op;
     }
 
     public org.apache.doris.catalog.Type getIntermediateType() {
-        return intermediateType_;
+        return intermediateType;
     }
 
     public void setIntermediateType(org.apache.doris.catalog.Type t) {
-        intermediateType_ = t;
+        intermediateType = t;
     }
 
     // TODO: this is effectively a catalog of builtin aggregate functions.

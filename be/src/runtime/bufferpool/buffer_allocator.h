@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
-#define DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
+#pragma once
 
 #include "runtime/bufferpool/buffer_pool_internal.h"
 #include "runtime/bufferpool/free_list.h"
@@ -240,5 +239,3 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 };
 } // namespace doris
-
-#endif

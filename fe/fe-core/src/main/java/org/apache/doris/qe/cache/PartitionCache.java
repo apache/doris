@@ -34,7 +34,6 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -185,7 +184,7 @@ public class PartitionCache extends Cache {
 
     /**
      * Rewrite the query scope of partition key in the where condition
-     * origin expr : where eventdate>="2020-01-12" and eventdate<="2020-01-15" 
+     * origin expr : where eventdate>="2020-01-12" and eventdate<="2020-01-15"
      * rewrite expr : where eventdate>="2020-01-14" and eventdate<="2020-01-15"
      */
     private Expr rewriteWhereClause(Expr expr, CompoundPredicate predicate,

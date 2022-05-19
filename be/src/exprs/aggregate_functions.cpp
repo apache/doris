@@ -657,22 +657,6 @@ void AggregateFunctions::min(FunctionContext*, const DecimalV2Val& src, DecimalV
 }
 
 template <>
-void AggregateFunctions::min(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val < dst->val) {
-        dst->val = src.val;
-    }
-}
-
-template <>
 void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV2Val* dst) {
     if (src.is_null) {
         return;
@@ -687,22 +671,6 @@ void AggregateFunctions::max(FunctionContext*, const DecimalV2Val& src, DecimalV
         if (new_src > new_dst) {
             *dst = src;
         }
-    }
-}
-
-template <>
-void AggregateFunctions::max(FunctionContext*, const LargeIntVal& src, LargeIntVal* dst) {
-    if (src.is_null) {
-        return;
-    }
-
-    if (dst->is_null) {
-        *dst = src;
-        return;
-    }
-
-    if (src.val > dst->val) {
-        dst->val = src.val;
     }
 }
 
@@ -1346,7 +1314,8 @@ private:
         }
     };
 
-    std::unordered_set<T, NumericHashHelper> _set;
+    phmap::flat_hash_set<T, NumericHashHelper> _set;
+
     // Because Anyval does not provide the hash function, in order
     // to adopt the type different from the template, the pointer is used
     // HybridSetBase* _set;
@@ -1503,7 +1472,8 @@ public:
 private:
     const int DECIMAL_BYTE_SIZE = 16;
 
-    std::unordered_set<DecimalV2Value> _set;
+    phmap::flat_hash_set<DecimalV2Value> _set;
+
     FunctionContext::Type _type;
 };
 
@@ -1588,7 +1558,8 @@ private:
     const int DATETIME_PACKED_TIME_BYTE_SIZE = 8;
     const int DATETIME_TYPE_BYTE_SIZE = 4;
 
-    std::unordered_set<DateTimeVal, DateTimeHashHelper> _set;
+    phmap::flat_hash_set<DateTimeVal, DateTimeHashHelper> _set;
+
     FunctionContext::Type _type;
 };
 
@@ -2677,6 +2648,8 @@ template void AggregateFunctions::min<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::min<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::min<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::min<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                   LargeIntVal* dst);
 template void AggregateFunctions::min<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::min<DoubleVal>(FunctionContext*, const DoubleVal& src,
@@ -2725,6 +2698,8 @@ template void AggregateFunctions::max<SmallIntVal>(FunctionContext*, const Small
 template void AggregateFunctions::max<IntVal>(FunctionContext*, const IntVal& src, IntVal* dst);
 template void AggregateFunctions::max<BigIntVal>(FunctionContext*, const BigIntVal& src,
                                                  BigIntVal* dst);
+template void AggregateFunctions::max<LargeIntVal>(FunctionContext*, const LargeIntVal& src,
+                                                   LargeIntVal* dst);
 template void AggregateFunctions::max<FloatVal>(FunctionContext*, const FloatVal& src,
                                                 FloatVal* dst);
 template void AggregateFunctions::max<DoubleVal>(FunctionContext*, const DoubleVal& src,

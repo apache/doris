@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe.cache;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -49,7 +48,7 @@ import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -153,7 +152,7 @@ public class CacheAnalyzer {
             return Long.compare(table.latestTime, this.latestTime);
         }
 
-        public void Debug() {
+        public void debug() {
             LOG.debug("table {}, partition id {}, ver {}, time {}", olapTable.getName(), latestPartitionId, latestVersion, latestTime);
         }
     }
@@ -214,7 +213,7 @@ public class CacheAnalyzer {
         MetricRepo.COUNTER_QUERY_OLAP_TABLE.increase(1L);
         Collections.sort(tblTimeList);
         latestTable = tblTimeList.get(0);
-        latestTable.Debug();
+        latestTable.debug();
 
         addAllViewStmt(selectStmt);
         String allViewExpandStmtListStr = StringUtils.join(allViewStmtSet, "|");

@@ -23,26 +23,18 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Expression in Nereids that having name.
  */
-public abstract class NamedExpression extends Expression {
-    private static final AtomicLong CURRENT_ID = new AtomicLong();
-    private static final UUID JVM_ID = UUID.randomUUID();
+public abstract class NamedExpression<EXPR_TYPE extends NamedExpression<EXPR_TYPE>> extends Expression<EXPR_TYPE> {
 
-    public NamedExpression(NodeType type) {
-        super(type);
+    public NamedExpression(NodeType type, Expression... children) {
+        super(type, children);
     }
 
-    public static ExprId newExprId() {
-        return new ExprId(CURRENT_ID.getAndIncrement(), JVM_ID);
-    }
-
-    public Slot toAttribute() throws UnboundException {
-        throw new UnboundException("toAttribute");
+    public Slot toSlot() throws UnboundException {
+        throw new UnboundException("toSlot");
     }
 
     public String getName() throws UnboundException {

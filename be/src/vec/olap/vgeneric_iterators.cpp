@@ -178,9 +178,7 @@ public:
         vectorized::Block& src = _block;
         vectorized::Block& dst = *block;
 
-        auto columns = _iter->schema().columns();
-
-        for (size_t i = 0; i < columns.size(); ++i) {
+        for (size_t i = 0; i < _iter->schema().num_column_ids(); ++i) {
             vectorized::ColumnWithTypeAndName s_col = src.get_by_position(i);
             vectorized::ColumnWithTypeAndName d_col = dst.get_by_position(i);
 
@@ -343,7 +341,10 @@ Status VMergeIterator::next_batch(vectorized::Block* block) {
             delete ctx;
         }
     }
-
+    if (!_merge_heap.empty()) {
+        return Status::OK();
+    }
+    // Still last batch needs to be processed
     return Status::EndOfFile("no more data in segment");
 }
 

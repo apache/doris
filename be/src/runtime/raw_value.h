@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/raw-value.h
 // and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_RAW_VALUE_H
-#define DORIS_BE_RUNTIME_RAW_VALUE_H
+#pragma once
 
 #include <string>
 
@@ -462,5 +461,3 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
 }
 
 } // namespace doris
-
-#endif

@@ -5,8 +5,6 @@
 
 package org.apache.doris.common.jmockit;
 
-import org.apache.doris.common.jmockit.ParameterReflection;
-
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;

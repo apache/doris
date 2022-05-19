@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.clearspring.analytics.util.Lists;
 import org.springframework.util.CollectionUtils;
@@ -35,32 +36,32 @@ import java.util.Optional;
 public class Group {
     private final GroupId groupId = GroupId.newPlanSetId();
 
-    private final List<PlanReference> logicalPlanList = Lists.newArrayList();
-    private final List<PlanReference> physicalPlanList = Lists.newArrayList();
+    private final List<GroupExpression> logicalPlanList = Lists.newArrayList();
+    private final List<GroupExpression> physicalPlanList = Lists.newArrayList();
     private final LogicalProperties logicalProperties;
 
-    private Map<PhysicalProperties, Pair<Double, PlanReference>> lowestCostPlans;
+    private Map<PhysicalProperties, Pair<Double, GroupExpression>> lowestCostPlans;
     private double costLowerBound = -1;
     private boolean isExplored = false;
 
     /**
      * Constructor for Group.
      *
-     * @param planReference first {@link PlanReference} in this Group
+     * @param groupExpression first {@link GroupExpression} in this Group
      */
-    public Group(PlanReference planReference) {
-        if (planReference.getPlan().isLogical()) {
-            this.logicalPlanList.add(planReference);
+    public Group(GroupExpression groupExpression) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
+            this.logicalPlanList.add(groupExpression);
         } else {
-            this.physicalPlanList.add(planReference);
+            this.physicalPlanList.add(groupExpression);
         }
         logicalProperties = new LogicalProperties();
         try {
-            logicalProperties.setOutput(planReference.getPlan().getOutput());
+            logicalProperties.setOutput(groupExpression.getPlan().getOutput());
         } catch (UnboundException e) {
             throw new RuntimeException(e);
         }
-        planReference.setParent(this);
+        groupExpression.setParent(this);
     }
 
     public GroupId getGroupId() {
@@ -68,18 +69,18 @@ public class Group {
     }
 
     /**
-     * Add new {@link PlanReference} into this group.
+     * Add new {@link GroupExpression} into this group.
      *
-     * @param planReference {@link PlanReference} to be added
-     * @return added {@link PlanReference}
+     * @param groupExpression {@link GroupExpression} to be added
+     * @return added {@link GroupExpression}
      */
-    public PlanReference addPlanReference(PlanReference planReference) {
-        if (planReference.getPlan().isLogical()) {
-            logicalPlanList.add(planReference);
+    public GroupExpression addGroupExpression(GroupExpression groupExpression) {
+        if (groupExpression.getPlan() instanceof LogicalPlan) {
+            logicalPlanList.add(groupExpression);
         } else {
-            physicalPlanList.add(planReference);
+            physicalPlanList.add(groupExpression);
         }
-        return planReference;
+        return groupExpression;
     }
 
     public double getCostLowerBound() {
@@ -90,11 +91,11 @@ public class Group {
         this.costLowerBound = costLowerBound;
     }
 
-    public List<PlanReference> getLogicalPlanList() {
+    public List<GroupExpression> getLogicalPlanList() {
         return logicalPlanList;
     }
 
-    public List<PlanReference> getPhysicalPlanList() {
+    public List<GroupExpression> getPhysicalPlanList() {
         return physicalPlanList;
     }
 
@@ -115,9 +116,9 @@ public class Group {
      * which meeting the physical property constraints in this Group.
      *
      * @param physicalProperties the physical property constraints
-     * @return {@link Optional} of cost and {@link PlanReference} of physical plan pair.
+     * @return {@link Optional} of cost and {@link GroupExpression} of physical plan pair.
      */
-    public Optional<Pair<Double, PlanReference>> getLowestCostPlan(PhysicalProperties physicalProperties) {
+    public Optional<Pair<Double, GroupExpression>> getLowestCostPlan(PhysicalProperties physicalProperties) {
         if (physicalProperties == null || CollectionUtils.isEmpty(lowestCostPlans)) {
             return Optional.empty();
         }

@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.Type;
@@ -30,7 +29,7 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
-
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -95,6 +94,15 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
+    public String toDigestImpl() {
+        if (children.size() == 1) {
+            return "NOT " + getChild(0).toDigest();
+        } else {
+            return getChild(0).toDigest() + " " + op.toString() + " " + getChild(1).toDigest();
+        }
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPOUND_PRED;
         msg.setOpcode(op.toThrift());
@@ -137,6 +145,8 @@ public class CompoundPredicate extends Predicate {
             case NOT:
                 selectivity = 1.0 - getChild(0).selectivity;
                 break;
+            default:
+                throw new AnalysisException("not support operator: " + op);
         }
         selectivity = Math.max(0.0, Math.min(1.0, selectivity));
         if (LOG.isDebugEnabled()) {
@@ -172,7 +182,9 @@ public class CompoundPredicate extends Predicate {
      */
     @Override
     public Expr negate() {
-        if (op == Operator.NOT) return getChild(0);
+        if (op == Operator.NOT) {
+            return getChild(0);
+        }
         Expr negatedLeft = getChild(0).negate();
         Expr negatedRight = getChild(1).negate();
         Operator newOp = (op == Operator.OR) ? Operator.AND : Operator.OR;

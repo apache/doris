@@ -518,7 +518,6 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
-    bool can_be_executed_on_default_arguments() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
@@ -966,8 +965,9 @@ private:
                    !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
                      check_and_get_data_type<DataTypeDate>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
-        } else
+        } else {
             function = FunctionTo<DataType>::Type::create();
+        }
 
         /// Check conversion using underlying function
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }

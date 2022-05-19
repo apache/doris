@@ -24,7 +24,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,12 +71,12 @@ public class SetOperationStmt extends QueryStmt {
 
     // filled during analyze(); contains all operands that need to go through
     // distinct aggregation
-    protected final List<SetOperand> distinctOperands_ = Lists.newArrayList();
+    protected final List<SetOperand> distinctOperands = Lists.newArrayList();
 
     // filled during analyze(); contains all operands that can be aggregated with
     // a simple merge without duplicate elimination (also needs to merge the output
     // of the DISTINCT operands)
-    protected final List<SetOperand> allOperands_ = Lists.newArrayList();
+    protected final List<SetOperand> allOperands = Lists.newArrayList();
 
     private AggregateInfo distinctAggInfo;  // only set if we have DISTINCT ops
 
@@ -90,11 +89,11 @@ public class SetOperationStmt extends QueryStmt {
     private String toSqlString;
 
     // true if any of the operands_ references an AnalyticExpr
-    private boolean hasAnalyticExprs_ = false;
+    private boolean hasAnalyticExprs = false;
 
     // List of output expressions produced by the set operation without the ORDER BY portion
     // (if any). Same as resultExprs_ if there is no ORDER BY.
-    private List<Expr> setOpsResultExprs_ = Lists.newArrayList();
+    private List<Expr> setOpsResultExprs = Lists.newArrayList();
 
     // END: Members that need to be reset()
     /////////////////////////////////////////
@@ -115,21 +114,27 @@ public class SetOperationStmt extends QueryStmt {
                 (other.limitElement == null) ? null : other.limitElement.clone());
         operands = Lists.newArrayList();
         if (analyzer != null) {
-            for (SetOperand o: other.distinctOperands_) distinctOperands_.add(o.clone());
-            for (SetOperand o: other.allOperands_) allOperands_.add(o.clone());
-            operands.addAll(distinctOperands_);
-            operands.addAll(allOperands_);
+            for (SetOperand o: other.distinctOperands) {
+                distinctOperands.add(o.clone());
+            }
+            for (SetOperand o: other.allOperands) {
+                allOperands.add(o.clone());
+            }
+            operands.addAll(distinctOperands);
+            operands.addAll(allOperands);
         } else {
-            for (SetOperand operand: other.operands) operands.add(operand.clone());
+            for (SetOperand operand: other.operands) {
+                operands.add(operand.clone());
+            }
         }
         analyzer = other.analyzer;
         distinctAggInfo =
                 (other.distinctAggInfo != null) ? other.distinctAggInfo.clone() : null;
         tupleId = other.tupleId;
         toSqlString = (other.toSqlString != null) ? new String(other.toSqlString) : null;
-        hasAnalyticExprs_ = other.hasAnalyticExprs_;
-        withClause_ = (other.withClause_ != null) ? other.withClause_.clone() : null;
-        setOpsResultExprs_ = Expr.cloneList(other.setOpsResultExprs_);
+        hasAnalyticExprs = other.hasAnalyticExprs;
+        withClause = (other.withClause != null) ? other.withClause.clone() : null;
+        setOpsResultExprs = Expr.cloneList(other.setOpsResultExprs);
     }
 
     @Override
@@ -145,14 +150,16 @@ public class SetOperationStmt extends QueryStmt {
     @Override
     public void reset() {
         super.reset();
-        for (SetOperand op: operands) op.reset();
-        distinctOperands_.clear();
-        allOperands_.clear();
+        for (SetOperand op: operands) {
+            op.reset();
+        }
+        distinctOperands.clear();
+        allOperands.clear();
         distinctAggInfo = null;
         tupleId = null;
         toSqlString = null;
-        hasAnalyticExprs_ = false;
-        setOpsResultExprs_.clear();
+        hasAnalyticExprs = false;
+        setOpsResultExprs.clear();
     }
 
     @Override
@@ -163,20 +170,20 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     public List<SetOperand> getOperands() { return operands; }
-    public List<SetOperand> getDistinctOperands() { return distinctOperands_; }
-    public boolean hasDistinctOps() { return !distinctOperands_.isEmpty(); }
-    public List<SetOperand> getAllOperands() { return allOperands_; }
-    public boolean hasAllOps() { return !allOperands_.isEmpty(); }
+    public List<SetOperand> getDistinctOperands() { return distinctOperands; }
+    public boolean hasDistinctOps() { return !distinctOperands.isEmpty(); }
+    public List<SetOperand> getAllOperands() { return allOperands; }
+    public boolean hasAllOps() { return !allOperands.isEmpty(); }
     public AggregateInfo getDistinctAggInfo() { return distinctAggInfo; }
-    public boolean hasAnalyticExprs() { return hasAnalyticExprs_; }
+    public boolean hasAnalyticExprs() { return hasAnalyticExprs; }
     public TupleId getTupleId() { return tupleId; }
 
     public void removeAllOperands() {
-        operands.removeAll(allOperands_);
-        allOperands_.clear();
+        operands.removeAll(allOperands);
+        allOperands.clear();
     }
 
-    public List<Expr> getSetOpsResultExprs() { return setOpsResultExprs_; }
+    public List<Expr> getSetOpsResultExprs() { return setOpsResultExprs; }
 
     @Override
     public void getTables(Analyzer analyzer, Map<Long, Table> tableMap, Set<String> parentViewNameSet) throws AnalysisException {
@@ -200,7 +207,9 @@ public class SetOperationStmt extends QueryStmt {
      */
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);
 
@@ -226,10 +235,10 @@ public class SetOperationStmt extends QueryStmt {
         unnestOperands(analyzer);
 
         // Compute hasAnalyticExprs_
-        hasAnalyticExprs_ = false;
+        hasAnalyticExprs = false;
         for (SetOperand op: operands) {
             if (op.hasAnalyticExprs()) {
-                hasAnalyticExprs_ = true;
+                hasAnalyticExprs = true;
                 break;
             }
         }
@@ -247,10 +256,12 @@ public class SetOperationStmt extends QueryStmt {
         createSortInfo(analyzer);
 
         // Create unnested operands' smaps.
-        for (SetOperand operand: operands) setOperandSmap(operand, analyzer);
+        for (SetOperand operand: operands) {
+            setOperandSmap(operand, analyzer);
+        }
 
         // Create distinctAggInfo, if necessary.
-        if (!distinctOperands_.isEmpty()) {
+        if (!distinctOperands.isEmpty()) {
             // Aggregate produces exactly the same tuple as the original setOp stmt.
             ArrayList<Expr> groupingExprs = Expr.cloneList(resultExprs);
             try {
@@ -262,11 +273,15 @@ public class SetOperationStmt extends QueryStmt {
             }
         }
 
-        setOpsResultExprs_ = Expr.cloneList(resultExprs);
-        if (evaluateOrderBy) createSortTupleInfo(analyzer);
+        setOpsResultExprs = Expr.cloneList(resultExprs);
+        if (evaluateOrderBy) {
+            createSortTupleInfo(analyzer);
+        }
         baseTblResultExprs = resultExprs;
 
-        if (hasOutFileClause()) outFileClause.analyze(analyzer, resultExprs);
+        if (hasOutFileClause()) {
+            outFileClause.analyze(analyzer, resultExprs);
+        }
     }
 
     /**
@@ -297,7 +312,7 @@ public class SetOperationStmt extends QueryStmt {
     private void unnestOperands(Analyzer analyzer) throws AnalysisException {
         if (operands.size() == 1) {
             // ValuesStmt for a single row.
-            allOperands_.add(operands.get(0));
+            allOperands.add(operands.get(0));
             return;
         }
         // find index of first ALL operand
@@ -314,23 +329,27 @@ public class SetOperationStmt extends QueryStmt {
         Preconditions.checkState(firstAllIdx != 1);
 
         // unnest DISTINCT operands
-        Preconditions.checkState(distinctOperands_.isEmpty());
+        Preconditions.checkState(distinctOperands.isEmpty());
         for (int i = 0; i < firstAllIdx; ++i) {
-            unnestOperand(distinctOperands_, Qualifier.DISTINCT, operands.get(i));
+            unnestOperand(distinctOperands, Qualifier.DISTINCT, operands.get(i));
         }
 
         // unnest ALL operands
-        Preconditions.checkState(allOperands_.isEmpty());
+        Preconditions.checkState(allOperands.isEmpty());
         for (int i = firstAllIdx; i < operands.size(); ++i) {
-            unnestOperand(allOperands_, Qualifier.ALL, operands.get(i));
+            unnestOperand(allOperands, Qualifier.ALL, operands.get(i));
         }
 
-        for (SetOperand op: distinctOperands_) op.setQualifier(Qualifier.DISTINCT);
-        for (SetOperand op: allOperands_) op.setQualifier(Qualifier.ALL);
+        for (SetOperand op: distinctOperands) {
+            op.setQualifier(Qualifier.DISTINCT);
+        }
+        for (SetOperand op: allOperands) {
+            op.setQualifier(Qualifier.ALL);
+        }
 
         operands.clear();
-        operands.addAll(distinctOperands_);
-        operands.addAll(allOperands_);
+        operands.addAll(distinctOperands);
+        operands.addAll(allOperands);
     }
 
     /**
@@ -488,10 +507,16 @@ public class SetOperationStmt extends QueryStmt {
                 if (slotRef == null) {
                     isNullable |= resultExpr.isNullable();
                 } else if (slotRef.getDesc().getIsNullable()
-                        || analyzer.isOuterJoined(slotRef.getDesc().getParent().getId())) isNullable = true;
-                if (op.hasAnalyticExprs()) continue;
+                        || analyzer.isOuterJoined(slotRef.getDesc().getParent().getId())) {
+                    isNullable = true;
+                }
+                if (op.hasAnalyticExprs()) {
+                    continue;
+                }
                 slotRef = resultExpr.unwrapSlotRef(true);
-                if (slotRef == null) continue;
+                if (slotRef == null) {
+                    continue;
+                }
                 // analyzer.registerValueTransfer(outputSlotRef.getSlotId(), slotRef.getSlotId());
             }
             // If all the child slots are not nullable, then the SetOps output slot should not
@@ -511,16 +536,22 @@ public class SetOperationStmt extends QueryStmt {
         TupleDescriptor tupleDesc = analyzer.getDescTbl().getTupleDesc(tupleId);
         // to keep things simple we materialize all grouping exprs = output slots,
         // regardless of what's being referenced externally
-        if (!distinctOperands_.isEmpty()) tupleDesc.materializeSlots();
+        if (!distinctOperands.isEmpty()) {
+            tupleDesc.materializeSlots();
+        }
 
-        if (evaluateOrderBy) sortInfo.materializeRequiredSlots(analyzer, null);
+        if (evaluateOrderBy) {
+            sortInfo.materializeRequiredSlots(analyzer, null);
+        }
 
         // collect operands' result exprs
         List<SlotDescriptor> outputSlots = tupleDesc.getSlots();
         List<Expr> exprs = Lists.newArrayList();
         for (int i = 0; i < outputSlots.size(); ++i) {
             SlotDescriptor slotDesc = outputSlots.get(i);
-            if (!slotDesc.isMaterialized()) continue;
+            if (!slotDesc.isMaterialized()) {
+                continue;
+            }
             for (SetOperand op: operands) {
                 exprs.add(op.getQueryStmt().getBaseTblResultExprs().get(i));
             }
@@ -575,7 +606,9 @@ public class SetOperationStmt extends QueryStmt {
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
-        for (SetOperand op: operands) op.getQueryStmt().rewriteExprs(rewriter);
+        for (SetOperand op: operands) {
+            op.getQueryStmt().rewriteExprs(rewriter);
+        }
         if (orderByElements != null) {
             for (OrderByElement orderByElem: orderByElements) {
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
@@ -595,13 +628,17 @@ public class SetOperationStmt extends QueryStmt {
 
     @Override
     public void collectTableRefs(List<TableRef> tblRefs) {
-        for (SetOperand op: operands) op.getQueryStmt().collectTableRefs(tblRefs);
+        for (SetOperand op: operands) {
+            op.getQueryStmt().collectTableRefs(tblRefs);
+        }
     }
 
     @Override
     public List<TupleId> collectTupleIds() {
         List<TupleId> result = Lists.newArrayList();
-        for (SetOperand op: operands) result.addAll(op.getQueryStmt().collectTupleIds());
+        for (SetOperand op: operands) {
+            result.addAll(op.getQueryStmt().collectTupleIds());
+        }
         return result;
     }
 
@@ -611,8 +648,8 @@ public class SetOperationStmt extends QueryStmt {
             return toSqlString;
         }
         StringBuilder strBuilder = new StringBuilder();
-        if (withClause_ != null) {
-            strBuilder.append(withClause_.toSql());
+        if (withClause != null) {
+            strBuilder.append(withClause.toSql());
             strBuilder.append(" ");
         }
         Preconditions.checkState(operands.size() > 0);
@@ -660,6 +697,57 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
+    public String toDigest() {
+        StringBuilder strBuilder = new StringBuilder();
+        if (withClause != null) {
+            strBuilder.append(withClause.toDigest());
+            strBuilder.append(" ");
+        }
+
+        strBuilder.append(operands.get(0).getQueryStmt().toDigest());
+        for (int i = 1; i < operands.size() - 1; ++i) {
+            strBuilder.append(
+                    " " + operands.get(i).getOperation().toString() + " "
+                            + ((operands.get(i).getQualifier() == Qualifier.ALL) ? "ALL " : ""));
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append("(");
+            }
+            strBuilder.append(operands.get(i).getQueryStmt().toDigest());
+            if (operands.get(i).getQueryStmt() instanceof SetOperationStmt) {
+                strBuilder.append(")");
+            }
+        }
+        // Determine whether we need parenthesis around the last Set operand.
+        SetOperand lastOperand = operands.get(operands.size() - 1);
+        QueryStmt lastQueryStmt = lastOperand.getQueryStmt();
+        strBuilder.append(" " + lastOperand.getOperation().toString() + " "
+                + ((lastOperand.getQualifier() == Qualifier.ALL) ? "ALL " : ""));
+        if (lastQueryStmt instanceof SetOperationStmt || ((hasOrderByClause() || hasLimitClause()) &&
+                !lastQueryStmt.hasLimitClause() &&
+                !lastQueryStmt.hasOrderByClause())) {
+            strBuilder.append("(");
+            strBuilder.append(lastQueryStmt.toDigest());
+            strBuilder.append(")");
+        } else {
+            strBuilder.append(lastQueryStmt.toDigest());
+        }
+        // Order By clause
+        if (hasOrderByClause()) {
+            strBuilder.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                strBuilder.append(orderByElements.get(i).getExpr().toDigest());
+                strBuilder.append(orderByElements.get(i).getIsAsc() ? " ASC" : " DESC");
+                strBuilder.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+        // Limit clause.
+        if (hasLimitClause()) {
+            strBuilder.append(limitElement.toDigest());
+        }
+        return strBuilder.toString();
+    }
+
+    @Override
     public ArrayList<String> getColLabels() {
         Preconditions.checkState(operands.size() > 0);
         return operands.get(0).getQueryStmt().getColLabels();
@@ -694,7 +782,7 @@ public class SetOperationStmt extends QueryStmt {
 
         // Effective qualifier. Should not be reset() to preserve changes made during
         // distinct propagation and unnesting that are needed after rewriting Subqueries.
-        private Qualifier qualifier_;
+        private Qualifier qualifier;
 
         // ///////////////////////////////////////
         // BEGIN: Members that need to be reset()
@@ -706,7 +794,7 @@ public class SetOperationStmt extends QueryStmt {
         private Analyzer analyzer;
 
         // Map from SetOperationStmt's result slots to our resultExprs. Used during plan generation.
-        private final ExprSubstitutionMap smap_;
+        private final ExprSubstitutionMap smap;
 
         // END: Members that need to be reset()
         // ///////////////////////////////////////
@@ -714,8 +802,8 @@ public class SetOperationStmt extends QueryStmt {
         public SetOperand(QueryStmt queryStmt, Operation operation, Qualifier qualifier) {
             this.queryStmt = queryStmt;
             this.operation = operation;
-            qualifier_ = qualifier;
-            smap_ = new ExprSubstitutionMap();
+            this.qualifier = qualifier;
+            smap = new ExprSubstitutionMap();
         }
 
         public void analyze(Analyzer parent) throws AnalysisException, UserException {
@@ -724,7 +812,7 @@ public class SetOperationStmt extends QueryStmt {
             }
             // union statement support const expr, so not need to equal
             if (operation != Operation.UNION && queryStmt instanceof SelectStmt
-                    && ((SelectStmt) queryStmt).fromClause_.isEmpty()) {
+                    && ((SelectStmt) queryStmt).fromClause.isEmpty()) {
                 // equal select 1 to select * from (select 1) __DORIS_DUAL__ , because when using select 1 it will be
                 // transformed to a union node, select 1 is a literal, it doesn't have a tuple but will produce a slot,
                 // this will cause be core dump
@@ -742,14 +830,14 @@ public class SetOperationStmt extends QueryStmt {
                                 .set(i, new SelectListItem(item.getExpr(), col + "_" + count.toString()));
                     }
                 }
-                ((SelectStmt) queryStmt).fromClause_.add(new InlineViewRef("__DORIS_DUAL__", inlineQuery));
+                ((SelectStmt) queryStmt).fromClause.add(new InlineViewRef("__DORIS_DUAL__", inlineQuery));
                 List<SelectListItem> slist = ((SelectStmt) queryStmt).selectList.getItems();
                 slist.clear();
                 slist.add(SelectListItem.createStarItem(null));
             }
             // Oracle and ms-SQLServer do not support INTERSECT ALL and EXCEPT ALL, postgres support it,
             // but it is very ambiguous
-            if (qualifier_ == Qualifier.ALL && (operation == Operation.EXCEPT || operation == Operation.INTERSECT)) {
+            if (qualifier == Qualifier.ALL && (operation == Operation.EXCEPT || operation == Operation.INTERSECT)) {
                 throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualifier.");
             }
             analyzer = new Analyzer(parent);
@@ -758,12 +846,12 @@ public class SetOperationStmt extends QueryStmt {
 
         public boolean isAnalyzed() { return analyzer != null; }
         public QueryStmt getQueryStmt() { return queryStmt; }
-        public Qualifier getQualifier() { return qualifier_; }
+        public Qualifier getQualifier() { return qualifier; }
         public Operation getOperation() {
             return operation;
         }
         // Used for propagating DISTINCT.
-        public void setQualifier(Qualifier qualifier) { qualifier_ = qualifier; }
+        public void setQualifier(Qualifier qualifier) { this.qualifier = qualifier; }
 
         public void setOperation(Operation operation) {
             this.operation =operation;
@@ -772,7 +860,7 @@ public class SetOperationStmt extends QueryStmt {
             this.queryStmt = queryStmt;
         }
         public Analyzer getAnalyzer() { return analyzer; }
-        public ExprSubstitutionMap getSmap() { return smap_; }
+        public ExprSubstitutionMap getSmap() { return smap; }
 
         public boolean hasAnalyticExprs() {
             if (queryStmt instanceof SelectStmt) {
@@ -789,15 +877,15 @@ public class SetOperationStmt extends QueryStmt {
         private SetOperand(SetOperand other) {
             queryStmt = other.queryStmt.clone();
             this.operation = other.operation;
-            qualifier_ = other.qualifier_;
+            qualifier = other.qualifier;
             analyzer = other.analyzer;
-            smap_ = other.smap_.clone();
+            smap = other.smap.clone();
         }
 
         public void reset() {
             queryStmt.reset();
             analyzer = null;
-            smap_.clear();
+            smap.clear();
         }
 
         @Override

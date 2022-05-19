@@ -42,7 +42,8 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -50,9 +51,6 @@ import org.junit.Test;
 import java.lang.reflect.InvocationTargetException;
 import java.util.List;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class AuthTest {
 
@@ -86,6 +84,8 @@ public class AuthTest {
                     resolvedIPs.add("20.1.1.1");
                     resolvedIPs.add("20.1.1.2");
                     resolvedIPs.add("20.1.1.3");
+                    break;
+                default:
                     break;
             }
             return true;

@@ -105,7 +105,7 @@ POST /_bulk
 
 ### Doris中创建ES外表
 
-具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.html)
+具体建表语法参照：[CREATE TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
 
 ```
 CREATE EXTERNAL TABLE `test` (

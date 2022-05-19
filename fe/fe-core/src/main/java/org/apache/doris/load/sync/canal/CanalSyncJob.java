@@ -36,11 +36,9 @@ import org.apache.doris.load.sync.SyncJob;
 
 import com.alibaba.otter.canal.client.CanalConnector;
 import com.alibaba.otter.canal.client.CanalConnectors;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -275,6 +273,8 @@ public class CanalSyncJob extends SyncJob {
                 case CANCELLED:
                     updateState(JobState.CANCELLED, true);
                     break;
+                default:
+                    throw new UserException("job state is invalid: " + jobState);
             }
         } catch (UserException e) {
             LOG.error(new LogBuilder(LogKey.SYNC_JOB, id)

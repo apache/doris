@@ -1,6 +1,3 @@
-#ifndef SSE2NEON_H
-#define SSE2NEON_H
-
 // This header file provides a simple API translation layer
 // between SSE intrinsics to their corresponding Arm/Aarch64 NEON versions
 //
@@ -39,6 +36,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+#pragma once
 
 #if defined(__GNUC__) || defined(__clang__)
 
@@ -3121,6 +3120,4 @@ FORCE_INLINE void _mm_clflush(void const* p) {
 #if defined(__GNUC__) || defined(__clang__)
 #pragma pop_macro("ALIGN_STRUCT")
 #pragma pop_macro("FORCE_INLINE")
-#endif
-
 #endif

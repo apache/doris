@@ -28,8 +28,8 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
-import java.lang.management.ThreadMXBean;
 import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -92,7 +92,9 @@ public class JvmStats {
         int threadsTerminated = 0;
         long threadIds[] = threadMXBean.getAllThreadIds();
         for (ThreadInfo threadInfo : threadMXBean.getThreadInfo(threadIds, 0)) {
-            if (threadInfo == null) continue; // race protection
+            if (threadInfo == null) {
+                continue; // race protection
+            }
             switch (threadInfo.getThreadState()) {
                 case NEW:           threadsNew++;           break;
                 case RUNNABLE:      threadsRunnable++;      break;

@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/runtime-profile.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
-#define DORIS_BE_SRC_COMMON_UTIL_RUNTIME_PROFILE_H
+#pragma once
 
 #include <sys/resource.h>
 #include <sys/time.h>
@@ -572,5 +571,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

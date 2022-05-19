@@ -17,15 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.FakeCatalog;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -73,7 +73,7 @@ public class ShowAlterStmtTest {
         stmt.analyzeSyntax(analyzer);
         Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb`", stmt.toString());
     }
-    
+
     @Test
     public void testAlterStmt2() throws UserException, AnalysisException {
         SlotRef slotRef = new SlotRef(null, "TableName");
@@ -85,7 +85,7 @@ public class ShowAlterStmtTest {
         Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 1, 2",
                 stmt.toString());
     }
-    
+
     @Test
     public void testAlterStmt3() throws UserException, AnalysisException {
         SlotRef slotRef = new SlotRef(null, "CreateTime");

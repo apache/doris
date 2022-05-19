@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/hash-table.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
-#define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_H
+#pragma once
 
 #include <vector>
 
@@ -440,5 +439,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

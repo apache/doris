@@ -53,7 +53,10 @@ under the License.
       1. Download：`brew install thrift@0.13.0`
       2. Establish soft connection： 
         `mkdir -p ./thirdparty/installed/bin`
+        # For ARM macOS
         `ln -s /opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
+        # For Intel macOS
+        `ln -s /usr/local/Cellar/thrift@0.13.0/0.13.0/bin/thrift ./thirdparty/installed/bin/thrift`
       
    Note：The error that the version cannot be found may be reported when MacOS execute `brew install thrift@0.13.0`. The solution is execute at the terminal as follows:
       1. `brew tap-new $USER/local-tap`
@@ -80,6 +83,9 @@ under the License.
 
 If you are developing on the OS which lack of support to run `shell script` and `make` such as Windows, a workround here 
 is generate codes in Linux and copy them back. Using Docker should also be an option.
+
+5. If a help document has not been generated, go to the docs directory and run`sh build_help_zip.sh`，
+   Then copy help-resource.zip from build to fe/fe-core/target/classes
 
 ## 2. Debug
 

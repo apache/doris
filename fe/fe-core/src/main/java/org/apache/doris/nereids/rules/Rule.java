@@ -20,14 +20,14 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.pattern.Pattern;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
 
 /**
  * Abstract class for all rules.
  */
-public abstract class Rule {
+public abstract class Rule<TYPE extends TreeNode> {
     private final RuleType ruleType;
     private final Pattern pattern;
     private final RulePromise rulePromise;
@@ -57,9 +57,9 @@ public abstract class Rule {
         return pattern;
     }
 
-    public boolean check(Plan<?> plan, PlannerContext context) {
+    public boolean check(TYPE node, PlannerContext context) {
         return true;
     }
 
-    public abstract List<Plan<?>> transform(Plan<?> plan, PlannerContext context) throws AnalysisException;
+    public abstract List<TYPE> transform(TYPE node, PlannerContext context) throws AnalysisException;
 }

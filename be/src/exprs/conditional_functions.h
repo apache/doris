@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/conditional-functions.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -138,5 +137,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

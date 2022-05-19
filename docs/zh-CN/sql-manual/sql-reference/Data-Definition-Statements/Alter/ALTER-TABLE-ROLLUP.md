@@ -32,7 +32,7 @@ ALTER TABLE ROLLUP
 
 ### Description
 
-该语句用于对已有 table 进行 rollup 进行修改操作。rollup 是异步操作，任务提交成功则返回，之后可使用[SHOW ALTER](../../Show-Statements/SHOW-ALTER.html) 命令查看进度。
+该语句用于对已有 table 进行 rollup 进行修改操作。rollup 是异步操作，任务提交成功则返回，之后可使用[SHOW ALTER](../../Show-Statements/SHOW-ALTER.md) 命令查看进度。
 
 语法：
 

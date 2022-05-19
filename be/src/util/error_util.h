@@ -18,8 +18,7 @@
 // https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/error-util.h
 // and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_ERROR_UTIL_H
-#define DORIS_BE_SRC_UTIL_ERROR_UTIL_H
+#pragma once
 
 #include <string>
 
@@ -30,5 +29,3 @@ namespace doris {
 // Returns empty string if errno is 0.
 std::string get_str_err_msg();
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_ERROR_UTIL_H

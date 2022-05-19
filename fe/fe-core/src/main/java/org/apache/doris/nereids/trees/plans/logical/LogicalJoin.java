@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -31,7 +32,11 @@ import java.util.List;
 /**
  * Logical join plan node.
  */
-public class LogicalJoin extends LogicalBinary {
+public class LogicalJoin<
+            LEFT_CHILD_TYPE extends Plan,
+            RIGHT_CHILD_TYPE extends Plan>
+        extends LogicalBinary<LogicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
     private final JoinType joinType;
     private final Expression onClause;
 
@@ -43,7 +48,7 @@ public class LogicalJoin extends LogicalBinary {
      * @param left left child of join node
      * @param right right child of join node
      */
-    public LogicalJoin(JoinType joinType, Expression onClause, LogicalPlan left, LogicalPlan right) {
+    public LogicalJoin(JoinType joinType, Expression onClause, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
         super(NodeType.LOGICAL_JOIN, left, right);
         this.joinType = joinType;
         this.onClause = onClause;

@@ -32,10 +32,10 @@ CREATE EXTERNAL TABLE
 
 ### Description
 
-此语句用来创建外部表，具体语法参阅 [CREATE TABLE](./CREATE-TABLE.html)。
+此语句用来创建外部表，具体语法参阅 [CREATE TABLE](./CREATE-TABLE.md)。
 
 主要通过 ENGINE 类型来标识是哪种类型的外部表，目前可选 MYSQL、BROKER、HIVE、ICEBERG
-
+、HUDI
 1. 如果是 mysql，则需要在 properties 提供以下信息：
 
    ```sql
@@ -48,6 +48,7 @@ CREATE EXTERNAL TABLE
    	"table" = "table_name"
    )
    ```
+   以及一个可选属性"charset"，可以用来设置mysql连接的字符集, 默认值是"utf8"。如有需要,你可以设置为另外一个字符集"utf8mb4"。
 
    注意：
 
@@ -110,6 +111,18 @@ CREATE EXTERNAL TABLE
    hive.metastore.uris 是 hive metastore 服务地址； 
    catalog.type 默认为 HIVE_CATALOG。当前仅支持 HIVE_CATALOG，后续会支持更多 Iceberg catalog 类型。
 
+5. 如果是 hudi，则需要在 properties 中提供以下信息：
+
+   ```sql
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   )
+   ````
+
+   其中 hudi.database 是 hive 表对应的库名字，hudi.table 是 hive 表的名字，hive.metastore.uris 是 hive metastore 服务地址。
+
 ### Example
 
 1. 创建MYSQL外部表
@@ -133,7 +146,8 @@ CREATE EXTERNAL TABLE
    	"user" = "mysql_user",
    	"password" = "mysql_passwd",
    	"database" = "mysql_db_test",
-   	"table" = "mysql_table_test"
+	"table" = "mysql_table_test",
+	"charset" = "utf8mb4"
    )
    ```
 
@@ -223,6 +237,32 @@ CREATE EXTERNAL TABLE
    );
    ```
 
+5. 创建一个 Hudi 外表
+
+   创建时不指定schema(推荐)
+   ```sql
+   CREATE TABLE example_db.t_hudi
+   ENGINE=HUDI
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   );
+   ````
+
+   创建时指定schema
+   ```sql
+   CREATE TABLE example_db.t_hudi (
+      `id` int NOT NULL COMMENT "id number",
+      `name` varchar(10) NOT NULL COMMENT "user name"
+   )
+   ENGINE=HUDI
+   PROPERTIES (
+   "hudi.database" = "hudi_db_in_hive_metastore",
+   "hudi.table" = "hudi_table_in_hive_metastore",
+   "hudi.hive.metastore.uris" = "thrift://127.0.0.1:9083"
+   );
+   ````
 
 ### Keywords
 

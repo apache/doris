@@ -17,8 +17,9 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.SlotId;
+
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 

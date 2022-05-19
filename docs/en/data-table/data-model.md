@@ -136,14 +136,14 @@ Then when this batch of data is imported into Doris correctly, the final storage
 
 As you can see, there is only one line of aggregated data left for 10,000 users. The data of other users are consistent with the original data. Here we first explain the aggregated data of user 10000:
 
-The first five columns remain unchanged, starting with column 6 `last_visit_date':
+The first five columns remain unchanged, starting with column 6 `last_visit_date`:
 
-*`2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00'.
-> Note: For data in the same import batch, the order of replacement is not guaranteed for the aggregation of REPLACE. For example, in this case, it may be `2017-10-01 06:00'. For data from different imported batches, it can be guaranteed that the data from the latter batch will replace the former batch.
+*`2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00`.
+> Note: For data in the same import batch, the order of replacement is not guaranteed for the aggregation of REPLACE. For example, in this case, it may be `2017-10-01 06:00`. For data from different imported batches, it can be guaranteed that the data from the latter batch will replace the former batch.
 
-*`35`: Because the aggregation type of the `cost'column is SUM, 35 is accumulated from 20 + 15.
-*`10`: Because the aggregation type of the`max_dwell_time'column is MAX, 10 and 2 take the maximum and get 10.
-*`2`: Because the aggregation type of `min_dwell_time'column is MIN, 10 and 2 take the minimum value and get 2.
+*`35`: Because the aggregation type of the `cost`column is SUM, 35 is accumulated from 20 + 15.
+*`10`: Because the aggregation type of the`max_dwell_time`column is MAX, 10 and 2 take the maximum and get 10.
+*`2`: Because the aggregation type of `min_dwell_time`column is MIN, 10 and 2 take the minimum value and get 2.
 
 After aggregation, Doris ultimately only stores aggregated data. In other words, detailed data will be lost and users can no longer query the detailed data before aggregation.
 
@@ -254,14 +254,14 @@ This is a typical user base information table. There is no aggregation requireme
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-`city` VARCHAR (20) COMMENT `User City',
-`age` SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
-`sex` TINYINT COMMENT "用户性别",
-`phone` LARGEINT COMMENT "用户电话",
-`address` VARCHAR (500) COMMENT'25143;',
-`register_time` DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
+`user_id` LARGEINT NOT NULL COMMENT "user id",
+`username` VARCHAR (50) NOT NULL COMMENT "username",
+`city` VARCHAR (20) COMMENT "user city",
+`age` SMALLINT COMMENT "age",
+`sex` TINYINT COMMENT "sex",
+`phone` LARGEINT COMMENT "phone",
+`address` VARCHAR (500) COMMENT "address",
+`register_time` DATETIME COMMENT "register time"
 )
 Unique Key (`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -276,10 +276,10 @@ This table structure is exactly the same as the following table structure descri
 |---|---|---|---|
 | user_id | BIGINT | | user id|
 | username | VARCHAR (50) | | User nickname|
-| City | VARCHAR (20) | REPLACE | User City|
+| city | VARCHAR (20) | REPLACE | User City|
 | age | SMALLINT | REPLACE | User Age|
 | sex | TINYINT | REPLACE | User Gender|
-| Phone | LARGEINT | REPLACE | User Phone|
+| phone | LARGEINT | REPLACE | User Phone|
 | address | VARCHAR (500) | REPLACE | User Address|
 | register_time | DATETIME | REPLACE | User registration time|
 
@@ -288,13 +288,13 @@ And table-building statements:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-`username` VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-`city` VARCHAR (20) REPLACE COMMENT `User City',
-`sex` TINYINT REPLACE COMMENT "用户性别",
-`phone` LARGEINT REPLACE COMMENT "25143;"
-`address` VARCHAR(500) REPLACE COMMENT "用户地址",
-`register_time` DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
+`user_id` LARGEINT NOT NULL COMMENT "user id",
+`username` VARCHAR (50) NOT NULL COMMENT "username",
+`city` VARCHAR (20) REPLACE COMMENT "user city",
+`sex` TINYINT REPLACE COMMENT "sex",
+`phone` LARGEINT REPLACE COMMENT "phone",
+`address` VARCHAR(500) REPLACE COMMENT "address",
+`register_time` DATETIME REPLACE COMMENT "register time"
 )
 AGGREGATE KEY(`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -311,23 +311,23 @@ In some multidimensional analysis scenarios, data has neither primary keys nor a
 
 |ColumnName|Type|SortKey|Comment|
 |---|---|---|---|
-| Timstamp | DATETIME | Yes | Logging Time|
-| Type | INT | Yes | Log Type|
-|error_code|INT|Yes|error code|
+| timstamp | DATETIME | Yes | Logging Time|
+| type | INT | Yes | Log Type|
+| error_code|INT|Yes|error code|
 | Error_msg | VARCHAR (1024) | No | Error Details|
-|op_id|BIGINT|No|operator id|
-|op_time|DATETIME|No|operation time|
+| op_id|BIGINT|No|operator id|
+| op_time|DATETIME|No|operation time|
 
 The TABLE statement is as follows:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
-    `type` INT NOT NULL COMMENT "日志类型",
-    `error_code` INT COMMENT "错误码",
-    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
-    `op_id` BIGINT COMMENT "负责人id",
-    `op_time` DATETIME COMMENT "处理时间"
+    `timestamp` DATETIME NOT NULL COMMENT "log time",
+    `type` INT NOT NULL COMMENT "log type",
+    `error_code` INT COMMENT "error code",
+    `error_msg` VARCHAR(1024) COMMENT "error detail",
+    `op_id` BIGINT COMMENT "operater id",
+    `op_time` DATETIME COMMENT "operate time"
 )
 DUPLICATE KEY(`timestamp`, `type`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
@@ -337,9 +337,9 @@ PROPERTIES (
 ```
 
 This data model is different from Aggregate and Uniq models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
-The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section ** Prefix Index **. On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
+The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section **Prefix Index**.) On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
 
-This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the ** Limitations of the Aggregation Model ** section.
+This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the **Limitations of the Aggregation Model** section.
 
 ## Limitations of aggregation model
 
@@ -351,9 +351,9 @@ The hypothesis table is structured as follows:
 
 |ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
-| userid | LARGEINT | | user id|
+| user\_id | LARGEINT | | user id|
 | date | DATE | | date of data filling|
-| Cost | BIGINT | SUM | Total User Consumption|
+| cost | BIGINT | SUM | Total User Consumption|
 
 Assume that there are two batches of data that have been imported into the storage engine as follows:
 
@@ -395,7 +395,7 @@ Let's take the most basic count (*) query as an example:
 
 `SELECT COUNT(*) FROM table;`
 
-In other databases, such queries return results quickly. Because in the implementation, we can get the query result by counting rows at the time of import and saving count statistics information, or by scanning only a column of data to get count value at the time of query, with very little overhead. But in Doris's aggregation model, the overhead of this query ** is very large **.
+In other databases, such queries return results quickly. Because in the implementation, we can get the query result by counting rows at the time of import and saving count statistics information, or by scanning only a column of data to get count value at the time of query, with very little overhead. But in Doris's aggregation model, the overhead of this query is **very large**.
 
 Let's take the data as an example.
 
@@ -423,7 +423,7 @@ Because the final aggregation result is:
 |10002|2017-11-21|39|
 |10003|2017-11-22|22|
 
-So `select count (*) from table;` The correct result should be **4**. But if we only scan the `user_id'column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
+So `select count (*) from table;` The correct result should be **4**. But if we only scan the `user_id`column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
 
 In order to get the correct result, we must read the data of `user_id` and `date`, and **together with aggregate** when querying, to return the correct result of **4**. That is to say, in the count (*) query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date`) and aggregate them to get the semantically correct results. When aggregated columns are large, count (*) queries need to scan a large amount of data.
 
@@ -446,7 +446,7 @@ Duplicate model has no limitation of aggregation model. Because the model does n
 
 ## Suggestions for Choosing Data Model
 
-Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
+Because the data model was established when the table was built, and **could not be modified. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
 2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited (because the essence is REPLACE, there is no such aggregation as SUM).

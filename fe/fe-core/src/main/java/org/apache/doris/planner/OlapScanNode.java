@@ -73,7 +73,6 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -498,7 +497,7 @@ public class OlapScanNode extends ScanNode {
             TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
             TPaloScanRange paloRange = new TPaloScanRange();
             paloRange.setDbName("");
-            paloRange.setSchemaHash("");
+            paloRange.setSchemaHash("0");
             paloRange.setVersion(visibleVersionStr);
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
@@ -612,7 +611,7 @@ public class OlapScanNode extends ScanNode {
         // Step2: select best rollup
         long start = System.currentTimeMillis();
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            //This function is compatible with the INDEX selection logic of ROLLUP, 
+            //This function is compatible with the INDEX selection logic of ROLLUP,
             //so the Duplicate table here returns base index directly
             //and the selection logic of materialized view is selected in "MaterializedViewSelector"
             selectedIndexId = olapTable.getBaseIndexId();

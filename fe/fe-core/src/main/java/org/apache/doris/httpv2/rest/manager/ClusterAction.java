@@ -26,7 +26,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
 
 import com.google.common.collect.Maps;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,7 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -47,13 +45,13 @@ public class ClusterAction extends RestBaseController {
 
     // Returns mysql and http connection information for the cluster.
     // {
-    //		"mysql":[
-    //			""
-    //		],
-    //		"http":[
-    //			""
-    //		]
-    //	}
+    //   "mysql":[
+    //     ""
+    //   ],
+    //   "http":[
+    //     ""
+    //   ]
+    // }
     @RequestMapping(path = "/cluster_info/conn_info", method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);

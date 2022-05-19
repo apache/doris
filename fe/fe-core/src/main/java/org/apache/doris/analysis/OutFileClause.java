@@ -17,17 +17,17 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.backup.HDFSStorage;
+import org.apache.doris.backup.HdfsStorage;
 import org.apache.doris.backup.S3Storage;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -37,7 +37,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -320,6 +319,7 @@ public class OutFileClause {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
                         column.add("byte_array");
                     }
+                    break;
                 default:
                     throw new AnalysisException("currently parquet do not support column type: " + expr.getType().getPrimitiveType());
             }
@@ -335,7 +335,7 @@ public class OutFileClause {
 
         if (filePath.startsWith(LOCAL_FILE_PREFIX)) {
             if (!Config.enable_outfile_to_local) {
-                throw new AnalysisException("Exporting results to local disk is not allowed." 
+                throw new AnalysisException("Exporting results to local disk is not allowed."
                     + " To enable this feature, you need to add `enable_outfile_to_local=true` in fe.conf and restart FE");
             }
             isLocalOutput = true;
@@ -439,7 +439,7 @@ public class OutFileClause {
         if (storageType == StorageBackend.StorageType.S3) {
             S3Storage.checkS3(new CaseInsensitiveMap(brokerProps));
         } else if (storageType == StorageBackend.StorageType.HDFS) {
-            HDFSStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
+            HdfsStorage.checkHDFS(new CaseInsensitiveMap(brokerProps));
         }
 
         brokerDesc = new BrokerDesc(brokerName, storageType, brokerProps);
@@ -529,6 +529,15 @@ public class OutFileClause {
         return sb.toString();
     }
 
+    public String toDigest() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(" INTO OUTFILE '").append(" ? ").append(" FORMAT AS ").append(" ? ");
+        if (properties != null && !properties.isEmpty()) {
+            sb.append(" PROPERTIES(").append(" ? ").append(")");
+        }
+        return sb.toString();
+    }
+
     public TResultFileSinkOptions toSinkOptions() {
         TResultFileSinkOptions sinkOptions = new TResultFileSinkOptions(filePath, fileFormatType);
         if (isCsvFormat()) {
@@ -551,5 +560,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
-

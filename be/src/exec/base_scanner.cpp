@@ -107,10 +107,18 @@ Status BaseScanner::init_expr_ctxes() {
 
     // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
-        RETURN_IF_ERROR(
-                Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
-        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
-        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        if (_state->enable_vectorized_exec()) {
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(
+                    _state->obj_pool(), _pre_filter_texprs, &_vpre_filter_ctxs));
+            RETURN_IF_ERROR(vectorized::VExpr::prepare(_vpre_filter_ctxs, _state, *_row_desc,
+                                                       _mem_tracker));
+            RETURN_IF_ERROR(vectorized::VExpr::open(_vpre_filter_ctxs, _state));
+        } else {
+            RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
+                                                    &_pre_filter_ctxs));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        }
     }
 
     // Construct dest slots information
@@ -133,11 +141,21 @@ Status BaseScanner::init_expr_ctxes() {
                << ", name=" << slot_desc->col_name();
             return Status::InternalError(ss.str());
         }
-        ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
-        RETURN_IF_ERROR(ctx->open(_state));
-        _dest_expr_ctx.emplace_back(ctx);
+
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_vexpr_ctx.emplace_back(ctx);
+        } else {
+            ExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_expr_ctx.emplace_back(ctx);
+        }
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -260,6 +278,58 @@ Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     return Status::OK();
 }
 
+Status BaseScanner::filter_block(vectorized::Block* temp_block, size_t slot_num) {
+    // filter block
+    if (!_vpre_filter_ctxs.empty()) {
+        for (auto _vpre_filter_ctx : _vpre_filter_ctxs) {
+            auto old_rows = temp_block->rows();
+            RETURN_IF_ERROR(
+                    vectorized::VExprContext::filter_block(_vpre_filter_ctx, temp_block, slot_num));
+            _counter->num_rows_unselected += old_rows - temp_block->rows();
+        }
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::execute_exprs(vectorized::Block* output_block, vectorized::Block* temp_block) {
+    // Do vectorized expr here
+    Status status;
+    if (!_dest_vexpr_ctx.empty()) {
+        *output_block = vectorized::VExprContext::get_output_block_after_execute_exprs(
+                _dest_vexpr_ctx, *temp_block, status);
+        if (UNLIKELY(output_block->rows() == 0)) {
+            return status;
+        }
+    }
+
+    return Status::OK();
+}
+
+Status BaseScanner::fill_dest_block(vectorized::Block* dest_block,
+                                    std::vector<vectorized::MutableColumnPtr>& columns) {
+    if (columns.empty() || columns[0]->size() == 0) {
+        return Status::OK();
+    }
+
+    std::unique_ptr<vectorized::Block> temp_block(new vectorized::Block());
+    auto n_columns = 0;
+    for (const auto slot_desc : _src_slot_descs) {
+        temp_block->insert(vectorized::ColumnWithTypeAndName(std::move(columns[n_columns++]),
+                                                             slot_desc->get_data_type_ptr(),
+                                                             slot_desc->col_name()));
+    }
+
+    RETURN_IF_ERROR(BaseScanner::filter_block(temp_block.get(), _dest_tuple_desc->slots().size()));
+
+    if (_dest_vexpr_ctx.empty()) {
+        *dest_block = *temp_block;
+    } else {
+        RETURN_IF_ERROR(BaseScanner::execute_exprs(dest_block, temp_block.get()));
+    }
+
+    return Status::OK();
+}
+
 void BaseScanner::fill_slots_of_columns_from_path(
         int start, const std::vector<std::string>& columns_from_path) {
     // values of columns from path can not be null
@@ -283,6 +353,10 @@ void BaseScanner::free_expr_local_allocations() {
 void BaseScanner::close() {
     if (!_pre_filter_ctxs.empty()) {
         Expr::close(_pre_filter_ctxs, _state);
+    }
+
+    if (_state->enable_vectorized_exec() && !_vpre_filter_ctxs.empty()) {
+        vectorized::VExpr::close(_vpre_filter_ctxs, _state);
     }
 }
 

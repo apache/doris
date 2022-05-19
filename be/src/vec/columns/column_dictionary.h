@@ -22,7 +22,10 @@
 #include <algorithm>
 
 #include "gutil/hash/string_hash.h"
+#include "olap/column_predicate.h"
+#include "olap/comparison_predicate.h"
 #include "olap/decimal12.h"
+#include "olap/in_list_predicate.h"
 #include "olap/uint24.h"
 #include "runtime/string_value.h"
 #include "util/slice.h"
@@ -32,11 +35,8 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/core/types.h"
 #include "vec/common/typeid_cast.h"
-#include "olap/column_predicate.h"
-#include "olap/comparison_predicate.h"
-#include "olap/in_list_predicate.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
 
@@ -98,12 +98,10 @@ public:
     }
 
     void insert_data(const char* pos, size_t /*length*/) override {
-        _codes.push_back(unaligned_load<T>(pos));
+        LOG(FATAL) << "insert_data not supported in ColumnDictionary";
     }
 
-    void insert_data(const T value) { _codes.push_back(value); }
-
-    void insert_default() override { _codes.push_back(T()); }
+    void insert_default() override { _codes.push_back(_dict.get_null_code()); }
 
     void clear() override {
         _codes.clear();
@@ -219,13 +217,12 @@ public:
     void insert_many_dict_data(const int32_t* data_array, size_t start_index,
                                const StringRef* dict_array, size_t data_num,
                                uint32_t dict_num) override {
-        if (!is_dict_inited()) {
+        if (_dict.empty()) {
             _dict.reserve(dict_num);
             for (uint32_t i = 0; i < dict_num; ++i) {
                 auto value = StringValue(dict_array[i].data, dict_array[i].size);
                 _dict.insert_value(value);
             }
-            _dict_inited = true;
         }
 
         char* end_ptr = (char*)_codes.get_end_ptr();
@@ -263,8 +260,6 @@ public:
         return _dict.find_codes(values);
     }
 
-    bool is_dict_inited() const { return _dict_inited; }
-
     bool is_dict_sorted() const { return _dict_sorted; }
 
     bool is_dict_code_converted() const { return _dict_code_converted; }
@@ -301,13 +296,17 @@ public:
             if (it != _inverted_index.end()) {
                 return it->second;
             }
-            return -1;
+            return -2; // -1 is null code
         }
 
-        inline StringValue& get_value(T code) { return _dict_data[code]; }
+        T get_null_code() { return -1; }
+
+        inline StringValue& get_value(T code) {
+            return code >= _dict_data.size() ? _null_value : _dict_data[code];
+        }
 
         inline void generate_hash_values() {
-            if (_hash_values.size() == 0) {
+            if (_hash_values.empty()) {
                 _hash_values.resize(_dict_data.size());
                 for (size_t i = 0; i < _dict_data.size(); i++) {
                     auto& sv = _dict_data[i];
@@ -380,7 +379,10 @@ public:
 
         size_t byte_size() { return _dict_data.size() * sizeof(_dict_data[0]); }
 
+        bool empty() { return _dict_data.empty(); }
+
     private:
+        StringValue _null_value = StringValue();
         StringValue::Comparator _comparator;
         // dict code -> dict value
         DictContainer _dict_data;
@@ -398,16 +400,12 @@ public:
 
 private:
     size_t _reserve_size;
-    bool _dict_inited = false;
     bool _dict_sorted = false;
     bool _dict_code_converted = false;
     Dictionary _dict;
     Container _codes;
 };
 
-template class ColumnDictionary<uint8_t>;
-template class ColumnDictionary<uint16_t>;
-template class ColumnDictionary<uint32_t>;
 template class ColumnDictionary<int32_t>;
 
 using ColumnDictI32 = vectorized::ColumnDictionary<doris::vectorized::Int32>;

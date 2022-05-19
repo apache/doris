@@ -170,7 +170,7 @@ constant
     ;
 
 comparisonOperator
-    : EQ | NEQ | NEQJ | LT | LTE | GT | GTE | NSEQ
+    : EQ | NEQ | LT | LTE | GT | GTE | NSEQ
     ;
 
 booleanValue

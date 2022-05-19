@@ -72,7 +72,7 @@ example:
 ## Build
 
 Other articles have already explained:
-* [Build with LDB toolchain ](https://doris.apache.org/zh-CN/installing/compilation-with-ldb-toolchain.html)
+* [Build with LDB toolchain ](../install/source-install/compilation-with-ldb-toolchain.md)
 * ......
 
 In order to debug, you need to add debugging parameters when fe starts, such as `-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005` .

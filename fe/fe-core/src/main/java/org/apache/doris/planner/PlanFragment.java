@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TPlanFragment;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -119,7 +118,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     private DataPartition outputPartition;
 
     // Whether query statistics is sent with every batch. In order to get the query
-    // statistics correctly when query contains limit, it is necessary to send query 
+    // statistics correctly when query contains limit, it is necessary to send query
     // statistics with every batch, or only in close.
     private boolean transferQueryStatisticsWithEveryBatch;
 
@@ -165,10 +164,16 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * different fragment.
      */
     public void setFragmentInPlanTree(PlanNode node) {
-        if (node == null) return;
+        if (node == null) {
+            return;
+        }
         node.setFragment(this);
-        if (node instanceof ExchangeNode) return;
-        for (PlanNode child : node.getChildren()) setFragmentInPlanTree(child);
+        if (node instanceof ExchangeNode) {
+            return;
+        }
+        for (PlanNode child : node.getChildren()) {
+            setFragmentInPlanTree(child);
+        }
     }
 
     /**
@@ -321,7 +326,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public PlanFragmentId getId() { return fragmentId; }
 
     public PlanFragment getDestFragment() {
-        if (destNode == null) return null;
+        if (destNode == null) {
+            return null;
+        }
         return destNode.getFragment();
     }
 

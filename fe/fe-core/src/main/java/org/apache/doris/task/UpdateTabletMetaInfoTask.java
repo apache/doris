@@ -29,7 +29,6 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -147,6 +146,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 break;
             }
+            default:
+                break;
         }
         updateTabletMetaInfoReq.setTabletMetaInfos(metaInfos);
         return updateTabletMetaInfoReq;

@@ -151,11 +151,12 @@ under the License.
                     </dependencies>
                     <configuration>
                         <configLocation>check/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>check/checkstyle/suppressions.xml</suppressionsLocation>
                         <encoding>UTF-8</encoding>
                         <consoleOutput>true</consoleOutput>
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
-                        <excludes>**/jmockit/**/*</excludes>
+                        <includeTestSourceDirectory>true</includeTestSourceDirectory>
                     </configuration>
                     <executions>
                         <execution>
@@ -211,7 +212,7 @@ under the License.
         <joda-time.version>2.10.1</joda-time.version>
         <commons-io.version>2.6</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
-        <junit.version>4.12</junit.version>
+        <junit.version>5.8.2</junit.version>
         <thrift.version>0.13.0</thrift.version>
         <log4j2.version>2.17.2</log4j2.version>
         <metrics-core.version>4.0.2</metrics-core.version>
@@ -248,7 +249,8 @@ under the License.
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>0.12.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
-        <!-- ATTN: avro version must be consistent with Iceberg version -->
+        <!-- hudi -->
+        <hudi.version>0.10.0</hudi.version>
         <parquet.version>1.10.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <scala.version>2.12.10</scala.version>
@@ -463,10 +465,17 @@ under the License.
                 <artifactId>json-simple</artifactId>
                 <version>${json-simple.version}</version>
             </dependency>
-            <!-- https://mvnrepository.com/artifact/junit/junit -->
+            <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-engine -->
             <dependency>
-                <groupId>junit</groupId>
-                <artifactId>junit</artifactId>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
+            <dependency>
+                <groupId>org.junit.vintage</groupId>
+                <artifactId>junit-vintage-engine</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
@@ -842,6 +851,20 @@ under the License.
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro</artifactId>
                 <version>${avro.version}</version>
+            </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->
+            <dependency>
+                <groupId>org.apache.hudi</groupId>
+                <artifactId>hudi-common</artifactId>
+                <version>${hudi.version}</version>
+            </dependency>
+
+            <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
+            <dependency>
+                <groupId>org.apache.hudi</groupId>
+                <artifactId>hudi-hadoop-mr</artifactId>
+                <version>${hudi.version}</version>
             </dependency>
 
             <dependency>

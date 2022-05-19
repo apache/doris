@@ -32,7 +32,7 @@ import java.util.Set;
  */
 public class AlterOperations {
     private Set<AlterOpType> currentOps = Sets.newHashSet();
-    
+
     public AlterOperations() {
     }
 

@@ -28,7 +28,7 @@ under the License.
 
 ### Description
 
-This command is used to create a table. The subject of this document describes the syntax for creating Doris self-maintained tables. For external table syntax, please refer to the [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.html) document.
+This command is used to create a table. The subject of this document describes the syntax for creating Doris self-maintained tables. For external table syntax, please refer to the [CREATE-EXTERNAL-TABLE](./CREATE-EXTERNAL-TABLE.md) document.
 
 ```sql
 CREATE TABLE [IF NOT EXISTS] [database.]table
@@ -149,7 +149,7 @@ distribution_info
 
 * `engine_type`
 
-    Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.html) document. Example:
+    Table engine type. All types in this document are OLAP. For other external table engine types, see [CREATE EXTERNAL TABLE](./CREATE-EXTERNAL-TABLE.md) document. Example:
 
     `ENGINE=olap`
 
@@ -534,7 +534,7 @@ distribution_info
 
 #### Partitioning and bucketing
 
-A table must specify the bucket column, but it does not need to specify the partition. For the specific introduction of partitioning and bucketing, please refer to the [Data Division](../../../../data-table/data-partition.html) document.
+A table must specify the bucket column, but it does not need to specify the partition. For the specific introduction of partitioning and bucketing, please refer to the [Data Division](../../../../data-table/data-partition.md) document.
 
 Tables in Doris can be divided into partitioned tables and non-partitioned tables. This attribute is determined when the table is created and cannot be changed afterwards. That is, for partitioned tables, you can add or delete partitions in the subsequent use process, and for non-partitioned tables, you can no longer perform operations such as adding partitions afterwards.
 
@@ -544,7 +544,7 @@ Therefore, it is recommended to confirm the usage method to build the table reas
 
 #### Dynamic Partition
 
-The dynamic partition function is mainly used to help users automatically manage partitions. By setting certain rules, the Doris system regularly adds new partitions or deletes historical partitions. Please refer to [Dynamic Partition](../../../../advanced/partition/dynamic-partition.html) document for more help.
+The dynamic partition function is mainly used to help users automatically manage partitions. By setting certain rules, the Doris system regularly adds new partitions or deletes historical partitions. Please refer to [Dynamic Partition](../../../../advanced/partition/dynamic-partition.md) document for more help.
 
 #### Materialized View
 
@@ -554,7 +554,7 @@ If the materialized view is created when the table is created, all subsequent da
 
 If you add a materialized view in the subsequent use process, if there is data in the table, the creation time of the materialized view depends on the current amount of data.
 
-For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.html).
+For the introduction of materialized views, please refer to the document [materialized views](../../../../advanced/materialized-view.md).
 
 #### Index
 

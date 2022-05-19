@@ -20,14 +20,16 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.NodeType;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
 /**
  * Expression for alias, such as col1 as c1.
  */
-public class Alias extends NamedExpression {
+public class Alias<CHILD_TYPE extends Expression> extends NamedExpression<Alias<CHILD_TYPE>>
+        implements UnaryExpression<Alias<CHILD_TYPE>, CHILD_TYPE> {
+
     private final ExprId exprId;
     private final String name;
     private final List<String> qualifier;
@@ -38,16 +40,11 @@ public class Alias extends NamedExpression {
      * @param child expression that alias represents for
      * @param name alias name
      */
-    public Alias(Expression child, String name) {
-        super(NodeType.ALIAS);
-        exprId = NamedExpression.newExprId();
+    public Alias(CHILD_TYPE child, String name) {
+        super(NodeType.ALIAS, child);
+        exprId = NamedExpressionUtil.newExprId();
         this.name = name;
         qualifier = Lists.newArrayList();
-        addChild(child);
-    }
-
-    public Expression child() {
-        return getChild(0);
     }
 
     @Override
@@ -66,7 +63,7 @@ public class Alias extends NamedExpression {
     }
 
     @Override
-    public Slot toAttribute() throws UnboundException {
+    public Slot toSlot() throws UnboundException {
         return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier);
     }
 

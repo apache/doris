@@ -24,13 +24,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Maps;
 import org.apache.commons.io.FileUtils;
 import org.junit.AfterClass;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Maps;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -39,11 +39,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.UUID;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 public class PluginMgrTest {
 
@@ -63,9 +58,9 @@ public class PluginMgrTest {
     @Before
     public void setUp() throws IOException {
         FileUtils.deleteQuietly(PluginTestUtil.getTestFile("target"));
-        assertFalse(Files.exists(PluginTestUtil.getTestPath("target")));
+        Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target")));
         Files.createDirectory(PluginTestUtil.getTestPath("target"));
-        assertTrue(Files.exists(PluginTestUtil.getTestPath("target")));
+        Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target")));
         Config.plugin_dir = PluginTestUtil.getTestPathString("target");
     }
 
@@ -73,38 +68,38 @@ public class PluginMgrTest {
     public void testInstallPluginZip() {
         try {
             // path "target/audit_plugin_demo" is where we are going to install the plugin
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
             InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("auditdemo.zip"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();
 
-            assertEquals(2, pluginMgr.getActivePluginList(PluginInfo.PluginType.AUDIT).size());
+            Assert.assertEquals(2, pluginMgr.getActivePluginList(PluginInfo.PluginType.AUDIT).size());
 
             Plugin p = pluginMgr.getActivePlugin("audit_plugin_demo", PluginInfo.PluginType.AUDIT);
 
-            assertNotNull(p);
-            assertTrue(p instanceof AuditPlugin);
-            assertTrue(((AuditPlugin) p).eventFilter(AuditEvent.EventType.AFTER_QUERY));
-            assertFalse(((AuditPlugin) p).eventFilter(AuditEvent.EventType.BEFORE_QUERY));
+            Assert.assertNotNull(p);
+            Assert.assertTrue(p instanceof AuditPlugin);
+            Assert.assertTrue(((AuditPlugin) p).eventFilter(AuditEvent.EventType.AFTER_QUERY));
+            Assert.assertFalse(((AuditPlugin) p).eventFilter(AuditEvent.EventType.BEFORE_QUERY));
 
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
-            assertEquals(1, pluginMgr.getAllDynamicPluginInfo().size());
+            Assert.assertEquals(1, pluginMgr.getAllDynamicPluginInfo().size());
             PluginInfo info = pluginMgr.getAllDynamicPluginInfo().get(0);
 
-            assertEquals("audit_plugin_demo", info.getName());
-            assertEquals(PluginInfo.PluginType.AUDIT, info.getType());
-            assertEquals("just for test", info.getDescription());
-            assertEquals("plugin.AuditPluginDemo", info.getClassName());
+            Assert.assertEquals("audit_plugin_demo", info.getName());
+            Assert.assertEquals(PluginInfo.PluginType.AUDIT, info.getType());
+            Assert.assertEquals("just for test", info.getDescription());
+            Assert.assertEquals("plugin.AuditPluginDemo", info.getClassName());
 
             pluginMgr.uninstallPlugin("audit_plugin_demo");
 
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
         } catch (IOException | UserException e) {
             e.printStackTrace();
@@ -116,34 +111,34 @@ public class PluginMgrTest {
     public void testInstallPluginLocal() {
         try {
             // path "target/audit_plugin_demo" is where we are going to install the plugin
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
             InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"), Maps.newHashMap());
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();
 
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin")));
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin/auditdemo.jar")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin/auditdemo.jar")));
 
             Plugin p = pluginMgr.getActivePlugin("audit_plugin_demo", PluginInfo.PluginType.AUDIT);
 
-            assertEquals(2, pluginMgr.getActivePluginList(PluginInfo.PluginType.AUDIT).size());
+            Assert.assertEquals(2, pluginMgr.getActivePluginList(PluginInfo.PluginType.AUDIT).size());
 
-            assertNotNull(p);
-            assertTrue(p instanceof AuditPlugin);
-            assertTrue(((AuditPlugin) p).eventFilter(AuditEvent.EventType.AFTER_QUERY));
-            assertFalse(((AuditPlugin) p).eventFilter(AuditEvent.EventType.BEFORE_QUERY));
+            Assert.assertNotNull(p);
+            Assert.assertTrue(p instanceof AuditPlugin);
+            Assert.assertTrue(((AuditPlugin) p).eventFilter(AuditEvent.EventType.AFTER_QUERY));
+            Assert.assertFalse(((AuditPlugin) p).eventFilter(AuditEvent.EventType.BEFORE_QUERY));
 
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertTrue(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
             testSerializeBuiltinPlugin(pluginMgr);
             pluginMgr.uninstallPlugin("audit_plugin_demo");
 
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
+            Assert.assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
         } catch (IOException | UserException e) {
             e.printStackTrace();
@@ -160,7 +155,7 @@ public class PluginMgrTest {
             PluginMgr test = new PluginMgr();
 
             test.readFields(new DataInputStream(new ByteArrayInputStream(dob.getData())));
-            assertEquals(1, test.getAllDynamicPluginInfo().size());
+            Assert.assertEquals(1, test.getAllDynamicPluginInfo().size());
 
         } catch (IOException e) {
             e.printStackTrace();

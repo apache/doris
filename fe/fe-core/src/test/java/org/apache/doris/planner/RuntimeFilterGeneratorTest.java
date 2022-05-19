@@ -33,23 +33,19 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartitionType;
-import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class RuntimeFilterGeneratorTest {
     private Analyzer analyzer;
@@ -626,14 +622,14 @@ public class RuntimeFilterGeneratorTest {
 
         // Use ndv and fpp to calculate the minimum space required for bloom filter
         Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.05), 1048576);
+                RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.05), 1048576);
         Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.1), 1048576);
+                RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.1), 1048576);
         Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000000, 0.3), 524288);
+                RuntimeFilter.getMinLogSpaceForBloomFilter(1000000, 0.3), 524288);
         Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(10000000, 0.1), 8388608);
+                RuntimeFilter.getMinLogSpaceForBloomFilter(10000000, 0.1), 8388608);
         Assert.assertEquals(1L <<
-                RuntimeFilter.GetMinLogSpaceForBloomFilter(1000, 0.1), 1024);
+                RuntimeFilter.getMinLogSpaceForBloomFilter(1000, 0.1), 1024);
     }
 }

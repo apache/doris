@@ -17,8 +17,9 @@
 
 #include "exec/json_scanner.h"
 
-#include <algorithm>
 #include <fmt/format.h>
+
+#include <algorithm>
 
 #include "env/env.h"
 #include "exec/broker_reader.h"
@@ -111,14 +112,17 @@ Status JsonScanner::open_next_reader() {
         _scanner_eof = true;
         return Status::OK();
     }
+    RETURN_IF_ERROR(open_based_reader());
+    RETURN_IF_ERROR(open_json_reader());
+    _next_range++;
+    return Status::OK();
+}
 
+Status JsonScanner::open_based_reader() {
     RETURN_IF_ERROR(open_file_reader());
     if (_read_json_by_line) {
         RETURN_IF_ERROR(open_line_reader());
     }
-    RETURN_IF_ERROR(open_json_reader());
-    _next_range++;
-
     return Status::OK();
 }
 
@@ -214,6 +218,25 @@ Status JsonScanner::open_json_reader() {
     bool num_as_string = false;
     bool fuzzy_parse = false;
 
+    RETURN_IF_ERROR(
+            get_range_params(jsonpath, json_root, strip_outer_array, num_as_string, fuzzy_parse));
+    if (_read_json_by_line) {
+        _cur_json_reader =
+                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
+                               fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
+    } else {
+        _cur_json_reader =
+                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
+                               fuzzy_parse, &_scanner_eof, _cur_file_reader);
+    }
+
+    RETURN_IF_ERROR(_cur_json_reader->init(jsonpath, json_root));
+    return Status::OK();
+}
+
+Status JsonScanner::get_range_params(std::string& jsonpath, std::string& json_root,
+                                     bool& strip_outer_array, bool& num_as_string,
+                                     bool& fuzzy_parse) {
     const TBrokerRangeDesc& range = _ranges[_next_range];
 
     if (range.__isset.jsonpaths) {
@@ -231,17 +254,6 @@ Status JsonScanner::open_json_reader() {
     if (range.__isset.fuzzy_parse) {
         fuzzy_parse = range.fuzzy_parse;
     }
-    if (_read_json_by_line) {
-        _cur_json_reader =
-                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, nullptr, _cur_line_reader);
-    } else {
-        _cur_json_reader =
-                new JsonReader(_state, _counter, _profile, strip_outer_array, num_as_string,
-                               fuzzy_parse, &_scanner_eof, _cur_file_reader);
-    }
-
-    RETURN_IF_ERROR(_cur_json_reader->init(jsonpath, json_root));
     return Status::OK();
 }
 
@@ -307,14 +319,8 @@ JsonReader::~JsonReader() {
 }
 
 Status JsonReader::init(const std::string& jsonpath, const std::string& json_root) {
-    // parse jsonpath
-    if (!jsonpath.empty()) {
-        Status st = _generate_json_paths(jsonpath, &_parsed_jsonpaths);
-        RETURN_IF_ERROR(st);
-    }
-    if (!json_root.empty()) {
-        JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
-    }
+    // generate _parsed_jsonpaths and _parsed_json_root
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root(jsonpath, json_root));
 
     //improve performance
     if (_parsed_jsonpaths.empty()) { // input is a simple json-string
@@ -325,6 +331,18 @@ Status JsonReader::init(const std::string& jsonpath, const std::string& json_roo
         } else {
             _handle_json_callback = &JsonReader::_handle_nested_complex_json;
         }
+    }
+    return Status::OK();
+}
+
+Status JsonReader::_parse_jsonpath_and_json_root(const std::string& jsonpath,
+                                                 const std::string& json_root) {
+    // parse jsonpath
+    if (!jsonpath.empty()) {
+        RETURN_IF_ERROR(_generate_json_paths(jsonpath, &_parsed_jsonpaths));
+    }
+    if (!json_root.empty()) {
+        JsonFunctions::parse_json_paths(json_root, &_parsed_json_root);
     }
     return Status::OK();
 }

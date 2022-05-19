@@ -19,8 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -32,7 +30,6 @@ import org.apache.doris.thrift.TStorageFormat;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -118,14 +115,7 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    public TableProperty buildDynamicProperty() throws DdlException {
-        if (properties.containsKey(DynamicPartitionProperty.ENABLE)
-                && Boolean.valueOf(properties.get(DynamicPartitionProperty.ENABLE))
-                && !Config.dynamic_partition_enable) {
-            throw new DdlException("Could not create table with dynamic partition "
-                    + "when fe config dynamic_partition_enable is false. "
-                    + "Please ADMIN SET FRONTEND CONFIG (\"dynamic_partition_enable\" = \"true\") firstly.");
-        }
+    public TableProperty buildDynamicProperty() {
         executeBuildDynamicProperty();
         return this;
     }
@@ -222,10 +212,10 @@ public class TableProperty implements Writable {
     }
 
     public TStorageFormat getStorageFormat() {
-    	// Force convert all V1 table to V2 table
-    	if (TStorageFormat.V1 == storageFormat) {
-    		return TStorageFormat.V2;
-    	}
+        // Force convert all V1 table to V2 table
+        if (TStorageFormat.V1 == storageFormat) {
+            return TStorageFormat.V2;
+        }
         return storageFormat;
     }
 

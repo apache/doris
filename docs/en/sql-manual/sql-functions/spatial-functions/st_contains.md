@@ -1,6 +1,6 @@
 ---
 {
-    "title": "`ST_Contains'",
+    "title": "ST_Contains",
     "language": "en"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `ST_Contains'
+## ST_Contains
 ### Description
 #### Syntax
 
@@ -53,4 +53,3 @@ mysql> SELECT ST_Contains(ST_Polygon("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))"),
 ```
 ### keywords
 ST_CONTAINS,ST,CONTAINS
-w

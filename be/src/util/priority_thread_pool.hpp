@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_PRIORITY_THREAD_POOL_HPP
+#pragma once
 
 #include <mutex>
 #include <thread>
@@ -53,7 +52,6 @@ public:
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    //  -- work_function: the function to run every time an item is consumed from the queue
     PriorityThreadPool(uint32_t num_threads, uint32_t queue_size)
             : _work_queue(queue_size), _shutdown(false) {
         for (int i = 0; i < num_threads; ++i) {
@@ -119,6 +117,15 @@ public:
 protected:
     virtual bool is_shutdown() { return _shutdown; }
 
+    // Collection of worker threads that process work from the queue.
+    ThreadGroup _threads;
+
+    // Guards _empty_cv
+    std::mutex _lock;
+
+    // Signalled when the queue becomes empty
+    std::condition_variable _empty_cv;
+
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue
     // until the pool is shutdown.
@@ -138,19 +145,8 @@ private:
     // FIFO order.
     BlockingPriorityQueue<Task> _work_queue;
 
-    // Collection of worker threads that process work from the queue.
-    ThreadGroup _threads;
-
-    // Guards _empty_cv
-    std::mutex _lock;
-
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
-
-    // Signalled when the queue becomes empty
-    std::condition_variable _empty_cv;
 };
 
 } // namespace doris
-
-#endif

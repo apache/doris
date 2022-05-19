@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
-#define DORIS_BE_RUNTIME_BUFFERPOOL_RESERVATION_UTIL_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -70,5 +69,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

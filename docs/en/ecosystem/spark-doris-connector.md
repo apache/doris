@@ -41,6 +41,7 @@ Github: https://github.com/apache/incubator-doris-spark-connector
 |---------------| ----- | ------ | ---- | ----- |
 | 2.3.4-2.11.xx | 2.x   | 0.12+  | 8    | 2.11  |
 | 3.1.2-2.12.xx | 3.x   | 0.12.+ | 8    | 2.12  |
+| 3.2.0-2.12.xx | 3.2.x | 0.12.+ | 8    | 2.12  |
 
 ## Build and Install
 
@@ -91,12 +92,30 @@ Linux:
 Execute following command in source dir
 
 ```bash
-sh build.sh 2.3.4 2.11 ## spark 2.3.4 version, and scala 2.11
-sh build.sh 3.1.2 2.12 ## spark 3.1.2 version, and scala 2.12
+sh build.sh --spark 2.3.4 --scala 2.11 ## spark 2.3.4, scala 2.11
+sh build.sh --spark 3.1.2 --scala 2.12 ## spark 3.1.2, scala 2.12
+sh build.sh --spark 3.2.0 --scala 2.12 \
+--mvn-args "-Dnetty.version=4.1.68.Final -Dfasterxml.jackson.version=2.12.3" ## spark 3.2.0, scala 2.12
 ```
 > Note: If you check out the source code from tag, you can just run sh build.sh --tag without specifying the spark and scala versions. This is because the version in the tag source code is fixed.
 
-After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package.
+After successful compilation, the file `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` will be generated in the `output/` directory. Copy this file to `ClassPath` in `Spark` to use `Spark-Doris-Connector`. For example, `Spark` running in `Local` mode, put this file in the `jars/` folder. `Spark` running in `Yarn` cluster mode, put this file in the pre-deployment package ,for example upload `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` to hdfs and add hdfs file path in spark.yarn.jars.
+
+1. Upload  doris-spark-connector-3.1.2-2.12-1.0.0.jar  Jar to hdfs.
+
+```
+hdfs dfs -mkdir /spark-jars/
+hdfs dfs -put /your_local_path/doris-spark-connector-3.1.2-2.12-1.0.0.jar /spark-jars/
+
+```
+
+2. Add doris-spark-connector-3.1.2-2.12-1.0.0.jar  depence in Cluster.
+
+```
+spark.yarn.jars=hdfs:///spark-jars/doris-spark-connector-3.1.2-2.12-1.0.0.jar
+```
+
+
 
 ## Using Maven
 
@@ -159,6 +178,19 @@ val dorisSparkRDD = sc.dorisRDD(
 
 dorisSparkRDD.collect()
 ```
+#### pySpark
+
+```scala
+dorisSparkDF = spark.read.format("doris")
+.option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+.option("user", "$YOUR_DORIS_USERNAME")
+.option("password", "$YOUR_DORIS_PASSWORD")
+.load()
+# show 5 lines data 
+dorisSparkDF.show(5)
+```
+
 ### Write
 
 #### SQL

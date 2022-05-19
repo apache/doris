@@ -43,7 +43,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -62,8 +62,6 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
-
-import com.google.gson.annotations.SerializedName;
 
 public class StreamLoadRecordMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(StreamLoadRecordMgr.class);
@@ -120,15 +118,15 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         while (isQueueFull()) {
             StreamLoadItem record = streamLoadRecordHeap.poll();
             if (record != null) {
-                String de_label = record.getLabel();
-                long de_dbId = record.getDbId();
+                String deLabel = record.getLabel();
+                long deDbId = record.getDbId();
 
-                Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(de_dbId);
-                Iterator<Map.Entry<String, StreamLoadRecord>> iter_record = labelToStreamLoadRecord.entrySet().iterator();
-                while (iter_record.hasNext()) {
-                    String labelInMap = iter_record.next().getKey();
-                    if (labelInMap.equals(de_label)) {
-                        iter_record.remove();
+                Map<String, StreamLoadRecord> labelToStreamLoadRecord = dbIdToLabelToStreamLoadRecord.get(deDbId);
+                Iterator<Map.Entry<String, StreamLoadRecord>> iterRecord = labelToStreamLoadRecord.entrySet().iterator();
+                while (iterRecord.hasNext()) {
+                    String labelInMap = iterRecord.next().getKey();
+                    if (labelInMap.equals(deLabel)) {
+                        iterRecord.remove();
                         break;
                     }
                 }

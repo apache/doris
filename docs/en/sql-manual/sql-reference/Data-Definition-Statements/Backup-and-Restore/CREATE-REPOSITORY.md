@@ -116,5 +116,5 @@ CREATE, REPOSITORY
 ### Best Practice
 
 1. A cluster can create multiple warehouses. Only users with ADMIN privileges can create repositories.
-2. Any user can view the created repositories through the [SHOW REPOSITORIES](../../Show-Statements/SHOW-REPOSITORIES.html) command.
+2. Any user can view the created repositories through the [SHOW REPOSITORIES](../../Show-Statements/SHOW-REPOSITORIES.md) command.
 3. When performing data migration operations, it is necessary to create the exact same warehouse in the source cluster and the destination cluster, so that the destination cluster can view the data snapshots backed up by the source cluster through this warehouse.

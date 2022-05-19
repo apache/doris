@@ -22,9 +22,6 @@
 
 #include <algorithm>
 #include <vector>
-#include "rapidjson/document.h"
-#include "rapidjson/prettywriter.h"
-#include "rapidjson/stringbuffer.h"
 
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
@@ -38,6 +35,9 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/wrapper_field.h"
+#include "rapidjson/document.h"
+#include "rapidjson/prettywriter.h"
+#include "rapidjson/stringbuffer.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
@@ -73,8 +73,8 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(
               << ", new_tablet_id=" << request.new_tablet_id
               << ", migration_version=" << request.migration_version;
 
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.base_tablet_id, request.base_schema_hash);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
         LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
@@ -96,21 +96,19 @@ Status StorageMigrationV2Handler::process_storage_migration_v2(
 Status StorageMigrationV2Handler::_do_process_storage_migration_v2(
         const TStorageMigrationReqV2& request) {
     Status res = Status::OK();
-    TabletSharedPtr base_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.base_tablet_id, request.base_schema_hash);
+    TabletSharedPtr base_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.base_tablet_id);
     if (base_tablet == nullptr) {
-        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id
-                     << ", base_schema_hash=" << request.base_schema_hash;
+        LOG(WARNING) << "fail to find base tablet. base_tablet=" << request.base_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // new tablet has to exist
-    TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.new_tablet_id, request.new_schema_hash);
+    TabletSharedPtr new_tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.new_tablet_id);
     if (new_tablet == nullptr) {
         LOG(WARNING) << "fail to find new tablet."
-                     << " new_tablet=" << request.new_tablet_id
-                     << ", new_schema_hash=" << request.new_schema_hash;
+                     << " new_tablet=" << request.new_tablet_id;
         return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
@@ -354,9 +352,10 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
             goto PROCESS_ALTER_EXIT;
         }
 
-        if ((res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
-                                           sm_params.new_tablet->tablet_path_desc(), rs_reader,
-                                           rowset_writer.get(), new_tablet)) != OLAP_SUCCESS) {
+        if (!(res = _generate_rowset_writer(sm_params.base_tablet->tablet_path_desc(),
+                                            sm_params.new_tablet->tablet_path_desc(), rs_reader,
+                                            rowset_writer.get(), new_tablet))
+                     .ok()) {
             LOG(WARNING) << "failed to add_rowset. version=" << rs_reader->version().first << "-"
                          << rs_reader->version().second;
             new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
@@ -374,7 +373,7 @@ Status StorageMigrationV2Handler::_convert_historical_rowsets(
             goto PROCESS_ALTER_EXIT;
         }
         res = sm_params.new_tablet->add_rowset(new_rowset, false);
-        if (res == Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+        if (res.precise_code() == OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
             LOG(WARNING) << "version already exist, version revert occurred. "
                          << "tablet=" << sm_params.new_tablet->full_name() << ", version='"
                          << rs_reader->version().first << "-" << rs_reader->version().second;
