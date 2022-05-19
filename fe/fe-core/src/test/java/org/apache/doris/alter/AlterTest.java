@@ -218,8 +218,7 @@ public class AlterTest {
                 "    'in_memory' = 'false',\n" +
                 "    'storage_medium' = 'SSD',\n" +
                 "    'storage_cooldown_time' = '2122-04-01 20:24:00',\n" +
-                "    'remote_storage_resource' = 'remote_s3',\n" +
-                "    'remote_storage_cooldown_time' = '2122-12-01 20:23:00'" +
+                "    'storage_policy' = 'remote_s3'" +
                 ");");
     }
 
