@@ -34,6 +34,7 @@ namespace doris::vectorized {
 
 class Arena;
 class Field;
+class GlobalDict;
 // TODO: Remove the trickly hint, after FE support better way to remove function tuple_is_null
 constexpr uint8_t JOIN_NULL_HINT = 2;
 
@@ -469,6 +470,16 @@ public:
     virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_dictionary() const { return false; }
+
+    //only ColumnVector<T> with global dict return true;
+    virtual bool has_global_dict() const { return false; }
+    virtual void set_global_dict(std::shared_ptr<GlobalDict> gdict) {
+        LOG(FATAL) << "Method set_global_dict is not supported for " << get_name();
+    }
+    virtual std::shared_ptr<GlobalDict> get_global_dict() const {
+        LOG(FATAL) << "Method get_global_dict is not supported for " << get_name();
+        return nullptr;
+    }
 
     /// If the only value column can contain is NULL.
     /// Does not imply type of object, because it can be ColumnNullable(ColumnNothing) or ColumnConst(ColumnNullable(ColumnNothing))

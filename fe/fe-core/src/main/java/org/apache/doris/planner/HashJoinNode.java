@@ -830,4 +830,9 @@ public class HashJoinNode extends PlanNode {
         }
         super.convertToVectoriezd();
     }
+
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
 }

@@ -246,12 +246,6 @@ struct TDdlExecRequest {
   //13: optional Ddl.TMasterDdlRequest common_params
 }
 
-// Results of an EXPLAIN
-struct TExplainResult {
-    // each line in the explain plan occupies an entry in the list
-    1: required list<Data.TResultRow> results
-}
-
 // Result of call to createExecRequest()
 struct TExecRequest {
   1: required Types.TStmtType stmt_type;
@@ -275,7 +269,7 @@ struct TExecRequest {
   7: optional TResultSetMetadata result_set_metadata
 
   // Result of EXPLAIN. Set iff stmt_type is EXPLAIN
-  8: optional TExplainResult explain_result
+  // 8: optional TExplainResult explain_result
 }
 
 // Arguments to getDbNames, which returns a list of dbs that match an optional

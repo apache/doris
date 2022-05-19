@@ -45,6 +45,7 @@
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -1653,6 +1654,24 @@ std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType c
     } else {
         return _base_compaction->get_mem_tracker();
     }
+Status Tablet::get_dict_data(std::set<std::string>& dict_words, int col_id) {
+    std::vector<BetaRowset*> beta_row_sets;
+    {
+        std::shared_lock rdlock(get_header_lock());
+        for (auto entry : _rs_version_map) {
+            auto rowset_ptr = dynamic_cast<BetaRowset*>(entry.second.get());
+            //skip delete rowset and empty rowset
+            if (nullptr != rowset_ptr && !rowset_ptr->delete_flag() && rowset_ptr->num_rows() > 0) {
+                beta_row_sets.emplace_back(rowset_ptr);
+            }
+        }
+    }
+
+    for (auto rs : beta_row_sets) {
+        Status status = rs->get_dict_data(dict_words, col_id);
+        if (!status.ok()) return status;
+    }
+    return Status::OK();
 }
 
 Status Tablet::cooldown() {

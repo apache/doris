@@ -274,6 +274,10 @@ public class UtFrameUtils {
         return getSQLPlanOrErrorMsg(ctx, queryStr, false);
     }
 
+    public static String getVerboseSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
+        return getSQLPlanOrErrorMsg(ctx, queryStr, true);
+    }
+
     public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr, boolean isVerbose) throws Exception {
         ctx.getState().reset();
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);

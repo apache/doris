@@ -131,11 +131,6 @@ service BackendService {
     PaloInternalService.TCancelPlanFragmentResult cancel_plan_fragment(
         1:PaloInternalService.TCancelPlanFragmentParams params);
 
-    // Called by sender to transmit single row batch. Returns error indication
-    // if params.fragmentId or params.destNodeId are unknown or if data couldn't be read.
-    PaloInternalService.TTransmitDataResult transmit_data(
-        1:PaloInternalService.TTransmitDataParams params);
-
     // Coordinator Fetch Data From Root fragment
     PaloInternalService.TFetchDataResult fetch_data(
         1:PaloInternalService.TFetchDataParams params);

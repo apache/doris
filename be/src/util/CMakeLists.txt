@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/util")
 
 set(UTIL_FILES
   arrow/row_batch.cpp
-  arrow/row_block.cpp
   arrow/utils.cpp
   array_parser.cpp
   bfd_parser.cpp

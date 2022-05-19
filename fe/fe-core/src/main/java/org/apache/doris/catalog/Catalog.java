@@ -197,6 +197,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.dict.GlobalDictManger;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.StatisticsJobManager;
@@ -416,6 +417,8 @@ public class Catalog {
     private AuditEventProcessor auditEventProcessor;
 
     private RefreshManager refreshManager;
+    
+    private GlobalDictManger globalDictMgr;
 
     private PolicyMgr policyMgr;
 
@@ -606,6 +609,7 @@ public class Catalog {
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
+        this.globalDictMgr = new GlobalDictManger();
     }
 
     public static void destroyCheckpoint() {
@@ -830,8 +834,11 @@ public class Catalog {
 
         // 5. create txn cleaner thread
         createTxnCleaner();
-
-        // 6. start state listener thread
+        
+        // 6. start global dict manager
+        this.globalDictMgr.start();
+        
+        // 7. start state listener thread
         createStateListener();
         listener.start();
     }
@@ -4945,5 +4952,9 @@ public class Catalog {
             }
         }
         return null;
+    }
+    
+    public GlobalDictManger getGlobalDictMgr() {
+        return globalDictMgr;
     }
 }

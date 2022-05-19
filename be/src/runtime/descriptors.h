@@ -34,10 +34,10 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
 #include "vec/data_types/data_type.h"
-
 namespace doris::vectorized {
 struct ColumnWithTypeAndName;
-}
+class GlobalDict;
+} // namespace doris::vectorized
 
 namespace doris {
 
@@ -112,6 +112,12 @@ public:
     vectorized::MutableColumnPtr get_empty_mutable_column() const;
 
     doris::vectorized::DataTypePtr get_data_type_ptr() const;
+    std::shared_ptr<vectorized::GlobalDict> get_global_dict() const { return _dict; }
+    bool is_global_dict_column() const { return _is_global_dict_column; }
+    void set_global_dict(std::shared_ptr<vectorized::GlobalDict> dict) {
+        _is_global_dict_column = true;
+        _dict = dict;
+    }
 
     int32_t col_unique_id() const { return _col_unique_id; }
 
@@ -144,6 +150,8 @@ private:
     int _field_idx;
 
     const bool _is_materialized;
+    bool _is_global_dict_column = false;
+    std::shared_ptr<vectorized::GlobalDict> _dict;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -353,6 +361,7 @@ public:
     TupleDescriptor* get_tuple_descriptor(TupleId id) const;
     SlotDescriptor* get_slot_descriptor(SlotId id) const;
     const std::vector<TTupleId>& get_row_tuples() const { return _row_tuples; }
+    std::shared_ptr<TGlobalDict> get_global_dict() const;
 
     // return all registered tuple descriptors
     std::vector<TupleDescriptor*> get_tuple_descs() const {
@@ -376,6 +385,7 @@ private:
     TupleDescriptorMap _tuple_desc_map;
     SlotDescriptorMap _slot_desc_map;
     std::vector<TTupleId> _row_tuples;
+    std::shared_ptr<TGlobalDict> _global_dict;
 
     DescriptorTbl() = default;
 };

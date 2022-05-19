@@ -82,6 +82,9 @@
 #include "vec/exec/vtable_function_node.h"
 #include "vec/exec/vtable_valued_function_scannode.h"
 #include "vec/exec/vunion_node.h"
+#include "vec/exec/meta_scan_node.h"
+#include "vec/exec/decode_node.h"
+#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
@@ -391,6 +394,8 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         case TPlanNodeType::BROKER_SCAN_NODE:
         case TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE:
         case TPlanNodeType::FILE_SCAN_NODE:
+        case TPlanNodeType::META_SCAN_NODE:
+        case TPlanNodeType::DECODE_NODE:
             break;
         default: {
             const auto& i = _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -590,7 +595,12 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             error_msg << "numbers table function only support vectorized execution";
             return Status::InternalError(error_msg.str());
         }
-
+    case TPlanNodeType::META_SCAN_NODE:
+        *node = pool->add(new vectorized::MetaScanNode(pool, tnode, descs));
+        return Status::OK();
+    case TPlanNodeType::DECODE_NODE:
+        *node = pool->add(new vectorized::DecodeNode(pool, tnode, descs));
+        return Status::OK();
     default:
         map<int, const char*>::const_iterator i =
                 _TPlanNodeType_VALUES_TO_NAMES.find(tnode.node_type);
@@ -655,6 +665,7 @@ void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::TABLE_VALUED_FUNCTION_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
+    collect_nodes(TPlanNodeType::META_SCAN_NODE, nodes);
 }
 
 void ExecNode::try_do_aggregate_serde_improve() {

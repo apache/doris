@@ -122,4 +122,9 @@ public class CrossJoinNode extends PlanNode {
         return Math.max(children.get(0).getNumInstances(), children.get(1).getNumInstances());
     }
 
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
+
 }

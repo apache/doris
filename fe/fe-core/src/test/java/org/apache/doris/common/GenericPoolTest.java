@@ -124,11 +124,6 @@ public class GenericPoolTest {
         }
 
         @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) {
-            return new TTransmitDataResult();
-        }
-
-        @Override
         public TFetchDataResult fetchData(TFetchDataParams params) {
             TFetchDataResult result = new TFetchDataResult();
             result.setPacketNum(123);

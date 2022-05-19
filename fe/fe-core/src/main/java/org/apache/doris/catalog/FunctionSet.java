@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -858,6 +859,10 @@ public class FunctionSet<T> {
     public static final String COLLECT_LIST = "collect_list";
     public static final String COLLECT_SET = "collect_set";
 
+    public static final String COUNT = "count";
+    public static final String MAX = "max";
+    public static final String MIN = "min";
+
     private static final Map<Type, String> ORTHOGONAL_BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.TINYINT,
@@ -1316,10 +1321,12 @@ public class FunctionSet<T> {
                     scalarFunction.getNullableMode()));
     }
 
+    public static final Set<String> DICT_SUPPORT_FUNC_SET = Sets.newHashSet("COUNT");
 
-    public static final String COUNT = "count";
+
     public static final String WINDOW_FUNNEL = "window_funnel";
 
+    public static final String GLOBAL_DICT = "global_dict";
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
     // An empty symbol indicates a TODO for the BE to implement the function.
@@ -1382,6 +1389,16 @@ public class FunctionSet<T> {
                 "",
                 "",
                 true, false, true, true));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.GLOBAL_DICT,
+                Lists.newArrayList(Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
+                true, false, false, false, true
+            ));
+
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.GLOBAL_DICT,
+                Lists.newArrayList(Type.VARCHAR), Type.VARCHAR, Type.VARCHAR,
+                true, false, false, false
+            ));
 
         for (Type t : Type.getSupportedTypes()) {
             if (t.isNull()) {

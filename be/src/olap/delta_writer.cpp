@@ -27,6 +27,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "olap/rowset/beta_rowset.h"
 
 namespace doris {
 
@@ -321,6 +322,46 @@ Status DeltaWriter::close_wait() {
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;
     }
+
+#ifndef BE_TEST
+    if (!is_broken) {
+        PTabletInfo* tablet_info = tablet_vec->Add();
+        tablet_info->set_tablet_id(_tablet->tablet_id());
+        tablet_info->set_schema_hash(_tablet->schema_hash());
+
+        std::vector<const TabletColumn*> dict_columns;
+        for (const auto& column : _tablet_schema->columns()) {
+            FieldType column_type = column.type();
+            if (_req.dicts != nullptr && (column_type == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                                          column_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                                          column_type == FieldType::OLAP_FIELD_TYPE_STRING)) {
+                auto iter = _req.dicts->find(column.name().data());
+                if (iter != _req.dicts->end()) {
+                    dict_columns.push_back(&column);
+                }
+            }
+        }
+
+        auto beta_rowset = dynamic_cast<BetaRowset*>(_cur_rowset.get());
+        assert(beta_rowset);
+        std::set<std::string> dict_words;
+        for (const TabletColumn* column : dict_columns) {
+            auto iter = _req.dicts->find(column->name().data());
+            assert(iter != _req.dicts->end());
+            dict_words.clear();
+            Status status = beta_rowset->get_dict_data(dict_words, column->unique_id());
+            if (status != Status::OK()) {
+                return status;
+            }
+            for (const auto& word : dict_words) {
+                if (iter->second.find(word) == iter->second.end()) {
+                    tablet_info->add_invalid_dict_cols(iter->first);
+                    break;
+                }
+            }
+        }
+    }
+#endif
 
     _delta_written_success = true;
 

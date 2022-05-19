@@ -47,7 +47,6 @@ class ExprContext;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
-class TColumnValue;
 class TExpr;
 class TExprNode;
 class TupleIsNullPredicate;

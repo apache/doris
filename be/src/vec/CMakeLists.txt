@@ -111,6 +111,8 @@ set(VEC_FILES
   exec/join/vhash_join_node.cpp
   exec/tablefunction/vnumbers_tbf.cpp
   exec/vtable_valued_function_scannode.cpp
+  exec/meta_scan_node.cpp
+  exec/decode_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp
   exprs/vexpr.cpp
@@ -198,6 +200,7 @@ set(VEC_FILES
   olap/olap_data_convertor.cpp
   sink/vmysql_result_writer.cpp
   sink/vresult_sink.cpp
+  sink/thrift_result_writer.cpp
   sink/vdata_stream_sender.cpp
   sink/vtablet_sink.cpp
   sink/vmysql_table_writer.cpp
@@ -216,7 +219,10 @@ set(VEC_FILES
   exec/file_arrow_scanner.cpp
   exec/file_scanner.cpp
   exec/file_scan_node.cpp
-  exec/file_text_scanner.cpp)
+  exec/file_text_scanner.cpp
+  runtime/vsorted_run_merger.cpp
+  runtime/dict/global_dict.cpp
+  )
 
 add_library(Vec STATIC
     ${VEC_FILES}

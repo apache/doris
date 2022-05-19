@@ -19,11 +19,11 @@
 
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
-#include "runtime/file_result_writer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vmysql_result_writer.h"
+#include "vec/sink/thrift_result_writer.h"
 
 namespace doris {
 namespace vectorized {
@@ -57,6 +57,7 @@ Status VResultSink::prepare(RuntimeState* state) {
                              fragment_instance_id.hi, fragment_instance_id.lo);
     // create profile
     _profile = state->obj_pool()->add(new RuntimeProfile(title));
+    _append_row_batch_timer = ADD_TIMER(_profile, "AppendBatchTime");
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
 
@@ -69,6 +70,10 @@ Status VResultSink::prepare(RuntimeState* state) {
     case TResultSinkType::MYSQL_PROTOCAL:
         _writer.reset(new (std::nothrow)
                               VMysqlResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
+        break;
+    case TResultSinkType::THRIFT_IPC_PROTOCAL:
+        _writer.reset(new (std::nothrow)
+                              VThriftResultWriter(_sender.get(), _output_vexpr_ctxs, _profile));
         break;
     default:
         return Status::InternalError("Unknown result sink type");
@@ -86,6 +91,7 @@ Status VResultSink::open(RuntimeState* state) {
 Status VResultSink::send(RuntimeState* state, RowBatch* batch) {
     return Status::NotSupported("Not Implemented Result Sink::send scalar");
 }
+
 
 Status VResultSink::send(RuntimeState* state, Block* block) {
     INIT_AND_SCOPE_SEND_SPAN(state->get_tracer(), _send_span, "VResultSink::send");

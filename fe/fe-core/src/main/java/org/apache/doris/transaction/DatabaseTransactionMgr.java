@@ -437,6 +437,8 @@ public class DatabaseTransactionMgr {
         List<Long> tabletIds = tabletCommitInfos.stream()
                 .map(TabletCommitInfo::getTabletId).collect(Collectors.toList());
         List<TabletMeta> tabletMetaList = tabletInvertedIndex.getTabletMetaList(tabletIds);
+        // From table -> column strings
+        Map<Long, Set<String>> invalidTableColumns = Maps.newHashMap();
         for (int i = 0; i < tabletMetaList.size(); i++) {
             TabletMeta tabletMeta = tabletMetaList.get(i);
             if (tabletMeta == TabletInvertedIndex.NOT_EXIST_TABLET_META) {
@@ -471,6 +473,12 @@ public class DatabaseTransactionMgr {
                 tabletToBackends.put(tabletId, new HashSet<>());
             }
             tabletToBackends.get(tabletId).add(tabletCommitInfos.get(i).getBackendId());
+            if (tabletCommitInfos.get(i).getInvalidColDicts().size() > 0) {
+            	if (!invalidTableColumns.containsKey(tableId)) {
+            		invalidTableColumns.put(tableId, new HashSet<String>());
+            	}
+            	invalidTableColumns.get(tableId).addAll(tabletCommitInfos.get(i).getInvalidColDicts());
+            }
         }
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
@@ -562,6 +570,7 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        transactionState.setInvalidTableColumns(invalidTableColumns);
     }
 
     /**
@@ -936,6 +945,14 @@ public class DatabaseTransactionMgr {
                 transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
             }
             updateCatalogAfterVisible(transactionState, db);
+            // Invalid column dicts after visible, not at commit time, to allow the dict
+            // useful during the interval between commit and visible.
+            Map<Long, Set<String>> invalidTableCols = transactionState.getInvalidTableColumns();
+            for (long invalidTableId : invalidTableCols.keySet()) {
+            	for (String invalidColName : invalidTableCols.get(invalidTableId)) {
+            		Catalog.getCurrentCatalog().getGlobalDictMgr().invalidDict(transactionState.getDbId(), invalidTableId, invalidColName);
+            	}
+            }
         } finally {
             MetaLockUtils.writeUnlockTables(tableList);
         }

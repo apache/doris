@@ -341,6 +341,10 @@ public final class AggregateInfo extends AggregateInfoBase {
             groupingExprs.addAll(expr0Children);
         }
 
+        if (distinctAggExprs_ == null) {
+            distinctAggExprs_ = new ArrayList<>();
+            distinctAggExprs_.addAll(distinctAggExprs);
+        }
         // remove DISTINCT aggregate functions from aggExprs
         aggregateExprs.removeAll(distinctAggExprs);
 
@@ -378,6 +382,11 @@ public final class AggregateInfo extends AggregateInfoBase {
         return outputTupleSmap;
     }
 
+    public boolean isMerge() { return aggPhase_.isMerge(); }
+    public boolean isDistinctAgg() { return secondPhaseDistinctAggInfo_ != null; }
+
+    public ExprSubstitutionMap getIntermediateSmap() { return intermediateTupleSmap_; }
+    public ExprSubstitutionMap getOutputSmap() { return outputTupleSmap_; }
     public ExprSubstitutionMap getOutputToIntermediateSmap() {
         return outputToIntermediateTupleSmap;
     }
@@ -398,6 +407,10 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public AggregateInfo getSecondPhaseDistinctAggInfo() {
         return secondPhaseDistinctAggInfo;
+    }
+
+    public void setSecondPhaseDistinctAggInfo_(AggregateInfo secondPhaseDistinctAggInfo_) {
+        this.secondPhaseDistinctAggInfo_ = secondPhaseDistinctAggInfo_;
     }
 
     /**
@@ -866,4 +879,7 @@ public final class AggregateInfo extends AggregateInfoBase {
         return partitionExprs != null ? partitionExprs : groupingExprs;
     }
 
+    public AggPhase getAggPhase_() {
+        return aggPhase_;
+    }
 }

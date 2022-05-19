@@ -279,7 +279,8 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALIAS, KW_ALL, KW_A
     KW_YEAR,
     KW_NOT_NULL,
     KW_CATALOG, KW_CATALOGS,
-    KW_SWITCH;
+    KW_SWITCH,
+    KW_LOW_CARDINALITY;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -1128,6 +1129,14 @@ alter_table_clause ::=
     | KW_MODIFY KW_COLUMN ident:colName KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = new ModifyColumnCommentClause(colName, comment);
+    :}
+    | KW_MODIFY KW_COLUMN ident:colName KW_LOW_CARDINALITY KW_TRUE
+    {:
+        RESULT = new ModifyColumnLowCardinalityClause(colName, true);
+    :}
+    | KW_MODIFY KW_COLUMN ident:colName KW_LOW_CARDINALITY KW_FALSE
+    {:
+        RESULT = new ModifyColumnLowCardinalityClause(colName, false);
     :}
     | KW_MODIFY KW_ENGINE KW_TO ident:engine opt_properties:properties
     {:

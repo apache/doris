@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TResultSink;
+import org.apache.doris.thrift.TResultSinkType;
 
 /**
  * Result sink that forwards data to
@@ -30,6 +31,7 @@ import org.apache.doris.thrift.TResultSink;
  */
 public class ResultSink extends DataSink {
     private final PlanNodeId exchNodeId;
+    private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
     public ResultSink(PlanNodeId exchNodeId) {
         this.exchNodeId = exchNodeId;
@@ -50,6 +52,7 @@ public class ResultSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink result = new TDataSink(TDataSinkType.RESULT_SINK);
         TResultSink tResultSink = new TResultSink();
+        tResultSink.setType(resultSinkType);
         result.setResultSink(tResultSink);
         return result;
     }
@@ -62,5 +65,9 @@ public class ResultSink extends DataSink {
     @Override
     public DataPartition getOutputPartition() {
         return null;
+    }
+    
+    public void setResultSinkType(TResultSinkType sinkType) {
+    	this.resultSinkType = sinkType;
     }
 }

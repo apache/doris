@@ -158,21 +158,21 @@ public class StmtExecutor implements ProfileWriter {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     private static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
 
-    private ConnectContext context;
+    protected ConnectContext context;
     private MysqlSerializer serializer;
-    private OriginStatement originStmt;
-    private StatementBase parsedStmt;
-    private Analyzer analyzer;
+    protected OriginStatement originStmt;
+    protected StatementBase parsedStmt;
+    protected Analyzer analyzer;
     private RuntimeProfile profile;
     private RuntimeProfile summaryProfile;
     private RuntimeProfile plannerRuntimeProfile;
     private final Object writeProfileLock = new Object();
     private volatile boolean isFinishedProfile = false;
     private String queryType = "Query";
-    private volatile Coordinator coord = null;
+    protected volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
-    private Planner planner;
+    protected Planner planner;
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
@@ -509,6 +509,7 @@ public class StmtExecutor implements ProfileWriter {
             LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(), e.getMessage());
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            throw e;
         } catch (Exception e) {
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
@@ -517,6 +518,7 @@ public class StmtExecutor implements ProfileWriter {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
+            throw e;
         } finally {
             // revert Session Value
             try {
@@ -972,7 +974,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     // Process a select statement.
-    private void handleQueryStmt() throws Exception {
+    public void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
         context.getMysqlChannel().reset();
         Queriable queryStmt = (Queriable) parsedStmt;

@@ -103,9 +103,16 @@ public class ResultReceiver {
 
                 packetIdx++;
                 isDone = pResult.getEos();
+                // Set eos flag explictly, not depend on rowbatch's default value.
+            	rowBatch.setEos(pResult.getEos());
 
+                // It is very tricky here. For example, if sink closed on BE, and get a presult with eos = true
+                // did not deal with this pkg here. RowBatch.eos's default value = true, it is depend on this to 
+                // terminate the query process.
                 if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
                     LOG.info("get first empty rowbatch");
+                    // If it is an empty batch, then it is set on purpose, then ignore the eos flag, try to get next batch.
+                    // If it is already closed on BE, then it should not have empty batch and the eos flat == true.
                     rowBatch.setEos(false);
                     return rowBatch;
                 } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
@@ -114,7 +121,6 @@ public class ResultReceiver {
                     TDeserializer deserializer = new TDeserializer();
                     deserializer.deserialize(resultBatch, serialResult);
                     rowBatch.setBatch(resultBatch);
-                    rowBatch.setEos(pResult.getEos());
                     return rowBatch;
                 }
             }

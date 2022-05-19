@@ -35,6 +35,7 @@ import org.apache.doris.mysql.privilege.PaloRole;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -144,6 +145,8 @@ public class ConnectContext {
     private String currentConnectedFEIp = "";
 
     private InsertResult insertResult;
+    
+    private boolean internalQuery = false;
 
     private SessionContext sessionContext;
 
@@ -602,5 +605,13 @@ public class ConnectContext {
     public String getQueryIdentifier() {
         return "stmt[" + stmtId + ", " + DebugUtil.printId(queryId) + "]";
     }
+
+	public boolean isInternalQuery() {
+		return internalQuery;
+	}
+
+	public void setInternalQuery(boolean internalQuery) {
+		this.internalQuery = internalQuery;
+	}
 
 }

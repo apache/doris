@@ -122,6 +122,13 @@ Status VNodeChannel::open_wait() {
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet.tablet_id();
                     commit_info.backendId = _node_id;
+                    std::vector<std::string> invalid_dict_cache_columns;
+                    for (const auto& col_name : tablet.invalid_dict_cols()) {
+                        invalid_dict_cache_columns.emplace_back(col_name);
+                    }
+                    if (!invalid_dict_cache_columns.empty()) {
+                        commit_info.__set_invalid_dict_cols(invalid_dict_cache_columns);
+                    }
                     _tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
                 _add_batches_finished = true;

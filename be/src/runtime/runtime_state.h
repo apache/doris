@@ -39,6 +39,7 @@
 #include "util/logging.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
+#include "vec/runtime/dict/global_dict.h"
 
 namespace doris {
 
@@ -378,6 +379,14 @@ public:
 
     void set_tracer(OpentelemetryTracer&& tracer) { _tracer = std::move(tracer); }
 
+    void set_global_dicts(const std::shared_ptr<TGlobalDict>& tglobal_dict);
+
+    vectorized::GlobalDictSPtr get_global_dict(int slot_id);
+
+    vectorized::GlobalDictSPtr find_global_dict(int slot_id);
+
+    vectorized::GlobalDictSPtr get_global_dict_by_dict_id(int64_t dict_id);
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -530,6 +539,11 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
+
+    //global dict
+    std::map<int, vectorized::GlobalDictSPtr> _slot_id_to_global_dict_map;
+
+    std::map<int64_t, vectorized::GlobalDictSPtr> _dict_id_to_global_dict_map;
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

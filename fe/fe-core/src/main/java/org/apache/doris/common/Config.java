@@ -1683,4 +1683,13 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static boolean use_date_v2_by_default = false;
+    
+    @ConfField
+    public static int dict_check_interval_sec = 10;
+    
+    @ConfField
+    public static int dict_expire_sec = 3600;
+    
+    @ConfField
+    public static int max_string_dict_size = 1000;
 }

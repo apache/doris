@@ -103,6 +103,7 @@ private:
     Status _add_blocks(std::vector<Block*>& block);
     int _start_scanner_thread_task(RuntimeState* state, int block_per_scanner);
     Block* _alloc_block(bool& get_free_block);
+    Status _do_dict_encode(Block& block) const;
 
     void _init_counter(RuntimeState* state);
     // OLAP_SCAN_NODE profile layering: OLAP_SCAN_NODE, OlapScanner, and SegmentIterator
@@ -328,6 +329,7 @@ private:
 
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     std::vector<std::unique_ptr<VExprContext*>> _stale_vexpr_ctxs;
+    std::map<int, GlobalDictSPtr> _dicts;
 };
 } // namespace vectorized
 } // namespace doris

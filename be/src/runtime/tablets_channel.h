@@ -148,6 +148,8 @@ private:
     bool _is_high_priority = false;
 
     bool _is_vec = false;
+
+    phmap::flat_hash_map<std::string, phmap::flat_hash_set<std::string>> _dicts;
 };
 
 template <typename Request>

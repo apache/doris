@@ -45,6 +45,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -52,8 +53,10 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.statistics.ColumnDict;
 import org.apache.doris.statistics.StatsRecursiveDerive;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TColumn;
@@ -85,6 +88,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.stream.Collectors;
 
 // Full scan of an Olap table.
@@ -151,8 +155,10 @@ public class OlapScanNode extends ScanNode {
     private HashSet<Long> scanBackendIds = new HashSet<>();
 
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
-    // a bucket seq may map to many tablets, and each tablet has a
-    // TScanRangeLocations.
+
+    private Map<Integer, Long> slotIdToDictId = Maps.newHashMap();
+    
+    // a bucket seq may map to many tablets, and each tablet has a TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
 
     // Constructs node to scan given data files of table 'tbl'.
@@ -772,6 +778,14 @@ public class OlapScanNode extends ScanNode {
         output.append(prefix).append(String.format("cardinality=%s", cardinality))
                 .append(String.format(", avgRowSize=%s", avgRowSize)).append(String.format(", numNodes=%s", numNodes));
         output.append("\n");
+        if (!slotIdToDictId.isEmpty()) {
+            StringJoiner dictColumnInfo = new StringJoiner(", ", "DICT COL: ", "");
+            for (Map.Entry<Integer, Long> entry : slotIdToDictId.entrySet()) {
+                dictColumnInfo.add(String.format("<%d, %d>", entry.getKey(), entry.getValue()));
+            }
+            output.append(prefix).append(dictColumnInfo.toString());
+            output.append("\n");
+        }
 
         return output.toString();
     }
@@ -807,6 +821,7 @@ public class OlapScanNode extends ScanNode {
         }
         msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         msg.olap_scan_node.setTableName(olapTable.getName());
+        msg.olap_scan_node.slot_to_dict = slotIdToDictId;
     }
 
     // export some tablets
@@ -972,4 +987,37 @@ public class OlapScanNode extends ScanNode {
             return DataPartition.RANDOM;
         }
     }
+
+    @Override
+    public void updateSlots(DecodeContext context) {
+        List<SlotDescriptor> slotDescriptorList = desc.getSlots();
+        List<SlotDescriptor> slotSet = slotDescriptorList
+            .stream()
+            .filter(d -> context.getAllEncodeNeededSlot().contains(d.getId().asInt()))
+            .collect(Collectors.toList());
+
+        desc = context.generateTupleDesc(desc.getId());
+        originTupleIds = tupleIds;
+        tupleIds = Lists.newArrayList(desc.getId());
+        List<SlotDescriptor> newSlotDescList = desc.getSlots();
+        for (SlotDescriptor slotDesc : slotSet) {
+            SlotDescriptor newSlotDesc =  newSlotDescList.get(slotDesc.getSlotOffset());
+            int slotId = slotDesc.getId().asInt();
+            newSlotDesc.setType(Type.SMALLINT);
+            IDict columnDict = context.getColumnDictBySlotId(slotId);
+            if (columnDict == null) {
+                context.removeEncodeNeededSlot(slotId);
+                continue;
+            }
+            long dictId = columnDict.getDictId();
+            int newSlotId = newSlotDesc.getId().asInt();
+            slotIdToDictId.put(newSlotId ,dictId);
+            context.getTableDesc().addSlotToDict(newSlotId, dictId);
+            context.addSlotToDictSlot(slotId, newSlotId);
+            context.mapDictSlotToDict(newSlotId, slotId);
+            context.getTableDesc().putDict(dictId, columnDict);
+        }
+        DictPlanner.exprUpdate(tupleIds, originTupleIds, conjuncts, context);
+    }
+
 }

@@ -75,4 +75,8 @@ public class EmptySetNode extends PlanNode {
         msg.node_type = TPlanNodeType.EMPTY_SET_NODE;
     }
 
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
 }

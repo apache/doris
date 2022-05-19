@@ -27,7 +27,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/predicate_column.h"
-
+#include "vec/runtime/dict/global_dict.h"
 namespace doris {
 namespace segment_v2 {
 
@@ -114,7 +114,8 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         return Status::OK();
     } else {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        return _data_page_builder->add(vals, count);
+        auto status = _data_page_builder->add(vals, count);
+        return status;
     }
 }
 
@@ -230,10 +231,30 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
     _dict_decoder = (BinaryPlainPageDecoder<OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
     _dict_word_info = dict_word_info;
-};
+}
+
+bool BinaryDictPageDecoder::map_local_code_to_global_code(
+        std::shared_ptr<vectorized::GlobalDict> global_dict) {
+    _local_code_to_global_code.resize(_dict_decoder->count());
+    int32_t code_in_global_dict;
+    for (int i = 0; i < _dict_decoder->count(); i++) {
+        const StringValue str(_dict_word_info[i].data, _dict_word_info[i].size);
+        code_in_global_dict = global_dict->find_code(str);
+        if (code_in_global_dict < 0) {
+            return false;
+        }
+        _local_code_to_global_code[i] = code_in_global_dict;
+    }
+    return true;
+}
 
 Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     if (_encoding_type == PLAIN_ENCODING) {
+        if (dst->has_global_dict()) {
+            std::stringstream ss;
+            ss << "page is not dict encoded";
+            return Status::InternalError(ss.str().c_str());
+        }
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
     }
@@ -253,9 +274,22 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
-                               _dict_decoder->_num_elems);
-
+    if (dst->has_global_dict()) {
+        //map local dict code to global dict code
+        if (_local_code_to_global_code.empty()) {
+            if (!map_local_code_to_global_code(dst->get_global_dict())) {
+                return Status::InternalError("map local dict code to global dict failed");
+            }
+        }
+        //insert global dict code
+        for (size_t end_index = start_index + max_fetch; start_index < end_index; ++start_index) {
+            int32_t local_code = data_array[start_index];
+            dst->insert_data((char*)(&_local_code_to_global_code[local_code]), sizeof(int16_t));
+        }
+    } else {
+        dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
+                                   _dict_decoder->_num_elems);
+    }
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
     return Status::OK();

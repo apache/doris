@@ -61,24 +61,6 @@ public:
                                       const TCancelPlanFragmentParams& params) {}
 
     virtual void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) {
-        /*
-        LOG(ERROR) << "transmit_data(): instance_id=" << params.dest_fragment_instance_id
-            << " node_id=" << params.dest_node_id
-            << " #rows=" << params.row_batch.num_rows
-            << " eos=" << (params.eos ? "true" : "false");
-        if (!params.eos) {
-            _mgr->add_data(
-                    params.dest_fragment_instance_id,
-                    params.dest_node_id,
-                    params.row_batch,
-                    params.sender_id).set_t_status(&return_val);
-        } else {
-            Status status = _mgr->close_sender(
-                    params.dest_fragment_instance_id, params.dest_node_id, params.sender_id, params.be_number);
-            status.set_t_status(&return_val);
-            LOG(ERROR) << "close_sender status: " << status.get_error_msg();
-        }
-        */
     }
 
     virtual void fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {}

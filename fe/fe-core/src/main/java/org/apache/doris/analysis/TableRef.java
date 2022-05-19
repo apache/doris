@@ -101,6 +101,8 @@ public class TableRef implements ParseNode, Writable {
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
 
+    private boolean isMetaScan;
+
     protected Expr onClause;
 
     // the ref to the left of us, if we're part of a JOIN clause
@@ -420,11 +422,13 @@ public class TableRef implements ParseNode, Writable {
         if (commonHints == null || commonHints.isEmpty()) {
             return;
         }
-        // Currently only 'PREAGGOPEN' is supported
+        // Currently only 'PREAGGOPEN' and 'META' is supported
         for (String hint : commonHints) {
-            if (hint.toUpperCase().equals("PREAGGOPEN")) {
+            String normalizedHint = hint.toUpperCase();
+            if (normalizedHint.equals("PREAGGOPEN")) {
                 isForcePreAggOpened = true;
-                break;
+            } else if (normalizedHint.equals("META")) {
+                isMetaScan = true;
             }
         }
     }
@@ -743,6 +747,10 @@ public class TableRef implements ParseNode, Writable {
 
     public boolean isResolved() {
         return !getClass().equals(TableRef.class);
+    }
+
+    public boolean isMetaScan() {
+        return isMetaScan;
     }
 
     /**

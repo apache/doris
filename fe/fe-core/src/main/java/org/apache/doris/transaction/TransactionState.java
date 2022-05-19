@@ -41,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -228,6 +229,7 @@ public class TransactionState implements Writable {
     // this msg will be shown in show proc "/transactions/dbId/";
     // no need to persist.
     private String errMsg = "";
+    private Map<Long, Set<String>> invalidTableColumns = null;
 
     public TransactionState() {
         this.dbId = -1;
@@ -641,6 +643,19 @@ public class TransactionState implements Writable {
         for (int i = 0; i < tableIdList.size(); i++) {
             out.writeLong(tableIdList.get(i));
         }
+    	if (invalidTableColumns == null) {
+    		out.writeInt(0);
+    	} else {
+    		out.writeInt(invalidTableColumns.size());
+    		for (long invalidTableId : invalidTableColumns.keySet()) {
+    			Set<String> invalidCols =  invalidTableColumns.get(invalidTableId);
+    			out.writeLong(invalidTableId);
+    			out.writeInt(invalidCols.size());
+    			for (String colName : invalidCols) {
+    				Text.writeString(out, colName);
+    			}
+    		}
+    	}
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -678,6 +693,21 @@ public class TransactionState implements Writable {
         for (int i = 0; i < tableListSize; i++) {
             tableIdList.add(in.readLong());
         }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_109) {
+        	int invalidTableNum = in.readInt();
+        	if (invalidTableNum > 0) {
+        		invalidTableColumns = Maps.newHashMap();
+        		for (int i = 0; i < invalidTableNum; ++i) {
+        			long invalidTableId = in.readLong();
+        			int invalidColNum = in.readInt();
+        			Set<String> invalidCols =  Sets.newHashSet();
+        			for (int j = 0; j < invalidColNum; ++j) {
+        				invalidCols.add(Text.readString(in));
+        			}
+        			invalidTableColumns.put(invalidTableId, invalidCols);
+        		}
+        	}
+        }
     }
 
     public void setErrorMsg(String errMsg) {
@@ -691,4 +721,12 @@ public class TransactionState implements Writable {
     public String getErrMsg() {
         return this.errMsg;
     }
+
+	public Map<Long, Set<String>> getInvalidTableColumns() {
+		return invalidTableColumns;
+	}
+
+	public void setInvalidTableColumns(Map<Long, Set<String>> invalidTableColumns) {
+		this.invalidTableColumns = invalidTableColumns;
+	}
 }

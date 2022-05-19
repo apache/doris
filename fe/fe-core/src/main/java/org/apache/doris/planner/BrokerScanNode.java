@@ -663,4 +663,10 @@ public class BrokerScanNode extends LoadScanNode {
         output.append(prefix).append("BROKER: ").append(brokerDesc.getName()).append("\n");
         return output.toString();
     }
+
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
+
 }

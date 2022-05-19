@@ -32,11 +32,15 @@ public class TabletCommitInfo implements Writable {
 
     private long tabletId;
     private long backendId;
+    
+    // Not seriazlied, just used for save message from TTabletCommitInfo
+    private List<String> invalidColDicts;
 
     public TabletCommitInfo(long tabletId, long backendId) {
         super();
         this.tabletId = tabletId;
         this.backendId = backendId;
+        this.invalidColDicts = Lists.newArrayList();
     }
 
     public long getTabletId() {
@@ -50,7 +54,12 @@ public class TabletCommitInfo implements Writable {
     public static List<TabletCommitInfo> fromThrift(List<TTabletCommitInfo> tTabletCommitInfos) {
         List<TabletCommitInfo> commitInfos = Lists.newArrayList();
         for (TTabletCommitInfo tTabletCommitInfo : tTabletCommitInfos) {
-            commitInfos.add(new TabletCommitInfo(tTabletCommitInfo.getTabletId(), tTabletCommitInfo.getBackendId()));
+        	TabletCommitInfo tmpCommitInfo = new TabletCommitInfo(tTabletCommitInfo.getTabletId(), tTabletCommitInfo.getBackendId());
+        	if (tTabletCommitInfo.isSetInvalidDictCols()) {
+        		tmpCommitInfo.invalidColDicts.addAll(tTabletCommitInfo.getInvalidDictCols());
+        	}
+            commitInfos.add(tmpCommitInfo);
+            
         }
         return commitInfos;
     }
@@ -71,4 +80,8 @@ public class TabletCommitInfo implements Writable {
         Gson gson = new Gson();
         return gson.toJson(this);
     }
+
+	public List<String> getInvalidColDicts() {
+		return invalidColDicts;
+	}
 }

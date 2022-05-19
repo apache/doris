@@ -237,4 +237,10 @@ public class RepeatNode extends PlanNode {
     public int getNumInstances() {
         return children.get(0).getNumInstances();
     }
+
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
+
 }

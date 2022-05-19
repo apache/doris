@@ -222,5 +222,11 @@ Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** it
     return Status::OK();
 }
 
+Status Segment::get_dict_data(std::set<string>& dict_words, int col_id) {
+    assert(col_id < _column_readers.size());
+    Status st = _column_readers[col_id]->get_dict_data(dict_words);
+    return st;
+}
+
 } // namespace segment_v2
 } // namespace doris

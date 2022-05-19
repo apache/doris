@@ -189,6 +189,8 @@ public class SessionVariable implements Serializable, Writable {
             = "trim_tailing_spaces_for_external_table_query";
 
     static final String ENABLE_ARRAY_TYPE = "enable_array_type";
+    
+    public static final String ENABLE_LOW_CARDINALITY_OPT = "enable_low_cardinality_optimize";
 
     public static final String ENABLE_NEREIDS = "enable_nereids";
 
@@ -197,6 +199,9 @@ public class SessionVariable implements Serializable, Writable {
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
     // if it is setStmt, we needn't collect session origin value
     public boolean isSingleSetVar = false;
+
+    @VariableMgr.VarAttr(name = DICT_TEST)
+    public boolean dictTest = false;
 
     @VariableMgr.VarAttr(name = INSERT_VISIBLE_TIMEOUT_MS, needForward = true)
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
@@ -479,6 +484,10 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS)
     private boolean enableNereids = false;
+    boolean enableArrayType = false;
+    
+    @VariableMgr.VarAttr(name = ENABLE_LOW_CARDINALITY_OPT)
+    private boolean enableLowCardinalityOpt = true;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -962,6 +971,18 @@ public class SessionVariable implements Serializable, Writable {
     public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
         this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
     }
+    
+    public void setEnableProjection(boolean enableProjection) {
+        this.enableProjection = enableProjection;
+    }
+
+    public boolean isEnableLowCardinalityOpt() {
+        return enableLowCardinalityOpt;
+    }
+
+    public void setEnableLowCardinalityOpt(boolean enableLowCardinalityOpt) {
+        this.enableLowCardinalityOpt = enableLowCardinalityOpt;
+    }
 
     public void setEnableJoinReorderBasedCost(boolean enableJoinReorderBasedCost) {
         this.enableJoinReorderBasedCost = enableJoinReorderBasedCost;
@@ -1218,6 +1239,14 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setLoadMemLimit(loadMemLimit);
         return queryOptions;
+    }
+    
+    public boolean isDictTest() {
+        return dictTest;
+    }
+
+    public void setDictTest(boolean dictTest) {
+        this.dictTest = dictTest;
     }
 
 }

@@ -94,6 +94,10 @@ public class Column implements Writable {
     private boolean visible;
     @SerializedName(value = "defaultValueExprDef")
     private DefaultValueExprDef defaultValueExprDef; // used for default value
+    @SerializedName(value = "lowCardinality")
+    private boolean lowCardinality = false;
+    // Not serialize it, tmp number
+    private int dictEleNum = 0;
 
     @SerializedName(value = "uniqueId")
     private int uniqueId;
@@ -526,6 +530,14 @@ public class Column implements Writable {
         }
     }
 
+	public boolean isLowCardinality() {
+		return lowCardinality;
+	}
+
+	public void setLowCardinality(boolean lowCardinality) {
+		this.lowCardinality = lowCardinality;
+	}
+
     public String toSql() {
         return toSql(false);
     }
@@ -549,6 +561,10 @@ public class Column implements Writable {
         }
         if (StringUtils.isNotBlank(comment)) {
             sb.append(" COMMENT '").append(getComment(true)).append("'");
+        }
+        sb.append("COMMENT \"").append(getComment(true)).append("\" ");
+        if (lowCardinality) {
+        	sb.append("LowCardinality(" + this.dictEleNum + ")");
         }
 
         return sb.toString();
@@ -640,26 +656,6 @@ public class Column implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
-        type = ColumnType.read(in);
-        boolean notNull = in.readBoolean();
-        if (notNull) {
-            aggregationType = AggregateType.valueOf(Text.readString(in));
-            isAggregationTypeImplicit = in.readBoolean();
-        }
-        isKey = in.readBoolean();
-        isAllowNull = in.readBoolean();
-        notNull = in.readBoolean();
-        if (notNull) {
-            defaultValue = Text.readString(in);
-        }
-        stats = ColumnStats.read(in);
-
-        comment = Text.readString(in);
-    }
-
     public static Column read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, Column.class);
@@ -718,4 +714,9 @@ public class Column implements Writable {
             }
         }
     }
+
+	public void setDictEleNum(int dictEleNum) {
+		this.dictEleNum = dictEleNum;
+	}
+    
 }

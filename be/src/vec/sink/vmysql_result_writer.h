@@ -60,8 +60,6 @@ private:
     const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs;
 
     RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
-    // total time cost on append batch operation
-    RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
     // tuple convert timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer

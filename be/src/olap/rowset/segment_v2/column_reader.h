@@ -21,6 +21,9 @@
 #include <cstdint> // for uint32_t
 #include <memory>  // for unique_ptr
 
+#include <set>
+#include <string>
+
 #include "common/logging.h"
 #include "common/status.h"         // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
@@ -136,6 +139,8 @@ public:
     bool is_empty() const { return _num_rows == 0; }
 
     CompressionTypePB get_compression() const { return _meta.compression(); }
+    bool all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts);
+    Status get_dict_data(std::set<string>& dict_words);
 
     uint64_t num_rows() const { return _num_rows; }
 

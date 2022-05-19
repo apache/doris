@@ -325,7 +325,7 @@ public class InsertStmt extends DdlStmt {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
             int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false, analyzer.getDescTbl());
         }
     }
 

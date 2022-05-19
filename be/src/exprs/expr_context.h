@@ -44,7 +44,6 @@ class MemPool;
 class MemTracker;
 class RuntimeState;
 class RowDescriptor;
-class TColumnValue;
 class TupleRow;
 
 /// An ExprContext contains the state for the execution of a tree of Exprs, in particular

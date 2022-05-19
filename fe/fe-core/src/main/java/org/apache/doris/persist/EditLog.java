@@ -780,6 +780,12 @@ public class EditLog {
                     catalog.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
+                case OperationType.OP_MODIFY_COL_SETTINGS: {
+                	ModifyColumnSettingsLog operation = (ModifyColumnSettingsLog) journal.getData();
+                    catalog.getAlterInstance().replayModifyColumnSettings(operation);
+                    break;
+                
+                }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
                     AlterRoutineLoadJobOperationLog log = (AlterRoutineLoadJobOperationLog) journal.getData();
                     catalog.getRoutineLoadManager().replayAlterRoutineLoadJob(log);
@@ -1440,9 +1446,13 @@ public class EditLog {
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
     }
-
+    
     public void logModifyComment(ModifyCommentOperationLog op) {
         logEdit(OperationType.OP_MODIFY_COMMENT, op);
+    }
+    
+    public void logModifyColSettings(ModifyColumnSettingsLog op) {
+        logEdit(OperationType.OP_MODIFY_COL_SETTINGS, op);
     }
 
     public void logCreateSqlBlockRule(SqlBlockRule rule) {

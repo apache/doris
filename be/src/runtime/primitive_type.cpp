@@ -526,6 +526,7 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "object";
+
     case TYPE_QUANTILE_STATE:
         return "quantile_state";
     };

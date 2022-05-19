@@ -442,8 +442,18 @@ public class SlotRef extends Expr {
         return desc.getIsNullable();
     }
 
+
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
-
+    }
+    
+    public static void getAllSlotRefFromExpr(Expr expr, List<SlotRef> slotRefList) {
+        if (expr instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) expr;
+            slotRefList.add(slotRef);
+        }
+        for (Expr child : expr.getChildren()) {
+            getAllSlotRefFromExpr(child, slotRefList);
+        }
     }
 }

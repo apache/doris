@@ -18,6 +18,8 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
+#include "vector"
 
 namespace doris {
 namespace segment_v2 {
@@ -96,6 +98,8 @@ private:
 
     bool _is_pending = false;
     bool _already_built = false;
+
+    segment_v2::SegmentWriterOptions _writer_options;
 };
 
 } // namespace doris

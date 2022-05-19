@@ -73,6 +73,8 @@ public:
     Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                          const TabletSchema* read_tablet_schema);
 
+    Status get_dict_data(std::set<std::string>& dict_words, int col_id);
+
 protected:
     BetaRowset(const TabletSchema* schema, const std::string& tablet_path,
                RowsetMetaSharedPtr rowset_meta);

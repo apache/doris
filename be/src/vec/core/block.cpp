@@ -1020,6 +1020,9 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size) const {
 
 void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
     for (auto idx : char_type_idx) {
+        //skip dict encoded column
+        if (get_by_position(idx).column->has_global_dict()) continue;
+        // shrink char columns
         if (idx < data.size()) {
             if (this->get_by_position(idx).column->is_nullable()) {
                 this->get_by_position(idx).column = ColumnNullable::create(

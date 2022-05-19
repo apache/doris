@@ -132,6 +132,9 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     }
     _runtime_state->set_desc_tbl(desc_tbl);
 
+    // set up global dict
+    _runtime_state->set_global_dicts(desc_tbl->get_global_dict());
+
     // set up plan
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan,

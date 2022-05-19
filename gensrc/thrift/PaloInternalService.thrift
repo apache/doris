@@ -278,15 +278,17 @@ struct TTxnParams {
 }
 
 // Definition of global dict, global dict is used to accelerate query performance of low cardinality data
-struct TColumnDict {
-  1: optional Types.TPrimitiveType type
-  2: list<string> str_dict  // map one string to a integer, using offset as id
-}
+// struct TColumnDict {
+//   1: optional Types.TPrimitiveType type
+//   2: list<string> str_dict  // map one string to a integer, using offset as id
+// }
 
-struct TGlobalDict {
-  1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
-  2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
-}
+// ExecPlanFragment
+
+// struct TGlobalDict {
+//   1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
+//   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
+// }
 
 // ExecPlanFragment
 struct TExecPlanFragmentParams {
@@ -353,6 +355,7 @@ struct TExecPlanFragmentParams {
 
 struct TExecPlanFragmentParamsList {
     1: optional list<TExecPlanFragmentParams> paramsList;
+//  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
 }
 
 struct TExecPlanFragmentResult {
@@ -398,7 +401,7 @@ struct TTransmitDataParams {
   4: optional Types.TPlanNodeId dest_node_id
 
   // required in V1
-  5: optional Data.TRowBatch row_batch
+  // 5: optional Data.TRowBatch row_batch
 
   // if set to true, indicates that no more row batches will be sent
   // for this dest_node_id
@@ -437,18 +440,6 @@ struct TTabletWriterOpenParams {
 
 struct TTabletWriterOpenResult {
     1: required Status.TStatus status
-}
-
-// add batch to tablet writer
-struct TTabletWriterAddBatchParams {
-    1: required Types.TUniqueId id
-    2: required i64 index_id
-
-    3: required i64 packet_seq
-    4: required list<Types.TTabletId> tablet_ids
-    5: required Data.TRowBatch row_batch
-
-    6: required i32 sender_no
 }
 
 struct TTabletWriterAddBatchResult {

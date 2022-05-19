@@ -229,6 +229,8 @@ public class DistributedPlanner {
             result = createRepeatNodeFragment((RepeatNode) root, childFragments.get(0), fragments);
         } else if (root instanceof AssertNumRowsNode) {
             result = createAssertFragment(root, childFragments.get(0));
+        } else if (root instanceof DecodeNode) {
+            result = createDecodeFragment((DecodeNode) root, childFragments.get(0));
         } else {
             throw new UserException(
                     "Cannot create plan fragment for this node type: " + root.getExplainString());
@@ -242,6 +244,15 @@ public class DistributedPlanner {
         }
 
         return result;
+    }
+
+    private PlanFragment createDecodeFragment(DecodeNode decodeNode, PlanFragment fragment) {
+        // set the child explicitly, an ExchangeNode might have been inserted
+        // (whereas selectNode.child[0] would point to the original child)
+        decodeNode.setChild(0, fragment.getPlanRoot());
+        decodeNode.numInstances = fragment.getPlanRoot().getNumInstances();
+        fragment.setPlanRoot(decodeNode);
+        return fragment;
     }
 
     /**
@@ -282,6 +293,12 @@ public class DistributedPlanner {
             OlapScanNode olapScanNode = (OlapScanNode) node;
             return new PlanFragment(ctx.getNextFragmentId(), node,
                     olapScanNode.constructInputPartitionByDistributionInfo(), DataPartition.RANDOM);
+        } else if (node instanceof OlapMetaScanNode) {
+            OlapMetaScanNode olapMetaScanNode = (OlapMetaScanNode) node;
+            return new PlanFragment(ctx_.getNextFragmentId(),
+                node,
+                olapMetaScanNode.constructInputPartitionByDistributionInfo(),
+                DataPartition.RANDOM);
         } else {
             // other scan nodes are random partitioned: es, broker
             return new PlanFragment(ctx.getNextFragmentId(), node, DataPartition.RANDOM);

@@ -204,11 +204,6 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
-            return null;
-        }
-
-        @Override
         public TFetchDataResult fetchData(TFetchDataParams params) throws TException {
             return null;
         }

@@ -31,7 +31,7 @@
 #include "vec/core/field.h"
 
 namespace doris::vectorized {
-
+class GlobalDict;
 /** Stuff for comparing numbers.
   * Integer values are compared as usual.
   * Floating-point numbers are compared this way that NaNs always end up at the end
@@ -98,7 +98,7 @@ struct CompareHelper<Float64> : public FloatCompareHelper<Float64> {};
 /** A template for columns that use a simple array to store.
  */
 template <typename T>
-class ColumnVector final : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
+class ColumnVector : public COWHelper<ColumnVectorHelper, ColumnVector<T>> {
     static_assert(!IsDecimalNumber<T>);
 
 private:
@@ -112,11 +112,15 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-private:
+protected:
     ColumnVector() {}
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
-    ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
+    ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {
+        if (src.has_global_dict()) {
+            set_global_dict(src.get_global_dict());
+        }
+    }
 
     /// Sugar constructor.
     ColumnVector(std::initializer_list<T> il) : data {il} {}
@@ -362,8 +366,15 @@ public:
         data[self_row] = T();
     }
 
+    std::shared_ptr<GlobalDict> get_global_dict() const override { return _dict; }
+    void set_global_dict(std::shared_ptr<GlobalDict> dict) override { _dict = dict; }
+    bool has_global_dict() const override { return nullptr != _dict.get(); }
+
 protected:
     Container data;
+
+private:
+    std::shared_ptr<GlobalDict> _dict;
 };
 
 template <typename T>

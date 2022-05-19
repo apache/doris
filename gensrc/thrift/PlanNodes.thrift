@@ -55,6 +55,7 @@ enum TPlanNodeType {
   TABLE_FUNCTION_NODE,
   TABLE_VALUED_FUNCTION_SCAN_NODE,
   FILE_SCAN_NODE,
+  DECODE_NODE
 }
 
 // phases of an execution node
@@ -366,6 +367,7 @@ struct TMiniLoadEtlFunction {
   2: required i32 param_column_index
 }
 
+
 struct TCsvScanNode {
   1: required Types.TTupleId tuple_id
   2: required list<string> file_paths
@@ -405,10 +407,15 @@ struct TSchemaScanNode {
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-  2: required string table_name
-  3: optional string db
-  4: optional string table
-  5: optional string user
+  //slot_id to global_dict_id
+  2: required map<Types.TSlotId,i32> slot_to_dict
+}
+
+struct TDecodeNode {
+    1: required Types.TTupleId tuple_id
+    //slot_id to global_dict_id
+    2: required map<Types.TSlotId,i64> slot_to_dict
+    3: optional list<Types.TTupleId> input_tuple_ids
 }
 
 struct TOlapScanNode {
@@ -420,6 +427,7 @@ struct TOlapScanNode {
   6: optional Types.TKeysType keyType
   7: optional string table_name
   8: required list<Descriptors.TColumn> columns_desc
+  9: optional map<Types.TSlotId, i64> slot_to_dict
 }
 
 struct TEqJoinCondition {
@@ -858,6 +866,7 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+  37: optional TDecodeNode decode_node
 
   // Use in vec exec engine
   40: optional Exprs.TExpr vconjunct

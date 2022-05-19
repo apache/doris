@@ -361,6 +361,7 @@ private:
     uint32_t _cur_idx;
     friend class BinaryDictPageDecoder;
     friend class FileColumnIterator;
+    friend class ColumnReader;
 };
 
 } // namespace segment_v2

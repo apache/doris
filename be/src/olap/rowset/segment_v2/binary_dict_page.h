@@ -36,6 +36,9 @@
 #include "runtime/mem_pool.h"
 
 namespace doris {
+namespace vectorized {
+class GlobalDict;
+}
 namespace segment_v2 {
 
 enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
@@ -119,6 +122,10 @@ public:
 
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
+    //set _local_code_to_global_code
+    //must called after set_dict_decoder()
+    bool map_local_code_to_global_code(std::shared_ptr<vectorized::GlobalDict> global_dict);
+
     ~BinaryDictPageDecoder();
 
 private:
@@ -133,6 +140,9 @@ private:
     std::unique_ptr<ColumnVectorBatch> _batch;
 
     StringRef* _dict_word_info = nullptr;
+    //mapping from local dict code to global dict code
+    //local_code_to_global_code[i] = j: the string in local_dict[i] equals to the string global_dict[j]
+    std::vector<int16> _local_code_to_global_code;
 };
 
 } // namespace segment_v2

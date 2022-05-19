@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -34,6 +36,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -43,6 +46,11 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.dict.DictKey;
+import org.apache.doris.qe.dict.DictState;
+import org.apache.doris.qe.dict.GlobalDictManger;
+import org.apache.doris.qe.dict.IDict;
+import org.apache.doris.qe.dict.StringDict;
 import org.apache.doris.rewrite.RewriteDateLiteralRuleTest;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -54,7 +62,11 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.jupiter.api.Test;
 
+import java.io.File;
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 public class QueryPlanTest extends TestWithFeService {
 
@@ -414,6 +426,370 @@ public class QueryPlanTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "\"replication_num\" = \"1\""
                 + ");");
+//        createTable("create table test.test1\n" +
+//                "(\n" +
+//                "    query_id varchar(48) comment \"Unique query id\",\n" +
+//                "    time datetime not null comment \"Query start time\",\n" +
+//                "    client_ip varchar(32) comment \"Client IP\",\n" +
+//                "    user varchar(64) comment \"User name\",\n" +
+//                "    db varchar(96) comment \"Database of this query\",\n" +
+//                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" +
+//                "    query_time bigint comment \"Query execution time in millisecond\",\n" +
+//                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" +
+//                "    scan_rows bigint comment \"Total scan rows of this query\",\n" +
+//                "    return_rows bigint comment \"Returned rows of this query\",\n" +
+//                "    stmt_id int comment \"An incremental id of statement\",\n" +
+//                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" +
+//                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" +
+//                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" +
+//                ")\n" +
+//                "partition by range(time) ()\n" +
+//                "distributed by hash(query_id) buckets 1\n" +
+//                "properties(\n" +
+//                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" +
+//                "    \"dynamic_partition.start\" = \"-30\",\n" +
+//                "    \"dynamic_partition.end\" = \"3\",\n" +
+//                "    \"dynamic_partition.prefix\" = \"p\",\n" +
+//                "    \"dynamic_partition.buckets\" = \"1\",\n" +
+//                "    \"dynamic_partition.enable\" = \"true\",\n" +
+//                "    \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.bitmap_table (\n" +
+//                "  `id` int(11) NULL COMMENT \"\",\n" +
+//                "  `id2` bitmap bitmap_union NULL\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`id`)\n" +
+//                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+//                "PROPERTIES (\n" +
+//                " \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.join1 (\n" +
+//                "  `dt` int(11) COMMENT \"\",\n" +
+//                "  `id` int(11) COMMENT \"\",\n" +
+//                "  `value` varchar(8) COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "DUPLICATE KEY(`dt`, `id`)\n" +
+//                "PARTITION BY RANGE(`dt`)\n" +
+//                "(PARTITION p1 VALUES LESS THAN (\"10\"))\n" +
+//                "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
+//                "PROPERTIES (\n" +
+//                "  \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.join2 (\n" +
+//                "  `dt` int(11) COMMENT \"\",\n" +
+//                "  `id` int(11) COMMENT \"\",\n" +
+//                "  `value` varchar(8) COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "DUPLICATE KEY(`dt`, `id`)\n" +
+//                "PARTITION BY RANGE(`dt`)\n" +
+//                "(PARTITION p1 VALUES LESS THAN (\"10\"))\n" +
+//                "DISTRIBUTED BY HASH(`id`) BUCKETS 10\n" +
+//                "PROPERTIES (\n" +
+//                "  \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.bitmap_table_2 (\n" +
+//                "  `id` int(11) NULL COMMENT \"\",\n" +
+//                "  `id2` bitmap bitmap_union NULL,\n" +
+//                "  `id3` bitmap bitmap_union NULL\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`id`)\n" +
+//                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+//                "PROPERTIES (\n" +
+//                " \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.hll_table (\n" +
+//                "  `id` int(11) NULL COMMENT \"\",\n" +
+//                "  `id2` hll hll_union NULL\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`id`)\n" +
+//                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+//                "PROPERTIES (\n" +
+//                " \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`bigtable` (\n" +
+//                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+//                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+//                "  `k3` int(11) NULL COMMENT \"\",\n" +
+//                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+//                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+//                "  `k6` char(5) NULL COMMENT \"\",\n" +
+//                "  `k10` date NULL COMMENT \"\",\n" +
+//                "  `k11` datetime NULL COMMENT \"\",\n" +
+//                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+//                "  `k8` double MAX NULL COMMENT \"\",\n" +
+//                "  `k9` float SUM NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`baseall` (\n" +
+//                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+//                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+//                "  `k3` int(11) NULL COMMENT \"\",\n" +
+//                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+//                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+//                "  `k6` char(5) NULL COMMENT \"\",\n" +
+//                "  `k10` date NULL COMMENT \"\",\n" +
+//                "  `k11` datetime NULL COMMENT \"\",\n" +
+//                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+//                "  `k8` double MAX NULL COMMENT \"\",\n" +
+//                "  `k9` float SUM NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`dynamic_partition` (\n" +
+//                "  `k1` date NULL COMMENT \"\",\n" +
+//                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+//                "  `k3` int(11) NULL COMMENT \"\",\n" +
+//                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+//                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+//                "  `k6` char(5) NULL COMMENT \"\",\n" +
+//                "  `k10` date NULL COMMENT \"\",\n" +
+//                "  `k11` datetime NULL COMMENT \"\",\n" +
+//                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+//                "  `k8` double MAX NULL COMMENT \"\",\n" +
+//                "  `k9` float SUM NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "PARTITION BY RANGE (k1)\n" +
+//                "(\n" +
+//                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+//                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+//                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+//                ")\n" +
+//                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\",\n" +
+//                "\"dynamic_partition.enable\" = \"true\",\n" +
+//                "\"dynamic_partition.start\" = \"-3\",\n" +
+//                "\"dynamic_partition.end\" = \"3\",\n" +
+//                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+//                "\"dynamic_partition.prefix\" = \"p\",\n" +
+//                "\"dynamic_partition.buckets\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`app_profile` (\n" +
+//                "  `event_date` date NOT NULL COMMENT \"\",\n" +
+//                "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `age` varchar(32) NOT NULL COMMENT \"\",\n" +
+//                "  `gender` varchar(32) NOT NULL COMMENT \"\",\n" +
+//                "  `level` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `city` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `model` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `brand` varchar(64) NOT NULL COMMENT \"\",\n" +
+//                "  `hours` varchar(16) NOT NULL COMMENT \"\",\n" +
+//                "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n" +
+//                "  `use_time` double SUM NOT NULL COMMENT \"\",\n" +
+//                "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
+//                +
+//                "COMMENT \"OLAP\"\n" +
+//                "PARTITION BY RANGE(`event_date`)\n" +
+//                "(PARTITION p_20200301 VALUES [('2020-02-27'), ('2020-03-02')),\n" +
+//                "PARTITION p_20200306 VALUES [('2020-03-02'), ('2020-03-07')))\n" +
+//                "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+//                +
+//                "PROPERTIES (\n" +
+//                " \"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`pushdown_test` (\n" +
+//                "  `k1` tinyint(4) NULL COMMENT \"\",\n" +
+//                "  `k2` smallint(6) NULL COMMENT \"\",\n" +
+//                "  `k3` int(11) NULL COMMENT \"\",\n" +
+//                "  `k4` bigint(20) NULL COMMENT \"\",\n" +
+//                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" +
+//                "  `k6` char(5) NULL COMMENT \"\",\n" +
+//                "  `k10` date NULL COMMENT \"\",\n" +
+//                "  `k11` datetime NULL COMMENT \"\",\n" +
+//                "  `k7` varchar(20) NULL COMMENT \"\",\n" +
+//                "  `k8` double MAX NULL COMMENT \"\",\n" +
+//                "  `k9` float SUM NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "PARTITION BY RANGE(`k1`)\n" +
+//                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
+//                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
+//                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
+//                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\",\n" +
+//                "\"in_memory\" = \"false\",\n" +
+//                "\"storage_format\" = \"DEFAULT\"\n" +
+//                ");");
+//
+//        createTable("create table test.jointest\n" +
+//                "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
+//                "properties(\"replication_num\" = \"1\");");
+//
+//        createTable("create table test.bucket_shuffle1\n" +
+//                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 5\n" +
+//                "properties(\"replication_num\" = \"1\"" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`bucket_shuffle2` (\n" +
+//                "  `k1` int NULL COMMENT \"\",\n" +
+//                "  `k2` int(6) NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "PARTITION BY RANGE(`k1`)\n" +
+//                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" +
+//                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" +
+//                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" +
+//                "DISTRIBUTED BY HASH(k1, k2) BUCKETS 5\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\",\n" +
+//                "\"in_memory\" = \"false\",\n" +
+//                "\"storage_format\" = \"DEFAULT\"\n" +
+//                ");");
+//
+//        createTable("create table test.colocate1\n" +
+//                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
+//                "properties(\"replication_num\" = \"1\"," +
+//                "\"colocate_with\" = \"group1\");");
+//
+//        createTable("create table test.colocate2\n" +
+//                "(k1 int, k2 int, k3 int) distributed by hash(k1, k2) buckets 1\n" +
+//                "properties(\"replication_num\" = \"1\"," +
+//                "\"colocate_with\" = \"group1\");");
+//
+//        createTable("create external table test.mysql_table\n" +
+//                "(k1 int, k2 int)\n" +
+//                "ENGINE=MYSQL\n" +
+//                "PROPERTIES (\n" +
+//                "\"host\" = \"127.0.0.1\",\n" +
+//                "\"port\" = \"3306\",\n" +
+//                "\"user\" = \"root\",\n" +
+//                "\"password\" = \"123\",\n" +
+//                "\"database\" = \"db1\",\n" +
+//                "\"table\" = \"tbl1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`table_partitioned` (\n" +
+//                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+//                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+//                "PARTITION BY RANGE(`dt`)\n" +
+//                "(PARTITION p20200101 VALUES [(\"-1\"), (\"20200101\")),\n" +
+//                "PARTITION p20200201 VALUES [(\"20200101\"), (\"20200201\")))\n" +
+//                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("CREATE TABLE test.`table_unpartitioned` (\n" +
+//                "  `dt` int(11) NOT NULL COMMENT \"\",\n" +
+//                "  `dis_key` varchar(20) NOT NULL COMMENT \"\"\n" +
+//                ") ENGINE=OLAP\n" +
+//                "DUPLICATE KEY(`dt`, `dis_key`)\n" +
+//                "COMMENT \"OLAP\"\n" +
+//                "DISTRIBUTED BY HASH(`dt`, `dis_key`) BUCKETS 2\n" +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"\n" +
+//                ");");
+//
+//        createTable("create external table test.odbc_oracle\n" +
+//                "(k1 float, k2 int)\n" +
+//                "ENGINE=ODBC\n" +
+//                "PROPERTIES (\n" +
+//                "\"host\" = \"127.0.0.1\",\n" +
+//                "\"port\" = \"3306\",\n" +
+//                "\"user\" = \"root\",\n" +
+//                "\"password\" = \"123\",\n" +
+//                "\"database\" = \"db1\",\n" +
+//                "\"table\" = \"tbl1\",\n" +
+//                "\"driver\" = \"Oracle Driver\",\n" +
+//                "\"odbc_type\" = \"oracle\"\n" +
+//                ");");
+//
+//        createTable("create external table test.odbc_mysql\n" +
+//                "(k1 int, k2 int)\n" +
+//                "ENGINE=ODBC\n" +
+//                "PROPERTIES (\n" +
+//                "\"host\" = \"127.0.0.1\",\n" +
+//                "\"port\" = \"3306\",\n" +
+//                "\"user\" = \"root\",\n" +
+//                "\"password\" = \"123\",\n" +
+//                "\"database\" = \"db1\",\n" +
+//                "\"table\" = \"tbl1\",\n" +
+//                "\"driver\" = \"Oracle Driver\",\n" +
+//                "\"odbc_type\" = \"mysql\"\n" +
+//                ");");
+//
+//        createTable("create table test.tbl_int_date (" +
+//                "`date` datetime NULL," +
+//                "`day` date NULL," +
+//                "`site_id` int(11) NULL )" +
+//                " ENGINE=OLAP " +
+//                "DUPLICATE KEY(`date`, `day`, `site_id`)" +
+//                "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\",\n" +
+//                "\"in_memory\" = \"false\",\n" +
+//                "\"storage_format\" = \"V2\"\n" +
+//                ");");
+//
+//        createView("create view test.tbl_null_column_view AS SELECT *,NULL as add_column  FROM test.test1;");
+//
+//        createView("create view test.function_view AS SELECT query_id, client_ip, concat(user, db) as concat FROM test.test1;");
+//
+//        createTable("create table test.tbl_using_a\n" +
+//                "(\n" +
+//                "    k1 int,\n" +
+//                "    k2 int,\n" +
+//                "    v1 int sum\n" +
+//                ")\n" +
+//                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"" +
+//                ");");
+//
+//        createTable("create table test.tbl_using_b\n" +
+//                "(\n" +
+//                "    k1 int,\n" +
+//                "    k2 int,\n" +
+//                "    k3 int \n" +
+//                ")\n" +
+//                "DISTRIBUTED BY HASH(k1) BUCKETS 3 " +
+//                "PROPERTIES (\n" +
+//                "\"replication_num\" = \"1\"" +
+//                ");");
+    }
+
+    @AfterClass
+    public static void tearDown() {
+        File file = new File(runningDir);
+        file.delete();
+    }
+
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+    }
+
+    private static void createView(String sql) throws Exception {
+        CreateViewStmt createViewStmt = (CreateViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createView(createViewStmt);
     }
 
     @Test
@@ -2122,6 +2498,30 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
+    public void testMetaQuery() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE meta_scan_test (v1 int, v2 varchar)\n" +
+            "DISTRIBUTED BY HASH(v1)\n" +
+            "BUCKETS 3\n" +
+            "PROPERTIES(\n" +
+            "    \"replication_num\"=\"1\"\n" +
+            ");");
+        String sql = "SELECT global_dict(v1) FROM test.meta_scan_test [META]";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, sql);
+        Assert.assertTrue(explainString.contains("META_SCAN"));
+        String errorSQL = "SELECT global_dict(v1) FROM test.meta_scan_test [META] group by test.v1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Cannot impose the global_dict function on the SQL which have GROUP BY clause"));
+        errorSQL = "SELECT global_dict(v1), count(*) FROM test.meta_scan_test [META]";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Mix the global_dict with other aggregate function is not permitted"));
+        errorSQL = "SELECT global_dict(v1), global_dict(v2) FROM test.meta_scan_test [META]";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, errorSQL);
+        Assert.assertTrue(explainString.contains("Multiple global_dict function is not supported for now"));
+
+    }
+  
+    @Test
     public void testOutJoinWithOnFalse() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         createTable("create table out_join_1\n"
@@ -2167,7 +2567,122 @@ public class QueryPlanTest extends TestWithFeService {
                 + "where x.col1=t2.col1 and y.col1=t2.col2 and t1.col1=y.col1";
         String explainString = getSQLPlanOrErrorMsg(sql);
         Assert.assertFalse(explainString.contains("CROSS JOIN"));
+    }
+    
+    @Mocked
+    StringDict dict;
 
+    @Test
+    public void testInsertDecodeNode() throws Exception {
+
+        connectContext.setDatabase("default_cluster:test");
+        createTable("CREATE TABLE `lineitem` (\n" +
+            "  `l_orderkey` integer NOT NULL,\n" +
+            "  `l_linenumber` integer NOT NULL,\n" +
+            "  `l_partkey` integer NOT NULL,\n" +
+            "  `l_suppkey` integer NOT NULL,\n" +
+            "  `l_quantity` decimal(12, 2) NOT NULL,\n" +
+            "  `l_extendedprice` decimal(12, 2) NOT NULL,\n" +
+            "  `l_discount` decimal(12, 2) NOT NULL,\n" +
+            "  `l_tax` decimal(12, 2) NOT NULL,\n" +
+            "  `l_returnflag` char(1) NOT NULL,\n" +
+            "  `l_linestatus` char(1) NOT NULL,\n" +
+            "  `l_shipdate` date NOT NULL,\n" +
+            "  `l_commitdate` date NOT NULL,\n" +
+            "  `l_receiptdate` date NOT NULL,\n" +
+            "  `l_shipinstruct` char(25) NOT NULL,\n" +
+            "  `l_shipmode` char(10) NOT NULL,\n" +
+            "  `l_comment` varchar(44) NOT NULL\n" +
+            ") DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 32 PROPERTIES (\"replication_num\" = \"1\");");
+        // TODO: For test only, delete it later
+        GlobalDictManger dictManger = Catalog.getCurrentCatalog().getGlobalDictMgr();
+        Field dictMapField = GlobalDictManger.class.getDeclaredField("dictsMap");
+        dictMapField.setAccessible(true);
+        Map<DictKey, IDict> dictsMap = (Map<DictKey, IDict>)dictMapField.get(dictManger);
+        Database database = Catalog.getCurrentCatalog().getDb("default_cluster:test").get();
+        Table table = database.getTable("lineitem").get();
+        DictKey dictKey = new DictKey(database.getId(), table.getId(), "l_shipmode");
+        new Expectations(dict) {
+            {
+                dict.getDictId();
+                result = 0;
+
+                dict.getState();
+                result = DictState.VALID;
+            }
+        };
+        dictsMap.put(dictKey, dict);
+        connectContext.getSessionVariable().setEnableVectorizedEngine(true);
+        connectContext.getSessionVariable().setEnableLowCardinalityOpt(true);
+        {
+            String sql = "SELECT l_shipmode, COUNT(l_shipmode) FROM lineitem GROUP BY  l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertTrue(plan.contains("Decode col: <4, 0>"));
+            Assert.assertTrue(plan.contains("DICT COL: <3, 0>"));
+        }
+
+        {
+            String sql = "SELECT l_shipmode FROM lineitem GROUP BY  l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertTrue(plan.contains("Decode"));
+            Assert.assertTrue(plan.contains("DICT COL: <2, 0>"));
+        }
+
+        {
+            String sql = "SELECT count(l_shipmode) FROM lineitem WHERE l_shipmode = 'AIR' GROUP BY l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode"));
+        }
+
+        {
+            String sql = "SELECT count(distinct l_shipmode) FROM lineitem WHERE l_orderkey  < 20 GROUP BY l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode"));
+            Assert.assertTrue(plan.contains("DICT COL: <6, 0>"));
+        }
+
+        {
+            String sql = "SELECT l_shipmode, l_orderkey FROM lineitem GROUP BY l_shipmode, l_orderkey";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertTrue(plan.contains("Decode"));
+            Assert.assertTrue(plan.contains("DICT COL: <4, 0>"));
+            Assert.assertTrue(plan.contains("Decode col: <6, 0>"));
+        }
+        // join
+        {
+            String sql = "SELECT * FROM (SELECT l_shipmode m, COUNT(distinct l_shipdate) " +
+                "FROM lineitem GROUP BY l_shipmode) t1, (select * from lineitem) t2 WHERE t1.m = t2.l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode"));
+        }
+        // sub-query
+        {
+            String sql = "SELECT * FROM (SELECT DISTINCT l_shipmode FROM lineitem) t";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertTrue(plan.contains("Decode col: <4, 0>"));
+            Assert.assertTrue(plan.contains("DICT COL: <3, 0>"));
+        }
+        // rollup
+        {
+            String sql = "SELECT l_shipmode, l_shipdate FROM lineitem GROUP BY ROLLUP(l_shipmode, l_shipdate)";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode col"));
+            Assert.assertFalse(plan.contains("DICT COL"));
+        }
+        // cube
+        {
+            String sql = "SELECT l_shipmode, l_shipdate FROM lineitem GROUP BY CUBE(l_shipmode, l_shipdate)";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode col"));
+            Assert.assertFalse(plan.contains("DICT COL"));
+        }
+        // min max
+        {
+            String sql = "SELECT MAX(l_shipmode), MIN(l_shipdate) FROM lineitem GROUP BY l_shipmode";
+            String plan = UtFrameUtils.getVerboseSQLPlanOrErrorMsg(connectContext, sql);
+            Assert.assertFalse(plan.contains("Decode col"));
+            Assert.assertFalse(plan.contains("DICT COL"));
+        }
     }
 
     @Test

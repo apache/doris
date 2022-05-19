@@ -49,6 +49,7 @@ struct WriteRequest {
     bool is_high_priority = false;
     POlapTableSchemaParam ptable_schema_param;
     int64_t index_id;
+    const phmap::flat_hash_map<std::string, phmap::flat_hash_set<std::string>>* dicts = nullptr;
 };
 
 // Writer for a particular (load, index, tablet).

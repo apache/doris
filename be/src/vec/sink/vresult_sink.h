@@ -28,7 +28,6 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
-struct ResultFileOptions;
 namespace vectorized {
 class VExprContext;
 
@@ -55,8 +54,6 @@ public:
 private:
     Status prepare_exprs(RuntimeState* state);
     TResultSinkType::type _sink_type;
-    // set file options when sink type is FILE
-    std::unique_ptr<ResultFileOptions> _file_opts;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
@@ -69,6 +66,8 @@ private:
     std::shared_ptr<VResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size;            // Allocated from _pool
+    // total time cost on append batch operation
+    RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
 };
 } // namespace vectorized
 

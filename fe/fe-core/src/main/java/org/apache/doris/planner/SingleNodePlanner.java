@@ -1157,6 +1157,10 @@ public class SingleNodePlanner {
                     aggInfo.getSecondPhaseDistinctAggInfo());
             newRoot.init(analyzer);
             Preconditions.checkState(newRoot.hasValidStats());
+        } else if (selectStmt.isMetaQuery()) {
+            Preconditions.checkState(root instanceof OlapMetaScanNode);
+            OlapMetaScanNode olapMetaScanNode = (OlapMetaScanNode) root;
+            olapMetaScanNode.pullDictSlots(aggInfo);
         }
         // add Having clause
         newRoot.assignConjuncts(analyzer);
@@ -1690,7 +1694,12 @@ public class SingleNodePlanner {
 
         switch (tblRef.getTable().getType()) {
             case OLAP:
-                OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(),
+                if (selectStmt.isMetaQuery()) {
+                    OlapMetaScanNode olapMetaScanNode = new OlapMetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+                    scanNode = olapMetaScanNode;
+                    break;
+                }
+                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;

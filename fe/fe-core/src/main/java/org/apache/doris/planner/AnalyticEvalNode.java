@@ -270,4 +270,10 @@ public class AnalyticEvalNode extends PlanNode {
         // TODO: come up with estimate based on window
         cardinality = 0;
     }
+
+    @Override
+    public void filterDictSlot(DecodeContext context) {
+        context.setContainsUnsupportedOpt(true);
+    }
+
 }

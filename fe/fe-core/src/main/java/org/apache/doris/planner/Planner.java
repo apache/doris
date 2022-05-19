@@ -81,6 +81,48 @@ public abstract class Planner {
     }
 
     public void appendTupleInfo(StringBuilder stringBuilder) {}
+    /**
+     * Create plan fragments for an analyzed statement, given a set of execution options. The fragments are returned in
+     * a list such that element i of that list can only consume output of the following fragments j > i.
+     */
+    public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
+            throws UserException {
+        QueryStmt queryStmt;
+        if (statement instanceof InsertStmt) {
+            queryStmt = ((InsertStmt) statement).getQueryStmt();
+        } else {
+            queryStmt = (QueryStmt) statement;
+        }
+
+        plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
+        singleNodePlanner = new SingleNodePlanner(plannerContext);
+        PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
+        if (VectorizedUtil.isVectorized()) {
+            singleNodePlan.convertToVectoriezd();
+        }
+
+        if (analyzer.getContext() != null
+                && analyzer.getContext().getSessionVariable().isEnableProjection()
+                && statement instanceof SelectStmt) {
+            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
+        }
+
+        if (VectorizedUtil.isVectorized() && ConnectContext.get().getSessionVariable().isEnableLowCardinalityOpt()) {
+            DictPlanner dictPlanner = new DictPlanner(plannerContext,
+                analyzer.getDescTbl(), analyzer, queryStmt.getResultExprs());
+            singleNodePlan = dictPlanner.plan(singleNodePlan);
+        }
+
+        if (statement instanceof InsertStmt) {
+            InsertStmt insertStmt = (InsertStmt) statement;
+            insertStmt.prepareExpressions();
+        }
+    }
+    
+        // TODO chenhao16 , no used materialization work
+        // compute referenced slots before calling computeMemLayout()
+        //analyzer.markRefdSlots(analyzer, singleNodePlan, resultExprs, null);
 
     public List<PlanFragment> getFragments() {
         return fragments;

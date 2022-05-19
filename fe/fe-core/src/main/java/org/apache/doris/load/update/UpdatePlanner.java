@@ -95,7 +95,9 @@ public class UpdatePlanner extends OriginalPlanner {
         OlapTableSink olapTableSink = new OlapTableSink(targetTable, computeTargetTupleDesc(), null);
         olapTableSink.init(analyzer.getContext().queryId(), txnId, targetDBId,
                 analyzer.getContext().getSessionVariable().queryTimeoutS,
-                analyzer.getContext().getSessionVariable().sendBatchParallelism, false);
+                analyzer.getContext().getSessionVariable().sendBatchParallelism,
+            false,
+            analyzer.getDescTbl());
         olapTableSink.complete();
         // 3. gen plan fragment
         PlanFragment planFragment = new PlanFragment(fragmentIdGenerator.getNextId(), olapScanNode,

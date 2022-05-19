@@ -228,6 +228,22 @@ Status VOlapScanNode::prepare(RuntimeState* state) {
         DCHECK(runtime_filter != nullptr);
         runtime_filter->init_profile(_runtime_profile.get());
     }
+
+    //set dict to slotdesc
+    if (_olap_scan_node.__isset.slot_to_dict) {
+        if (!config::enable_storage_vectorization) {
+            return Status::InternalError(
+                    "must enable_storage_vectorization before using global dict");
+        }
+        for (const auto& item : _olap_scan_node.slot_to_dict) {
+            _dicts.emplace(item.first, state->get_global_dict_by_dict_id(item.second));
+        }
+        for (auto slot : _tuple_desc->slots()) {
+            if (_dicts.find(slot->id()) != _dicts.end()) {
+                slot->set_global_dict(_dicts[slot->id()]);
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -273,6 +289,8 @@ Status VOlapScanNode::open(RuntimeState* state) {
         }
     }
 
+    assert(state);
+    RETURN_IF_ERROR(OlapScanNode::init(tnode, state));
     return Status::OK();
 }
 

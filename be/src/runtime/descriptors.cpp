@@ -92,7 +92,11 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {
     auto data_type = get_data_type_ptr();
     if (data_type) {
-        return data_type->create_column();
+        auto column_ptr = data_type->create_column();
+        if (is_global_dict_column()) {
+            column_ptr->set_global_dict(get_global_dict());
+        }
+        return column_ptr;
     }
     return nullptr;
 }
@@ -590,7 +594,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         }
         entry->second->add_slot(slot_d);
     }
-
+    if (thrift_tbl.__isset.globalDict) {
+        (*tbl)->_global_dict = std::make_shared<TGlobalDict>(thrift_tbl.globalDict);
+    }
     return Status::OK();
 }
 
@@ -624,6 +630,20 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
         return nullptr;
     } else {
         return i->second;
+    }
+}
+
+std::shared_ptr<TGlobalDict> DescriptorTbl::get_global_dict() const {
+    return _global_dict;
+}
+
+// return all registered tuple descriptors
+void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const {
+    descs->clear();
+
+    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
+         ++i) {
+        descs->push_back(i->second);
     }
 }
 

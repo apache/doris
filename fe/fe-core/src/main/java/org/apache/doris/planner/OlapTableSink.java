@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
@@ -43,6 +44,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.dict.GlobalDictManger;
+import org.apache.doris.qe.dict.IDict;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -94,8 +97,26 @@ public class OlapTableSink extends DataSink {
         this.partitionIds = partitionIds;
     }
 
-    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
-            boolean loadToSingleTablet) throws AnalysisException {
+
+    public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS,
+                     int sendBatchParallelism, boolean loadToSingleTablet,
+                     DescriptorTable descTable) throws AnalysisException {
+        if (descTable != null) {
+            GlobalDictManger globalDictManger = Catalog.getCurrentCatalog().getGlobalDictMgr();
+            // here we should be full schema to fill the descriptor table
+            for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
+                Column column = slotDesc.getColumn();
+                if (column == null) {
+                    continue;
+                }
+                IDict iDict = globalDictManger.getDictForLoad(dbId, dstTable.getId(), column.getName());
+                if (iDict != null) {
+                    descTable.addSlotToDict(slotDesc.getId().asInt(), iDict.getDictId());
+                    descTable.putDict(iDict.getDictId(), iDict);
+                }
+            }
+        }
+
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);

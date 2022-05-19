@@ -86,7 +86,7 @@ enum TPrimitiveType {
   QUANTILE_STATE,
   DATEV2,
   DATETIMEV2,
-  TIMEV2,
+  TIMEV2
 }
 
 enum TTypeNodeType {

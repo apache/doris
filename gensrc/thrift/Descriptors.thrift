@@ -296,10 +296,21 @@ struct TTableDescriptor {
   19: optional THudiTable hudiTable
 }
 
+struct TColumnDict {
+  1: optional Types.TPrimitiveType type
+  2: optional list<string> str_dict  // map one string to a integer, using offset as id
+}
+
+struct TGlobalDict {
+  1: optional map<i64, TColumnDict> dicts  // map dict_id to column dict
+  2: optional map<i32, i64> slot_dicts
+}
+
 struct TDescriptorTable {
   1: optional list<TSlotDescriptor> slotDescriptors;
   2: required list<TTupleDescriptor> tupleDescriptors;
 
   // all table descriptors referenced by tupleDescriptors
   3: optional list<TTableDescriptor> tableDescriptors;
+  4: optional TGlobalDict globalDict;
 }

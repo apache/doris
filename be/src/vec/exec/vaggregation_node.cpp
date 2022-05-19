@@ -152,6 +152,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             _agg_data.init(AggregatedDataVariants::Type::int128_key, is_nullable);
             return;
         default:
+            //_agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
             _agg_data.init(AggregatedDataVariants::Type::serialized);
         }
     } else {

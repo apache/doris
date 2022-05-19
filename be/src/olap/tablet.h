@@ -276,6 +276,7 @@ public:
         std::shared_lock rdlock(_meta_lock);
         return _tablet_meta->all_beta();
     }
+    Status get_dict_data(std::set<std::string>& dict_words, int col_id);
 
     const TabletSchema& tablet_schema() const override;
 

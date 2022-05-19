@@ -119,6 +119,8 @@ public class SelectStmt extends QueryStmt {
     // Members that need to be reset to origin
     private SelectList originSelectList;
 
+    private boolean metaQuery;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -397,8 +399,14 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-        fromClause.setNeedToSql(needToSql);
-        fromClause.analyze(analyzer);
+        fromClause_.setNeedToSql(needToSql);
+        fromClause_.analyze(analyzer);
+        for (TableRef tblRef : fromClause_.getTableRefs()) {
+            if (tblRef.isMetaScan()) {
+                Preconditions.checkState(fromClause_.size() == 1);
+                metaQuery = true;
+            }
+        }
 
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
@@ -407,6 +415,7 @@ public class SelectStmt extends QueryStmt {
         if (!analyzer.isWithClause()) {
             registerIsNotEmptyPredicates(analyzer);
         }
+        metaQuery = metaQuery && selectList.isDistinct();
         // populate selectListExprs, aliasSMap, groupingSmap and colNames
         for (SelectListItem item : selectList.getItems()) {
             if (item.isStar()) {
@@ -1968,5 +1977,9 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         return this.id.equals(((SelectStmt) obj).id);
+    }
+
+    public boolean isMetaQuery() {
+        return metaQuery;
     }
 }

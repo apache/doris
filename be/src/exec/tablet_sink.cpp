@@ -111,6 +111,8 @@ Status NodeChannel::init(RuntimeState* state) {
     _timeout_watch.start();
     _max_pending_batches_bytes = _parent->_load_mem_limit / 20; //TODO: session variable percent
 
+    _runtime_state = state;
+
     _load_info = "load_id=" + print_id(_parent->_load_id) +
                  ", txn_id=" + std::to_string(_parent->_txn_id);
     return Status::OK();
@@ -135,6 +137,21 @@ void NodeChannel::open() {
     request.set_is_high_priority(_parent->_is_high_priority);
     request.set_sender_ip(BackendOptions::get_localhost());
     request.set_is_vectorized(_is_vectorized);
+
+    assert(_state);
+    for (size_t i = 0; i < request.schema().slot_descs_size(); ++i) {
+        auto slot = request.mutable_schema()->mutable_slot_descs(i);
+        auto dict = _state->get_global_dict(slot->id());
+        if (dict) {
+            slot->set_is_dict_encoded(true);
+            for (size_t j = 0; j < dict->dict_value_num(); ++j) {
+                const auto& val = dict->get_value(j);
+                slot->add_dict_values(val.ptr, val.len);
+            }
+        } else {
+            slot->set_is_dict_encoded(false);
+        }
+    }
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -238,6 +255,13 @@ Status NodeChannel::open_wait() {
                         TTabletCommitInfo commit_info;
                         commit_info.tabletId = tablet.tablet_id();
                         commit_info.backendId = _node_id;
+                        std::vector<std::string> invalid_dict_cache_columns;
+                        for (const auto& col_name : tablet.invalid_dict_cols()) {
+                            invalid_dict_cache_columns.emplace_back(col_name);
+                        }
+                        if (!invalid_dict_cache_columns.empty()) {
+                            commit_info.__set_invalid_dict_cols(invalid_dict_cache_columns);
+                        }
                         _tablet_commit_infos.emplace_back(std::move(commit_info));
                     }
                     _add_batches_finished = true;

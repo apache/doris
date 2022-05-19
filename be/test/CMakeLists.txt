@@ -283,7 +283,6 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/arrow/arrow_row_block_test.cpp
     util/arrow/arrow_row_batch_test.cpp
     util/arrow/arrow_work_flow_test.cpp
     util/counter_cond_variable_test.cpp
@@ -358,6 +357,7 @@ set(VEC_TEST_FILES
     vec/runtime/vdatetime_value_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
     vec/olap/char_type_padding_test.cpp
+    vec/runtime/global_dict_test.cpp
 )
 
 add_executable(doris_be_test
