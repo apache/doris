@@ -561,7 +561,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
             break;
         }
 
-        // Dispose the the column should do not contain the NULL value
+        // Dispose the column should do not contain the NULL value
         // Only tow case:
         // 1. column is nullable but the desc is not nullable
         // 2. desc->type is BITMAP
