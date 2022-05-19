@@ -202,7 +202,7 @@ void Compaction::gc_output_rowset() {
     }
 }
 
-// Find the longest consecutive version path in "rowset", from begining.
+// Find the longest consecutive version path in "rowset", from beginning.
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
 Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,

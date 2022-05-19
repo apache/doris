@@ -230,7 +230,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorBitMap::convert_to_olap() 
                 slice->size = slice_size;
                 raw_data += slice_size;
             } else {
-                // TODO: this may not be neccessary, check and remove later
+                // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
                 slice->size = 0;
             }
@@ -307,7 +307,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
                 slice->size = slice_size;
                 raw_data += slice_size;
             } else {
-                // TODO: this may not be neccessary, check and remove later
+                // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
                 slice->size = 0;
             }
@@ -388,7 +388,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
                 slice->data = (char*)char_data + string_offset;
                 slice->size = string_length;
             } else {
-                // TODO: this may not be neccessary, check and remove later
+                // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
                 slice->size = 0;
             }
@@ -475,7 +475,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorVarChar::convert_to_olap()
                             "`string_type_length_soft_limit_bytes` in vec engine.");
                 }
             } else {
-                // TODO: this may not be neccessary, check and remove later
+                // TODO: this may not be necessary, check and remove later
                 slice->data = nullptr;
                 slice->size = 0;
             }

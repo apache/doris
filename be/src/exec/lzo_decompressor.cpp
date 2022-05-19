@@ -384,7 +384,7 @@ std::string LzopDecompressor::debug_info() {
        << " header size: " << _header_info.header_size
        << " header checksum type: " << _header_info.header_checksum_type
        << " input checksum type: " << _header_info.input_checksum_type
-       << " ouput checksum type: " << _header_info.output_checksum_type;
+       << " output checksum type: " << _header_info.output_checksum_type;
     return ss.str();
 }
 #endif // DORIS_WITH_LZO
