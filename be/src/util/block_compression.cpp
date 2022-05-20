@@ -27,6 +27,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "util/faststring.h"
+#include "runtime/threadlocal.h"
 
 namespace doris {
 
@@ -85,6 +86,71 @@ public:
     }
 };
 
+class Lz4fCompressionContext {
+public:
+    Status init(bool is_compress) {
+        if (is_compress && !ctx_c_inited) {
+            auto ret1 = LZ4F_createCompressionContext(&ctx_c, LZ4F_VERSION);
+            if (LZ4F_isError(ret1)) {
+                return Status::InvalidArgument(strings::Substitute(
+                        "Fail to LZ4F_createCompressionContext, msg=$0", LZ4F_getErrorName(ret1)));
+            }
+            ctx_c_inited = true;
+        }
+
+        if (!is_compress && !ctx_d_inited) {
+            auto ret2 = LZ4F_createDecompressionContext(&ctx_d, LZ4F_VERSION);
+            if (LZ4F_isError(ret2)) {
+                return Status::InvalidArgument(strings::Substitute(
+                        "Fail to LZ4F_createDecompressionContext, msg=$0", LZ4F_getErrorName(ret2)));
+            }
+            ctx_d_inited = true;
+        }
+        // reset decompression context to avoid ERROR_maxBlockSize_invalid
+        if (!is_compress) LZ4F_resetDecompressionContext(ctx_d);
+
+        return Status::OK();
+    }
+
+    ~Lz4fCompressionContext() {
+        if (ctx_c_inited) LZ4F_freeCompressionContext(ctx_c);
+        if (ctx_d_inited) LZ4F_freeDecompressionContext(ctx_d);
+    }
+
+    LZ4F_compressionContext_t get_compress_ctx() { return ctx_c; }
+    LZ4F_decompressionContext_t get_decompress_ctx() { return ctx_d; }
+
+public:
+    LZ4F_compressionContext_t ctx_c;
+    bool ctx_c_inited = false;
+    LZ4F_decompressionContext_t ctx_d;
+    bool ctx_d_inited = false;
+};
+
+// a workaroud for no-trival thread_local requiring GLIBC_2.18
+//   refer to https://github.com/apache/incubator-doris/pull/7911
+class Lz4fCompressionContextPtr {
+public:
+    Lz4fCompressionContextPtr();
+    Lz4fCompressionContext* get();
+private:
+    DECLARE_STATIC_THREAD_LOCAL(Lz4fCompressionContext, thread_local_lz4f_ctx);
+};
+
+DEFINE_STATIC_THREAD_LOCAL(Lz4fCompressionContext, Lz4fCompressionContextPtr, thread_local_lz4f_ctx);
+
+Lz4fCompressionContextPtr::Lz4fCompressionContextPtr() {
+    INIT_STATIC_THREAD_LOCAL(Lz4fCompressionContext, thread_local_lz4f_ctx);
+}
+
+Lz4fCompressionContext* Lz4fCompressionContextPtr::get() {
+    return thread_local_lz4f_ctx;
+}
+
+// thread_local context for lz4f compress/decompress
+// one lz4f_ctx per each thread for performance and thread safe
+inline thread_local Lz4fCompressionContextPtr lz4f_ctx;
+
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 public:
@@ -96,38 +162,24 @@ public:
     ~Lz4fBlockCompression() override {}
 
     Status compress(const Slice& input, Slice* output) const override {
-        auto compressed_len = LZ4F_compressFrame(output->data, output->size, input.data, input.size,
-                                                 &_s_preferences);
-        if (LZ4F_isError(compressed_len)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "Fail to do LZ4F compress frame, msg=$0", LZ4F_getErrorName(compressed_len)));
-        }
-        output->size = compressed_len;
-        return Status::OK();
+        std::vector<Slice> inputs {input};
+        return compress(inputs, output);
     }
 
     Status compress(const std::vector<Slice>& inputs, Slice* output) const override {
-        LZ4F_compressionContext_t ctx = nullptr;
-        auto lres = LZ4F_createCompressionContext(&ctx, LZ4F_VERSION);
-        if (lres != 0) {
-            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F compress, res=$0",
-                                                               LZ4F_getErrorName(lres)));
-        }
-        auto st = _compress(ctx, inputs, output);
-        LZ4F_freeCompressionContext(ctx);
-        return st;
+        auto pctx = lz4f_ctx.get();
+        if (pctx && pctx->init(true).ok())
+            return _compress(pctx->ctx_c, inputs, output);
+        else
+            return Status::InvalidArgument("Fail to get thread local lz4f_ctx");
     }
 
     Status decompress(const Slice& input, Slice* output) const override {
-        LZ4F_decompressionContext_t ctx;
-        auto lres = LZ4F_createDecompressionContext(&ctx, LZ4F_VERSION);
-        if (LZ4F_isError(lres)) {
-            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F decompress, res=$0",
-                                                               LZ4F_getErrorName(lres)));
-        }
-        auto st = _decompress(ctx, input, output);
-        LZ4F_freeDecompressionContext(ctx);
-        return st;
+        auto pctx = lz4f_ctx.get();
+        if (pctx && pctx->init(false).ok())
+            return _decompress(pctx->ctx_d, input, output);
+        else
+            return Status::InvalidArgument("Fail to get thread local lz4f_ctx");
     }
 
     size_t max_compressed_len(size_t len) const override {
