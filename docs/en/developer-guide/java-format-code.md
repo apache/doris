@@ -42,9 +42,11 @@ standard java package
 * Do not use `import *`
 * Do not use `import static`
 
-## Checkstyle
+## Checkstyle Plugin
 
 Now we have `formatter-check` in `CI` to check the code format.
+
+### IDEA
 
 If you use `IDEA` to develop Java code, please install `Checkstyle-IDEA` plugin.
 
@@ -52,8 +54,25 @@ Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
 Click the plus sign under Configuration File, select `Use a local Checkstyle file`, and select the `fe/check/checkstyle/checkstyle.xml` file.
 
+### VS Code
+
+If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture
+
+## IDEA
+
+### Auto format code
+
 The automatic formatting function of `IDEA` is also recommended.
 
 Go to `Preferences->Editor->Code Style->Java` click the config sign and select `Import Scheme`，select `IntelliJ IDEA code style XML`，and select the `build-support/IntelliJ-code-format.xml` file.
 
-If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture.
+### Auto rearrange code
+
+Checkstyle will check declarations order according to [Class and Interface Declarations](https://www.oracle.com/java/technologies/javase/codeconventions-fileorganization.html#1852) .
+
+After add the `build-support/IntelliJ-code-format.xml` file. Click `Code/Rearrange Code` to auto rearrange code.
+
+![](/images/idea-rearrange-code.png)
+
+
+
