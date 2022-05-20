@@ -45,17 +45,16 @@ struct ToBitmap {
         auto size = offsets.size();
         res.reserve(size);
         for (size_t i = 0; i < size; ++i) {
+            res.emplace_back();
+
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             size_t str_size = offsets[i] - offsets[i - 1] - 1;
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
                                                                                 &parse_result);
             if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                res.emplace_back();
-                null_map[i] = 1;
                 continue;
             }
-            res.emplace_back();
             res.back().add(int_value);
         }
         return Status::OK();
