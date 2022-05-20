@@ -32,6 +32,7 @@
 #include <map>
 #include <string>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
