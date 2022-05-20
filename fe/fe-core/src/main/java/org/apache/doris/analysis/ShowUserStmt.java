@@ -45,7 +45,7 @@ public class ShowUserStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        user = analyzer.getQualifiedUser();
+        user = analyzer.getUserIdentity(false);
     }
 
     @Override

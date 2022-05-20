@@ -1864,12 +1864,12 @@ public class Analyzer {
     }
 
     public String getQualifiedUser() {
-        return globalState.context.getCurrentUserIdentity().toString();
+        return globalState.context.getQualifiedUser();
     }
 
     public String getUserIdentity(boolean currentUser) {
         if (currentUser) {
-            return "";
+            return globalState.context.getCurrentUserIdentity().toString();
         } else {
             return getQualifiedUser() + "@" + ConnectContext.get().getRemoteIP();
         }
