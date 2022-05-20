@@ -856,12 +856,15 @@ public class Config extends ConfigBase {
     // Configurations for consistency check
     /**
      * Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
-     * Default is from 23:00 to 04:00
+     * If start time == end time, the checker will stop scheduling.
+     * And default is disabled.
+     * TODO(cmy): Disable by default because current checksum logic has some bugs.
+     * And it will also bring some overhead.
      */
     @ConfField(mutable = true, masterOnly = true)
     public static String consistency_check_start_time = "23";
     @ConfField(mutable = true, masterOnly = true)
-    public static String consistency_check_end_time = "4";
+    public static String consistency_check_end_time = "23";
     /**
      * Default timeout of a single consistency check task. Set long enough to fit your tablet size.
      */

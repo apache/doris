@@ -98,6 +98,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+
 import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -640,7 +641,8 @@ public class Coordinator {
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId());
+                                        + pair.first.backend.getId() + " fragment: " +
+                                        DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
