@@ -141,7 +141,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
     Status st = writer->close_wait();
 #ifndef BE_TEST
     if (st.ok()) {
-        if (_broken_tablets.find(writer->tablet_id()) != _broken_tablets.end()) {
+        if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
