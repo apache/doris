@@ -487,7 +487,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
    After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.
 
-   if use supervisord, try to modify `minfds` in supervisord.conf
+   if use `supervisord`, try to modify `minfds` in supervisord.conf
 
    ```shell
    vim /etc/supervisord.conf
