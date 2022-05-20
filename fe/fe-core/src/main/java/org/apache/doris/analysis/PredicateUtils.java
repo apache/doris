@@ -44,6 +44,22 @@ public class PredicateUtils {
         return result;
     }
 
+    public static Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
+        List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
+        while (targetConjuncts.size() > 1) {
+            List<Expr> newTargetConjuncts = Lists.newArrayList();
+            for (int i = 0; i < targetConjuncts.size(); i += 2) {
+                Expr expr = i + 1 < targetConjuncts.size()
+                        ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
+                                targetConjuncts.get(i + 1))
+                        : targetConjuncts.get(i);
+                newTargetConjuncts.add(expr);
+            }
+            targetConjuncts = newTargetConjuncts;
+        }
+        return targetConjuncts.get(0);
+    }
+
     private static void splitDisjunctivePredicates(Expr expr, List<Expr> result) {
         if (expr instanceof CompoundPredicate && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.OR) {
             splitDisjunctivePredicates(expr.getChild(0), result);

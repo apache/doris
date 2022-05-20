@@ -965,6 +965,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isEnableProjection() {
         return enableProjection;
     }
+    
+    public void setEnablePushPredicateToSubquery(boolean enablePushPredicateToSubquery) {
+        this.enablePushPredicateToSubquery = enablePushPredicateToSubquery;
+    }
 
     public boolean isTrimTailingSpacesForExternalTableQuery() {
         return trimTailingSpacesForExternalTableQuery;
@@ -1019,10 +1023,6 @@ public class SessionVariable implements Serializable, Writable {
         return enablePushPredicateToSubquery;
     }
 
-    public void setEnablePushPredicateToSubquery(boolean enablePushPredicateToSubquery) {
-        this.enablePushPredicateToSubquery = enablePushPredicateToSubquery;
-    }
-    
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {

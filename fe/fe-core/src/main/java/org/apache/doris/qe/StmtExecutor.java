@@ -18,7 +18,9 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CreateTableAsSelectStmt;
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
@@ -32,6 +34,8 @@ import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
+import org.apache.doris.analysis.Predicate;
+import org.apache.doris.analysis.PredicateUtils;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.SelectListItem;
@@ -46,22 +50,19 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.Subquery;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
 import org.apache.doris.analysis.TransactionStmt;
-import org.apache.doris.analysis.UnlockTablesStmt;
-import org.apache.doris.analysis.UnsupportedStmt;
-import org.apache.doris.analysis.UseStmt;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.Subquery;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TableRef;
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.UnlockTablesStmt;
+import org.apache.doris.analysis.UnsupportedStmt;
+import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -795,20 +796,26 @@ public class StmtExecutor implements ProfileWriter {
                     Pair<SlotRef, SlotRef> correlatedSlotRefs = findAndModifyCorrelatedSlotsInSubquery(selectStmt);
                     if (correlatedSlotRefs != null) {
                         String tmpTableSuffix = "_" + UUID.randomUUID().toString();
-                        List<Expr> predicates = findSingleColumnPredicateToPush(conjuncts, correlatedSlotRefs.first, tmpTableSuffix);
+                        List<Expr> predicates = findSingleColumnPredicateToPush(conjuncts, correlatedSlotRefs.first,
+                                tmpTableSuffix);
                         if (!predicates.isEmpty()) {
                             // add a new tableRef in subquery
-                            TableName tableNameInSchema = new TableName(correlatedSlotRefs.first.getTableName().getDb(), correlatedSlotRefs.first.getTable().getName());
-                            TableRef tableRef = new TableRef(tableNameInSchema, correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix);
+                            TableName tableNameInSchema = new TableName(correlatedSlotRefs.first.getTableName().getDb(),
+                                    correlatedSlotRefs.first.getTable().getName());
+                            TableRef tableRef = new TableRef(tableNameInSchema,
+                                    correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix);
 
                             List<TableRef> newTableRefs = selectStmt.getTableRefs();
                             newTableRefs.add(tableRef);
 
                             predicates.add(new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                                    new SlotRef(new TableName(null, correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix),
-                                            correlatedSlotRefs.first.getColumnName()), correlatedSlotRefs.second));
+                                    new SlotRef(
+                                            new TableName(null,
+                                                    correlatedSlotRefs.first.getTableName().getTbl() + tmpTableSuffix),
+                                            correlatedSlotRefs.first.getColumnName()),
+                                    correlatedSlotRefs.second));
                             predicates.add(selectStmt.getWhereClause());
-                            selectStmt.setWhereClause(convertConjunctsToAndCompoundPredicate(predicates));
+                            selectStmt.setWhereClause(PredicateUtils.convertConjunctsToAndCompoundPredicate(predicates));
 
                             Analyzer analyzer = new Analyzer(selectStmt.getAnalyzer().getParentAnalyzer());
                             analyzer.setIsSubquery();
@@ -819,20 +826,6 @@ public class StmtExecutor implements ProfileWriter {
                 }
             }
         }
-    }
-
-    private Expr convertConjunctsToAndCompoundPredicate(List<Expr> conjuncts) {
-        List<Expr> targetConjuncts = Lists.newArrayList(conjuncts);
-        while (targetConjuncts.size() > 1) {
-            List<Expr> newTargetConjuncts = Lists.newArrayList();
-            for (int i = 0; i < targetConjuncts.size(); i += 2) {
-                Expr expr = i + 1 < targetConjuncts.size() ? new CompoundPredicate(CompoundPredicate.Operator.AND, targetConjuncts.get(i),
-                        targetConjuncts.get(i + 1)) : targetConjuncts.get(i);
-                newTargetConjuncts.add(expr);
-            }
-            targetConjuncts = newTargetConjuncts;
-        }
-        return targetConjuncts.get(0);
     }
 
     private List<Expr> findSingleColumnPredicateToPush(List<Expr> conjuncts, SlotRef slotRef, String tmpTableSuffix) {
@@ -856,7 +849,8 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private Pair<SlotRef, SlotRef> findAndModifyCorrelatedSlotsInSubquery(SelectStmt selectStmt) {
-        // only handle the case where the subquery has only one correated equal join predicate
+        // only handle the case where the subquery has only one correated equal join
+        // predicate
         // in TPCH q17, it's l_partkey ( innerRef ) = p_partkey ( outerRef ) in subquery
         Expr whereClause = selectStmt.getWhereClause();
         if (whereClause == null) {
@@ -871,7 +865,8 @@ public class StmtExecutor implements ProfileWriter {
         for (Expr conj : conjuncts) {
             if (conj instanceof BinaryPredicate) {
                 BinaryPredicate predicate = (BinaryPredicate) conj;
-                if (predicate.isEqJoinConjunct() && predicate.getChild(0) instanceof SlotRef && predicate.getChild(1) instanceof SlotRef) {
+                if (predicate.isEqJoinConjunct() && predicate.getChild(0) instanceof SlotRef
+                        && predicate.getChild(1) instanceof SlotRef) {
                     for (Expr expr : predicate.getChildren()) {
                         SlotRef slotRef = (SlotRef) expr;
                         if (tupleIds.contains(slotRef.getDesc().getParent().getId())) {
@@ -890,7 +885,8 @@ public class StmtExecutor implements ProfileWriter {
 
         if (matchCount == 1) {
             // for simplicity, we only handle the case that:
-            // 1. only 1 outer slot ref is used in scalar subquery's correlatedPredicates's operator
+            // 1. only 1 outer slot ref is used in scalar subquery's correlatedPredicates's
+            // operator
             // 2. there is no same tableRef in subquery as outerRef's tableRef
             List<TableRef> tableRefs = selectStmt.getTableRefs();
             long outerTableId = outerRef.getTable().getId();
@@ -907,7 +903,7 @@ public class StmtExecutor implements ProfileWriter {
                 // set outer table's alias
                 outerTupleDescriptor.getRef().setAlias(alias);
                 // set the tuple descriptor's alias
-                outerTupleDescriptor.setAliases(new String[]{alias}, true);
+                outerTupleDescriptor.setAliases(new String[] { alias }, true);
                 // update tuple descriptor's alias in parent analyzer
                 selectStmt.getAnalyzer().getParentAnalyzer().setTupleDescriptorAlias(outerTupleDescriptor, alias);
             }
@@ -918,7 +914,8 @@ public class StmtExecutor implements ProfileWriter {
             TupleDescriptor slotTupleDescriptor;
             for (SlotRef slotRef : slotRefs) {
                 slotTupleDescriptor = slotRef.getDesc().getParent();
-                if (slotTupleDescriptor.getId() == outerTupleDescriptor.getId() && slotRef.getOriginTableName() == null) {
+                if (slotTupleDescriptor.getId() == outerTupleDescriptor.getId()
+                        && slotRef.getOriginTableName() == null) {
                     slotRef.setTblName(new TableName(null, outerTupleDescriptor.getAlias()));
                 }
             }

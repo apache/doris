@@ -614,7 +614,7 @@ public class Analyzer {
     public void setTupleDescriptorAlias(TupleDescriptor tupleDescriptor, String alias) {
         tupleByAlias.put(alias, tupleDescriptor);
     }
-    
+
     public List<TupleId> getAllTupleIds() {
         return new ArrayList<>(tableRefMap.keySet());
     }
