@@ -100,9 +100,6 @@ private:
     Status _convert_one_row(const Slice& line, Tuple* tuple, MemPool* tuple_pool, bool* fill_tuple);
 
 protected:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
     std::string _value_separator;
     std::string _line_delimiter;
     TFileFormatType::type _file_format_type;
@@ -113,7 +110,6 @@ protected:
     FileReader* _cur_file_reader;
     LineReader* _cur_line_reader;
     Decompressor* _cur_decompressor;
-    int _next_range;
     bool _cur_line_reader_eof;
 
     // When we fetch range start from 0, header_type="csv_with_names" skip first line

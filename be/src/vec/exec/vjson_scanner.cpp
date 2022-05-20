@@ -46,14 +46,10 @@ VJsonScanner::VJsonScanner(RuntimeState* state, RuntimeProfile* profile,
 
 Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {
     SCOPED_TIMER(_read_timer);
+    RETURN_IF_ERROR(_init_src_block());
     const int batch_size = _state->batch_size();
-    size_t slot_num = _src_slot_descs.size();
-    std::vector<vectorized::MutableColumnPtr> columns(slot_num);
-    auto string_type = make_nullable(std::make_shared<DataTypeString>());
-    for (int i = 0; i < slot_num; i++) {
-        columns[i] = string_type->create_column();
-    }
 
+    auto columns = _src_block.mutate_columns();
     // Get one line
     while (columns[0]->size() < batch_size && !_scanner_eof) {
         if (_cur_file_reader == nullptr || _cur_reader_eof) {
@@ -83,10 +79,8 @@ Status VJsonScanner::get_next(vectorized::Block* output_block, bool* eof) {
 
     COUNTER_UPDATE(_rows_read_counter, columns[0]->size());
     SCOPED_TIMER(_materialize_timer);
-    RETURN_IF_ERROR(BaseScanner::fill_dest_block(output_block, columns));
 
-    *eof = _scanner_eof;
-    return Status::OK();
+    return _fill_dest_block(output_block, eof);
 }
 
 Status VJsonScanner::open_next_reader() {

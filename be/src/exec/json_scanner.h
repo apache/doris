@@ -78,9 +78,6 @@ protected:
                             bool& num_as_string, bool& fuzzy_parse);
 
 protected:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
     std::string _jsonpath;
     std::string _jsonpath_file;
 
@@ -91,7 +88,6 @@ protected:
     FileReader* _cur_file_reader;
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
-    int _next_range;
     bool _cur_reader_eof;
     bool _read_json_by_line;
 
