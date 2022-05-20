@@ -47,7 +47,7 @@ std::string DataTypeNullable::to_string(const IColumn& column, size_t row_num) c
             assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const().get());
 
     if (col.is_null_at(row_num)) {
-        return "\\N";
+        return "NULL";
     } else {
         return nested_data_type->to_string(col.get_nested_column(), row_num);
     }

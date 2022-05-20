@@ -25,9 +25,6 @@
 #include "exec/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exprs/expr.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/raw_value.h"
 #include "runtime/stream_load/load_stream_mgr.h"
@@ -41,12 +38,9 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
                                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
+        : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           // _splittable(params.splittable),
           _cur_file_reader(nullptr),
-          _next_range(0),
           _cur_file_eof(false) {}
 
 ParquetScanner::~ParquetScanner() {
@@ -83,11 +77,8 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bo
         RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool, fill_tuple));
         break; // break always
     }
-    if (_scanner_eof) {
-        *eof = true;
-    } else {
-        *eof = false;
-    }
+
+    *eof = _scanner_eof;
     return Status::OK();
 }
 

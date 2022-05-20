@@ -242,6 +242,9 @@ public:
     /** Get block data in string. */
     std::string dump_data(size_t begin = 0, size_t row_limit = 100) const;
 
+    /** Get one line data from block, only use in load data */
+    std::string dump_one_line(size_t row, int column_end) const;
+
     static Status filter_block(Block* block, int filter_conlumn_id, int column_to_keep);
 
     static void erase_useless_column(Block* block, int column_to_keep) {
