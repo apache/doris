@@ -74,13 +74,8 @@ protected:
     Status open_next_reader();
 
 protected:
-    //const TBrokerScanRangeParams& _params;
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
     // Reader
     ParquetReaderWrap* _cur_file_reader;
-    int _next_range;
     bool _cur_file_eof; // is read over?
 
     // used to hold current StreamLoadPipe

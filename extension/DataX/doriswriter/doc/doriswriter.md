@@ -166,7 +166,7 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **lineDelimiter**
 
-  - 描述：每批次数据包含多行，每行为 Json 格式，每行的的分隔符即为 lineDelimiter。支持多个字节, 例如'\x02\x03'。
+  - 描述：每批次数据包含多行，每行为 Json 格式，每行的分隔符即为 lineDelimiter。支持多个字节, 例如'\x02\x03'。
   - 必选：否
   - 默认值：`\n`
   

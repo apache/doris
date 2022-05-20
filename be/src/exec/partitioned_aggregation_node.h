@@ -405,7 +405,7 @@ private:
         void Close(bool finalize_rows);
 
         /// Spill this partition. 'more_aggregate_rows' = true means that more aggregate rows
-        /// may be appended to the the partition before appending unaggregated rows. On
+        /// may be appended to the partition before appending unaggregated rows. On
         /// success, one of the streams is left with a write iterator: the aggregated stream
         /// if 'more_aggregate_rows' is true or the unaggregated stream otherwise.
         Status Spill(bool more_aggregate_rows);
@@ -528,7 +528,7 @@ private:
     /// GetNext() using the agg fn evaluators' Serialize() or Finalize().
     /// For the Finalize() case if the output tuple is different from the intermediate
     /// tuple, then a new tuple is allocated from 'pool' to hold the final result.
-    /// Grouping values are copied into the output tuple and the the output tuple holding
+    /// Grouping values are copied into the output tuple and the output tuple holding
     /// the finalized/serialized aggregate values is returned.
     /// TODO: Coordinate the allocation of new tuples with the release of memory
     /// so as not to make memory consumption blow up.

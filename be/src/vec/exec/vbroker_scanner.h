@@ -42,11 +42,6 @@ private:
     Status _write_text_column(char* value, int length, SlotDescriptor* slot,
                               MutableColumnPtr* column_ptr, RuntimeState* state);
 
-    Status _fill_dest_block(Block* block, std::vector<MutableColumnPtr>& columns);
-
     Status _fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns);
-
-    Status _fill_columns_from_path(int start, const std::vector<std::string>& columns_from_path,
-                                   std::vector<MutableColumnPtr>& columns);
 };
 } // namespace doris::vectorized

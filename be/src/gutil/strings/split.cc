@@ -950,7 +950,7 @@ bool SplitStringIntoKeyValuePairs(const string& line, const string& key_value_de
             // values; just record that our split failed.
             success = false;
         }
-        // we expect atmost one value because we passed in an empty vsep to
+        // we expect at most one value because we passed in an empty vsep to
         // SplitStringIntoKeyValues
         DCHECK_LE(value.size(), 1);
         kv_pairs->push_back(make_pair(key, value.empty() ? "" : value[0]));

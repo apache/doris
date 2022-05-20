@@ -39,7 +39,6 @@
 #include "olap/push_handler.h"
 #include "olap/reader.h"
 #include "olap/rowset/column_data_writer.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/schema_change.h"
 #include "olap/tablet.h"
@@ -332,7 +331,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
         // bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
         // if (!in_restore_mode && request.__isset.version) {
         // create initial rowset before add it to storage engine could omit many locks
-        res = _create_initial_rowset_unlocked(request, tablet.get());
+        res = tablet->create_initial_rowset(request.version);
         if (!res.ok()) {
             LOG(WARNING) << "fail to create initial version for tablet. res=" << res;
             break;
@@ -343,26 +342,10 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
             // because schema change handler depends on it to check whether history data
             // convert finished
             tablet->set_tablet_state(TabletState::TABLET_NOTREADY);
-            // The following two special situations may occur:
-            // 1. Because the operating system time jumps, the creation_time of the newly generated table
-            //    is less than the creation_time of the old table
-            // 2. Because the unit of second is unified in the olap engine code,
-            //    if two operations (such as creating a table, and then immediately altering the table)
-            //    is less than 1s, then the creation_time of the new table and the old table obtained by alter will be the same
-            //
-            // When the above two situations occur, in order to be able to distinguish between the new tablet
-            // obtained by alter and the old tablet, the creation_time of the new tablet is set to
-            // the creation_time of the old tablet increased by 1
-            if (tablet->creation_time() <= base_tablet->creation_time()) {
-                LOG(WARNING) << "new tablet's create time is less than or equal to old tablet"
-                             << "new_tablet_create_time=" << tablet->creation_time()
-                             << ", base_tablet_create_time=" << base_tablet->creation_time();
-                int64_t new_creation_time = base_tablet->creation_time() + 1;
-                tablet->set_creation_time(new_creation_time);
-            }
         }
         // Add tablet to StorageEngine will make it visible to user
-        res = _add_tablet_unlocked(new_tablet_id, tablet, true, false);
+        // Will persist tablet meta
+        res = _add_tablet_unlocked(new_tablet_id, tablet, /*update_meta*/ true, false);
         if (!res.ok()) {
             LOG(WARNING) << "fail to add tablet to StorageEngine. res=" << res;
             break;
@@ -1167,76 +1150,6 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
               << ", number: " << counter << ", cost(ms): " << cost;
 }
 
-Status TabletManager::_create_initial_rowset_unlocked(const TCreateTabletReq& request,
-                                                      Tablet* tablet) {
-    Status res = Status::OK();
-    if (request.version < 1) {
-        LOG(WARNING) << "init version of tablet should at least 1. req.ver=" << request.version;
-        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
-    } else {
-        Version version(0, request.version);
-        VLOG_NOTICE << "begin to create init version. version=" << version;
-        RowsetSharedPtr new_rowset;
-        do {
-            RowsetWriterContext context;
-            context.rowset_id = StorageEngine::instance()->next_rowset_id();
-            context.tablet_uid = tablet->tablet_uid();
-            context.tablet_id = tablet->tablet_id();
-            context.partition_id = tablet->partition_id();
-            context.tablet_schema_hash = tablet->schema_hash();
-            context.data_dir = tablet->data_dir();
-            if (!request.__isset.storage_format ||
-                request.storage_format == TStorageFormat::DEFAULT) {
-                context.rowset_type = StorageEngine::instance()->default_rowset_type();
-            } else if (request.storage_format == TStorageFormat::V1) {
-                context.rowset_type = RowsetTypePB::ALPHA_ROWSET;
-            } else if (request.storage_format == TStorageFormat::V2) {
-                context.rowset_type = RowsetTypePB::BETA_ROWSET;
-            } else {
-                LOG(ERROR) << "invalid TStorageFormat: " << request.storage_format;
-                DCHECK(false);
-                context.rowset_type = StorageEngine::instance()->default_rowset_type();
-            }
-            context.path_desc = tablet->tablet_path_desc();
-            context.tablet_schema = &(tablet->tablet_schema());
-            context.rowset_state = VISIBLE;
-            context.version = version;
-            // there is no data in init rowset, so overlapping info is unknown.
-            context.segments_overlap = OVERLAP_UNKNOWN;
-
-            std::unique_ptr<RowsetWriter> builder;
-            res = RowsetFactory::create_rowset_writer(context, &builder);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to init rowset writer for tablet " << tablet->full_name();
-                break;
-            }
-            res = builder->flush();
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to flush rowset writer for tablet " << tablet->full_name();
-                break;
-            }
-
-            new_rowset = builder->build();
-            res = tablet->add_rowset(new_rowset, false);
-            if (!res.ok()) {
-                LOG(WARNING) << "failed to add rowset for tablet " << tablet->full_name();
-                break;
-            }
-        } while (0);
-
-        // Unregister index and delete files(index and data) if failed
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to create initial rowset. res=" << res << " version=" << version;
-            StorageEngine::instance()->add_unused_rowset(new_rowset);
-            return res;
-        }
-    }
-    tablet->set_cumulative_layer_point(request.version + 1);
-    // NOTE: should not save tablet meta here, because it will be saved if add to map successfully
-
-    return res;
-}
-
 Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                                    const bool is_schema_change,
                                                    const Tablet* base_tablet,
@@ -1276,11 +1189,19 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
     RETURN_NOT_OK_LOG(store->get_shard(&shard_id), "fail to get root path shard");
     Status res = TabletMeta::create(request, TabletUid::gen_uid(), shard_id, next_unique_id,
                                     col_idx_to_unique_id, tablet_meta);
-
-    if (request.__isset.storage_format && request.storage_format != TStorageFormat::V1) {
-        (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
-    } else {
-        (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
+    RETURN_NOT_OK(res);
+    if (request.__isset.storage_format) {
+        if (request.storage_format == TStorageFormat::DEFAULT) {
+            (*tablet_meta)
+                    ->set_preferred_rowset_type(StorageEngine::instance()->default_rowset_type());
+        } else if (request.storage_format == TStorageFormat::V1) {
+            (*tablet_meta)->set_preferred_rowset_type(ALPHA_ROWSET);
+        } else if (request.storage_format == TStorageFormat::V2) {
+            (*tablet_meta)->set_preferred_rowset_type(BETA_ROWSET);
+        } else {
+            LOG(FATAL) << "invalid TStorageFormat: " << request.storage_format;
+            return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
+        }
     }
     return res;
 }

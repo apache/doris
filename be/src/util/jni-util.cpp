@@ -16,8 +16,10 @@
 // under the License.
 
 #include "util/jni-util.h"
+
 #ifdef LIBJVM
 #include <jni.h>
+#include <jni_md.h>
 #include <stdlib.h>
 
 #include "gutil/once.h"
@@ -45,8 +47,10 @@ void FindOrCreateJavaVM() {
         vm_args.nOptions = 1;
         vm_args.ignoreUnrecognized = JNI_TRUE;
 
-        int res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
-        DCHECK_LT(res, 0) << "Failed tp create JVM, code= " << res;
+        jint res = JNI_CreateJavaVM(&g_vm, (void**)&env, &vm_args);
+        if (JNI_OK != res) {
+            DCHECK(false) << "Failed to create JVM, code= " << res;
+        }
     } else {
         CHECK_EQ(rv, 0) << "Could not find any created Java VM";
         CHECK_EQ(num_vms, 1) << "No VMs returned";

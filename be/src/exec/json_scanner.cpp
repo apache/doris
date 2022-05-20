@@ -40,13 +40,10 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
                          const std::vector<TBrokerRangeDesc>& ranges,
                          const std::vector<TNetworkAddress>& broker_addresses,
                          const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
+        : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_json_reader(nullptr),
-          _next_range(0),
           _cur_reader_eof(false),
           _read_json_by_line(false) {
     if (params.__isset.line_delimiter_length && params.line_delimiter_length > 1) {

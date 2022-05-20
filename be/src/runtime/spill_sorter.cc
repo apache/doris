@@ -121,7 +121,7 @@ private:
     // into output_batch.
     // If this run was unpinned, one block (2 if there are var-len slots) is pinned while
     // rows are filled into output_batch. The block is unpinned before the next block is
-    // pinned. Atmost 1 (2) block(s) will be pinned at any time.
+    // pinned. At most 1 (2) block(s) will be pinned at any time.
     // If the run was pinned, the blocks are not unpinned (SpillSorter holds on to the memory).
     // In either case, all rows in output_batch will have their fixed and var-len data from
     // the same block.

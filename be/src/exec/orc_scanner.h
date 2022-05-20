@@ -47,11 +47,7 @@ private:
     Status open_next_reader();
 
 private:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
     // Reader
-    int _next_range;
     bool _cur_file_eof;
 
     // orc file reader object

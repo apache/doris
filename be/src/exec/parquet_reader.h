@@ -22,6 +22,7 @@
 #include <arrow/io/api.h>
 #include <arrow/io/file.h>
 #include <arrow/io/interfaces.h>
+#include <arrow/status.h>
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/reader.h>
@@ -29,9 +30,15 @@
 #include <parquet/exception.h>
 #include <stdint.h>
 
+#include <atomic>
+#include <condition_variable>
+#include <list>
 #include <map>
+#include <mutex>
 #include <string>
+#include <thread>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -51,7 +58,7 @@ class FileReader;
 class ParquetFile : public arrow::io::RandomAccessFile {
 public:
     ParquetFile(FileReader* file);
-    virtual ~ParquetFile();
+    ~ParquetFile() override;
     arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
     arrow::Result<int64_t> GetSize() override;
@@ -93,8 +100,11 @@ private:
                             int32_t* wbtyes);
 
 private:
+    void prefetch_batch();
+    Status read_next_batch();
+
+private:
     const int32_t _num_of_columns_from_file;
-    parquet::ReaderProperties _properties;
     std::shared_ptr<ParquetFile> _parquet;
 
     // parquet file reader object
@@ -113,6 +123,15 @@ private:
     int _current_line_of_batch;
 
     std::string _timezone;
+
+private:
+    std::atomic<bool> _closed = false;
+    arrow::Status _status;
+    std::mutex _mtx;
+    std::condition_variable _queue_reader_cond;
+    std::condition_variable _queue_writer_cond;
+    std::list<std::shared_ptr<arrow::RecordBatch>> _queue;
+    const size_t _max_queue_size = config::parquet_reader_max_buffer_size;
 };
 
 } // namespace doris

@@ -41,6 +41,13 @@ public:
         init();
         _profile = _runtime_state.runtime_profile();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
+
+        TUniqueId unique_id;
+        TQueryOptions query_options;
+        query_options.__set_enable_vectorized_engine(true);
+        TQueryGlobals query_globals;
+
+        _runtime_state.init(unique_id, query_options, query_globals, nullptr);
     }
     void init();
 
@@ -370,17 +377,17 @@ TEST_F(VBrokerScannerTest, normal) {
     auto columns = block->get_columns();
     ASSERT_EQ(columns.size(), 3);
 
-    ASSERT_EQ(columns[0]->get_data_at(0).to_string(), "1");
-    ASSERT_EQ(columns[0]->get_data_at(1).to_string(), "4");
-    ASSERT_EQ(columns[0]->get_data_at(2).to_string(), "8");
+    ASSERT_EQ(columns[0]->get_int(0), 1);
+    ASSERT_EQ(columns[0]->get_int(1), 4);
+    ASSERT_EQ(columns[0]->get_int(2), 8);
 
-    ASSERT_EQ(columns[1]->get_data_at(0).to_string(), "2");
-    ASSERT_EQ(columns[1]->get_data_at(1).to_string(), "5");
-    ASSERT_EQ(columns[1]->get_data_at(2).to_string(), "9");
+    ASSERT_EQ(columns[1]->get_int(0), 2);
+    ASSERT_EQ(columns[1]->get_int(1), 5);
+    ASSERT_EQ(columns[1]->get_int(2), 9);
 
-    ASSERT_EQ(columns[2]->get_data_at(0).to_string(), "3");
-    ASSERT_EQ(columns[2]->get_data_at(1).to_string(), "6");
-    ASSERT_EQ(columns[2]->get_data_at(2).to_string(), "10");
+    ASSERT_EQ(columns[2]->get_int(0), 3);
+    ASSERT_EQ(columns[2]->get_int(1), 6);
+    ASSERT_EQ(columns[2]->get_int(2), 10);
 }
 
 TEST_F(VBrokerScannerTest, normal2) {
@@ -413,14 +420,14 @@ TEST_F(VBrokerScannerTest, normal2) {
     auto columns = block->get_columns();
     ASSERT_EQ(columns.size(), 3);
 
-    ASSERT_EQ(columns[0]->get_data_at(0).to_string(), "1");
-    ASSERT_EQ(columns[0]->get_data_at(1).to_string(), "3");
+    ASSERT_EQ(columns[0]->get_int(0), 1);
+    ASSERT_EQ(columns[0]->get_int(1), 3);
 
-    ASSERT_EQ(columns[1]->get_data_at(0).to_string(), "2");
-    ASSERT_EQ(columns[1]->get_data_at(1).to_string(), "4");
+    ASSERT_EQ(columns[1]->get_int(0), 2);
+    ASSERT_EQ(columns[1]->get_int(1), 4);
 
-    ASSERT_EQ(columns[2]->get_data_at(0).to_string(), "3");
-    ASSERT_EQ(columns[2]->get_data_at(1).to_string(), "5");
+    ASSERT_EQ(columns[2]->get_int(0), 3);
+    ASSERT_EQ(columns[2]->get_int(1), 5);
 }
 
 TEST_F(VBrokerScannerTest, normal5) {

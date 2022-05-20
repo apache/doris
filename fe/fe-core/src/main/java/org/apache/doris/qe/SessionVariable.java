@@ -180,6 +180,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PROJECTION = "enable_projection";
 
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -438,6 +440,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
+    public boolean trimTailingSpacesForExternalTableQuery = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -895,6 +900,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean isTrimTailingSpacesForExternalTableQuery() {
+        return trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
+        this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -912,6 +925,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
+        tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
