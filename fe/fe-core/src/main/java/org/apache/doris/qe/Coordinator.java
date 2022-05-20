@@ -57,7 +57,10 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
+import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
 import org.apache.doris.proto.Types;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
@@ -70,6 +73,7 @@ import org.apache.doris.thrift.TDescriptorTable;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -102,6 +106,7 @@ import org.apache.commons.collections.map.HashedMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.jetbrains.annotations.NotNull;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -211,6 +216,10 @@ public class Coordinator {
     // parallel execute
     private final TUniqueId nextInstanceId;
 
+    // a timestamp represent the absolute timeout
+    // eg, System.currentTimeMillis() + query_timeout * 1000
+    private long timeoutDeadline;
+
     // Runtime filter merge instance address and ID
     public TNetworkAddress runtimeFilterMergeAddr;
     public TUniqueId runtimeFilterMergeInstanceId;
@@ -221,6 +230,7 @@ public class Coordinator {
     public List<RuntimeFilter> assignedRuntimeFilters = new ArrayList<>();
     // Runtime filter ID to the builder instance number
     public Map<RuntimeFilterId, Integer> ridToBuilderNum = Maps.newHashMap();
+
 
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
@@ -489,15 +499,14 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         DataSink topDataSink = topParams.fragment.getSink();
+        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.query_timeout * 1000;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
-            receiver = new ResultReceiver(
-                    topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(execBeAddr),
-                    toBrpcHost(execBeAddr),
-                    queryOptions.query_timeout * 1000);
+            receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
+                    addressToBackendID.get(execBeAddr), toBrpcHost(execBeAddr), this.timeoutDeadline);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId), topParams.instanceExecParams.get(0).host);
+                LOG.debug("dispatch query job: {} to {}", DebugUtil.printId(queryId),
+                        topParams.instanceExecParams.get(0).host);
             }
 
             if (topDataSink instanceof ResultFileSink
@@ -530,6 +539,31 @@ public class Coordinator {
         sendFragment();
     }
 
+    /**
+     * The logic for sending query plan fragments is as follows:
+     * First, plan fragments are dependent. According to the order in "fragments" list,
+     * it must be ensured that on the BE side, the next fragment instance can be executed
+     * only after the previous fragment instance is ready,
+     * <p>
+     * In the previous logic, we will send fragment instances in sequence through RPC,
+     * and will wait for the RPC of the previous fragment instance to return successfully
+     * before sending the next one. But for some complex queries, this may lead to too many RPCs.
+     * <p>
+     * The optimized logic is as follows:
+     * 1. If the number of fragment instance is <= 2, the original logic is still used
+     * to complete the sending of fragments through at most 2 RPCs.
+     * 2. If the number of fragment instance is >= 3, first group all fragments by BE,
+     * and send all fragment instances to the corresponding BE node through the FIRST rpc,
+     * but these fragment instances will only perform the preparation phase but will not be actually executed.
+     * After that, the execution logic of all fragment instances is started through the SECOND RPC.
+     * <p>
+     * After optimization, a query on a BE node will only send two RPCs at most.
+     * Thereby reducing the "send fragment timeout" error caused by too many RPCs and BE unable to process in time.
+     *
+     * @throws TException
+     * @throws RpcException
+     * @throws UserException
+     */
     private void sendFragment() throws TException, RpcException, UserException {
         lock();
         try {
@@ -539,23 +573,21 @@ public class Coordinator {
                     hostCounter.add(fi.host);
                 }
             }
-            // Execute all instances from up to bottom
-            // NOTICE: We must ensure that these fragments are executed sequentially,
-            // otherwise the data dependency between the fragments will be destroyed.
+
             int backendIdx = 0;
             int profileFragmentId = 0;
             long memoryLimit = queryOptions.getMemLimit();
+            Map<Long, BackendExecStates> beToExecStates = Maps.newHashMap();
+            boolean needTrigger = fragments.size() > 2;
             for (PlanFragment fragment : fragments) {
                 FragmentExecParams params = fragmentExecParamsMap.get(fragment.getFragmentId());
 
-                // set up exec states
+                // 1. set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
                 List<TExecPlanFragmentParams> tParams = params.toThrift(backendIdx);
-                List<Pair<BackendExecState, Future<InternalService.PExecPlanFragmentResult>>> futures =
-                        Lists.newArrayList();
 
-                // update memory limit for colocate join
+                // 2. update memory limit for colocate join
                 if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
                     int rate = Math.min(Config.query_colocate_join_memory_limit_penalty_factor, instanceNum);
                     long newMemory = memoryLimit / rate;
@@ -574,15 +606,16 @@ public class Coordinator {
                     needCheckBackendState = true;
                 }
 
+                // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
                 int instanceId = 0;
                 for (TExecPlanFragmentParams tParam : tParams) {
-                    BackendExecState execState = new BackendExecState(fragment.getFragmentId(), instanceId++,
-                            profileFragmentId, tParam, this.addressToBackendID);
-                    execState.unsetFields();
+                    BackendExecState execState =
+                            new BackendExecState(fragment.getFragmentId(), instanceId++, profileFragmentId, tParam, this.addressToBackendID);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     tParam.setFragmentNumOnHost(hostCounter.count(execState.address));
                     tParam.setBackendId(execState.backend.getId());
+                    tParam.setNeedWaitExecutionTrigger(needTrigger);
 
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
@@ -592,74 +625,94 @@ public class Coordinator {
                                     fragment.getFragmentId().asInt(), jobId);
                         }
                     }
-                    futures.add(Pair.create(execState, execState.execRemoteFragmentAsync()));
 
-                    backendIdx++;
-                }
-
-                for (Pair<BackendExecState, Future<InternalService.PExecPlanFragmentResult>> pair : futures) {
-                    TStatusCode code;
-                    String errMsg = null;
-                    Exception exception = null;
-                    try {
-                        InternalService.PExecPlanFragmentResult result = pair.second.get(Config.remote_fragment_exec_timeout_ms,
-                                TimeUnit.MILLISECONDS);
-                        code = TStatusCode.findByValue(result.getStatus().getStatusCode());
-                        if (!result.getStatus().getErrorMsgsList().isEmpty()) {
-                            errMsg = result.getStatus().getErrorMsgsList().get(0);
-                        }
-                    } catch (ExecutionException e) {
-                        LOG.warn("catch a execute exception", e);
-                        exception = e;
-                        code = TStatusCode.THRIFT_RPC_ERROR;
-                        BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddress);
-                    } catch (InterruptedException e) {
-                        LOG.warn("catch a interrupt exception", e);
-                        exception = e;
-                        code = TStatusCode.INTERNAL_ERROR;
-                    } catch (TimeoutException e) {
-                        LOG.warn("catch a timeout exception", e);
-                        exception = e;
-                        code = TStatusCode.TIMEOUT;
-                        BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddress);
+                    BackendExecStates states = beToExecStates.get(execState.backend.getId());
+                    if (states == null) {
+                        states = new BackendExecStates(execState.backend.getId(), execState.brpcAddress);
+                        beToExecStates.putIfAbsent(execState.backend.getId(), states);
                     }
-
-                    if (code != TStatusCode.OK) {
-                        if (exception != null) {
-                            errMsg = exception.getMessage();
-                        }
-
-                        if (errMsg == null) {
-                            errMsg = "exec rpc error. backend id: " + pair.first.backend.getId();
-                        }
-                        queryStatus.setStatus(errMsg);
-                        LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
-                                errMsg, code, fragment.getFragmentId(),
-                                pair.first.address.hostname, pair.first.address.port);
-                        cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
-                        switch (code) {
-                            case TIMEOUT:
-                                throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId() + " fragment: "
-                                        + DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
-                            case THRIFT_RPC_ERROR:
-                                SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
-                                throw new RpcException(pair.first.backend.getHost(), "rpc failed");
-                            default:
-                                throw new UserException(errMsg);
-                        }
-                    }
-
-                    // succeed to send the plan fragment, update the "alreadySentBackendIds"
-                    alreadySentBackendIds.add(pair.first.backend.getId());
+                    states.addState(execState);
                 }
-
                 profileFragmentId += 1;
+            } // end for fragments
+
+            // 4. send and wait fragments rpc
+            List<Pair<BackendExecStates, Future<InternalService.PExecPlanFragmentResult>>> futures = Lists.newArrayList();
+            for (BackendExecStates states : beToExecStates.values()) {
+                states.unsetFields();
+                futures.add(Pair.create(states, states.execRemoteFragmentsAsync()));
+            }
+            waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send fragments");
+
+            if (needTrigger) {
+                // 5. send and wait execution start rpc
+                futures.clear();
+                for (BackendExecStates states : beToExecStates.values()) {
+                    futures.add(Pair.create(states, states.execPlanFragmentStartAsync()));
+                }
+                waitRpc(futures, this.timeoutDeadline - System.currentTimeMillis(), "send execution start");
             }
 
             attachInstanceProfileToFragmentProfile();
         } finally {
             unlock();
+        }
+    }
+
+    private void waitRpc(List<Pair<BackendExecStates, Future<PExecPlanFragmentResult>>> futures, long timeoutMs,
+            String operation) throws RpcException, UserException {
+        if (timeoutMs <= 0) {
+            throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
+                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
+        }
+        
+        for (Pair<BackendExecStates, Future<PExecPlanFragmentResult>> pair : futures) {
+            TStatusCode code;
+            String errMsg = null;
+            Exception exception = null;
+            try {
+                PExecPlanFragmentResult result = pair.second.get(timeoutMs, TimeUnit.MILLISECONDS);
+                code = TStatusCode.findByValue(result.getStatus().getStatusCode());
+                if (code != TStatusCode.OK) {
+                    if (!result.getStatus().getErrorMsgsList().isEmpty()) {
+                        errMsg = result.getStatus().getErrorMsgsList().get(0);
+                    } else {
+                        errMsg = operation + " failed. backend id: " + pair.first.beId;
+                    }
+                }
+            } catch (ExecutionException e) {
+                exception = e;
+                code = TStatusCode.THRIFT_RPC_ERROR;
+                BackendServiceProxy.getInstance().removeProxy(pair.first.brpcAddr);
+            } catch (InterruptedException e) {
+                exception = e;
+                code = TStatusCode.INTERNAL_ERROR;
+            } catch (TimeoutException e) {
+                exception = e;
+                errMsg = "timeout when waiting for " + operation + " RPC. Elapse(sec): "
+                        + ((System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout);
+                code = TStatusCode.TIMEOUT;
+            }
+
+            if (code != TStatusCode.OK) {
+                if (exception != null && errMsg == null) {
+                    errMsg = operation + " failed. " + exception.getMessage();
+                }
+                queryStatus.setStatus(errMsg);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                switch (code) {
+                    case TIMEOUT:
+                        throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                    case THRIFT_RPC_ERROR:
+                        SimpleScheduler.addToBlacklist(pair.first.beId, errMsg);
+                        throw new RpcException(pair.first.brpcAddr.hostname, errMsg, exception);
+                    default:
+                        throw new UserException(errMsg, exception);
+                }
+            }
+
+            // succeed to send the plan fragment, update the "alreadySentBackendIds"
+            alreadySentBackendIds.add(pair.first.beId);
         }
     }
 
@@ -1896,7 +1949,6 @@ public class Coordinator {
     public class BackendExecState {
         TExecPlanFragmentParams rpcParams;
         PlanFragmentId fragmentId;
-        int instanceId;
         boolean initiated;
         volatile boolean done;
         boolean hasCanceled;
@@ -1906,18 +1958,20 @@ public class Coordinator {
         TNetworkAddress address;
         Backend backend;
         long lastMissingHeartbeatTime = -1;
+        TUniqueId instanceId;
 
         public BackendExecState(PlanFragmentId fragmentId, int instanceId, int profileFragmentId,
                                 TExecPlanFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
-            this.instanceId = instanceId;
             this.rpcParams = rpcParams;
             this.initiated = false;
             this.done = false;
             FInstanceExecParam fi = fragmentExecParamsMap.get(fragmentId).instanceExecParams.get(instanceId);
+            this.instanceId = fi.instanceId;
             this.address = fi.host;
             this.backend = idToBackend.get(addressToBackendID.get(address));
+            this.brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
 
             String name = "Instance " + DebugUtil.printId(fi.instanceId) + " (host=" + address + ")";
             this.profile = new RuntimeProfile(name);
@@ -2016,62 +2070,107 @@ public class Coordinator {
             return true;
         }
 
-        public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentAsync() throws TException, RpcException {
-            try {
-                brpcAddress = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
-            } catch (Exception e) {
-                throw new TException(e.getMessage());
-            }
-            this.initiated = true;
-            try {
-                return BackendServiceProxy.getInstance().execPlanFragmentAsync(brpcAddress, rpcParams);
-            } catch (RpcException e) {
-                // DO NOT throw exception here, return a complete future with error code,
-                // so that the following logic will cancel the fragment.
-                return new Future<InternalService.PExecPlanFragmentResult>() {
-                    @Override
-                    public boolean cancel(boolean mayInterruptIfRunning) {
-                        return false;
-                    }
-
-                    @Override
-                    public boolean isCancelled() {
-                        return false;
-                    }
-
-                    @Override
-                    public boolean isDone() {
-                        return true;
-                    }
-
-                    @Override
-                    public InternalService.PExecPlanFragmentResult get() {
-                        InternalService.PExecPlanFragmentResult result = InternalService.PExecPlanFragmentResult
-                                .newBuilder()
-                                .setStatus(Types.PStatus.newBuilder()
-                                        .addErrorMsgs(e.getMessage())
-                                        .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue())
-                                        .build())
-                                .build();
-                        return result;
-                    }
-
-                    @Override
-                    public InternalService.PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
-                        return get();
-                    }
-                };
-            }
-        }
-
         public FragmentInstanceInfo buildFragmentInstanceInfo() {
-            return new QueryStatisticsItem.FragmentInstanceInfo.Builder()
-                    .instanceId(fragmentInstanceId()).fragmentId(String.valueOf(fragmentId)).address(this.address)
-                    .build();
+            return new QueryStatisticsItem.FragmentInstanceInfo.Builder().instanceId(fragmentInstanceId())
+                    .fragmentId(String.valueOf(fragmentId)).address(this.address).build();
         }
 
         private TUniqueId fragmentInstanceId() {
             return this.rpcParams.params.getFragmentInstanceId();
+        }
+    }
+
+    /**
+     * A set of BackendExecState for same Backend
+     */
+    public class BackendExecStates {
+        long beId;
+        TNetworkAddress brpcAddr;
+        List<BackendExecState> states = Lists.newArrayList();
+
+        public BackendExecStates(long beId, TNetworkAddress brpcAddr) {
+            this.beId = beId;
+            this.brpcAddr = brpcAddr;
+        }
+
+        public void addState(BackendExecState state) {
+            this.states.add(state);
+        }
+
+        /**
+         * The BackendExecState in states are all send to the same BE.
+         * So only the first BackendExecState need to carry some common fields, such as DescriptorTbl,
+         * the other BackendExecState does not need those fields. Unset them to reduce size.
+         */
+        public void unsetFields() {
+            boolean first = true;
+            for (BackendExecState state : states) {
+                if (first) {
+                    first = false;
+                    continue;
+                }
+                state.unsetFields();
+            }
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync() throws TException {
+            try {
+                TExecPlanFragmentParamsList paramsList = new TExecPlanFragmentParamsList();
+                for (BackendExecState state : states) {
+                    paramsList.addToParamsList(state.rpcParams);
+                }
+                return BackendServiceProxy.getInstance().execPlanFragmentsAsync(brpcAddr, paramsList);
+            } catch (RpcException e) {
+                // DO NOT throw exception here, return a complete future with error code,
+                // so that the following logic will cancel the fragment.
+                return futureWithException(e);
+            }
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync() throws TException {
+            try {
+                PExecPlanFragmentStartRequest.Builder builder = PExecPlanFragmentStartRequest.newBuilder();
+                PUniqueId qid = PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
+                builder.setQueryId(qid);
+                return BackendServiceProxy.getInstance().execPlanFragmentStartAsync(brpcAddr, builder.build());
+            } catch (RpcException e) {
+                // DO NOT throw exception here, return a complete future with error code,
+                // so that the following logic will cancel the fragment.
+                return futureWithException(e);
+            }
+        }
+
+        @NotNull
+        private Future<PExecPlanFragmentResult> futureWithException(RpcException e) {
+            return new Future<PExecPlanFragmentResult>() {
+                @Override
+                public boolean cancel(boolean mayInterruptIfRunning) {
+                    return false;
+                }
+
+                @Override
+                public boolean isCancelled() {
+                    return false;
+                }
+
+                @Override
+                public boolean isDone() {
+                    return true;
+                }
+
+                @Override
+                public PExecPlanFragmentResult get() {
+                    PExecPlanFragmentResult result = PExecPlanFragmentResult.newBuilder().setStatus(
+                            Types.PStatus.newBuilder().addErrorMsgs(e.getMessage())
+                                    .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue()).build()).build();
+                    return result;
+                }
+
+                @Override
+                public PExecPlanFragmentResult get(long timeout, TimeUnit unit) {
+                    return get();
+                }
+            };
         }
     }
 
@@ -2287,3 +2386,4 @@ public class Coordinator {
         }
     }
 }
+

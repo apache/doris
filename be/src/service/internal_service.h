@@ -45,6 +45,11 @@ public:
                             PExecPlanFragmentResult* result,
                             google::protobuf::Closure* done) override;
 
+    void exec_plan_fragment_start(google::protobuf::RpcController* controller,
+                            const PExecPlanFragmentStartRequest* request,
+                            PExecPlanFragmentResult* result,
+                            google::protobuf::Closure* done) override;
+
     void cancel_plan_fragment(google::protobuf::RpcController* controller,
                               const PCancelPlanFragmentRequest* request,
                               PCancelPlanFragmentResult* result,
@@ -121,7 +126,7 @@ public:
                     PHandShakeResponse* response, google::protobuf::Closure* done) override;
 
 private:
-    Status _exec_plan_fragment(const std::string& s_request, bool compact);
+    Status _exec_plan_fragment(const std::string& s_request, PFragmentRequestVersion version, bool compact);
 
     Status _fold_constant_expr(const std::string& ser_request, PConstantExprResult* response);
 

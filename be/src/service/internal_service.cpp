@@ -111,11 +111,22 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
-    st = _exec_plan_fragment(request->request(), compact);
+    PFragmentRequestVersion version = request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
+    st = _exec_plan_fragment(request->request(), version, compact);
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
     }
     st.to_protobuf(response->mutable_status());
+}
+
+void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
+                            const PExecPlanFragmentStartRequest* request,
+                            PExecPlanFragmentResult* result,
+                            google::protobuf::Closure* done) {
+    SCOPED_SWITCH_BTHREAD();
+    brpc::ClosureGuard closure_guard(done);
+    auto st = _exec_env->fragment_mgr()->start_query_execution(request);
+    st.to_protobuf(result->mutable_status());
 }
 
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* cntl_base,
@@ -201,14 +212,31 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request, bool compact) {
-    TExecPlanFragmentParams t_request;
-    {
-        const uint8_t* buf = (const uint8_t*)ser_request.data();
-        uint32_t len = ser_request.size();
-        RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
+Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request, PFragmentRequestVersion version, bool compact) {
+    if (version == PFragmentRequestVersion::VERSION_1) {
+        // VERSION_1 should be removed in v1.2
+        TExecPlanFragmentParams t_request;
+        {
+            const uint8_t* buf = (const uint8_t*)ser_request.data();
+            uint32_t len = ser_request.size();
+            RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
+        }
+        return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
+    } else if (version == PFragmentRequestVersion::VERSION_2) {
+        TExecPlanFragmentParamsList t_request;
+        {
+            const uint8_t* buf = (const uint8_t*)ser_request.data();
+            uint32_t len = ser_request.size();
+            RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
+        }
+
+        for (const TExecPlanFragmentParams& params : t_request.paramsList) {
+            RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+        } 
+        return Status::OK();
+    } else {
+        return Status::InternalError("invalid version");
     }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(t_request);
 }
 
 void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController* cntl_base,

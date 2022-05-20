@@ -338,7 +338,7 @@ public class TabletScheduler extends MasterDaemon {
                         infoService, invertedIndex);
                 clusterLoadStatistic.init();
                 newStatisticMap.put(clusterName, tag, clusterLoadStatistic);
-                LOG.info("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
+                LOG.debug("update cluster {} load statistic:\n{}", clusterName, clusterLoadStatistic.getBrief());
             }
         }
 
@@ -368,7 +368,7 @@ public class TabletScheduler extends MasterDaemon {
             pendingTablets.add(tabletCtx);
         }
 
-        LOG.info("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
+        LOG.debug("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
     }
 
     /**
