@@ -30,7 +30,7 @@ import org.xnio.conduits.ConduitStreamSourceChannel;
  * listener for handle mysql cmd.
  */
 public class ReadListener implements ChannelListener<ConduitStreamSourceChannel> {
-    private final Logger LOG = LogManager.getLogger(this.getClass());
+    private static final Logger LOG = LogManager.getLogger(ReadListener.class);
     private NConnectContext ctx;
     private ConnectProcessor connectProcessor;
 

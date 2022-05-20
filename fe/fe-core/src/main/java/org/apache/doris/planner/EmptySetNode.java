@@ -59,7 +59,9 @@ public class EmptySetNode extends PlanNode {
         // the logical output tuple is returned by getMaterializedTupleIds(). It needs
         // to be set as materialized (even though it isn't) to avoid failing precondition
         // checks generating the thrift for slot refs that may reference this tuple.
-        for (TupleId id: tupleIds) analyzer.getTupleDesc(id).setIsMaterialized(true);
+        for (TupleId id: tupleIds) {
+            analyzer.getTupleDesc(id).setIsMaterialized(true);
+        }
         computeTupleStatAndMemLayout(analyzer);
         computeStats(analyzer);
     }

@@ -175,7 +175,9 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }
@@ -245,7 +247,9 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createVecBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }

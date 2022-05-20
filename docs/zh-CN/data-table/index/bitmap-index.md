@@ -56,7 +56,7 @@ SHOW INDEX FROM example_db.table_name;
 
 ### 删除索引
 
-展示指定 table_name 的下索引
+删除指定 table_name 的下索引
 
 ```sql
 DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;

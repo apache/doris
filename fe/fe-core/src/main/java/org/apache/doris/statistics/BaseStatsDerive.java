@@ -105,7 +105,9 @@ public class BaseStatsDerive {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) selectivities.add(e.getSelectivity());
+            if (e.hasSelectivity()) {
+                selectivities.add(e.getSelectivity());
+            }
         }
         if (selectivities.size() != conjuncts.size()) {
             // Some conjuncts have no estimated selectivity. Use a single default

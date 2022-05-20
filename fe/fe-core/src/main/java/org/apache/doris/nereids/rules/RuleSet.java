@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.analysis.AnalysisUnboundRelation;
-import org.apache.doris.nereids.rules.exploration.JoinAssociativeLeftToRight;
-import org.apache.doris.nereids.rules.exploration.JoinCommutative;
+import org.apache.doris.nereids.rules.exploration.join.JoinCommutative;
+import org.apache.doris.nereids.rules.exploration.join.JoinLeftAssociative;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -39,8 +39,8 @@ public class RuleSet {
             .build();
 
     public static final List<Rule<Plan>> EXPLORATION_RULES = planRuleFactories()
-            .add(new JoinCommutative())
-            .add(new JoinAssociativeLeftToRight())
+            .add(new JoinCommutative(false))
+            .add(new JoinLeftAssociative())
             .build();
 
     public static final List<Rule<Plan>> IMPLEMENTATION_RULES = planRuleFactories()

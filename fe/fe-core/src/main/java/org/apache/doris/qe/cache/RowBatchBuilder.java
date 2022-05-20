@@ -166,10 +166,6 @@ public class RowBatchBuilder {
             Long key = entry.getKey();
             PartitionRange.PartitionSingle partition = cachePartMap.get(key);
             partitionRowList = entry.getValue();
-            int data_size = 0;
-            for (byte[] buf : partitionRowList) {
-                data_size += buf.length;
-            }
             updateRequest = updateRequest.toBuilder()
                     .addValues(InternalService.PCacheValue.newBuilder()
                             .setParam(InternalService.PCacheParam.newBuilder()
@@ -177,7 +173,7 @@ public class RowBatchBuilder {
                                     .setLastVersion(partition.getPartition().getVisibleVersion())
                                     .setLastVersionTime(partition.getPartition().getVisibleVersionTime())
                                     .build()).setDataSize(dataSize).addAllRows(
-                                    partitionRowList.stream().map(row -> ByteString.copyFrom(row))
+                                    partitionRowList.stream().map(ByteString::copyFrom)
                                             .collect(Collectors.toList()))).build();
         }
         return updateRequest;

@@ -15,28 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.udf;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import java.math.BigInteger;
 
-/**
- * rule factory for exchange inner join's children.
- */
-public class JoinCommutative extends OneExplorationRuleFactory {
-    @Override
-    public Rule<Plan> build() {
-        return innerLogicalJoin().then(join -> {
-            // fixme, just for example now
-            return new LogicalJoin(
-                JoinType.INNER_JOIN,
-                join.getOnClause(),
-                join.right(),
-                join.left()
-            );
-        }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
+public class LargeIntUdf {
+    /**
+     * input argument of largeint.
+     * input argument of largeint
+     * sum of a and b
+     */
+    public BigInteger evaluate(BigInteger a, BigInteger b) {
+        return a.add(b);
     }
 }

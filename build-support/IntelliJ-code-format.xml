@@ -66,6 +66,7 @@ under the License.
     <option name="THROWS_KEYWORD_WRAP" value="1" />
     <option name="METHOD_CALL_CHAIN_WRAP" value="1" />
     <option name="BINARY_OPERATION_WRAP" value="1" />
+    <option name="BINARY_OPERATION_SIGN_ON_NEXT_LINE" value="true" />
     <option name="TERNARY_OPERATION_WRAP" value="1" />
     <option name="FOR_STATEMENT_WRAP" value="1" />
     <option name="ARRAY_INITIALIZER_WRAP" value="1" />
@@ -92,4 +93,3 @@ under the License.
     </arrangement>
   </codeStyleSettings>
 </code_scheme>
-

@@ -44,27 +44,23 @@ public:
                     const std::vector<TNetworkAddress>& broker_addresses,
                     const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    virtual ~VParquetScanner();
+    ~VParquetScanner() override;
 
     // Open this scanner, will initialize information need to
-    Status open();
+    Status open() override;
 
-    Status get_next(Block* block, bool* eof);
+    Status get_next(Block* block, bool* eof) override;
 
 private:
     Status _next_arrow_batch();
     Status _init_arrow_batch_if_necessary();
-    Status _init_src_block(Block* block);
+    Status _init_src_block() override;
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
-    Status _eval_conjunts(Block* block);
-    Status _materialize_block(Block* block, Block* dest_block);
-    void _fill_columns_from_path(Block* block);
 
 private:
     std::shared_ptr<arrow::RecordBatch> _batch;
     size_t _arrow_batch_cur_idx;
-    int _num_of_columns_from_file;
 };
 
 } // namespace doris::vectorized

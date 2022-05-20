@@ -154,11 +154,11 @@ public class NodeAction extends RestBaseController {
     @Getter
     @Setter
     public static class NodeInfo {
-        public List<String> column_names;
+        public List<String> columnNames;
         public List<List<String>> rows;
 
-        public NodeInfo(List<String> column_names, List<List<String>> rows) {
-            this.column_names = column_names;
+        public NodeInfo(List<String> columnNames, List<List<String>> rows) {
+            this.columnNames = columnNames;
             this.rows = rows;
         }
     }

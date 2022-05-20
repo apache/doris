@@ -314,6 +314,11 @@ public class CastExpr extends Expr {
     }
 
     @Override
+    public int hashCode() {
+        return super.hashCode();
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;

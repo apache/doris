@@ -29,7 +29,9 @@ public enum RuleType {
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE,
-    LOGICAL_JOIN_ASSOCIATIVE_LEFT_TO_RIGHT,
+    LOGICAL_LEFT_JOIN_ASSOCIATIVE,
+    LOGICAL_JOIN_L_ASSCOM,
+    LOGICAL_JOIN_EXCHANGE,
 
     // implementation rules
     LOGICAL_JOIN_TO_HASH_JOIN_RULE,

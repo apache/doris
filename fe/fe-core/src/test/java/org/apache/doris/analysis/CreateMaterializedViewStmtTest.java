@@ -55,7 +55,7 @@ public class CreateMaterializedViewStmtTest {
 
     @Before
     public void initTest() {
-        Deencapsulation.setField(Config.class, "enable_materialized_view", true);
+
     }
 
     @Test

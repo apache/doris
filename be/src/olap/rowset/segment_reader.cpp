@@ -400,7 +400,7 @@ Status SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t las
 
             if (true == del_not_satisfied || 0 == delete_condition.del_cond->columns().size()) {
                 //if state is DEL_PARTIAL_SATISFIED last_time, cannot be set as DEL_NOT_SATISFIED
-                //it is special for for delete condition
+                //it is special for delete condition
                 if (DEL_PARTIAL_SATISFIED == _include_blocks[j]) {
                     continue;
                 } else {

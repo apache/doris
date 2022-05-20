@@ -1289,18 +1289,6 @@ public class Config extends ConfigBase {
     public static boolean check_java_version = true;
 
     /**
-     * control materialized view
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_materialized_view = true;
-
-    /**
-     * enable create sync job
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_create_sync_job = false;
-
-    /**
      * it can't auto-resume routine load job as long as one of the backends is down
      */
     @ConfField(mutable = true, masterOnly = true)

@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.BinaryNode;
-import org.apache.doris.nereids.trees.NodeType;
 
 /**
  * Interface for all expression that have two children.

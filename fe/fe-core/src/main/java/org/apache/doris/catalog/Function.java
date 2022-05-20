@@ -600,7 +600,7 @@ public class Function implements Writable {
         }
 
         public static FunctionType fromCode(int code) {
-            switch (code) {
+            switch (code) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                 case 0:
                     return ORIGIN;
                 case 1:

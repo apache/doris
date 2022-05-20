@@ -54,7 +54,7 @@ SHOW INDEX FROM example_db.table_name;
 
 ### Delete index
 
-Display the lower index of the specified table_name
+Delete the lower index of the specified table_name
 
 ```sql
 DROP INDEX [IF EXISTS] index_name ON [db_name.]table_name;

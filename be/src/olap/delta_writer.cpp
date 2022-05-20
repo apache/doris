@@ -20,7 +20,6 @@
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -115,33 +114,15 @@ Status DeltaWriter::init() {
                                                                   _req.txn_id, _req.load_id));
     }
 
-    RowsetWriterContext writer_context;
-    writer_context.rowset_id = _storage_engine->next_rowset_id();
-    writer_context.tablet_uid = _tablet->tablet_uid();
-    writer_context.tablet_id = _req.tablet_id;
-    writer_context.partition_id = _req.partition_id;
-    writer_context.tablet_schema_hash = _req.schema_hash;
-    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        writer_context.rowset_type = BETA_ROWSET;
-    } else {
-        writer_context.rowset_type = ALPHA_ROWSET;
-    }
-    writer_context.path_desc = _tablet->tablet_path_desc();
-    writer_context.tablet_schema = &(_tablet->tablet_schema());
-    writer_context.rowset_state = PREPARED;
-    writer_context.txn_id = _req.txn_id;
-    writer_context.load_id = _req.load_id;
-    writer_context.segments_overlap = OVERLAPPING;
-    writer_context.data_dir = _tablet->data_dir();
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(writer_context, &_rowset_writer));
-
+    RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
+                                                &_rowset_writer));
     _tablet_schema = &(_tablet->tablet_schema());
     _schema.reset(new Schema(*_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
-            &_flush_token, writer_context.rowset_type, _req.is_high_priority));
+            &_flush_token, _rowset_writer->type(), _req.is_high_priority));
 
     _is_init = true;
     return Status::OK();

@@ -57,7 +57,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
         // param input is class org.apache.thrift.protocol.TBinaryProtocol
         TSocket tSocket = null;
         TTransport transport = input.getTransport();
-        switch (thriftServer.getType()) {
+        switch (thriftServer.getType()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case THREADED_SELECTOR:
                 // class org.apache.thrift.transport.TFramedTransport
                 Preconditions.checkState(transport instanceof TFramedTransport);
@@ -71,6 +71,7 @@ public class ThriftServerEventProcessor implements TServerEventHandler {
                 Preconditions.checkState(transport instanceof TSocket);
                 tSocket = (TSocket) transport;
                 break;
+                // CHECKSTYLE IGNORE THIS LINE
         }
         if (tSocket == null) {
             LOG.warn("fail to get client socket. server type: {}", thriftServer.getType());

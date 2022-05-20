@@ -554,10 +554,12 @@ public class RoutineLoadManager implements Writable {
         int i = 0;
         int j = routineLoadJobList.size() - 1;
         while (i < j) {
-            while (!routineLoadJobList.get(i).isFinal() && (i < j))
+            while (!routineLoadJobList.get(i).isFinal() && (i < j)) {
                 i++;
-            while (routineLoadJobList.get(j).isFinal() && (i < j))
+            }
+            while (routineLoadJobList.get(j).isFinal() && (i < j)) {
                 j--;
+            }
             if (i < j) {
                 RoutineLoadJob routineLoadJob = routineLoadJobList.get(i);
                 routineLoadJobList.set(i, routineLoadJobList.get(j));

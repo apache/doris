@@ -88,7 +88,7 @@ The function of loading header is provided to realize manual migration of tablet
 Command:
 
 ```
-./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_header_path=path
+./lib/meta_tool --operation=load_meta --root_path=/path/to/root_path --json_meta_path=path
 ```
 
 ### Delete header

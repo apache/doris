@@ -56,8 +56,6 @@ public:
     int64_t tablet_id() const;
     int32_t schema_hash() const;
     int16_t shard_id();
-    const int64_t creation_time() const;
-    void set_creation_time(int64_t creation_time);
     bool equal(int64_t tablet_id, int32_t schema_hash);
 
     // properties encapsulated in TabletSchema
@@ -131,14 +129,6 @@ inline int32_t BaseTablet::schema_hash() const {
 
 inline int16_t BaseTablet::shard_id() {
     return _tablet_meta->shard_id();
-}
-
-inline const int64_t BaseTablet::creation_time() const {
-    return _tablet_meta->creation_time();
-}
-
-inline void BaseTablet::set_creation_time(int64_t creation_time) {
-    _tablet_meta->set_creation_time(creation_time);
 }
 
 inline bool BaseTablet::equal(int64_t id, int32_t hash) {

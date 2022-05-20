@@ -244,6 +244,7 @@ public class Partition extends MetaObject implements Writable {
                 break;
             case SHADOW:
                 indices.addAll(idToShadowIndex.values());
+                break;
             default:
                 break;
         }

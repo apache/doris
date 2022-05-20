@@ -40,7 +40,9 @@ public class IsNullPredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+            if (t.isNull()) {
+                continue;
+            }
             String isNullSymbol;
             if (t == Type.BOOLEAN) {
                 isNullSymbol = "_ZN5doris15IsNullPredicate7is_nullIN9doris_udf10BooleanValE" +

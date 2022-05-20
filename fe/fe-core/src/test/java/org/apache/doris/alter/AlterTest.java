@@ -67,7 +67,6 @@ public class AlterTest {
     public static void beforeClass() throws Exception {
         FeConstants.runningUnitTest = true;
         FeConstants.default_scheduler_interval_millisecond = 100;
-        Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.disable_storage_medium_check = true;
         UtFrameUtils.createDorisCluster(runningDir);
@@ -936,35 +935,35 @@ public class AlterTest {
         stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
         alterTable(stmt, false);
         Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        Table odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 7);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
+        Table odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 7);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
 
         // external table support drop column
         stmt = "alter table test.odbc_table drop column k7";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
 
         // external table support modify column
         stmt = "alter table test.odbc_table modify column k6 bigint after k5";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
-        Assert.assertEquals(odbc_table.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 6);
+        Assert.assertEquals(odbcTable.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
 
         // external table support reorder column
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableOrMetaException("odbc_table");
-        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+        odbcTable = db.getTableOrMetaException("odbc_table");
+        Assert.assertTrue(odbcTable.getBaseSchema().stream().
                 map(column -> column.getName()).
                 reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
         stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
         alterTable(stmt, false);
-        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+        Assert.assertTrue(odbcTable.getBaseSchema().stream().
                 map(column -> column.getName()).
                 reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
 
@@ -980,19 +979,19 @@ public class AlterTest {
         stmt = "alter table test.odbc_table drop column k2";
         alterTable(stmt, false);
         // do not allow drop last column
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
         stmt = "alter table test.odbc_table drop column k1";
         alterTable(stmt, true);
-        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        Assert.assertEquals(odbcTable.getBaseSchema().size(), 1);
 
         // external table support rename operation
         stmt = "alter table test.odbc_table rename oracle_table";
         alterTable(stmt, false);
         db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:test");
-        odbc_table = db.getTableNullable("oracle_table");
-        Assert.assertNotNull(odbc_table);
-        odbc_table = db.getTableNullable("odbc_table");
-        Assert.assertNull(odbc_table);
+        odbcTable = db.getTableNullable("oracle_table");
+        Assert.assertNotNull(odbcTable);
+        odbcTable = db.getTableNullable("odbc_table");
+        Assert.assertNull(odbcTable);
     }
 
     @Test

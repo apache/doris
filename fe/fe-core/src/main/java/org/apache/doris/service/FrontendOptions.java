@@ -100,13 +100,13 @@ public class FrontendOptions {
     }
 
     private static void analyzePriorityCidrs() {
-        String prior_cidrs = Config.priority_networks;
-        if (Strings.isNullOrEmpty(prior_cidrs)) {
+        String priorCidrs = Config.priority_networks;
+        if (Strings.isNullOrEmpty(priorCidrs)) {
             return;
         }
-        LOG.info("configured prior_cidrs value: {}", prior_cidrs);
+        LOG.info("configured prior_cidrs value: {}", priorCidrs);
 
-        String[] cidrList = prior_cidrs.split(PRIORITY_CIDR_SEPARATOR);
+        String[] cidrList = priorCidrs.split(PRIORITY_CIDR_SEPARATOR);
         List<String> priorNetworks = Lists.newArrayList(cidrList);
         for (String cidrStr : priorNetworks) {
             priorityCidrs.add(new CIDR(cidrStr));

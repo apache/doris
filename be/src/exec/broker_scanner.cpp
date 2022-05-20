@@ -48,13 +48,10 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
                              const std::vector<TBrokerRangeDesc>& ranges,
                              const std::vector<TNetworkAddress>& broker_addresses,
                              const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_texprs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
+        : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           _cur_file_reader(nullptr),
           _cur_line_reader(nullptr),
           _cur_decompressor(nullptr),
-          _next_range(0),
           _cur_line_reader_eof(false),
           _skip_lines(0) {
     if (params.__isset.column_separator_length && params.column_separator_length > 1) {
@@ -339,19 +336,20 @@ void BrokerScanner::split_line(const Slice& line) {
         delete[] ptr;
     } else {
         const char* value = line.data;
-        size_t start = 0;  // point to the start pos of next col value.
-        size_t curpos = 0; // point to the start pos of separator matching sequence.
-        size_t p1 = 0;     // point to the current pos of separator matching sequence.
+        size_t start = 0;     // point to the start pos of next col value.
+        size_t curpos = 0;    // point to the start pos of separator matching sequence.
+        size_t p1 = 0;        // point to the current pos of separator matching sequence.
+        size_t non_space = 0; // point to the last pos of non_space charactor.
 
         // Separator: AAAA
         //
-        //   curpos
+        //    p1
         //     ▼
         //     AAAA
         //   1000AAAA2000AAAA
         //   ▲   ▲
         // Start │
-        //       p1
+        //     curpos
 
         while (curpos < line.size) {
             if (*(value + curpos + p1) != _value_separator[p1]) {
@@ -362,16 +360,30 @@ void BrokerScanner::split_line(const Slice& line) {
                 p1++;
                 if (p1 == _value_separator_length) {
                     // Match a separator
-                    _split_values.emplace_back(value + start, curpos - start);
+                    non_space = curpos;
+                    // Trim tailing spaces. Be consistent with hive and trino's behavior.
+                    if (_state->trim_tailing_spaces_for_external_table_query()) {
+                        while (non_space > start && *(value + non_space - 1) == ' ') {
+                            non_space--;
+                        }
+                    }
+                    _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
                     p1 = 0;
+                    non_space = 0;
                 }
             }
         }
 
         CHECK(curpos == line.size) << curpos << " vs " << line.size;
-        _split_values.emplace_back(value + start, curpos - start);
+        non_space = curpos;
+        if (_state->trim_tailing_spaces_for_external_table_query()) {
+            while (non_space > start && *(value + non_space - 1) == ' ') {
+                non_space--;
+            }
+        }
+        _split_values.emplace_back(value + start, non_space - start);
     }
 }
 
