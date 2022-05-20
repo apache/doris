@@ -26,8 +26,8 @@
 #include <limits>
 
 #include "gutil/strings/substitute.h"
-#include "util/faststring.h"
 #include "runtime/threadlocal.h"
+#include "util/faststring.h"
 
 namespace doris {
 
@@ -101,8 +101,9 @@ public:
         if (!is_compress && !ctx_d_inited) {
             auto ret2 = LZ4F_createDecompressionContext(&ctx_d, LZ4F_VERSION);
             if (LZ4F_isError(ret2)) {
-                return Status::InvalidArgument(strings::Substitute(
-                        "Fail to LZ4F_createDecompressionContext, msg=$0", LZ4F_getErrorName(ret2)));
+                return Status::InvalidArgument(
+                        strings::Substitute("Fail to LZ4F_createDecompressionContext, msg=$0",
+                                            LZ4F_getErrorName(ret2)));
             }
             ctx_d_inited = true;
         }
@@ -133,11 +134,13 @@ class Lz4fCompressionContextPtr {
 public:
     Lz4fCompressionContextPtr();
     Lz4fCompressionContext* get();
+
 private:
     DECLARE_STATIC_THREAD_LOCAL(Lz4fCompressionContext, thread_local_lz4f_ctx);
 };
 
-DEFINE_STATIC_THREAD_LOCAL(Lz4fCompressionContext, Lz4fCompressionContextPtr, thread_local_lz4f_ctx);
+DEFINE_STATIC_THREAD_LOCAL(Lz4fCompressionContext, Lz4fCompressionContextPtr,
+                           thread_local_lz4f_ctx);
 
 Lz4fCompressionContextPtr::Lz4fCompressionContextPtr() {
     INIT_STATIC_THREAD_LOCAL(Lz4fCompressionContext, thread_local_lz4f_ctx);
