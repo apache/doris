@@ -24,9 +24,6 @@
 #include "exprs/expr_context.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
-#include "runtime/runtime_state.h"
-#include "runtime/string_value.hpp"
-#include "util/doris_metrics.h"
 
 namespace doris {
 

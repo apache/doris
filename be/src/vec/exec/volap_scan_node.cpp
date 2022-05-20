@@ -20,6 +20,7 @@
 #include "common/resource_tls.h"
 #include "exec/scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/storage_engine.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"

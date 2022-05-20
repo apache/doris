@@ -33,7 +33,6 @@
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
-#include "runtime/load_path_mgr.h"
 
 using std::string;
 using std::map;

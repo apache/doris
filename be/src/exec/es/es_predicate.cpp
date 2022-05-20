@@ -24,25 +24,15 @@
 #include <map>
 #include <sstream>
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "exec/es/es_query_builder.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "olap/olap_common.h"
-#include "olap/utils.h"
-#include "runtime/client_cache.h"
 #include "runtime/datetime_value.h"
 #include "runtime/large_int_value.h"
-#include "runtime/row_batch.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "service/backend_options.h"
-#include "util/debug_util.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 

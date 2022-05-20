@@ -18,7 +18,6 @@
 #include "env/env_util.h"
 
 #include "env/env.h"
-#include "util/faststring.h"
 
 using std::shared_ptr;
 using std::string;

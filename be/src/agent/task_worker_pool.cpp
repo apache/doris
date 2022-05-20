@@ -29,10 +29,8 @@
 
 #include "common/status.h"
 #include "env/env.h"
-#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
 #include "gutil/strings/substitute.h"
-#include "http/http_client.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/snapshot_manager.h"

@@ -22,8 +22,6 @@
 
 #include <vector>
 
-#include "common/logging.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 

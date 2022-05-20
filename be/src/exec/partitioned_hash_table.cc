@@ -27,13 +27,10 @@
 #include "exec/partitioned_hash_table.inline.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "exprs/slot_ref.h"
-#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
-#include "util/doris_metrics.h"
 
 using namespace doris;
 using namespace strings;

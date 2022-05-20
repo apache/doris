@@ -25,14 +25,12 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "olap/hll.h"
-#include "olap/olap_define.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
-#include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
 #include "util/defer_op.h"
@@ -40,7 +38,6 @@
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/core/block.h"
 #include "vec/sink/vtablet_sink.h"
 
 namespace doris {

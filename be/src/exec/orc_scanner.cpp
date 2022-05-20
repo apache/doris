@@ -17,11 +17,8 @@
 
 #include "exec/orc_scanner.h"
 
-#include "io/buffered_reader.h"
 #include "io/file_factory.h"
-#include "io/local_file_reader.h"
 #include "runtime/exec_env.h"
-#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
 
