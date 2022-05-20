@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -27,16 +27,31 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
  * rule factory for exchange inner join's children.
  */
 public class JoinCommutative extends OneExplorationRuleFactory {
+    private boolean justApplyInnerOuterCrossJoin = false;
+
+    private final SwapType swapType;
+
+    /**
+     * If param is true, just apply rule in inner/full-outer/cross join.
+     */
+    public JoinCommutative(boolean justApplyInnerOuterCrossJoin) {
+        this.justApplyInnerOuterCrossJoin = justApplyInnerOuterCrossJoin;
+        this.swapType = SwapType.ALL;
+    }
+
+    public JoinCommutative(boolean justApplyInnerOuterCrossJoin, SwapType swapType) {
+        this.justApplyInnerOuterCrossJoin = justApplyInnerOuterCrossJoin;
+        this.swapType = swapType;
+    }
+
+    enum SwapType {
+        BOTTOM_JOIN, ZIG_ZAG, ALL
+    }
+
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin().then(join -> {
-            // fixme, just for example now
-            return new LogicalJoin(
-                JoinType.INNER_JOIN,
-                join.getOnClause(),
-                join.right(),
-                join.left()
-            );
+            return new LogicalJoin(join.getJoinType().swap(), join.getOnClause(), join.right(), join.left());
         }).toRule(RuleType.LOGICAL_JOIN_COMMUTATIVE);
     }
 }
