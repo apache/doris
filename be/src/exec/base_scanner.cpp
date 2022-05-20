@@ -67,9 +67,12 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
 }
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
-                         const TBrokerScanRangeParams& params, const TExpr& vpre_filter_texpr,
-                         ScannerCounter* counter)
-        : BaseScanner(state, profile, params, std::vector<TExpr>(), counter) {
+                         const TBrokerScanRangeParams& params,
+                         const std::vector<TBrokerRangeDesc>& ranges,
+                         const std::vector<TNetworkAddress>& broker_addresses,
+                         const TExpr& vpre_filter_texpr, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, ranges, broker_addresses, std::vector<TExpr>(),
+                      counter) {
     _vpre_filter_texpr = vpre_filter_texpr;
 }
 

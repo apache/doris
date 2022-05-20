@@ -413,24 +413,24 @@ TEST_F(VBrokerScannerTest, normal) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    vectorized::Block block;
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
-    st = scanner.get_next(&block, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
-    auto columns = block.get_columns_with_type_and_name();
+    auto columns = block->get_columns();
     ASSERT_EQ(columns.size(), 3);
-    ASSERT_EQ(columns[0].to_string(0), "1");
-    ASSERT_EQ(columns[0].to_string(1), "4");
-    ASSERT_EQ(columns[0].to_string(2), "8");
+    ASSERT_EQ(columns[0]->get_int(0), 1);
+    ASSERT_EQ(columns[0]->get_int(1), 4);
+    ASSERT_EQ(columns[0]->get_int(2), 8);
 
-    ASSERT_EQ(columns[1].to_string(0), "2");
-    ASSERT_EQ(columns[1].to_string(1), "5");
-    ASSERT_EQ(columns[1].to_string(2), "9");
+    ASSERT_EQ(columns[1]->get_int(0), 2);
+    ASSERT_EQ(columns[1]->get_int(1), 5);
+    ASSERT_EQ(columns[1]->get_int(2), 9);
 
-    ASSERT_EQ(columns[2].to_string(0), "3");
-    ASSERT_EQ(columns[2].to_string(1), "6");
-    ASSERT_EQ(columns[2].to_string(2), "10");
+    ASSERT_EQ(columns[2]->get_int(0), 3);
+    ASSERT_EQ(columns[2]->get_int(1), 6);
+    ASSERT_EQ(columns[2]->get_int(2), 10);
 }
 
 TEST_F(VBrokerScannerTest, normal_with_pre_filter) {
@@ -449,27 +449,23 @@ TEST_F(VBrokerScannerTest, normal_with_pre_filter) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    vectorized::Block block;
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
     // end of file
-    st = scanner.get_next(&block, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
-    ASSERT_EQ(2, block.rows());
-    auto columns = block.get_columns_with_type_and_name();
+    auto columns = block->get_columns();
     ASSERT_EQ(columns.size(), 3);
 
     ASSERT_EQ(columns[0]->get_int(0), 1);
     ASSERT_EQ(columns[0]->get_int(1), 4);
-    ASSERT_EQ(columns[0]->get_int(2), 8);
 
     ASSERT_EQ(columns[1]->get_int(0), 2);
     ASSERT_EQ(columns[1]->get_int(1), 5);
-    ASSERT_EQ(columns[1]->get_int(2), 9);
 
     ASSERT_EQ(columns[2]->get_int(0), 3);
     ASSERT_EQ(columns[2]->get_int(1), 6);
-    ASSERT_EQ(columns[2]->get_int(2), 10);
 }
 
 TEST_F(VBrokerScannerTest, normal2) {
@@ -493,15 +489,13 @@ TEST_F(VBrokerScannerTest, normal2) {
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
-    vectorized::Block block;
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
     bool eof = false;
-    st = scanner.get_next(&block, &eof);
+    st = scanner.get_next(block.get(), &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
-    auto columns = block.get_columns_with_type_and_name();
+    auto columns = block->get_columns();
     ASSERT_EQ(columns.size(), 3);
-    ASSERT_EQ(columns[0].to_string(0), "1");
-    ASSERT_EQ(columns[0].to_string(1), "3");
 
     ASSERT_EQ(columns[0]->get_int(0), 1);
     ASSERT_EQ(columns[0]->get_int(1), 3);
