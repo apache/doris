@@ -349,6 +349,10 @@ public:
 
     bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
 
+    bool trim_tailing_spaces_for_external_table_query() const {
+        return _query_options.trim_tailing_spaces_for_external_table_query;
+    }
+
     bool return_object_data_as_binary() const {
         return _query_options.return_object_data_as_binary;
     }
