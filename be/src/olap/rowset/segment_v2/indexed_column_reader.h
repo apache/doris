@@ -84,7 +84,7 @@ private:
 
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
-    std::unique_ptr<BlockCompressionCodec> _compress_codec;
+    const BlockCompressionCodec* _compress_codec = nullptr;
     const KeyCoder* _value_key_coder = nullptr;
 };
 

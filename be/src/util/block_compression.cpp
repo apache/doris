@@ -88,46 +88,46 @@ public:
 // Used for LZ4 frame format, decompress speed is two times faster than LZ4.
 class Lz4fBlockCompression : public BlockCompressionCodec {
 public:
-    Status init() override {
-        auto ret1 = LZ4F_createCompressionContext(&ctx_c, LZ4F_VERSION);
-        if (LZ4F_isError(ret1)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "Fail to LZ4F_createCompressionContext, msg=$0", LZ4F_getErrorName(ret1)));
-        }
-        ctx_c_inited = true;
+    static const Lz4fBlockCompression* instance() {
+        static Lz4fBlockCompression s_instance;
+        return &s_instance;
+    }
 
-        auto ret2 = LZ4F_createDecompressionContext(&ctx_d, LZ4F_VERSION);
-        if (LZ4F_isError(ret2)) {
-            return Status::InvalidArgument(strings::Substitute(
-                    "Fail to LZ4F_createDecompressionContext, msg=$0", LZ4F_getErrorName(ret2)));
-        }
-        ctx_d_inited = true;
+    ~Lz4fBlockCompression() override {}
 
+    Status compress(const Slice& input, Slice* output) const override {
+        auto compressed_len = LZ4F_compressFrame(output->data, output->size, input.data, input.size,
+                                                 &_s_preferences);
+        if (LZ4F_isError(compressed_len)) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "Fail to do LZ4F compress frame, msg=$0", LZ4F_getErrorName(compressed_len)));
+        }
+        output->size = compressed_len;
         return Status::OK();
     }
 
-    ~Lz4fBlockCompression() override {
-        if (ctx_c_inited) LZ4F_freeCompressionContext(ctx_c);
-        if (ctx_d_inited) LZ4F_freeDecompressionContext(ctx_d);
-    }
-
-    Status compress(const Slice& input, Slice* output) const override {
-        std::vector<Slice> inputs {input};
-        return compress(inputs, output);
-    }
-
     Status compress(const std::vector<Slice>& inputs, Slice* output) const override {
-        if (!ctx_c_inited)
-            return Status::InvalidArgument("LZ4F_createCompressionContext not sucess");
-
-        return _compress(ctx_c, inputs, output);
+        LZ4F_compressionContext_t ctx = nullptr;
+        auto lres = LZ4F_createCompressionContext(&ctx, LZ4F_VERSION);
+        if (lres != 0) {
+            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F compress, res=$0",
+                                                               LZ4F_getErrorName(lres)));
+        }
+        auto st = _compress(ctx, inputs, output);
+        LZ4F_freeCompressionContext(ctx);
+        return st;
     }
 
     Status decompress(const Slice& input, Slice* output) const override {
-        if (!ctx_d_inited)
-            return Status::InvalidArgument("LZ4F_createDecompressionContext not sucess");
-
-        return _decompress(ctx_d, input, output);
+        LZ4F_decompressionContext_t ctx;
+        auto lres = LZ4F_createDecompressionContext(&ctx, LZ4F_VERSION);
+        if (LZ4F_isError(lres)) {
+            return Status::InvalidArgument(strings::Substitute("Fail to do LZ4F decompress, res=$0",
+                                                               LZ4F_getErrorName(lres)));
+        }
+        auto st = _decompress(ctx, input, output);
+        LZ4F_freeDecompressionContext(ctx);
+        return st;
     }
 
     size_t max_compressed_len(size_t len) const override {
@@ -167,8 +167,6 @@ private:
     }
 
     Status _decompress(LZ4F_decompressionContext_t ctx, const Slice& input, Slice* output) const {
-        // reset decompression context to avoid ERROR_maxBlockSize_invalid
-        LZ4F_resetDecompressionContext(ctx);
         size_t input_size = input.size;
         auto lres =
                 LZ4F_decompress(ctx, output->data, &output->size, input.data, &input_size, nullptr);
@@ -189,10 +187,6 @@ private:
 
 private:
     static LZ4F_preferences_t _s_preferences;
-    LZ4F_compressionContext_t ctx_c;
-    bool ctx_c_inited = false;
-    LZ4F_decompressionContext_t ctx_d;
-    bool ctx_d_inited = false;
 };
 
 LZ4F_preferences_t Lz4fBlockCompression::_s_preferences = {
@@ -376,38 +370,27 @@ public:
 };
 
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
-                                   std::unique_ptr<BlockCompressionCodec>& codec) {
-    BlockCompressionCodec* ptr = nullptr;
+                                   const BlockCompressionCodec** codec) {
     switch (type) {
     case segment_v2::CompressionTypePB::NO_COMPRESSION:
-        codec.reset(nullptr);
-        return Status::OK();
+        *codec = nullptr;
+        break;
     case segment_v2::CompressionTypePB::SNAPPY:
-        ptr = new SnappyBlockCompression();
+        *codec = SnappyBlockCompression::instance();
         break;
     case segment_v2::CompressionTypePB::LZ4:
-        ptr = new Lz4BlockCompression();
+        *codec = Lz4BlockCompression::instance();
         break;
     case segment_v2::CompressionTypePB::LZ4F:
-        ptr = new Lz4fBlockCompression();
+        *codec = Lz4fBlockCompression::instance();
         break;
     case segment_v2::CompressionTypePB::ZLIB:
-        ptr = new ZlibBlockCompression();
+        *codec = ZlibBlockCompression::instance();
         break;
     default:
         return Status::NotFound(strings::Substitute("unknown compression type($0)", type));
     }
-
-    if (!ptr) return Status::NotFound("Failed to create compression codec");
-
-    Status st = ptr->init();
-    if (st.ok()) {
-        codec.reset(ptr);
-    } else {
-        delete ptr;
-    }
-
-    return st;
+    return Status::OK();
 }
 
 } // namespace doris

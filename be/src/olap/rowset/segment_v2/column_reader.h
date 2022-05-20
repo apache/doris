@@ -175,7 +175,7 @@ private:
             TypeInfoPtr(nullptr, nullptr); // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
             nullptr; // initialized in init(), used for create PageDecoder
-    std::unique_ptr<BlockCompressionCodec> _compress_codec; // initialized in init()
+    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
 
     // meta for various column indexes (null if the index is absent)
     const ZoneMapIndexPB* _zone_map_index_meta = nullptr;

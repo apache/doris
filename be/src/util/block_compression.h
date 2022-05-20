@@ -34,8 +34,6 @@ class BlockCompressionCodec {
 public:
     virtual ~BlockCompressionCodec() {}
 
-    virtual Status init() { return Status::OK(); }
-
     // This function will compress input data into output.
     // output should be preallocated, and its capacity must be large enough
     // for compressed input, which can be get through max_compressed_len function.
@@ -63,6 +61,6 @@ public:
 //
 // Return not OK, if error happens.
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
-                                   std::unique_ptr<BlockCompressionCodec>& codec);
+                                   const BlockCompressionCodec** codec);
 
 } // namespace doris
