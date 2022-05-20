@@ -486,3 +486,11 @@ Broker is a stateless process that can be started or stopped at will. Of course,
    For Example: ulimit -n 65536; this command set file descriptor to 65536.
 
    After starting BE process, you can use **cat /proc/$pid/limits** to see the actual limit of process.
+
+   if use supervisord, try to modify `minfds` in supervisord.conf
+
+   ```shell
+   vim /etc/supervisord.conf
+
+   minfds=65535                 ; (min. avail startup file descriptors;default 1024)
+   ```
