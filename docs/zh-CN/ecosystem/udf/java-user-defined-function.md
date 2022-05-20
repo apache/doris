@@ -43,6 +43,24 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 使用Java代码编写UDF，UDF的主入口必须为 `evaluate` 函数。这一点与Hive等其他引擎保持一致。在本示例中，我们编写了 `AddOne` UDF来完成对整型输入进行加一的操作。
 值得一提的是，本例不只是Doris支持的Java UDF，同时还是Hive支持的UDF，也就是说，对于用户来讲，Hive UDF是可以直接迁移至Doris的。
 
+#### 类型对应关系
+
+|UDF Type|Argument Type|
+|----|---------|
+|TinyInt|TinyIntVal|
+|SmallInt|Short|
+|Int|Integer|
+|BigInt|Long|
+|LargeInt|BigInteger|
+|Float|Float|
+|Double|Double|
+|Date|LocalDate|
+|Datetime|LocalDateTime|
+|Char|String|
+|Varchar|String|
+|Decimal|BigDecimal|
+
+
 ## 创建 UDF
 
 目前暂不支持 UDAF 和 UDTF
@@ -84,6 +102,6 @@ UDF 的使用与普通的函数方式一致，唯一的区别在于，内置函�
 
 ## 暂不支持的场景
 当前Java UDF仍然处在持续的开发过程中，所以部分功能**尚不完善**。包括：
-1. 不支持复杂数据类型（Date，HLL，Bitmap）
+1. 不支持复杂数据类型（HLL，Bitmap）
 2. 尚未统一JVM和Doris的内存管理以及统计信息
 
