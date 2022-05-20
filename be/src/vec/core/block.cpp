@@ -353,8 +353,8 @@ std::string Block::dump_names() const {
 std::string Block::dump_data(size_t begin, size_t row_limit) const {
     std::vector<std::string> headers;
     std::vector<size_t> headers_size;
-    for (auto it = data.begin(); it != data.end(); ++it) {
-        std::string s = fmt::format("{}({})", it->name, it->type->get_name());
+    for (const auto& it : data) {
+        std::string s = fmt::format("{}({})", it.name, it.type->get_name());
         headers_size.push_back(s.size() > 15 ? s.size() : 15);
         headers.emplace_back(s);
     }
@@ -400,6 +400,20 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
         out << rows() << " rows in block, only show first " << row_limit << " rows." << std::endl;
     }
     return out.str();
+}
+
+std::string Block::dump_one_line(size_t row, int column_end) const {
+    assert(column_end < columns());
+    fmt::memory_buffer line;
+    for (int i = 0; i < column_end; ++i) {
+        if (LIKELY(i != 0)) {
+            // TODO: need more effective function of to string. now the impl is slow
+            fmt::format_to(line, " {}", data[i].to_string(row));
+        } else {
+            fmt::format_to(line, "{}", data[i].to_string(row));
+        }
+    }
+    return fmt::to_string(line);
 }
 
 std::string Block::dump_structure() const {

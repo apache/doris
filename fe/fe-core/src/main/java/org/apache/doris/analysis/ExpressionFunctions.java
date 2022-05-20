@@ -33,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -245,7 +244,7 @@ public enum ExpressionFunctions {
             } else {
                 throw new IllegalArgumentException("Doris doesn't support type:" + argType);
             }
-        
+
             // if args all is NullLiteral
             long size = args.stream().filter(e -> e instanceof NullLiteral).count();
             if (args.size() == size) {
@@ -289,10 +288,12 @@ public enum ExpressionFunctions {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o)
+            if (this == o) {
                 return true;
-            if (o == null || getClass() != o.getClass())
+            }
+            if (o == null || getClass() != o.getClass()) {
                 return false;
+            }
             FEFunctionSignature signature = (FEFunctionSignature) o;
             return Objects.equals(name, signature.name) && Arrays.equals(argTypes, signature.argTypes)
                     && Objects.equals(returnType, signature.returnType);
@@ -304,4 +305,3 @@ public enum ExpressionFunctions {
         }
     }
 }
-

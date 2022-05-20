@@ -36,7 +36,9 @@ import org.apache.doris.persist.EditLog;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
@@ -45,10 +47,6 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class SyncJobManagerTest {
     private static final Logger LOG = LogManager.getLogger(SyncJobManagerTest.class);

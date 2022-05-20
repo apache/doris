@@ -47,7 +47,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -112,7 +111,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
 
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
-    protected PlanFragment fragment_;
+    protected PlanFragment fragment;
 
     // estimate of the output cardinality of this node; set in computeStats();
     // invalid: -1
@@ -243,7 +242,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public PlanFragmentId getFragmentId() {
-        return fragment_.getFragmentId();
+        return fragment.getFragmentId();
     }
 
     public void setFragmentId(PlanFragmentId id) {
@@ -251,11 +250,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     }
 
     public void setFragment(PlanFragment fragment) {
-        fragment_ = fragment;
+        this.fragment = fragment;
     }
 
     public PlanFragment getFragment() {
-        return fragment_;
+        return fragment;
     }
 
     public long getLimit() {
@@ -398,7 +397,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public void transferConjuncts(PlanNode recipient) {
         recipient.vconjunct = vconjunct;
         vconjunct = null;
-        
+
         recipient.conjuncts.addAll(conjuncts);
         conjuncts.clear();
     }
@@ -782,7 +781,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) selectivities.add(e.getSelectivity());
+            if (e.hasSelectivity()) {
+                selectivities.add(e.getSelectivity());
+            }
         }
         if (selectivities.size() != conjuncts.size()) {
             // Some conjuncts have no estimated selectivity. Use a single default
@@ -875,7 +876,9 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     public void clearRuntimeFilters() { runtimeFilters.clear(); }
 
     protected String getRuntimeFilterExplainString(boolean isBuildNode) {
-        if (runtimeFilters.isEmpty()) return "";
+        if (runtimeFilters.isEmpty()) {
+            return "";
+        }
         List<String> filtersStr = new ArrayList<>();
         for (RuntimeFilter filter: runtimeFilters) {
             StringBuilder filterStr = new StringBuilder();

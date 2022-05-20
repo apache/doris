@@ -25,11 +25,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 
 import com.google.common.collect.Maps;
-import org.junit.Assert;
-import org.junit.Test;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
 
 import java.util.Map;
 

@@ -17,12 +17,13 @@
 
 package org.apache.doris.statistics;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.PlanNode;
+
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -104,7 +105,9 @@ public class BaseStatsDerive {
         // Collect all estimated selectivities.
         List<Double> selectivities = new ArrayList<>();
         for (Expr e : conjuncts) {
-            if (e.hasSelectivity()) selectivities.add(e.getSelectivity());
+            if (e.hasSelectivity()) {
+                selectivities.add(e.getSelectivity());
+            }
         }
         if (selectivities.size() != conjuncts.size()) {
             // Some conjuncts have no estimated selectivity. Use a single default

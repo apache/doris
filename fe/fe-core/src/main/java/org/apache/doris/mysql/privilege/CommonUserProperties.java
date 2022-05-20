@@ -67,7 +67,7 @@ public class CommonUserProperties implements Writable {
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
-    
+
     String[] getSqlBlockRulesSplit() {
         return sqlBlockRulesSplit;
     }
@@ -84,7 +84,7 @@ public class CommonUserProperties implements Writable {
         this.sqlBlockRules = sqlBlockRules;
         setSqlBlockRulesSplit(sqlBlockRules);
     }
-    
+
     void setSqlBlockRulesSplit(String sqlBlockRules) {
         // split
         this.sqlBlockRulesSplit = sqlBlockRules.replace(" ", "").split(",");

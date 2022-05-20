@@ -40,7 +40,7 @@ public class LimitOutputStream extends OutputStream {
 
     /**
      * A output stream that writes the limited bytes to the given stream.
-     * 
+     *
      * @param out
      *            The stream to be limited
      * @param limitspeed

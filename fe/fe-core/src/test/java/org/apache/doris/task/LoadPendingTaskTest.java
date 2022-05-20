@@ -17,8 +17,6 @@
 
 package org.apache.doris.task;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -36,8 +34,10 @@ import org.apache.doris.load.TableLoadInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
-
 import org.apache.doris.transaction.GlobalTransactionMgr;
+
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -75,11 +75,11 @@ public class LoadPendingTaskTest {
         indexId = 0L;
         tabletId = 0L;
         backendId = 0L;
-        
+
         label = "test_label";
         UnitTestUtil.initDppConfig();
     }
-    
+
     @Test
     public void testRunPendingTask() throws Exception {
         // mock catalog
@@ -113,7 +113,7 @@ public class LoadPendingTaskTest {
                 result = globalTransactionMgr;
             }
         };
-        
+
         // create job
         LoadJob job = new LoadJob(label);
         job.setState(JobState.PENDING);

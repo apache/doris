@@ -45,7 +45,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Sets;
-
+import io.grpc.ManagedChannel;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -56,17 +57,18 @@ import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
-import io.grpc.ManagedChannel;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 
 // create a user define function
 public class CreateFunctionStmt extends DdlStmt {
@@ -370,6 +372,10 @@ public class CreateFunctionStmt extends DdlStmt {
                     .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
                     .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
+                    .put(PrimitiveType.DATE, Sets.newHashSet(LocalDate.class))
+                    .put(PrimitiveType.DATETIME, Sets.newHashSet(LocalDateTime.class))
+                    .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
+                    .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
                     .build();
 
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)

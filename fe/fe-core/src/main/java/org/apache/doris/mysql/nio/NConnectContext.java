@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.mysql.nio;
 
 import org.apache.doris.qe.ConnectContext;
@@ -66,4 +67,3 @@ public class NConnectContext extends ConnectContext {
         return "[remote ip: " + mysqlChannel.getRemoteIp() + "]";
     }
 }
-

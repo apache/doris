@@ -160,6 +160,9 @@ struct TQueryOptions {
   // show bitmap data in result, if use this in mysql cli may make the terminal
   // output corrupted character
   43: optional bool return_object_data_as_binary = false
+
+  // trim tailing spaces while querying external table and stream load
+  44: optional bool trim_tailing_spaces_for_external_table_query = false
 }
     
 

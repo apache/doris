@@ -21,7 +21,6 @@ import org.apache.doris.analysis.BrokerDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.page.PageReadStore;

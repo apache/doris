@@ -37,7 +37,6 @@
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
@@ -236,7 +235,7 @@ void DataDir::health_check() {
         if (!res) {
             LOG(WARNING) << "store read/write test file occur IO Error. path="
                          << _path_desc.filepath;
-            if (is_io_error(res)) {
+            if (res.is_io_error()) {
                 _is_used = false;
             }
         }
@@ -406,9 +405,8 @@ Status DataDir::load() {
                                     const std::string& value) -> bool {
         Status status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash, value,
                                                                false, false, false, false);
-        if (!status.ok() &&
-            status != Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) &&
-            status != Status::OLAPInternalError(OLAP_ERR_ENGINE_INSERT_OLD_TABLET)) {
+        if (!status.ok() && status.precise_code() != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR &&
+            status.precise_code() != OLAP_ERR_ENGINE_INSERT_OLD_TABLET) {
             // load_tablet_from_meta() may return Status::OLAPInternalError(OLAP_ERR_TABLE_ALREADY_DELETED_ERROR)
             // which means the tablet status is DELETED
             // This may happen when the tablet was just deleted before the BE restarted,
@@ -470,8 +468,7 @@ Status DataDir::load() {
             continue;
         }
         RowsetSharedPtr rowset;
-        Status create_status = RowsetFactory::create_rowset(
-                &tablet->tablet_schema(), tablet->tablet_path_desc(), rowset_meta, &rowset);
+        Status create_status = tablet->create_rowset(rowset_meta, &rowset);
         if (!create_status) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
                          << " rowset_id: " << rowset_meta->rowset_id()
@@ -499,9 +496,9 @@ Status DataDir::load() {
             }
         } else if (rowset_meta->rowset_state() == RowsetStatePB::VISIBLE &&
                    rowset_meta->tablet_uid() == tablet->tablet_uid()) {
-            Status publish_status = tablet->add_rowset(rowset, false);
+            Status publish_status = tablet->add_rowset(rowset);
             if (!publish_status &&
-                publish_status != Status::OLAPInternalError(OLAP_ERR_PUSH_VERSION_ALREADY_EXIST)) {
+                publish_status.precise_code() != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
                 LOG(WARNING) << "add visible rowset to tablet failed rowset_id:"
                              << rowset->rowset_id() << " tablet id: " << rowset_meta->tablet_id()
                              << " txn id:" << rowset_meta->txn_id()

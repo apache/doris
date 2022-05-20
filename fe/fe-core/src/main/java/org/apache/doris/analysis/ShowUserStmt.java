@@ -54,4 +54,3 @@ public class ShowUserStmt extends ShowStmt {
     }
 
 }
-

@@ -64,7 +64,6 @@ class SmallFileMgr;
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
-class TExtDataSourceServiceClient;
 class PBackendService_Stub;
 class PFunctionService_Stub;
 
@@ -108,9 +107,6 @@ public:
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
-    ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() {
-        return _extdatasource_client_cache;
-    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -184,7 +180,6 @@ private:
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
-    ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The ancestor for all querys tracker.
@@ -247,11 +242,6 @@ template <>
 inline ClientCache<TPaloBrokerServiceClient>*
 ExecEnv::get_client_cache<TPaloBrokerServiceClient>() {
     return _broker_client_cache;
-}
-template <>
-inline ClientCache<TExtDataSourceServiceClient>*
-ExecEnv::get_client_cache<TExtDataSourceServiceClient>() {
-    return _extdatasource_client_cache;
 }
 
 } // namespace doris

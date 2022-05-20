@@ -87,10 +87,9 @@ struct ParsedData {
             *output = _data[offset];
             break;
         case ExplodeJsonArrayType::STRING:
-            *output = _string_nulls[offset]
-                              ? nullptr
-                              : real ? reinterpret_cast<void*>(_backup_string[offset].data())
-                                     : &_data_string[offset];
+            *output = _string_nulls[offset] ? nullptr
+                      : real                ? reinterpret_cast<void*>(_backup_string[offset].data())
+                                            : &_data_string[offset];
             break;
         default:
             CHECK(false) << type;

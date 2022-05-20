@@ -24,13 +24,13 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Statistics for a single column.
@@ -138,7 +138,12 @@ public class ColumnStats implements Writable {
         columnStats.readFields(in);
         return columnStats;
     }
-    
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(avgSerializedSize, maxSize, numDistinctValues, numNulls);
+    }
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -146,11 +151,11 @@ public class ColumnStats implements Writable {
         if (!(obj instanceof ColumnStats)) {
             return false;
         }
-        
+
         ColumnStats stats = (ColumnStats) obj;
-        return (numDistinctValues == stats.numDistinctValues) 
+        return (numDistinctValues == stats.numDistinctValues)
                 && (avgSerializedSize == stats.avgSerializedSize)
-                && (maxSize == stats.maxSize) 
+                && (maxSize == stats.maxSize)
                 && (numNulls == stats.numNulls);
     }
     /**
@@ -177,9 +182,13 @@ public class ColumnStats implements Writable {
       ColumnStats stats = new ColumnStats(expr.getType().getPrimitiveType());
       stats.setNumDistinctValues(expr.getNumDistinctValues());
       SlotRef slotRef = expr.unwrapSlotRef();
-      if (slotRef == null) return stats;
+      if (slotRef == null) {
+          return stats;
+      }
       ColumnStats slotStats = slotRef.getDesc().getStats();
-      if (slotStats == null) return stats;
+      if (slotStats == null) {
+          return stats;
+      }
       stats.numNulls = slotStats.getNumNulls();
       stats.avgSerializedSize = slotStats.getAvgSerializedSize();
       stats.maxSize = slotStats.getMaxSize();

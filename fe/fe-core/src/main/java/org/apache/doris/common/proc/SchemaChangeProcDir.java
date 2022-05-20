@@ -35,7 +35,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -109,7 +108,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
         if (filter == null || filter.size() == 0){
             jobInfos = schemaChangeJobInfos;
         } else {
-            jobInfos = Lists.newArrayList();        
+            jobInfos = Lists.newArrayList();
             for (List<Comparable> infoStr : schemaChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
                     LOG.warn("SchemaChangeJobInfos.size() " + schemaChangeJobInfos.size()

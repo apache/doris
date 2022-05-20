@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;

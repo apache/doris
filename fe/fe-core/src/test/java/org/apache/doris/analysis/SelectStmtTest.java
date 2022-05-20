@@ -28,7 +28,8 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -39,9 +40,6 @@ import org.junit.rules.ExpectedException;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-
-import mockit.Mock;
-import mockit.MockUp;
 
 public class SelectStmtTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
@@ -789,9 +787,12 @@ public class SelectStmtTest {
     @Test
     public void testSelectOuterJoinSql() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        String sql1 = "select l.citycode, group_concat(r.username) from db1.table1 l left join db1.table2 r on l.citycode=r.citycode group by l.citycode";
+        String sql1 = "select l.citycode, group_concat(distinct r.username) from db1.table1 l "
+                + "left join db1.table2 r on l.citycode=r.citycode group by l.citycode";
         SelectStmt stmt1 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         Assert.assertTrue(stmt1.getAnalyzer().getSlotDesc(new SlotId(2)).getIsNullable());
         Assert.assertTrue(stmt1.getAnalyzer().getSlotDescriptor("r.username").getIsNullable());
+        FunctionCallExpr expr = (FunctionCallExpr) stmt1.getSelectList().getItems().get(1).getExpr();
+        Assert.assertTrue(expr.getFnParams().isDistinct());
     }
 }

@@ -22,7 +22,6 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 

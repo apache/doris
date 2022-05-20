@@ -51,6 +51,15 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -65,16 +74,6 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class BackupHandlerTest {
 

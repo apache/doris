@@ -14,10 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.mysql.nio;
 
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.qe.ConnectProcessor;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.StreamConnection;
@@ -31,7 +33,7 @@ import java.nio.ByteBuffer;
  * mysql Channel based on nio.
  */
 public class NMysqlChannel extends MysqlChannel {
-    protected final Logger LOG = LogManager.getLogger(this.getClass());
+    protected final static Logger LOG = LogManager.getLogger(NMysqlChannel.class);
     private StreamConnection conn;
 
     public NMysqlChannel(StreamConnection connection) {

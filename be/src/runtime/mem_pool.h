@@ -101,7 +101,7 @@ public:
     ~MemPool();
 
     /// Allocates a section of memory of 'size' bytes with DEFAULT_ALIGNMENT at the end
-    /// of the the current chunk. Creates a new chunk if there aren't any chunks
+    /// of the current chunk. Creates a new chunk if there aren't any chunks
     /// with enough capacity.
     uint8_t* allocate(int64_t size, Status* rst = nullptr) {
         return allocate<false>(size, DEFAULT_ALIGNMENT, rst);

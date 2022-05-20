@@ -400,7 +400,7 @@ Status SegmentReader::_pick_delete_row_groups(uint32_t first_block, uint32_t las
 
             if (true == del_not_satisfied || 0 == delete_condition.del_cond->columns().size()) {
                 //if state is DEL_PARTIAL_SATISFIED last_time, cannot be set as DEL_NOT_SATISFIED
-                //it is special for for delete condition
+                //it is special for delete condition
                 if (DEL_PARTIAL_SATISFIED == _include_blocks[j]) {
                     continue;
                 } else {
@@ -795,7 +795,7 @@ Status SegmentReader::_seek_to_block_directly(int64_t block_id, const std::vecto
         Status res = Status::OK();
         PositionProvider position(&_column_indices[cid]->entry(block_id));
         if (!(res = _column_readers[cid]->seek(&position))) {
-            if (Status::OLAPInternalError(OLAP_ERR_COLUMN_STREAM_EOF) == res) {
+            if (OLAP_ERR_COLUMN_STREAM_EOF == res.precise_code()) {
                 VLOG_TRACE << "Stream EOF. tablet_id=" << _segment_group->get_tablet_id()
                            << ", column_id=" << _column_readers[cid]->column_unique_id()
                            << ", block_id=" << block_id;

@@ -27,7 +27,6 @@ import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -155,6 +154,7 @@ public abstract class LoadErrorHub {
                     break;
                 case BROKER_TYPE:
                     Preconditions.checkState(false, "hadoop load do not support broker error hub");
+                    break;
                 case NULL_TYPE:
                     break;
                 default:

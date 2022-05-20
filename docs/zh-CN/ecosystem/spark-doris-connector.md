@@ -102,6 +102,21 @@ sh build.sh --spark 3.2.0 --scala 2.12 \
 
 编译成功后，会在 `output/` 目录下生成文件 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar`。将此文件复制到 `Spark` 的 `ClassPath` 中即可使用 `Spark-Doris-Connector`。例如，`Local` 模式运行的 `Spark`，将此文件放入 `jars/` 文件夹下。`Yarn`集群模式运行的`Spark`，则将此文件放入预部署包中。
 
+例如将 `doris-spark-2.3.4-2.11-1.0.0-SNAPSHOT.jar` 上传到 hdfs并在spark.yarn.jars参数上添加 hdfs上的Jar包路径
+
+1. 上传doris-spark-connector-3.1.2-2.12-1.0.0.jar 到hdfs。
+
+```
+hdfs dfs -mkdir /spark-jars/
+hdfs dfs -put /your_local_path/doris-spark-connector-3.1.2-2.12-1.0.0.jar /spark-jars/
+```
+
+2. 在集群中添加doris-spark-connector-3.1.2-2.12-1.0.0.jar 依赖。
+
+```
+spark.yarn.jars=hdfs:///spark-jars/doris-spark-connector-3.1.2-2.12-1.0.0.jar
+```
+
 ## 使用Maven管理
 
 ```
@@ -163,6 +178,21 @@ val dorisSparkRDD = sc.dorisRDD(
 
 dorisSparkRDD.collect()
 ```
+
+#### pySpark
+
+```scala
+dorisSparkDF = spark.read.format("doris")
+.option("doris.table.identifier", "$YOUR_DORIS_DATABASE_NAME.$YOUR_DORIS_TABLE_NAME")
+.option("doris.fenodes", "$YOUR_DORIS_FE_HOSTNAME:$YOUR_DORIS_FE_RESFUL_PORT")
+.option("user", "$YOUR_DORIS_USERNAME")
+.option("password", "$YOUR_DORIS_PASSWORD")
+.load()
+# show 5 lines data 
+dorisSparkDF.show(5)
+```
+
+
 
 ### 写入
 
@@ -243,7 +273,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | doris.request.read.timeout.ms    | 30000             | 向Doris发送请求的读取超时时间                                |
 | doris.request.query.timeout.s    | 3600              | 查询doris的超时时间，默认值为1小时，-1表示无超时限制             |
 | doris.request.tablet.size        | Integer.MAX_VALUE | 一个RDD Partition对应的Doris Tablet个数。<br />此数值设置越小，则会生成越多的Partition。从而提升Spark侧的并行度，但同时会对Doris造成更大的压力。 |
-| doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数。增大此数值可减少Spark与Doris之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
+| doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数。增大此数值可减少Spark与Doris之间建立连接的次数。<br />从而减轻网络延迟所带来的额外时间开销。 |
 | doris.exec.mem.limit             | 2147483648        | 单个查询的内存限制。默认为 2GB，单位为字节                      |
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换Arrow格式到spark-doris-connector迭代所需的RowBatch                 |
 | doris.deserialize.queue.size     | 64                | 异步转换Arrow格式的内部处理队列，当doris.deserialize.arrow.async为true时生效        |

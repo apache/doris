@@ -22,7 +22,6 @@ import org.apache.doris.analysis.UserIdentity;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -85,4 +84,3 @@ public final class HttpAuthManager {
         return authSessions;
     }
 }
-

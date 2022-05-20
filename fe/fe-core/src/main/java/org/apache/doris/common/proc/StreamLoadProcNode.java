@@ -17,10 +17,11 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.StreamLoadRecordMgr;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 

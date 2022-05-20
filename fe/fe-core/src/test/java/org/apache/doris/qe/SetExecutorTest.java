@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.IntLiteral;
@@ -33,13 +32,12 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Mocked;
 
 public class SetExecutorTest {
     private Analyzer analyzer;

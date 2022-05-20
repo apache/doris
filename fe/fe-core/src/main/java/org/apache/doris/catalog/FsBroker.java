@@ -37,7 +37,7 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
     // msg for ping result
     public String heartbeatErrMsg = "";
     public long lastUpdateTime = -1;
-    
+
     @SerializedName(value = "lastStartTime")
     public long lastStartTime = -1;
     @SerializedName(value = "isAlive")
@@ -134,4 +134,3 @@ public class FsBroker implements Writable, Comparable<FsBroker> {
         return GsonUtils.GSON.fromJson(json, FsBroker.class);
     }
 }
-

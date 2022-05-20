@@ -35,7 +35,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,7 +77,9 @@ public class ExchangeNode extends PlanNode {
             this.conjuncts = Lists.newArrayList();
         }
         // Only apply the limit at the receiver if there are multiple senders.
-        if (inputNode.getFragment().isPartitioned()) limit = inputNode.limit;
+        if (inputNode.getFragment().isPartitioned()) {
+            limit = inputNode.limit;
+        }
         computeTupleIds();
     }
 

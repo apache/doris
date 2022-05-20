@@ -32,7 +32,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -100,20 +99,24 @@ public class InlineViewRef extends TableRef {
     public InlineViewRef(View view, TableRef origTblRef) {
         super(origTblRef.getName(), origTblRef.getExplicitAlias());
         queryStmt = view.getQueryStmt().clone();
-        if (view.isLocalView()) queryStmt.reset();
+        if (view.isLocalView()) {
+            queryStmt.reset();
+        }
         this.view = view;
         sMap = new ExprSubstitutionMap();
         baseTblSmap = new ExprSubstitutionMap();
         setJoinAttrs(origTblRef);
         explicitColLabels = view.getColLabels();
         // Set implicit aliases if no explicit one was given.
-        if (hasExplicitAlias()) return;
+        if (hasExplicitAlias()) {
+            return;
+        }
         // TODO(zc)
         // view_.getTableName().toString().toLowerCase(), view.getName().toLowerCase()
         if (view.isLocalView()) {
-            aliases_ = new String[]{view.getName()};
+            aliases = new String[]{view.getName()};
         } else {
-            aliases_ = new String[]{name.toString(), view.getName()};
+            aliases = new String[]{name.toString(), view.getName()};
         }
         if (origTblRef.getLateralViewRefs() != null) {
             lateralViewRefs = (ArrayList<LateralViewRef>) origTblRef.getLateralViewRefs().clone();
@@ -182,12 +185,12 @@ public class InlineViewRef extends TableRef {
         inlineViewAnalyzer = new Analyzer(analyzer);
 
         queryStmt.analyze(inlineViewAnalyzer);
-        correlatedTupleIds_.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
+        correlatedTupleIds.addAll(queryStmt.getCorrelatedTupleIds(inlineViewAnalyzer));
 
         queryStmt.getMaterializedTupleIds(materializedTupleIds);
         if (view != null && !hasExplicitAlias() && !view.isLocalView()) {
             name = analyzer.getFqTableName(name);
-            aliases_ = new String[] { name.toString(), view.getName() };
+            aliases = new String[] { name.toString(), view.getName() };
         }
         //TODO(chenhao16): fix TableName in Db.Table style
         // name.analyze(analyzer);
@@ -440,26 +443,23 @@ public class InlineViewRef extends TableRef {
     }
 
     @Override
-    public String tableRefToSql() {
+    public String tableNameToSql() {
         // Enclose the alias in quotes if Hive cannot parse it without quotes.
         // This is needed for view compatibility between Impala and Hive.
+        if (view != null) {
+            // FIXME: this may result in a sql cache problem
+            // See pr #6736 and issue #6735
+            return super.tableNameToSql();
+        }
+
         String aliasSql = null;
         String alias = getExplicitAlias();
         if (alias != null) {
             aliasSql = ToSqlUtils.getIdentSql(alias);
         }
-
-        if (view != null) {
-            // FIXME: this may result in a sql cache problem
-            // See pr #6736 and issue #6735
-            return name.toSql() + (aliasSql == null ? "" : " " + aliasSql);
-        }
-
         StringBuilder sb = new StringBuilder();
-        sb.append("(")
-                .append(queryStmt.toSql())
-                .append(") ")
-                .append(aliasSql);
+        sb.append("(").append(queryStmt.toSql()).append(") ")
+            .append(aliasSql);
 
         return sb.toString();
     }

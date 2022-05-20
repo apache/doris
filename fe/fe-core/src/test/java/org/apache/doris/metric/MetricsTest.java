@@ -19,10 +19,11 @@ package org.apache.doris.metric;
 
 import org.apache.doris.common.FeConstants;
 
-import java.util.List;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import java.util.List;
 
 public class MetricsTest {
 

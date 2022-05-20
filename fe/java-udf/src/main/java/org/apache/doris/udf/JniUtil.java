@@ -17,15 +17,15 @@
 
 package org.apache.doris.udf;
 
-import com.google.common.base.Joiner;
-
-import org.apache.doris.thrift.TJvmMemoryPool;
+import org.apache.doris.monitor.jvm.JvmPauseMonitor;
+import org.apache.doris.thrift.TGetJMXJsonResponse;
 import org.apache.doris.thrift.TGetJvmMemoryMetricsResponse;
-import org.apache.doris.thrift.TJvmThreadInfo;
 import org.apache.doris.thrift.TGetJvmThreadsInfoRequest;
 import org.apache.doris.thrift.TGetJvmThreadsInfoResponse;
-import org.apache.doris.thrift.TGetJMXJsonResponse;
-import org.apache.doris.monitor.jvm.JvmPauseMonitor;
+import org.apache.doris.thrift.TJvmMemoryPool;
+import org.apache.doris.thrift.TJvmThreadInfo;
+
+import com.google.common.base.Joiner;
 import org.apache.thrift.TBase;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -36,14 +36,14 @@ import org.apache.thrift.protocol.TProtocolFactory;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.lang.management.GarbageCollectorMXBean;
-import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryUsage;
 import java.lang.management.RuntimeMXBean;
 import java.lang.management.ThreadInfo;
+import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.Map;
 

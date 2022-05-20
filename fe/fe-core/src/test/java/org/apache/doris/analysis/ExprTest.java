@@ -23,17 +23,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Maps;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class ExprTest {
 

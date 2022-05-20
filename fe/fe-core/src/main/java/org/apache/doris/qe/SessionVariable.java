@@ -165,7 +165,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String CPU_RESOURCE_LIMIT = "cpu_resource_limit";
-    
+
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
     public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
@@ -179,6 +179,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String AUTO_BROADCAST_JOIN_THRESHOLD = "auto_broadcast_join_threshold";
 
     public static final String ENABLE_PROJECTION = "enable_projection";
+
+    public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY = "trim_tailing_spaces_for_external_table_query";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -221,19 +223,19 @@ public class SessionVariable implements Serializable, Writable {
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = TX_ISOLATION)
     public String txIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TX_READ_ONLY)
     public boolean txReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_READ_ONLY)
     public boolean transactionReadonly = false;
-    
+
     // this is used to make mysql client happy
     @VariableMgr.VarAttr(name = TRANSACTION_ISOLATION)
     public String transactionIsolation = "REPEATABLE-READ";
-    
+
     // this is used to make c3p0 library happy
     @VariableMgr.VarAttr(name = CHARACTER_SET_CLIENT)
     public String charsetClient = "utf8";
@@ -415,9 +417,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CPU_RESOURCE_LIMIT)
     public int cpuResourceLimit = -1;
 
-    @VariableMgr.VarAttr(name = ENABLE_LATERAL_VIEW, needForward = true)
-    public boolean enableLateralView = false;
-
     @VariableMgr.VarAttr(name = DISABLE_JOIN_REORDER)
     private boolean disableJoinReorder = false;
 
@@ -438,9 +437,12 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is 1Gto
     @VariableMgr.VarAttr(name = AUTO_BROADCAST_JOIN_THRESHOLD)
     public double autoBroadcastJoinThreshold = 0.8;
-  
+
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
-    private boolean enableProjection = false;
+    private boolean enableProjection = true;
+
+    @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
+    public boolean trimTailingSpacesForExternalTableQuery = false;
 
     public String getBlockEncryptionMode() {
         return blockEncryptionMode;
@@ -482,7 +484,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isAutoCommit() {
         return autoCommit;
     }
-    
+
     public boolean isTxReadonly() {
         return txReadonly;
     }
@@ -490,11 +492,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean isTransactionReadonly() {
         return transactionReadonly;
     }
-    
+
     public String getTransactionIsolation() {
         return transactionIsolation;
     }
-    
+
     public String getTxIsolation() {
         return txIsolation;
     }
@@ -876,14 +878,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableParallelOutfile;
     }
 
-    public boolean isEnableLateralView() {
-        return enableLateralView;
-    }
-
-    public void setEnableLateralView(boolean enableLateralView) {
-        this.enableLateralView = enableLateralView;
-    }
-
     public boolean isDisableJoinReorder() {
         return disableJoinReorder;
     }
@@ -906,6 +900,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableProjection;
     }
 
+    public boolean isTrimTailingSpacesForExternalTableQuery() {
+        return trimTailingSpacesForExternalTableQuery;
+    }
+
+    public void setTrimTailingSpacesForExternalTableQuery(boolean trimTailingSpacesForExternalTableQuery) {
+        this.trimTailingSpacesForExternalTableQuery = trimTailingSpacesForExternalTableQuery;
+    }
+
     // Serialize to thrift object
     // used for rest api
     public TQueryOptions toThrift() {
@@ -923,6 +925,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setCodegenLevel(codegenLevel);
         tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
+        tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -1121,4 +1124,3 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 }
-

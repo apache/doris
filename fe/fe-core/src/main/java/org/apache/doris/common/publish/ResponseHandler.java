@@ -18,6 +18,7 @@
 package org.apache.doris.common.publish;
 
 import org.apache.doris.system.Backend;
+
 import com.google.common.collect.Sets;
 
 import java.util.Collection;

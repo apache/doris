@@ -17,11 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.DdlException;
@@ -67,7 +67,7 @@ public class MetadataViewer {
                     }
                 }
             }
-            
+
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
                 long visibleVersion = partition.getVisibleVersion();
@@ -81,7 +81,7 @@ public class MetadataViewer {
                         for (Replica replica : tablet.getReplicas()) {
                             --count;
                             List<String> row = Lists.newArrayList();
-                            
+
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
                             if (be == null || !be.isAlive() || replica.isBad()) {
@@ -93,11 +93,11 @@ public class MetadataViewer {
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;
                             }
-                            
+
                             if (filterReplica(status, statusFilter, op)) {
                                 continue;
                             }
-                            
+
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
                             row.add(String.valueOf(replica.getBackendId()));
@@ -161,7 +161,7 @@ public class MetadataViewer {
     private static List<List<String>> getTabletDistribution(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("00.00 %");
-        
+
         List<List<String>> result = Lists.newArrayList();
 
         Catalog catalog = Catalog.getCurrentCatalog();
@@ -230,7 +230,7 @@ public class MetadataViewer {
                 row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
-            
+
         } finally {
             olapTable.readUnlock();
         }

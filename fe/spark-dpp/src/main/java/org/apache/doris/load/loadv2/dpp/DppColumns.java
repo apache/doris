@@ -20,11 +20,11 @@ package org.apache.doris.load.loadv2.dpp;
 import com.google.common.base.Preconditions;
 
 import java.io.Serializable;
-import java.util.List;
 import java.util.ArrayList;
-import java.util.Date;
-import java.util.Objects;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.List;
+import java.util.Objects;
 
 // DppColumns is used to store the
 class DppColumns implements Comparable<DppColumns>, Serializable {
@@ -85,8 +85,12 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         DppColumns dppColumns = (DppColumns) o;
         return Objects.equals(columns, dppColumns.columns);
     }

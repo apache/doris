@@ -29,7 +29,6 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

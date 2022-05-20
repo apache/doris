@@ -383,7 +383,7 @@ inline Status CollectIterator::Level1Iterator::_merge_next(const RowCursor** row
     if (LIKELY(res.ok())) {
         _heap->push(_cur_child);
         _cur_child = _heap->top();
-    } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
         // current child has been read, to read next
         delete _cur_child;
         if (!_heap->empty()) {
@@ -412,7 +412,7 @@ inline Status CollectIterator::Level1Iterator::_normal_next(const RowCursor** ro
     auto res = _cur_child->next(row, delete_flag);
     if (LIKELY(res.ok())) {
         return Status::OK();
-    } else if (res == Status::OLAPInternalError(OLAP_ERR_DATA_EOF)) {
+    } else if (res.precise_code() == OLAP_ERR_DATA_EOF) {
         // current child has been read, to read next
         delete _cur_child;
         _children.pop_front();

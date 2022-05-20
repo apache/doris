@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFunction;
@@ -28,7 +29,7 @@ import org.apache.doris.thrift.TScalarFunction;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,10 +40,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-
-import com.google.gson.Gson;
-
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 // import org.apache.doris.thrift.TSymbolType;
 
@@ -178,7 +175,9 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }
@@ -248,7 +247,9 @@ public class ScalarFunction extends Function {
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
-        if (usesDecimalV2) beClass = "DecimalV2Operators";
+        if (usesDecimalV2) {
+            beClass = "DecimalV2Operators";
+        }
         String symbol = "doris::" + beClass + "::" + beFn;
         return createVecBuiltinOperator(name, symbol, argTypes, retType, nullableMode);
     }
@@ -385,8 +386,8 @@ public class ScalarFunction extends Function {
         super.writeFields(output);
         // 3.symbols
         Text.writeString(output, symbolName);
-        writeOptionString(output, prepareFnSymbol);
-        writeOptionString(output, closeFnSymbol);
+        IOUtils.writeOptionString(output, prepareFnSymbol);
+        IOUtils.writeOptionString(output, closeFnSymbol);
     }
 
     public void readFields(DataInput input) throws IOException {

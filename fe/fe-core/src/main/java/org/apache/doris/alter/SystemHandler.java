@@ -47,7 +47,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,12 +116,12 @@ public class SystemHandler extends AlterHandler {
             // add backend
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
             final String destClusterName = addBackendClause.getDestCluster();
-            
+
             if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) && Config.disable_cluster_feature) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
             }
 
-            if (!Strings.isNullOrEmpty(destClusterName) 
+            if (!Strings.isNullOrEmpty(destClusterName)
                     && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }

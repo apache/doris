@@ -20,23 +20,21 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.catalog.MultiRowType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-
-
 import org.apache.doris.thrift.TExprNode;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Class representing a subquery. A Subquery consists of a QueryStmt and has
@@ -111,7 +109,9 @@ public class Subquery extends Expr {
         }
 
         // If the subquery returns many rows, set its type to MultiRowType.
-        if (!((SelectStmt)stmt).returnsSingleRow()) type = new MultiRowType(type);
+        if (!((SelectStmt)stmt).returnsSingleRow()) {
+            type = new MultiRowType(type);
+        }
 
         // Preconditions.checkNotNull(type);
         // type.analyze();
@@ -140,7 +140,9 @@ public class Subquery extends Expr {
         // Check if we have unique labels
         List<String> labels = stmt.getColLabels();
         boolean hasUniqueLabels = true;
-        if (Sets.newHashSet(labels).size() != labels.size()) hasUniqueLabels = false;
+        if (Sets.newHashSet(labels).size() != labels.size()) {
+            hasUniqueLabels = false;
+        }
 
         // Construct a StructField from each expr in the select list
         for (int i = 0; i < stmtResultExprs.size(); ++i) {
@@ -184,7 +186,9 @@ public class Subquery extends Expr {
      */
     @Override
     public boolean equals(Object o) {
-        if (!super.equals(o)) return false;
+        if (!super.equals(o)) {
+            return false;
+        }
         return stmt.toSql().equals(((Subquery)o).stmt.toSql());
     }
 
@@ -200,4 +204,3 @@ public class Subquery extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {}
 }
-

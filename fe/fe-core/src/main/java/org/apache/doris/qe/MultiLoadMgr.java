@@ -51,7 +51,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -268,7 +267,7 @@ public class MultiLoadMgr {
         }
 
         public void addFile(String subLabel, String table, List<Pair<String, Long>> files,
-                            TNetworkAddress fileAddr, 
+                            TNetworkAddress fileAddr,
                             Map<String, String> properties,
                             long timestamp) throws DdlException {
 
@@ -541,4 +540,3 @@ public class MultiLoadMgr {
         }
     }
 }
-

@@ -17,12 +17,13 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryStatisticsItem;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 
 import java.util.List;
 import java.util.Map;

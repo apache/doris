@@ -17,11 +17,6 @@
 
 package org.apache.doris.httpv2.controller;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.base64.Base64;
-import io.netty.util.CharsetUtil;
-
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
@@ -40,14 +35,16 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.base64.Base64;
+import io.netty.util.CharsetUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.UUID;
-
 import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -299,4 +296,3 @@ public class BaseController {
         return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
     }
 }
-

@@ -48,7 +48,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,7 +84,7 @@ public class FunctionCallExpr extends Expr {
                     .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
-    // use to record the num of json_object parameters 
+    // use to record the num of json_object parameters
     private int originChildSize;
     // Save the functionCallExpr in the original statement
     private Expr originStmtFnExpr;
@@ -480,10 +479,6 @@ public class FunctionCallExpr extends Expr {
             if (children.size() > 2 || children.isEmpty()) {
                 throw new AnalysisException(
                         "group_concat requires one or two parameters: " + this.toSql());
-            }
-
-            if (fnParams.isDistinct()) {
-                throw new AnalysisException("group_concat does not support DISTINCT");
             }
 
             Expr arg0 = getChild(0);
@@ -1163,7 +1158,9 @@ public class FunctionCallExpr extends Expr {
         // TODO: we can't correctly determine const-ness before analyzing 'fn_'. We should
         // rework logic so that we do not call this function on unanalyzed exprs.
         // Aggregate functions are never constant.
-        if (fn instanceof AggregateFunction || fn == null) return false;
+        if (fn instanceof AggregateFunction || fn == null) {
+            return false;
+        }
 
         final String fnName = this.fnName.getFunction();
         // Non-deterministic functions are never constant.
@@ -1171,7 +1168,9 @@ public class FunctionCallExpr extends Expr {
             return false;
         }
         // Sleep is a special function for testing.
-        if (fnName.equalsIgnoreCase("sleep")) return false;
+        if (fnName.equalsIgnoreCase("sleep")) {
+            return false;
+        }
         return super.isConstantImpl();
     }
 
@@ -1221,4 +1220,3 @@ public class FunctionCallExpr extends Expr {
         return result.toString();
     }
 }
-

@@ -22,6 +22,7 @@
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -34,6 +35,7 @@ class RuntimeState;
 class ExprContext;
 
 namespace vectorized {
+class VExprContext;
 class IColumn;
 using MutableColumnPtr = IColumn::MutablePtr;
 } // namespace vectorized
@@ -51,7 +53,10 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                const std::vector<TBrokerRangeDesc>& ranges,
+                const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+
     virtual ~BaseScanner() {
         Expr::close(_dest_expr_ctx, _state);
         if (_state->enable_vectorized_exec()) {
@@ -81,8 +86,16 @@ public:
     void free_expr_local_allocations();
 
 protected:
+    Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
+    virtual Status _init_src_block();
+
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
+
+    //const TBrokerScanRangeParams& _params;
+    const std::vector<TBrokerRangeDesc>& _ranges;
+    const std::vector<TNetworkAddress>& _broker_addresses;
+    int _next_range;
     // used for process stat
     ScannerCounter* _counter;
 
@@ -100,9 +113,6 @@ protected:
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
     std::vector<ExprContext*> _dest_expr_ctx;
-    // for vectorized
-    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -126,7 +136,16 @@ protected:
     bool _success = false;
     bool _scanner_eof = false;
 
+    // for vectorized load
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
+    vectorized::Block _src_block;
+    int _num_of_columns_from_file;
+
 private:
+    Status _filter_src_block();
+    void _fill_columns_from_path();
+    Status _materialize_dest_block(vectorized::Block* output_block);
     Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 

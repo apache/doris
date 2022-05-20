@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -136,7 +135,7 @@ public class MysqlTable extends Table {
                         + "Please set charset 'utf8' or 'utf8mb4', other charsets not be unsupported now.");
             }
         }
-        
+
         mysqlDatabaseName = properties.get(MYSQL_DATABASE);
         if (Strings.isNullOrEmpty(mysqlDatabaseName)) {
             throw new DdlException("Database of MySQL table is null. "
@@ -149,14 +148,14 @@ public class MysqlTable extends Table {
                     + "Please add properties('table'='xxxx') when create table");
         }
     }
-    
+
     private String getPropertyFromResource(String propertyName) {
         OdbcCatalogResource odbcCatalogResource = (OdbcCatalogResource)
                 (Catalog.getCurrentCatalog().getResourceMgr().getResource(odbcCatalogResourceName));
         if (odbcCatalogResource == null) {
             throw new RuntimeException("Resource does not exist. name: " + odbcCatalogResourceName);
         }
-        
+
         String property = odbcCatalogResource.getProperty(propertyName);
         if (property == null) {
             throw new RuntimeException("The property:" + propertyName + " do not set in resource " + odbcCatalogResourceName);
@@ -212,7 +211,7 @@ public class MysqlTable extends Table {
     }
 
     public TTableDescriptor toThrift() {
-        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(), 
+        TMySQLTable tMySQLTable = new TMySQLTable(getHost(), getPort(), getUserName(), getPasswd(),
                 mysqlDatabaseName, mysqlTableName, getCharset());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.MYSQL_TABLE,
                 fullSchema.size(), 0, getName(), "");

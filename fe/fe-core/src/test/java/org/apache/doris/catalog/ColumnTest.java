@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,7 +32,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 public class ColumnTest {
-    
+
     private Catalog catalog;
 
     private FakeCatalog fakeCatalog;
@@ -52,18 +52,18 @@ public class ColumnTest {
         File file = new File("./columnTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
-        Column column1 = new Column("user", 
+
+        Column column1 = new Column("user",
                                 ScalarType.createChar(20), false, AggregateType.SUM, "", "");
         column1.write(dos);
-        Column column2 = new Column("age", 
+        Column column2 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20", "");
         column2.write(dos);
-        
+
         Column column3 = new Column("name", PrimitiveType.BIGINT);
         column3.setIsKey(true);
         column3.write(dos);
-        
+
         Column column4 = new Column("age",
                                 ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "20",
                                     "");
@@ -71,7 +71,7 @@ public class ColumnTest {
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Column rColumn1 = Column.read(dis);
@@ -83,7 +83,7 @@ public class ColumnTest {
         Assert.assertEquals(0, rColumn1.getPrecision());
         Assert.assertEquals(20, rColumn1.getStrLen());
         Assert.assertFalse(rColumn1.isAllowNull());
-        
+
         // 3. Test read()
         Column rColumn2 = Column.read(dis);
         Assert.assertEquals("age", rColumn2.getName());
@@ -96,7 +96,7 @@ public class ColumnTest {
 
         Column rColumn4 = Column.read(dis);
         Assert.assertTrue(rColumn4.equals(column4));
-        
+
         Assert.assertEquals(rColumn2.toString(), column2.toString());
         Assert.assertTrue(column1.equals(column1));
         Assert.assertFalse(column1.equals(this));

@@ -559,7 +559,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
-- 使用 Spark Load 时没有在 spark 客户端的 spark-env.sh 配置 `HADOOP_CONF_DIR` 环境变量。
+- 使用 Spark Load 时没有在 spark 客户端的 `spark-env.sh` 配置 `HADOOP_CONF_DIR` 环境变量。
 
 如果 `HADOOP_CONF_DIR` 环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
 
@@ -574,6 +574,10 @@ LoadFinishTime: 2019-07-27 11:50:16
 - 使用 Spark load 时 `yarn_client_path` 配置项没有指定 yarn 的可执行文件。
 
 如果 `yarn_client_path `没有设置正确，会报 `yarn client does not exist in path: xxx/yarn-client/hadoop/bin/yarn` 错误
+
+- 使用Spark load 时没有在 yarn 客户端的 `hadoop-config.sh` 配置 `JAVA_HOME` 环境变量。
+
+如果 `JAVA_HOME` 环境变量没有设置，会报 `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` 错误
 
 ## 更多帮助
 

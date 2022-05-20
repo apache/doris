@@ -25,10 +25,9 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
+import com.google.common.base.MoreObjects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.MoreObjects;
 
 /**
  * Cross join between left child and right child.
@@ -39,11 +38,11 @@ public class CrossJoinNode extends PlanNode {
     // Default per-host memory requirement used if no valid stats are available.
     // TODO: Come up with a more useful heuristic (e.g., based on scanned partitions).
     private final static long DEFAULT_PER_HOST_MEM = 2L * 1024L * 1024L * 1024L;
-    private final TableRef innerRef_;
+    private final TableRef innerRef;
 
     public CrossJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef) {
         super(id, "CROSS JOIN");
-        innerRef_ = innerRef;
+        this.innerRef = innerRef;
         tupleIds.addAll(outer.getTupleIds());
         tupleIds.addAll(inner.getTupleIds());
         tblRefIds.addAll(outer.getTblRefIds());
@@ -58,7 +57,7 @@ public class CrossJoinNode extends PlanNode {
     }
 
     public TableRef getInnerRef() {
-        return innerRef_;
+        return innerRef;
     }
 
     @Override

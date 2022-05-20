@@ -27,15 +27,15 @@ import org.apache.doris.qe.ConnectContext;
 public class DropRepositoryStmt extends DdlStmt {
 
     private String repoName;
-    
+
     public DropRepositoryStmt(String repoName) {
         this.repoName = repoName;
     }
-    
+
     public String getRepoName() {
         return repoName;
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);

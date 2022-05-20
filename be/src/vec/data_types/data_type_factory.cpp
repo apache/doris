@@ -260,4 +260,67 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     return nested;
 }
 
+DataTypePtr DataTypeFactory::create_data_type(const arrow::Type::type& type, bool is_nullable) {
+    DataTypePtr nested = nullptr;
+    switch (type) {
+    case ::arrow::Type::BOOL:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case ::arrow::Type::INT8:
+        nested = std::make_shared<vectorized::DataTypeInt8>();
+        break;
+    case ::arrow::Type::UINT8:
+        nested = std::make_shared<vectorized::DataTypeUInt8>();
+        break;
+    case ::arrow::Type::INT16:
+        nested = std::make_shared<vectorized::DataTypeInt16>();
+        break;
+    case ::arrow::Type::UINT16:
+        nested = std::make_shared<vectorized::DataTypeUInt16>();
+        break;
+    case ::arrow::Type::INT32:
+        nested = std::make_shared<vectorized::DataTypeInt32>();
+        break;
+    case ::arrow::Type::UINT32:
+        nested = std::make_shared<vectorized::DataTypeUInt32>();
+        break;
+    case ::arrow::Type::INT64:
+        nested = std::make_shared<vectorized::DataTypeInt64>();
+        break;
+    case ::arrow::Type::UINT64:
+        nested = std::make_shared<vectorized::DataTypeUInt64>();
+        break;
+    case ::arrow::Type::HALF_FLOAT:
+    case ::arrow::Type::FLOAT:
+        nested = std::make_shared<vectorized::DataTypeFloat32>();
+        break;
+    case ::arrow::Type::DOUBLE:
+        nested = std::make_shared<vectorized::DataTypeFloat64>();
+        break;
+    case ::arrow::Type::DATE32:
+        nested = std::make_shared<vectorized::DataTypeDate>();
+        break;
+    case ::arrow::Type::DATE64:
+    case ::arrow::Type::TIMESTAMP:
+        nested = std::make_shared<vectorized::DataTypeDateTime>();
+        break;
+    case ::arrow::Type::BINARY:
+    case ::arrow::Type::FIXED_SIZE_BINARY:
+    case ::arrow::Type::STRING:
+        nested = std::make_shared<vectorized::DataTypeString>();
+        break;
+    case ::arrow::Type::DECIMAL:
+        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
+        break;
+    default:
+        DCHECK(false) << "invalid arrow type:" << (int)type;
+        break;
+    }
+
+    if (nested && is_nullable) {
+        return std::make_shared<vectorized::DataTypeNullable>(nested);
+    }
+    return nested;
+}
+
 } // namespace doris::vectorized

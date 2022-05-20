@@ -35,6 +35,7 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.canal.CanalSyncJob;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
@@ -62,7 +63,6 @@ import com.google.gson.annotations.SerializedName;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.IOException;
@@ -77,14 +77,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /*
  * Some utilities about Gson.
  * User should get GSON instance from this class to do the serialization.
- * 
+ *
  *      GsonUtils.GSON.toJson(...)
  *      GsonUtils.GSON.fromJson(...)
- * 
+ *
  * More example can be seen in unit test case: "org.apache.doris.common.util.GsonSerializationTest.java".
- * 
+ *
  * For inherited class serialization, see "org.apache.doris.common.util.GsonDerivedClassSerializationTest.java"
- * 
+ *
  * And developers may need to add other serialization adapters for custom complex java classes.
  * You need implement a class to implements JsonSerializer and JsonDeserializer, and register it to GSON_BUILDER.
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
@@ -171,17 +171,17 @@ public class GsonUtils {
     }
 
     /*
-     * 
+     *
      * The json adapter for Guava Table.
      * Current support:
      * 1. HashBasedTable
-     * 
+     *
      * The RowKey, ColumnKey and Value classes in Table should also be serializable.
-     * 
+     *
      * What is Adapter and Why we should implement it?
-     * 
+     *
      * Adapter is mainly used to provide serialization and deserialization methods for some complex classes.
-     * Complex classes here usually refer to classes that are complex and cannot be modified. 
+     * Complex classes here usually refer to classes that are complex and cannot be modified.
      * These classes mainly include third-party library classes or some inherited classes.
      */
     private static class GuavaTableAdapter<R, C, V>
@@ -193,7 +193,7 @@ public class GsonUtils {
          * "columnKeys": [ "colKey1", "colKey2", ...],
          * "cells" : [[0, 0, value1], [0, 1, value2], ...]
          * }
-         * 
+         *
          * the [0, 0] .. in cells are the indexes of rowKeys array and columnKeys array.
          * This serialization method can reduce the size of json string because it
          * replace the same row key
@@ -285,7 +285,7 @@ public class GsonUtils {
      * 2. HashMultimap
      * 3. LinkedListMultimap
      * 4. LinkedHashMultimap
-     * 
+     *
      * The key and value classes of multi map should also be json serializable.
      */
     private static class GuavaMultimapAdapter<K, V>
@@ -304,7 +304,7 @@ public class GsonUtils {
                 throw new AssertionError(e);
             }
         }
-    
+
         @Override
         public JsonElement serialize(Multimap<K, V> map, Type typeOfSrc, JsonSerializationContext context) {
             JsonObject jsonObject = new JsonObject();
@@ -315,7 +315,7 @@ public class GsonUtils {
             jsonObject.add("map", jsonElement);
             return jsonObject;
         }
-    
+
         @Override
         public Multimap<K, V> deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context)
                 throws JsonParseException {

@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -303,7 +302,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() 
+            if (!(targetType.getPrimitiveType().isStringType()
                     && !targetType.isAssignedStrLenInColDefinition())) {
                 targetTypeDef.analyze(analyzer);
             }
@@ -312,6 +311,11 @@ public class CastExpr extends Expr {
         }
         type = targetTypeDef.getType();
         analyze();
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 
     @Override
