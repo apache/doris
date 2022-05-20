@@ -44,6 +44,23 @@ To use Java UDF, the main entry of UDF must be the `evaluate` function. This is 
 
 It is worth mentioning that this example is not only the Java UDF supported by Doris, but also the UDF supported by Hive, that's to say, for users, Hive UDF can be directly migrated to Doris.
 
+#### Type correspondence
+
+|UDF Type|Argument Type|
+|----|---------|
+|TinyInt|TinyIntVal|
+|SmallInt|Short|
+|Int|Integer|
+|BigInt|Long|
+|LargeInt|BigInteger|
+|Float|Float|
+|Double|Double|
+|Date|LocalDate|
+|Datetime|LocalDateTime|
+|Char|String|
+|Varchar|String|
+|Decimal|BigDecimal|
+
 ## Create UDF
 
 Currently, UDAF and UDTF are not supported.
@@ -85,6 +102,6 @@ Examples of Java UDF are provided in the `samples/doris-demo/java-udf-demo/` dir
 
 ## Unsupported Use Case
 At present, Java UDF is still in the process of continuous development, so some features are **not completed**.
-1. Complex data types (date, HLL, bitmap) are not supported.
+1. Complex data types (HLL, bitmap) are not supported.
 2. Memory management and statistics of JVM and Doris have not been unified.
 
