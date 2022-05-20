@@ -198,7 +198,7 @@ public class AlterTest {
                 "   \"s3_connection_timeout_ms\" = \"1000\"\n" +
                 ");");
 
-        createPolicyResource(" * CREATE RESOURCE \"storage_policy_name\"\n" +
+        createPolicyResource("CREATE RESOURCE \"storage_policy_name\"\n" +
                 "PROPERTIES(\n" +
                 "   \"type\"=\"storage_policy\",\n" +
                 "   \"cooldown_ttl\" = \"1h\"， // data is transfter to medium after 1 hour\n" +
