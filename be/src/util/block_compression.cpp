@@ -88,7 +88,7 @@ public:
 
 class Lz4fCompressionContext {
 public:
-    Status init(bool is_compress) {
+    inline Status init(bool is_compress) {
         if (is_compress && !ctx_c_inited) {
             auto ret1 = LZ4F_createCompressionContext(&ctx_c, LZ4F_VERSION);
             if (LZ4F_isError(ret1)) {
@@ -118,10 +118,10 @@ public:
         if (ctx_d_inited) LZ4F_freeDecompressionContext(ctx_d);
     }
 
-    LZ4F_compressionContext_t get_compress_ctx() { return ctx_c; }
-    LZ4F_decompressionContext_t get_decompress_ctx() { return ctx_d; }
+    inline LZ4F_compressionContext_t get_compress_ctx() { return ctx_c; }
+    inline LZ4F_decompressionContext_t get_decompress_ctx() { return ctx_d; }
 
-public:
+private:
     LZ4F_compressionContext_t ctx_c;
     bool ctx_c_inited = false;
     LZ4F_decompressionContext_t ctx_d;
@@ -172,7 +172,7 @@ public:
     Status compress(const std::vector<Slice>& inputs, Slice* output) const override {
         auto pctx = lz4f_ctx.get();
         if (pctx && pctx->init(true).ok())
-            return _compress(pctx->ctx_c, inputs, output);
+            return _compress(pctx->get_compress_ctx(), inputs, output);
         else
             return Status::InvalidArgument("Fail to get thread local lz4f_ctx");
     }
@@ -180,7 +180,7 @@ public:
     Status decompress(const Slice& input, Slice* output) const override {
         auto pctx = lz4f_ctx.get();
         if (pctx && pctx->init(false).ok())
-            return _decompress(pctx->ctx_d, input, output);
+            return _decompress(pctx->get_decompress_ctx(), input, output);
         else
             return Status::InvalidArgument("Fail to get thread local lz4f_ctx");
     }
