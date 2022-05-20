@@ -457,7 +457,7 @@ public class EsTable extends Table {
      **/
     public List<Column> genColumnsFromEs() {
         String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = EsUtil.getMappingProps(indexName, name, mapping, mappingType);
+        JSONObject mappingProps = EsUtil.getMappingProps(indexName, mapping, mappingType);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
         for (String key : keys) {
