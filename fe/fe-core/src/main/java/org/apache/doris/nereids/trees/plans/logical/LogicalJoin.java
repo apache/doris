@@ -40,6 +40,9 @@ public class LogicalJoin<
     private final JoinType joinType;
     private final Expression onClause;
 
+    // Use for top-to-down join reorder
+    private final JoinReorderContext joinReorderContext = new JoinReorderContext();
+
     /**
      * Constructor for LogicalJoinPlan.
      *
@@ -91,5 +94,9 @@ public class LogicalJoin<
             sb.append(", output: ").append(StringUtils.join(output, ", "));
         }
         return sb.append(")").toString();
+    }
+
+    public JoinReorderContext getJoinReorderContext() {
+        return joinReorderContext;
     }
 }

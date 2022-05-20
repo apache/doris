@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -26,7 +27,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 /**
  * Rule factory for change inner join left associative to right.
  */
-public class JoinAssociativeLeftToRight extends OneExplorationRuleFactory {
+public class JoinLeftAssociative extends OneExplorationRuleFactory {
+    /*
+     *        topJoin           newTopJoin
+     *        /     \            /     \
+     *   bottomJoin  C    -->   A   newBottomJoin
+     *    /    \                        /    \
+     *   A      B                      B      C
+     */
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(root -> {
@@ -42,6 +50,6 @@ public class JoinAssociativeLeftToRight extends OneExplorationRuleFactory {
                             root.right()
                     )
             );
-        }).toRule(RuleType.LOGICAL_JOIN_ASSOCIATIVE_LEFT_TO_RIGHT);
+        }).toRule(RuleType.LOGICAL_LEFT_JOIN_ASSOCIATIVE);
     }
 }
