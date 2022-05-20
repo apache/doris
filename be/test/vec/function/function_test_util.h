@@ -22,19 +22,18 @@
 #include <iostream>
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "exprs/table_function/table_function.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
-#include "util/bitmap_value.h"
-#include "vec/columns/column_complex.h"
-#include "vec/functions/function_string.h"
-#include "vec/functions/function_string_to_string.h"
+#include "vec/columns/column.h"
+#include "vec/columns/column_const.h"
+#include "vec/core/columns_with_type_and_name.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/functions/simple_function_factory.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
 

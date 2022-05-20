@@ -19,8 +19,6 @@
 
 #include <type_traits>
 
-#include "common/object_pool.h"
-#include "runtime/mem_pool.h"
 #include "runtime/primitive_type.h"
 
 namespace doris_udf {
@@ -39,6 +37,8 @@ using GenMemFootprintFunc = std::function<MemFootprint(int size)>;
 struct ArrayIteratorFunctionsBase;
 class ArrayIterator;
 class Status;
+class ObjectPool;
+class MemPool;
 struct TypeDescriptor;
 
 template <PrimitiveType type>

@@ -17,17 +17,17 @@
 
 #include "vec/exprs/vexpr.h"
 
+#include <gtest/gtest.h>
 #include <thrift/protocol/TJSONProtocol.h>
 
 #include <cmath>
 #include <iostream>
 
 #include "exec/schema_scanner.h"
-#include "gen_cpp/Data_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/Types_types.h"
-#include "gtest/gtest.h"
 #include "runtime/exec_env.h"
+#include "runtime/large_int_value.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/primitive_type.h"
@@ -39,6 +39,7 @@
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
+
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ChunkAllocator::init_instance(4096);
     doris::ObjectPool object_pool;

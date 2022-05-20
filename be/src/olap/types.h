@@ -29,6 +29,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
+#include "runtime/mem_pool.h"
 #include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"

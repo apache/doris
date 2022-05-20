@@ -15,16 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gtest/gtest.h>
+
 #include "common/object_pool.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/service.h"
-#include "gtest/gtest.h"
 #include "runtime/exec_env.h"
 #include "service/brpc.h"
 #include "testutil/desc_tbl_builder.h"
 #include "util/proto_util.h"
 #include "vec/columns/columns_number.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
 #include "vec/sink/vdata_stream_sender.h"

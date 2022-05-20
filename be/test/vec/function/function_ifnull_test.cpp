@@ -20,10 +20,7 @@
 
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "function_test_util.h"
-#include "util/url_coding.h"
-#include "vec/core/field.h"
 
 namespace doris::vectorized {
 
