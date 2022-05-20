@@ -47,7 +47,13 @@ public:
     VJsonScannerTest() : _runtime_state(TQueryGlobals()) {
         init();
         _runtime_state._instance_mem_tracker.reset(new MemTracker());
-        _runtime_state._exec_env = ExecEnv::GetInstance();
+
+        TUniqueId unique_id;
+        TQueryOptions query_options;
+        query_options.__set_enable_vectorized_engine(true);
+        TQueryGlobals query_globals;
+
+        _runtime_state.init(unique_id, query_options, query_globals, nullptr);
     }
     void init();
     static void SetUpTestCase() {
@@ -391,7 +397,7 @@ void VJsonScannerTest::create_expr_info() {
             TTypeNode node;
             node.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
-            scalar_type.__set_type(TPrimitiveType::BIGINT);
+            scalar_type.__set_type(TPrimitiveType::DOUBLE);
             node.__set_scalar_type(scalar_type);
             int_type.types.push_back(node);
         }
@@ -553,6 +559,7 @@ TEST_F(VJsonScannerTest, simple_array_json) {
         range.format_type = TFileFormatType::FORMAT_JSON;
         range.strip_outer_array = true;
         range.__isset.strip_outer_array = true;
+        range.__set_num_as_string(true);
         range.splittable = true;
         range.path = "./be/test/exec/test_data/json_scanner/test_simple2.json";
         range.file_type = TFileType::FILE_LOCAL;
@@ -583,9 +590,9 @@ TEST_F(VJsonScannerTest, simple_array_json) {
     ASSERT_EQ(columns[3].to_string(0), "8.950000");
     ASSERT_EQ(columns[3].to_string(1), "12.990000");
     ASSERT_EQ(columns[4].to_string(0), "1234");
-    ASSERT_EQ(columns[4].to_string(1), "1180591620717411303424.000000");
-    ASSERT_EQ(columns[5].to_string(0), "1234.123400");
-    ASSERT_EQ(columns[5].to_string(1), "10000000000000.001953");
+    ASSERT_EQ(columns[4].to_string(1), "1180591620717411303424");
+    ASSERT_EQ(columns[5].to_string(0), "1234.123400000");
+    ASSERT_EQ(columns[5].to_string(1), "9999999999999.999999000");
 
     block.clear();
     status = scan_node.get_next(&_runtime_state, &block, &eof);
@@ -753,12 +760,12 @@ TEST_F(VJsonScannerTest, use_jsonpaths_mismatch) {
 
     auto columns = block.get_columns_with_type_and_name();
     ASSERT_EQ(columns.size(), 6);
-    ASSERT_EQ(columns[0].to_string(0), "\\N");
-    ASSERT_EQ(columns[0].to_string(1), "\\N");
-    ASSERT_EQ(columns[1].to_string(0), "\\N");
-    ASSERT_EQ(columns[1].to_string(1), "\\N");
-    ASSERT_EQ(columns[2].to_string(0), "\\N");
-    ASSERT_EQ(columns[2].to_string(1), "\\N");
+    ASSERT_EQ(columns[0].to_string(0), "NULL");
+    ASSERT_EQ(columns[0].to_string(1), "NULL");
+    ASSERT_EQ(columns[1].to_string(0), "NULL");
+    ASSERT_EQ(columns[1].to_string(1), "NULL");
+    ASSERT_EQ(columns[2].to_string(0), "NULL");
+    ASSERT_EQ(columns[2].to_string(1), "NULL");
     block.clear();
     scan_node.close(&_runtime_state);
 }

@@ -36,28 +36,14 @@ VParquetScanner::VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
         : ParquetScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
                          counter),
           _batch(nullptr),
-          _arrow_batch_cur_idx(0),
-          _num_of_columns_from_file(0) {}
-VParquetScanner::~VParquetScanner() {}
+          _arrow_batch_cur_idx(0) {}
+
+VParquetScanner::~VParquetScanner() = default;
 
 Status VParquetScanner::open() {
     RETURN_IF_ERROR(ParquetScanner::open());
     if (_ranges.empty()) {
         return Status::OK();
-    }
-    auto range = _ranges[0];
-    _num_of_columns_from_file = range.__isset.num_of_columns_from_file
-                                        ? implicit_cast<int>(range.num_of_columns_from_file)
-                                        : implicit_cast<int>(_src_slot_descs.size());
-
-    // check consistency
-    if (range.__isset.num_of_columns_from_file) {
-        int size = range.columns_from_path.size();
-        for (const auto& r : _ranges) {
-            if (r.columns_from_path.size() != size) {
-                return Status::InternalError("ranges have different number of columns.");
-            }
-        }
     }
     return Status::OK();
 }
@@ -99,9 +85,9 @@ Status VParquetScanner::_init_arrow_batch_if_necessary() {
     return status;
 }
 
-Status VParquetScanner::_init_src_block(Block* block) {
+Status VParquetScanner::_init_src_block() {
     size_t batch_pos = 0;
-    block->clear();
+    _src_block.clear();
     for (auto i = 0; i < _num_of_columns_from_file; ++i) {
         SlotDescriptor* slot_desc = _src_slot_descs[i];
         if (slot_desc == nullptr) {
@@ -118,7 +104,7 @@ Status VParquetScanner::_init_src_block(Block* block) {
                     fmt::format("Not support arrow type:{}", array->type()->name()));
         }
         MutableColumnPtr data_column = data_type->create_column();
-        block->insert(
+        _src_block.insert(
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
     return Status::OK();
@@ -150,15 +136,15 @@ Status VParquetScanner::get_next(vectorized::Block* block, bool* eof) {
             return Status::OK();
         }
     }
-    Block src_block;
-    RETURN_IF_ERROR(_init_src_block(&src_block));
+
+    RETURN_IF_ERROR(_init_src_block());
     // convert arrow batch to block until reach the batch_size
     while (!_scanner_eof) {
         // cast arrow type to PT0 and append it to src block
         // for example: arrow::Type::INT16 => TYPE_SMALLINT
-        RETURN_IF_ERROR(_append_batch_to_src_block(&src_block));
+        RETURN_IF_ERROR(_append_batch_to_src_block(&_src_block));
         // finalize the src block if full
-        if (src_block.rows() >= _state->batch_size()) {
+        if (_src_block.rows() >= _state->batch_size()) {
             break;
         }
         auto status = _next_arrow_batch();
@@ -173,94 +159,14 @@ Status VParquetScanner::get_next(vectorized::Block* block, bool* eof) {
         _cur_file_eof = true;
         break;
     }
-    COUNTER_UPDATE(_rows_read_counter, src_block.rows());
+    COUNTER_UPDATE(_rows_read_counter, _src_block.rows());
     SCOPED_TIMER(_materialize_timer);
     // cast PT0 => PT1
     // for example: TYPE_SMALLINT => TYPE_VARCHAR
-    RETURN_IF_ERROR(_cast_src_block(&src_block));
-    // range of current file
-    _fill_columns_from_path(&src_block);
-    RETURN_IF_ERROR(_eval_conjunts(&src_block));
+    RETURN_IF_ERROR(_cast_src_block(&_src_block));
+
     // materialize, src block => dest columns
-    RETURN_IF_ERROR(_materialize_block(&src_block, block));
-    *eof = _scanner_eof;
-    return Status::OK();
-}
-
-// eval conjuncts, for example: t1 > 1
-Status VParquetScanner::_eval_conjunts(Block* block) {
-    for (auto& vctx : _vpre_filter_ctxs) {
-        size_t orig_rows = block->rows();
-        RETURN_IF_ERROR(VExprContext::filter_block(vctx, block, block->columns()));
-        _counter->num_rows_unselected += orig_rows - block->rows();
-    }
-    return Status::OK();
-}
-
-void VParquetScanner::_fill_columns_from_path(Block* block) {
-    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
-    if (range.__isset.num_of_columns_from_file) {
-        size_t start = range.num_of_columns_from_file;
-        size_t rows = block->rows();
-        for (size_t i = 0; i < range.columns_from_path.size(); ++i) {
-            auto slot_desc = _src_slot_descs.at(i + start);
-            if (slot_desc == nullptr) continue;
-            auto is_nullable = slot_desc->is_nullable();
-            DataTypePtr data_type =
-                    DataTypeFactory::instance().create_data_type(TYPE_VARCHAR, is_nullable);
-            MutableColumnPtr data_column = data_type->create_column();
-            const std::string& column_from_path = range.columns_from_path[i];
-            for (size_t i = 0; i < rows; ++i) {
-                data_column->insert_data(const_cast<char*>(column_from_path.c_str()),
-                                         column_from_path.size());
-            }
-            block->insert(ColumnWithTypeAndName(std::move(data_column), data_type,
-                                                slot_desc->col_name()));
-        }
-    }
-}
-
-Status VParquetScanner::_materialize_block(Block* block, Block* dest_block) {
-    int ctx_idx = 0;
-    size_t orig_rows = block->rows();
-    auto filter_column = ColumnUInt8::create(orig_rows, 1);
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        int dest_index = ctx_idx++;
-
-        VExprContext* ctx = _dest_vexpr_ctx[dest_index];
-        int result_column_id = 0;
-        // PT1 => dest primitive type
-        RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
-        ColumnPtr& ptr = block->safe_get_by_position(result_column_id).column;
-        if (!slot_desc->is_nullable()) {
-            if (auto* nullable_column = check_and_get_column<ColumnNullable>(*ptr)) {
-                if (nullable_column->has_null()) {
-                    // fill filter if src has null value and dest column is not nullable
-                    IColumn::Filter& filter = assert_cast<ColumnUInt8&>(*filter_column).get_data();
-                    const ColumnPtr& null_column_ptr = nullable_column->get_null_map_column_ptr();
-                    const auto& column_data =
-                            assert_cast<const ColumnUInt8&>(*null_column_ptr).get_data();
-                    for (size_t i = 0; i < null_column_ptr->size(); ++i) {
-                        filter[i] &= !column_data[i];
-                    }
-                }
-                ptr = nullable_column->get_nested_column_ptr();
-            }
-        }
-        dest_block->insert(vectorized::ColumnWithTypeAndName(
-                std::move(ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
-    }
-    size_t dest_size = dest_block->columns();
-    // do filter
-    dest_block->insert(vectorized::ColumnWithTypeAndName(
-            std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
-            "filter column"));
-    RETURN_IF_ERROR(Block::filter_block(dest_block, dest_size, dest_size));
-    _counter->num_rows_filtered += orig_rows - dest_block->rows();
-    return Status::OK();
+    return _fill_dest_block(block, eof);
 }
 
 // arrow type ==arrow_column_to_doris_column==> primitive type(PT0) ==cast_src_block==>
