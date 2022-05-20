@@ -172,9 +172,9 @@ void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, boo
         for (uint16_t i = 0; i < size; ++i) {
             flags[i] = (null_map[i] == _is_null);
         }
-        return;
+    } else {
+        if (_is_null) memset(flags, false, size);
     }
-    if (_is_null) memset(flags, false, size);
 }
 
 } //namespace doris
