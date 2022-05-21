@@ -30,6 +30,10 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.Formatter;
 import java.util.LinkedList;
 import java.util.List;
@@ -43,7 +47,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * , named 'query thread', the other is to call
  * {@link org.apache.doris.common.proc.CurrentQueryInfoProvider}.
  */
-public class RuntimeProfile {
+public class RuntimeProfile implements Serializable {
     private static final Logger LOG = LogManager.getLogger(RuntimeProfile.class);
     public static String ROOT_COUNTER = "";
     private Counter counterTotalTime;

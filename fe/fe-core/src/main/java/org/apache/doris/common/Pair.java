@@ -22,6 +22,7 @@ package org.apache.doris.common;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.io.Serializable;
 import java.util.Comparator;
 
 /**
@@ -29,7 +30,7 @@ import java.util.Comparator;
  *
  * Notice: When using Pair for persistence, users need to guarantee that F and S can be serialized through Gson
  */
-public class Pair<F, S> {
+public class Pair<F, S> implements Serializable {
     public static PairComparator<Pair<?, Comparable>> PAIR_VALUE_COMPARATOR = new PairComparator<>();
 
     @SerializedName(value = "first")

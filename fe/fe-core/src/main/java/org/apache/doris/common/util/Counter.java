@@ -19,8 +19,10 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.thrift.TUnit;
 
+import java.io.Serializable;
+
 // Counter means indicators field. The counter's name is key, the counter itself is value.
-public class Counter {
+public class Counter implements Serializable {
     private volatile long value;
     private volatile int type;
 
