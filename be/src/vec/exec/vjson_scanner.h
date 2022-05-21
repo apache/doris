@@ -46,7 +46,7 @@ public:
     VJsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                  const std::vector<TBrokerRangeDesc>& ranges,
                  const std::vector<TNetworkAddress>& broker_addresses,
-                 const TExpr& vpre_filter_texpr, ScannerCounter* counter);
+                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     Status get_next(doris::Tuple* tuple, MemPool* tuple_pool, bool* eof,
                     bool* fill_tuple) override {

@@ -42,7 +42,7 @@ public:
                     const TBrokerScanRangeParams& params,
                     const std::vector<TBrokerRangeDesc>& ranges,
                     const std::vector<TNetworkAddress>& broker_addresses,
-                    const TExpr& vpre_filter_texpr, ScannerCounter* counter);
+                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
     ~VParquetScanner() override;
 

@@ -54,24 +54,6 @@ BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_decompressor(nullptr),
           _cur_line_reader_eof(false),
           _skip_lines(0) {
-    init(params);
-}
-
-BrokerScanner::BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
-                             const TBrokerScanRangeParams& params,
-                             const std::vector<TBrokerRangeDesc>& ranges,
-                             const std::vector<TNetworkAddress>& broker_addresses,
-                             const TExpr& vpre_filter_texpr, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, ranges, broker_addresses, vpre_filter_texpr, counter),
-          _cur_file_reader(nullptr),
-          _cur_line_reader(nullptr),
-          _cur_decompressor(nullptr),
-          _cur_line_reader_eof(false),
-          _skip_lines(0) {
-    init(params);
-}
-
-void BrokerScanner::init(const TBrokerScanRangeParams& params) {
     if (params.__isset.column_separator_length && params.column_separator_length > 1) {
         _value_separator = params.column_separator_str;
         _value_separator_length = params.column_separator_length;

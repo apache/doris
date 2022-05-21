@@ -57,10 +57,6 @@ Status BrokerScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _pre_filter_texprs = broker_scan_node.pre_filter_exprs;
     }
 
-    if (broker_scan_node.__isset.vpre_filter_expr) {
-        _vpre_filter_texpr = broker_scan_node.vpre_filter_expr;
-    }
-
     return Status::OK();
 }
 
@@ -233,7 +229,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         if (_vectorized) {
             scan = new vectorized::VParquetScanner(
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _vpre_filter_texpr, counter);
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
         } else {
             scan = new ParquetScanner(_runtime_state, runtime_profile(), scan_range.params,
                                       scan_range.ranges, scan_range.broker_addresses,
@@ -249,7 +245,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         if (_vectorized) {
             scan = new vectorized::VJsonScanner(
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _vpre_filter_texpr, counter);
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
         } else {
             scan = new JsonScanner(_runtime_state, runtime_profile(), scan_range.params,
                                    scan_range.ranges, scan_range.broker_addresses,
@@ -260,7 +256,7 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
         if (_vectorized) {
             scan = new vectorized::VBrokerScanner(
                     _runtime_state, runtime_profile(), scan_range.params, scan_range.ranges,
-                    scan_range.broker_addresses, _vpre_filter_texpr, counter);
+                    scan_range.broker_addresses, _pre_filter_texprs, counter);
         } else {
             scan = new BrokerScanner(_runtime_state, runtime_profile(), scan_range.params,
                                      scan_range.ranges, scan_range.broker_addresses,

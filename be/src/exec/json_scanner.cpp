@@ -46,24 +46,6 @@ JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
           _cur_json_reader(nullptr),
           _cur_reader_eof(false),
           _read_json_by_line(false) {
-    init_line_delimiter(params);
-}
-
-JsonScanner::JsonScanner(RuntimeState* state, RuntimeProfile* profile,
-                         const TBrokerScanRangeParams& params,
-                         const std::vector<TBrokerRangeDesc>& ranges,
-                         const std::vector<TNetworkAddress>& broker_addresses,
-                         const TExpr& vpre_filter_texpr, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, ranges, broker_addresses, vpre_filter_texpr, counter),
-          _cur_file_reader(nullptr),
-          _cur_line_reader(nullptr),
-          _cur_json_reader(nullptr),
-          _cur_reader_eof(false),
-          _read_json_by_line(false) {
-    init_line_delimiter(params);
-}
-
-void JsonScanner::init_line_delimiter(const TBrokerScanRangeParams& params) {
     if (params.__isset.line_delimiter_length && params.line_delimiter_length > 1) {
         _line_delimiter = params.line_delimiter_str;
         _line_delimiter_length = params.line_delimiter_length;

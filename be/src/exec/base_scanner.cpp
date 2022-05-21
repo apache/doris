@@ -66,16 +66,6 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _scanner_eof(false) {
 }
 
-BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
-                         const TBrokerScanRangeParams& params,
-                         const std::vector<TBrokerRangeDesc>& ranges,
-                         const std::vector<TNetworkAddress>& broker_addresses,
-                         const TExpr& vpre_filter_texpr, ScannerCounter* counter)
-        : BaseScanner(state, profile, params, ranges, broker_addresses, std::vector<TExpr>(),
-                      counter) {
-    _vpre_filter_texpr = vpre_filter_texpr;
-}
-
 Status BaseScanner::open() {
     RETURN_IF_ERROR(init_expr_ctxes());
     if (_params.__isset.strict_mode) {
@@ -139,18 +129,20 @@ Status BaseScanner::init_expr_ctxes() {
 
     // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
     if (!_pre_filter_texprs.empty()) {
-        RETURN_IF_ERROR(
-                Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs, &_pre_filter_ctxs));
-        RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
-        RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
-    }
-
-    if (_state->enable_vectorized_exec() && !_vpre_filter_texpr.nodes.empty()) {
-        _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_state->obj_pool(), _vpre_filter_texpr,
-                                                            _vpre_filter_ctx_ptr.get()));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
-        RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+        if (_state->enable_vectorized_exec()) {
+            // for vectorized, preceding filter exprs should be compounded to one passed from fe.
+            DCHECK(_pre_filter_texprs.size() == 1);
+            _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
+                    _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+        } else {
+            RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
+                                                    &_pre_filter_ctxs));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        }
     }
 
     // Construct dest slots information

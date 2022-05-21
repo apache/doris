@@ -54,12 +54,6 @@ public:
                    const std::vector<TNetworkAddress>& broker_addresses,
                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
-                   const TBrokerScanRangeParams& params,
-                   const std::vector<TBrokerRangeDesc>& ranges,
-                   const std::vector<TNetworkAddress>& broker_addresses,
-                   const TExpr& vpre_filter_texpr, ScannerCounter* counter);
-
     ~ParquetScanner() override;
 
     // Open this scanner, will initialize information need to

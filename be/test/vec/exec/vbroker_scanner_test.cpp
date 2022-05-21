@@ -74,7 +74,7 @@ private:
     DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
-    TExpr _vpre_filter;
+    std::vector<TExpr> _pre_filter;
 };
 
 void VBrokerScannerTest::init_desc_table() {
@@ -343,8 +343,83 @@ void VBrokerScannerTest::init_params() {
         _params.expr_of_dest_slot.emplace(i + 1, expr);
         _params.src_slot_ids.push_back(4 + i);
     }
+    // _params.__isset.expr_of_dest_slot = true;
+    _params.__set_dest_tuple_id(_dst_tuple_id);
+    _params.__set_src_tuple_id(_src_tuple_id);
+}
+
+void VBrokerScannerTest::init() {
+    init_desc_table();
+    init_params();
+}
+
+TEST_F(VBrokerScannerTest, normal) {
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc range;
+    range.path = "./be/test/exec/test_data/broker_scanner/normal.csv";
+    range.start_offset = 0;
+    range.size = -1;
+    range.splittable = true;
+    range.file_type = TFileType::FILE_LOCAL;
+    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    ranges.push_back(range);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
+    auto st = scanner.open();
+    ASSERT_TRUE(st.ok());
+
+    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
+    bool eof = false;
+    st = scanner.get_next(block.get(), &eof);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(eof);
+    auto columns = block->get_columns();
+    ASSERT_EQ(columns.size(), 3);
+    ASSERT_EQ(columns[0]->get_int(0), 1);
+    ASSERT_EQ(columns[0]->get_int(1), 4);
+    ASSERT_EQ(columns[0]->get_int(2), 8);
+
+    ASSERT_EQ(columns[1]->get_int(0), 2);
+    ASSERT_EQ(columns[1]->get_int(1), 5);
+    ASSERT_EQ(columns[1]->get_int(2), 9);
+
+    ASSERT_EQ(columns[2]->get_int(0), 3);
+    ASSERT_EQ(columns[2]->get_int(1), 6);
+    ASSERT_EQ(columns[2]->get_int(2), 10);
+}
+
+TEST_F(VBrokerScannerTest, normal_with_pre_filter) {
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc range;
+    range.path = "./be/test/exec/test_data/broker_scanner/normal.csv";
+    range.start_offset = 0;
+    range.size = -1;
+    range.splittable = true;
+    range.file_type = TFileType::FILE_LOCAL;
+    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+    ranges.push_back(range);
 
     // init pre_filter expr: k1 < '8'
+    TTypeDesc int_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::INT);
+        node.__set_scalar_type(scalar_type);
+        int_type.types.push_back(node);
+    }
+    TTypeDesc varchar_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::VARCHAR);
+        scalar_type.__set_len(5000);
+        node.__set_scalar_type(scalar_type);
+        varchar_type.types.push_back(node);
+    }
+
     TExpr filter_expr;
     {
         TExprNode expr_node;
@@ -387,64 +462,8 @@ void VBrokerScannerTest::init_params() {
         expr_node.__set_string_literal(string_literal);
         filter_expr.nodes.push_back(expr_node);
     }
-    _vpre_filter = filter_expr;
-    // _params.__isset.expr_of_dest_slot = true;
-    _params.__set_dest_tuple_id(_dst_tuple_id);
-    _params.__set_src_tuple_id(_src_tuple_id);
-}
-
-void VBrokerScannerTest::init() {
-    init_desc_table();
-    init_params();
-}
-
-TEST_F(VBrokerScannerTest, normal) {
-    std::vector<TBrokerRangeDesc> ranges;
-    TBrokerRangeDesc range;
-    range.path = "./be/test/exec/test_data/broker_scanner/normal.csv";
-    range.start_offset = 0;
-    range.size = -1;
-    range.splittable = true;
-    range.file_type = TFileType::FILE_LOCAL;
-    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-    ranges.push_back(range);
-    TExpr expr;
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, expr, &_counter);
-    auto st = scanner.open();
-    ASSERT_TRUE(st.ok());
-
-    std::unique_ptr<vectorized::Block> block(new vectorized::Block());
-    bool eof = false;
-    st = scanner.get_next(block.get(), &eof);
-    ASSERT_TRUE(st.ok());
-    ASSERT_TRUE(eof);
-    auto columns = block->get_columns();
-    ASSERT_EQ(columns.size(), 3);
-    ASSERT_EQ(columns[0]->get_int(0), 1);
-    ASSERT_EQ(columns[0]->get_int(1), 4);
-    ASSERT_EQ(columns[0]->get_int(2), 8);
-
-    ASSERT_EQ(columns[1]->get_int(0), 2);
-    ASSERT_EQ(columns[1]->get_int(1), 5);
-    ASSERT_EQ(columns[1]->get_int(2), 9);
-
-    ASSERT_EQ(columns[2]->get_int(0), 3);
-    ASSERT_EQ(columns[2]->get_int(1), 6);
-    ASSERT_EQ(columns[2]->get_int(2), 10);
-}
-
-TEST_F(VBrokerScannerTest, normal_with_pre_filter) {
-    std::vector<TBrokerRangeDesc> ranges;
-    TBrokerRangeDesc range;
-    range.path = "./be/test/exec/test_data/broker_scanner/normal.csv";
-    range.start_offset = 0;
-    range.size = -1;
-    range.splittable = true;
-    range.file_type = TFileType::FILE_LOCAL;
-    range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
-    ranges.push_back(range);
-    // pre_filter expr: k1 < '8'
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _vpre_filter,
+    _pre_filter.push_back(filter_expr);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
                            &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
@@ -484,8 +503,8 @@ TEST_F(VBrokerScannerTest, normal2) {
     range.start_offset = 0;
     range.size = 4;
     ranges.push_back(range);
-    TExpr expr;
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, expr, &_counter);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 
@@ -517,8 +536,8 @@ TEST_F(VBrokerScannerTest, normal5) {
     range.file_type = TFileType::FILE_LOCAL;
     range.format_type = TFileFormatType::FORMAT_CSV_PLAIN;
     ranges.push_back(range);
-    TExpr expr;
-    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, expr, &_counter);
+    VBrokerScanner scanner(&_runtime_state, _profile, _params, ranges, _addresses, _pre_filter,
+                           &_counter);
     auto st = scanner.open();
     ASSERT_TRUE(st.ok());
 

@@ -56,15 +56,7 @@ public:
                   const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
                   const std::vector<TNetworkAddress>& broker_addresses,
                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
-
-    BrokerScanner(RuntimeState* state, RuntimeProfile* profile,
-                  const TBrokerScanRangeParams& params, const std::vector<TBrokerRangeDesc>& ranges,
-                  const std::vector<TNetworkAddress>& broker_addresses,
-                  const TExpr& vpre_filter_texprs, ScannerCounter* counter);
-
     ~BrokerScanner() override;
-
-    void init(const TBrokerScanRangeParams& params);
 
     // Open this scanner, will initialize information need to
     Status open() override;
