@@ -125,7 +125,7 @@ public class BrokerScanNode extends LoadScanNode {
 
     private Analyzer analyzer;
 
-    private static class ParamCreateContext {
+    protected static class ParamCreateContext {
         public BrokerFileGroup fileGroup;
         public TBrokerScanRangeParams params;
         public TupleDescriptor srcTupleDescriptor;
@@ -171,6 +171,10 @@ public class BrokerScanNode extends LoadScanNode {
             initParams(context);
             paramCreateContexts.add(context);
         }
+    }
+
+    public List<ParamCreateContext> getParamCreateContexts() {
+        return paramCreateContexts;
     }
 
     protected void initFileGroup() throws UserException {
@@ -267,13 +271,15 @@ public class BrokerScanNode extends LoadScanNode {
             }
         }
 
-        Load.initColumns(targetTable, columnDescs,
-                context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
-                context.srcTupleDescriptor, context.slotDescByName, context.params,
-                formatType(context.fileGroup.getFileFormat(), ""), VectorizedUtil.isVectorized());
+        if (targetTable != null) {
+            Load.initColumns(targetTable, columnDescs,
+                    context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
+                    context.srcTupleDescriptor, context.slotDescByName, context.params,
+                    formatType(context.fileGroup.getFileFormat(), ""), VectorizedUtil.isVectorized());
+        }
     }
 
-    private TScanRangeLocations newLocations(TBrokerScanRangeParams params, BrokerDesc brokerDesc)
+    protected TScanRangeLocations newLocations(TBrokerScanRangeParams params, BrokerDesc brokerDesc)
             throws UserException {
 
         Backend selectedBackend;
@@ -322,10 +328,6 @@ public class BrokerScanNode extends LoadScanNode {
         return locations;
     }
 
-    private TBrokerScanRange brokerScanRange(TScanRangeLocations locations) {
-        return locations.scan_range.broker_scan_range;
-    }
-
     private void getFileStatusAndCalcInstance() throws UserException {
         if (fileStatusesList == null || filesAdded == -1) {
             // FIXME(cmy): fileStatusesList and filesAdded can be set out of db lock when doing pull load,
@@ -336,7 +338,10 @@ public class BrokerScanNode extends LoadScanNode {
             filesAdded = 0;
             this.getFileStatus();
         }
-        Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
+        // In hudiScanNode, calculate scan range using its own way which do not need fileStatusesList
+        if (!(this instanceof HudiScanNode)) {
+            Preconditions.checkState(fileStatusesList.size() == fileGroups.size());
+        }
 
         if (isLoad() && filesAdded == 0) {
             throw new UserException("No source file in this table(" + targetTable.getName() + ").");
@@ -503,7 +508,7 @@ public class BrokerScanNode extends LoadScanNode {
                         rangeDesc.setNumAsString(context.fileGroup.isNumAsString());
                         rangeDesc.setReadJsonByLine(context.fileGroup.isReadJsonByLine());
                     }
-                    brokerScanRange(curLocations).addToRanges(rangeDesc);
+                    curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
                     curFileOffset += rangeBytes;
 
                 } else {
@@ -516,7 +521,7 @@ public class BrokerScanNode extends LoadScanNode {
                     }
 
                     rangeDesc.setReadByColumnDef(true);
-                    brokerScanRange(curLocations).addToRanges(rangeDesc);
+                    curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
                     curFileOffset = 0;
                     i++;
                 }
@@ -544,7 +549,7 @@ public class BrokerScanNode extends LoadScanNode {
                 }
 
                 rangeDesc.setReadByColumnDef(true);
-                brokerScanRange(curLocations).addToRanges(rangeDesc);
+                curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
                 curFileOffset = 0;
                 curInstanceBytes += leftBytes;
                 i++;
@@ -552,7 +557,7 @@ public class BrokerScanNode extends LoadScanNode {
         }
 
         // Put the last file
-        if (brokerScanRange(curLocations).isSetRanges()) {
+        if (curLocations.getScanRange().getBrokerScanRange().isSetRanges()) {
             locationsList.add(curLocations);
         }
     }
@@ -568,7 +573,10 @@ public class BrokerScanNode extends LoadScanNode {
         rangeDesc.setSplittable(fileStatus.isSplitable);
         rangeDesc.setStartOffset(curFileOffset);
         rangeDesc.setSize(rangeBytes);
+        // fileSize only be used when format is orc or parquet and TFileType is broker
+        // When TFileType is other type, it is not necessary
         rangeDesc.setFileSize(fileStatus.size);
+        // In Backend, will append columnsFromPath to the end of row after data scanned from file.
         rangeDesc.setNumOfColumnsFromFile(numberOfColumnsFromFile);
         rangeDesc.setColumnsFromPath(columnsFromPath);
         rangeDesc.setHeaderType(headerType);

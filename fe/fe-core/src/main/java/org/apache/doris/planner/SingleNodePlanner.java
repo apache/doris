@@ -1708,6 +1708,10 @@ public class SingleNodePlanner {
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "IcebergScanNode",
                         null, -1);
                 break;
+            case HUDI:
+                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
+                        null, -1);
+                break;
             default:
                 break;
         }

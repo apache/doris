@@ -76,6 +76,7 @@ public class BrokerFileGroup implements Writable {
     private List<Long> fileSize;
 
     private List<String> fileFieldNames;
+    // partition columnNames
     private List<String> columnsFromPath;
     // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
     // this param will be recreated by data desc when the log replay
@@ -144,6 +145,26 @@ public class BrokerFileGroup implements Writable {
         this.valueSeparator = "|";
         this.lineDelimiter = "\n";
         this.fileFormat = table.getFileFormat();
+    }
+
+    /**
+     * Should used for hive/iceberg/hudi external table.
+     */
+    public BrokerFileGroup(long tableId,
+            String columnSeparator,
+            String lineDelimiter,
+            String filePath,
+            String fileFormat,
+            List<String> columnsFromPath,
+            List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = tableId;
+        this.valueSeparator = Separator.convertSeparator(columnSeparator);
+        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
+        this.isNegative = false;
+        this.filePaths = Lists.newArrayList(filePath);
+        this.fileFormat = fileFormat;
+        this.columnsFromPath = columnsFromPath;
+        this.columnExprList = columnExprList;
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {

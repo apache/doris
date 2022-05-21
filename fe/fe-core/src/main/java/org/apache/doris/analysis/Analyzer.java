@@ -38,6 +38,8 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.VecNotImplException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.external.hudi.HudiTable;
+import org.apache.doris.external.hudi.HudiUtils;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.qe.ConnectContext;
@@ -624,6 +626,11 @@ public class Analyzer {
                 // if doing restore with table, throw exception here
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_STATE, "RESTORING");
             }
+        }
+
+        if (table.getType() == TableType.HUDI && ((HudiTable) table).getFullSchema().isEmpty()) {
+            // resolve hudi table's schema when table schema is empty from doris meta
+            table = HudiUtils.resolveHudiTable((HudiTable)table);
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.
