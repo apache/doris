@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "binary_predicate.h"
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 

@@ -19,8 +19,6 @@
 
 #include <sstream>
 
-#include "util/debug_util.h"
-
 namespace doris {
 
 InfoFunc::InfoFunc(const TExprNode& node)

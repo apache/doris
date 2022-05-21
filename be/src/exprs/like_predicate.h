@@ -25,8 +25,6 @@
 #include <memory>
 #include <string>
 
-#include "exprs/predicate.h"
-#include "gen_cpp/Exprs_types.h"
 #include "runtime/string_search.hpp"
 
 namespace doris {

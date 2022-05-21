@@ -24,20 +24,15 @@
 
 #include <sstream>
 
-#include "common/logging.h"
 #include "exprs/agg_fn.h"
-#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
-#include "exprs/scalar_fn_call.h"
-#include "gutil/strings/substitute.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "udf/udf_internal.h"
-#include "util/debug_util.h"
 
 using namespace doris;
 using namespace doris_udf;
@@ -164,9 +159,9 @@ cleanup:
     return status;
 }
 
-Status NewAggFnEvaluator::Create(const vector<AggFn*>& agg_fns, RuntimeState* state,
+Status NewAggFnEvaluator::Create(const std::vector<AggFn*>& agg_fns, RuntimeState* state,
                                  ObjectPool* pool, MemPool* mem_pool,
-                                 vector<NewAggFnEvaluator*>* evals,
+                                 std::vector<NewAggFnEvaluator*>* evals,
                                  const std::shared_ptr<MemTracker>& tracker,
                                  const RowDescriptor& row_desc) {
     for (const AggFn* agg_fn : agg_fns) {
@@ -186,7 +181,7 @@ Status NewAggFnEvaluator::Open(RuntimeState* state) {
     // Now that we have opened all our input exprs, it is safe to evaluate any constant
     // values for the UDA's FunctionContext (we cannot evaluate exprs before calling Open()
     // on them).
-    vector<AnyVal*> constant_args(input_evals_.size(), nullptr);
+    std::vector<AnyVal*> constant_args(input_evals_.size(), nullptr);
     for (int i = 0; i < input_evals_.size(); ++i) {
         ExprContext* eval = input_evals_[i];
         RETURN_IF_ERROR(eval->get_const_value(state, *(agg_fn_.get_child(i)), &constant_args[i]));
@@ -195,7 +190,7 @@ Status NewAggFnEvaluator::Open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status NewAggFnEvaluator::Open(const vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
+Status NewAggFnEvaluator::Open(const std::vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
     for (NewAggFnEvaluator* eval : evals) RETURN_IF_ERROR(eval->Open(state));
     return Status::OK();
 }
@@ -217,7 +212,7 @@ void NewAggFnEvaluator::Close(RuntimeState* state) {
     input_evals_.clear();
 }
 
-void NewAggFnEvaluator::Close(const vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
+void NewAggFnEvaluator::Close(const std::vector<NewAggFnEvaluator*>& evals, RuntimeState* state) {
     for (NewAggFnEvaluator* eval : evals) eval->Close(state);
 }
 
@@ -641,8 +636,8 @@ void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
 }
 
 void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
-                                     const vector<NewAggFnEvaluator*>& evals,
-                                     vector<NewAggFnEvaluator*>* cloned_evals) {
+                                     const std::vector<NewAggFnEvaluator*>& evals,
+                                     std::vector<NewAggFnEvaluator*>* cloned_evals) {
     for (const NewAggFnEvaluator* eval : evals) {
         NewAggFnEvaluator* cloned_eval;
         eval->ShallowClone(pool, mem_pool, &cloned_eval);
