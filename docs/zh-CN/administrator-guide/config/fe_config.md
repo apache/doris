@@ -1021,11 +1021,13 @@ colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 一致性检查开始时间
 
-一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。 默认为 23:00 至 04:00
+一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。
+
+如果两个时间相同，则不会触发一致性检查。
 
 ### `consistency_check_end_time`
 
-默认值：04
+默认值：23
 
 是否可以动态配置：true
 
@@ -1033,7 +1035,9 @@ colocote join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 一致性检查结束时间
 
-一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。 默认为 23:00 至 04:00
+一致性检查器将从 `consistency_check_start_time` 运行到 `consistency_check_end_time`。
+
+如果两个时间相同，则不会触发一致性检查。
 
 ### `export_tablet_num_per_task`
 

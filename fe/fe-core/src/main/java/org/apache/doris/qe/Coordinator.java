@@ -640,7 +640,8 @@ public class Coordinator {
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId());
+                                        + pair.first.backend.getId() + " fragment: " +
+                                        DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");

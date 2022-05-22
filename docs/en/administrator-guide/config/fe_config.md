@@ -1021,17 +1021,21 @@ IsMutable：true
 
 MasterOnly：true
 
-Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*. Default is from 23:00 to 04:00 
+Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
+
+If the two times are the same, no consistency check will be triggered.
 
 ### consistency_check_end_time
 
-Default：04
+Default：23
 
 IsMutable：true
 
 MasterOnly：true
 
-Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*. Default is from 23:00 to 04:00 
+Consistency checker will run from *consistency_check_start_time* to *consistency_check_end_time*.
+
+If the two times are the same, no consistency check will be triggered.
 
 ### export_tablet_num_per_task
 
