@@ -279,9 +279,7 @@ OLAPStatus DeltaWriter::close() {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                               google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                               bool is_broken) {
+OLAPStatus DeltaWriter::close_wait() {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -291,14 +289,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
     }
 
     // return error if previous flush failed
-    OLAPStatus st = _flush_token->wait();
-    if (st != OLAP_SUCCESS) {
-        PTabletError* tablet_error = tablet_errors->Add();
-        tablet_error->set_tablet_id(_tablet->tablet_id());
-        tablet_error->set_msg("flush failed");
-        return st;
-    }
-    DCHECK_EQ(_mem_tracker->consumption(), 0);
+    RETURN_NOT_OK(_flush_token->wait());
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -313,14 +304,6 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;
     }
-
-#ifndef BE_TEST
-    if (!is_broken) {
-        PTabletInfo* tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_tablet->tablet_id());
-        tablet_info->set_schema_hash(_tablet->schema_hash());
-    }
-#endif
 
     _delta_written_success = true;
 
