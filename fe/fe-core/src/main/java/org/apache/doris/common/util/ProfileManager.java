@@ -66,7 +66,9 @@ public class ProfileManager {
             QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE);
 
-    /*
+    private final ProfileStorage storage;
+
+    /**
      * Store the base element of each query.
      */
     public static class ProfileElement {
@@ -86,8 +88,6 @@ public class ProfileManager {
         }
         return INSTANCE;
     }
-
-    private ProfileStorage storage;
 
     private ProfileManager() {
         storage = new InMemoryProfileStorage();
