@@ -32,6 +32,9 @@ export TP_SOURCE_DIR=$TP_DIR/src
 # thirdparties will be installed to here
 export TP_INSTALL_DIR=$TP_DIR/installed
 
+# libhdfs3-with-kerberos will be installed to here
+export HDFS3_KRB5_INSTALL_DIR=$TP_INSTALL_DIR/libhdfs_with_kerberos
+
 # patches for all thirdparties
 export TP_PATCH_DIR=$TP_DIR/patches
 
@@ -44,8 +47,8 @@ export TP_LIB_DIR=$TP_INSTALL_DIR/lib
 # all java libraries will be unpacked to here
 export TP_JAR_DIR=$TP_INSTALL_DIR/lib/jar
 
-# source of all dependencies
-export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
+# source of all dependencies, default unuse it
+# export REPOSITORY_URL=https://doris-thirdparty-repo.bj.bcebos.com/thirdparty
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -326,6 +329,17 @@ GSASL_NAME="libgsasl-1.10.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.10.0"
 GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
 
+GSASL2_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
+GSASL2_NAME="libgsasl-1.8.0.tar.gz"
+GSASL2_SOURCE="libgsasl-1.8.0"
+GSASL2_MD5SUM="5dbdf859f6e60e05813370e2b193b92b"
+
+# krb5
+KRB5_DOWNLOAD="https://kerberos.org/dist/krb5/1.19/krb5-1.19.tar.gz"
+KRB5_NAME="krb5-1.19.tar.gz"
+KRB5_SOURCE="krb5-1.19"
+KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
+
 # hdfs3
 HDFS3_DOWNLOAD="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/libhdfs3-master.zip"
 HDFS3_NAME="libhdfs3-master.zip"
@@ -423,6 +437,8 @@ LZMA
 XML2
 IDN
 GSASL
+GSASL2
+KRB5
 HDFS3
 LIBDIVIDE
 PDQSORT
