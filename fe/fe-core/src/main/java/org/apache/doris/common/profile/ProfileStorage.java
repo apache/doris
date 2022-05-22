@@ -23,10 +23,13 @@ import org.apache.doris.common.util.RuntimeProfile;
 
 import java.util.List;
 
+/**
+ * The interface of profile to read and write record from storage system.
+ */
 public interface ProfileStorage {
     ProfileElement getProfile(String queryID);
-    public List<List<String>> getAllProfiles(ProfileType type);
 
-     void pushProfile(RuntimeProfile profile);
+    List<List<String>> getAllProfiles(ProfileType type);
 
+    void pushProfile(RuntimeProfile profile);
 }

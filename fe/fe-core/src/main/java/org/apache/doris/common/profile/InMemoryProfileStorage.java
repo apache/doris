@@ -37,6 +37,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
+/**
+ * An inMemory impl of profile storage. It will only keep 100 records in memory.
+ * If you want to keep more query records, you can use other impl of profile storage.
+ */
 public class InMemoryProfileStorage implements ProfileStorage {
     private static final Logger LOG = LogManager.getLogger(InMemoryProfileStorage.class);
 
@@ -50,6 +54,9 @@ public class InMemoryProfileStorage implements ProfileStorage {
     private final Deque<String> queryIdDeque;
     private final Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
 
+    /**
+     * InMemoryProfileStorage
+     */
     public InMemoryProfileStorage() {
         ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
         readLock = lock.readLock();
@@ -77,7 +84,7 @@ public class InMemoryProfileStorage implements ProfileStorage {
             while (reverse.hasNext()) {
                 String  queryId = reverse.next();
                 ProfileElement profileElement = queryIdToProfileMap.get(queryId);
-                if (profileElement == null){
+                if (profileElement == null) {
                     continue;
                 }
                 Map<String, String> infoStrings = profileElement.infoStrings;
@@ -130,7 +137,7 @@ public class InMemoryProfileStorage implements ProfileStorage {
     }
 
 
-    public ProfileElement createElement(RuntimeProfile profile) {
+    private ProfileElement createElement(RuntimeProfile profile) {
         ProfileElement element = new ProfileElement();
         RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
         for (String header : ProfileManager.PROFILE_HEADERS) {
