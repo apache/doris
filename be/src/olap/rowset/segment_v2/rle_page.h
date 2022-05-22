@@ -65,6 +65,7 @@ public:
             break;
         }
         }
+        _buf.reserve(_options.data_page_size + kPageExtraReserveBytes);
         _rle_encoder = new RleEncoder<CppType>(&_buf, _bit_width);
         reset();
     }

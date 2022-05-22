@@ -131,7 +131,8 @@ OwnedSlice BinaryDictPageBuilder::finish() {
 
 void BinaryDictPageBuilder::reset() {
     _finished = false;
-    _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
+    _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE +
+                    kPageExtraReserveBytes);
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {

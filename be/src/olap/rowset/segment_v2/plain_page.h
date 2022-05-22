@@ -36,7 +36,7 @@ public:
     PlainPageBuilder(const PageBuilderOptions& options) : _options(options) {
         // Reserve enough space for the page, plus a bit of slop since
         // we often overrun the page by a few values.
-        _buffer.reserve(_options.data_page_size + 1024);
+        _buffer.reserve(_options.data_page_size + kPageExtraReserveBytes);
         reset();
     }
 

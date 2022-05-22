@@ -98,7 +98,8 @@ public:
     void reset() override {
         _offsets.clear();
         _buffer.clear();
-        _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
+        _buffer.reserve((_options.data_page_size == 0 ? 1024 : _options.data_page_size) +
+                        kPageExtraReserveBytes);
         _size_estimate = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;

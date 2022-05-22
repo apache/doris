@@ -31,6 +31,7 @@ class FrameOfReferencePageBuilder : public PageBuilder {
 public:
     explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
             : _options(options), _count(0), _finished(false) {
+        _buf.reserve(_options.data_page_size + kPageExtraReserveBytes);
         _encoder.reset(new ForEncoder<CppType>(&_buf));
     }
 

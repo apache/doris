@@ -57,6 +57,7 @@ public:
         _last_entry.clear();
         _count = 0;
         _buffer.clear();
+        _buffer.reserve(_options.data_page_size + kPageExtraReserveBytes);
         _finished = false;
     }
 

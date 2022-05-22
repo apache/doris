@@ -29,6 +29,8 @@
 namespace doris {
 namespace segment_v2 {
 
+const uint32_t kPageExtraReserveBytes = 4096;
+
 // PageBuilder is used to build page
 // Page is a data management unit, including:
 // 1. Data Page: store encoded and compressed data

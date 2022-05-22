@@ -37,18 +37,20 @@ void faststring::GrowToAtLeast(size_t newcapacity) {
 
 void faststring::GrowArray(size_t newcapacity) {
     DCHECK_GE(newcapacity, capacity_);
-    std::unique_ptr<uint8_t[]> newdata(new uint8_t[newcapacity]);
-    if (len_ > 0) {
-        memcpy(&newdata[0], &data_[0], len_);
+    uint8_t* newdata = NULL;
+    if (data_ != initial_data_) {
+        newdata = (uint8_t*)realloc((void*)data_, newcapacity);
+    } else {
+        newdata = (uint8_t*)malloc(newcapacity);
+        if (len_ > 0) {
+            memcpy(newdata, data_, len_);
+        }
     }
     capacity_ = newcapacity;
-    if (data_ != initial_data_) {
-        delete[] data_;
-    } else {
+    data_ = newdata;
+    if (data_ == initial_data_) {
         ASAN_POISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
     }
-
-    data_ = newdata.release();
     ASAN_POISON_MEMORY_REGION(data_ + len_, capacity_ - len_);
 }
 
@@ -57,14 +59,14 @@ void faststring::ShrinkToFitInternal() {
     if (len_ <= kInitialCapacity) {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, len_);
         memcpy(initial_data_, &data_[0], len_);
-        delete[] data_;
+        free(data_);
         data_ = initial_data_;
         capacity_ = kInitialCapacity;
     } else {
-        std::unique_ptr<uint8_t[]> newdata(new uint8_t[len_]);
-        memcpy(&newdata[0], &data_[0], len_);
-        delete[] data_;
-        data_ = newdata.release();
+        uint8_t* newdata = (uint8_t*)malloc(len_);
+        memcpy(newdata, data_, len_);
+        free(data_);
+        data_ = newdata;
         capacity_ = len_;
     }
 }

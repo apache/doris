@@ -42,7 +42,7 @@ public:
     explicit faststring(size_t capacity)
             : data_(initial_data_), len_(0), capacity_(kInitialCapacity) {
         if (capacity > capacity_) {
-            data_ = new uint8_t[capacity];
+            data_ = (uint8_t*)malloc(capacity);
             capacity_ = capacity;
         }
         ASAN_POISON_MEMORY_REGION(data_, capacity_);
@@ -51,7 +51,7 @@ public:
     ~faststring() {
         ASAN_UNPOISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
         if (data_ != initial_data_) {
-            delete[] data_;
+            free(data_);
         }
     }
 
@@ -82,7 +82,7 @@ public:
     OwnedSlice build() {
         uint8_t* ret = data_;
         if (ret == initial_data_) {
-            ret = new uint8_t[len_];
+            ret = (uint8_t*)malloc(len_);
             memcpy(ret, data_, len_);
         }
         OwnedSlice result(ret, len_);
