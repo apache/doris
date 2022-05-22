@@ -66,14 +66,15 @@ public class ProfileManager {
             QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE);
 
-    static public class ProfileElement {
+    /*
+     * Store the base element of each query.
+     */
+    public static class ProfileElement {
         public Map<String, String> infoStrings = Maps.newHashMap();
         public String profileContent = "";
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
     }
-
-    ProfileStorage storage;
 
     public static ProfileManager getInstance() {
         if (INSTANCE == null) {
@@ -85,6 +86,8 @@ public class ProfileManager {
         }
         return INSTANCE;
     }
+
+    private ProfileStorage storage;
 
     private ProfileManager() {
         storage = new InMemoryProfileStorage();
