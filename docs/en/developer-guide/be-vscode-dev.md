@@ -211,7 +211,7 @@ As shown in the figure:
 
 Among them, 15200 is the process id of the currently running be.
 
-An example of a complete lainch.json is as follows:
+An example of a complete launch.json is as follows:
 
 ```
  {
