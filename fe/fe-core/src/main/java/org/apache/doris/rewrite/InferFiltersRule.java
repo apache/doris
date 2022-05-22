@@ -180,6 +180,7 @@ public class InferFiltersRule implements ExprRewriteRule {
                         analyzer.registerOnSlotToLiteralDeDuplication(pair);
                         analyzer.registerOnSlotToLiteralExpr(conjunct);
                     }
+                    analyzer.registerGlobalSlotToLiteralDeDuplication(pair);
                 }
             } else if (conjunct.getChild(0).unwrapSlotRef() instanceof SlotRef
                     && conjunct.getChild(1).unwrapSlotRef() instanceof SlotRef) {
@@ -219,6 +220,7 @@ public class InferFiltersRule implements ExprRewriteRule {
                     analyzer.registerInExpr(conjunct);
                     analyzer.registerInDeDuplication(conjunct.getChild(0).unwrapSlotRef());
                 }
+                analyzer.registerGlobalInDeDuplication(conjunct.getChild(0).unwrapSlotRef());
             }
         }
     }
@@ -497,6 +499,9 @@ public class InferFiltersRule implements ExprRewriteRule {
                     analyzer.registerOnSlotToLiteralDeDuplication(pair);
                     analyzer.registerOnSlotToLiteralExpr(newBP);
                 }
+                if (needAddnewExprWithState) {
+                    analyzer.registerGlobalSlotToLiteralDeDuplication(pair);
+                }
             }
         }
     }
@@ -664,6 +669,9 @@ public class InferFiltersRule implements ExprRewriteRule {
                 if (clauseType == ExprRewriter.ClauseType.ON_CLAUSE) {
                     analyzer.registerInDeDuplication(newIP);
                     analyzer.registerInExpr(newIP);
+                }
+                if (needAddnewExprWithState) {
+                    analyzer.registerGlobalInDeDuplication(newIP);
                 }
             }
         }
