@@ -265,31 +265,37 @@ public class Analyzer {
         public final Map<Pair<TupleId, TupleId>, JoinOperator> anyTwoTalesJoinOperator = Maps.newHashMap();
 
         // slotEqSlotExpr: Record existing and infer equivalent connections
-        public final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
+        private final List<Expr> onSlotEqSlotExpr = new ArrayList<>();
 
         // slotEqSlotDeDuplication: De-Duplication for slotEqSlotExpr
-        public final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
+        private final Set<Pair<Expr, Expr>> onSlotEqSlotDeDuplication = Sets.newHashSet();
 
         // slotToLiteralExpr: Record existing and infer expr which slot and literal are equal
-        public final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
+        private final List<Expr> onSlotToLiteralExpr = new ArrayList<>();
 
         // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr
-        public final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
+        private final Set<Pair<Expr, Expr>> onSlotToLiteralDeDuplication = Sets.newHashSet();
 
         // inExpr: Recoud existing and infer expr which in predicate
-        public final List<Expr> onInExpr = new ArrayList<>();
+        private final List<Expr> onInExpr = new ArrayList<>();
 
         // inExprDeDuplication: De-Duplication for inExpr
-        public final Set<Expr> onInDeDuplication = Sets.newHashSet();
+        private final Set<Expr> onInDeDuplication = Sets.newHashSet();
 
         // isNullExpr: Record existing and infer not null predicate
-        public final List<Expr> onIsNullExpr = new ArrayList<>();
+        private final List<Expr> onIsNullExpr = new ArrayList<>();
 
         //isNullDeDuplication: De-Duplication for isNullExpr
-        public final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
+        private final Set<Expr> onIsNullDeDuplication = Sets.newHashSet();
+
+        // slotToLiteralDeDuplication: De-Duplication for slotToLiteralExpr. Contain on and where.
+        private final Set<Pair<Expr, Expr>> globalSlotToLiteralDeDuplication = Sets.newHashSet();
+
+        // inExprDeDuplication: De-Duplication for inExpr. Contain on and where
+        private final Set<Expr> globalInDeDuplication = Sets.newHashSet();
 
         // map from slot id to the analyzer/block in which it was registered
-        public final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
+        private final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
 
         // Expr rewriter for normalizing and rewriting expressions.
         private final ExprRewriter exprRewriter_;
@@ -989,6 +995,14 @@ public class Analyzer {
         globalState.onIsNullDeDuplication.add(expr);
     }
 
+    public void registerGlobalSlotToLiteralDeDuplication(Pair<Expr, Expr> pair) {
+        globalState.globalSlotToLiteralDeDuplication.add(pair);
+    }
+
+    public void registerGlobalInDeDuplication(Expr expr) {
+        globalState.globalInDeDuplication.add(expr);
+    }
+
     public void registerConjunct(Expr e, TupleId tupleId) throws AnalysisException {
         final List<Expr> exprs = Lists.newArrayList();
         exprs.add(e);
@@ -1446,6 +1460,13 @@ public class Analyzer {
         return Sets.newHashSet(globalState.onIsNullDeDuplication);
     }
 
+    public Set<Pair<Expr, Expr>> getGlobalSlotToLiteralDeDuplication() {
+        return Sets.newHashSet(globalState.globalSlotToLiteralDeDuplication);
+    }
+
+    public Set<Expr> getGlobalInDeDuplication() {
+        return Sets.newHashSet(globalState.globalInDeDuplication);
+    }
     /**
      * Makes the given semi-joined tuple visible such that its slots can be referenced.
      * If tid is null, makes the currently visible semi-joined tuple invisible again.
