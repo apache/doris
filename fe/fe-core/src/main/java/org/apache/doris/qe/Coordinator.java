@@ -2076,7 +2076,7 @@ public class Coordinator {
 
     // execution parameters for a single fragment,
     // per-fragment can have multiple FInstanceExecParam,
-    // used to assemble TPlanFragmentExecParas
+    // used to assemble TPlanFragmentExecParams
     protected class FragmentExecParams {
         public PlanFragment fragment;
         public List<TPlanFragmentDestination> destinations = Lists.newArrayList();
@@ -2214,7 +2214,7 @@ public class Coordinator {
     }
 
     // fragment instance exec param, it is used to assemble
-    // the per-instance TPlanFragmentExecParas, as a member of
+    // the per-instance TPlanFragmentExecParams, as a member of
     // FragmentExecParams
     static class FInstanceExecParam {
         TUniqueId instanceId;
