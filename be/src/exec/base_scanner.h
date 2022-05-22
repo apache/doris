@@ -62,7 +62,7 @@ public:
         if (_state->enable_vectorized_exec()) {
             vectorized::VExpr::close(_dest_vexpr_ctx, _state);
         }
-    };
+    }
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
@@ -138,7 +138,7 @@ protected:
 
     // for vectorized load
     std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
-    std::vector<vectorized::VExprContext*> _vpre_filter_ctxs;
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
     vectorized::Block _src_block;
     int _num_of_columns_from_file;
 
