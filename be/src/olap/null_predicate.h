@@ -53,6 +53,8 @@ public:
     void evaluate_and(vectorized::IColumn& column, uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
+    void evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const override;
+
 private:
     bool _is_null; //true for null, false for not null
 };
