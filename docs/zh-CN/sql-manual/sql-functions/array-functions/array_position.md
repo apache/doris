@@ -37,7 +37,7 @@ under the License.
 ```
 position - value在array中的位置（从1开始计算）；
 0        - 如果value在array中不存在；
-NULL     - 如果数组为NULL。
+NULL     - 如果数组为NULL，或者value为NULL。
 ```
 
 ### notice
