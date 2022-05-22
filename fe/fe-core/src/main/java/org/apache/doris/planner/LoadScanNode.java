@@ -34,6 +34,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -213,8 +214,12 @@ public abstract class LoadScanNode extends ScanNode {
         planNode.setNodeType(TPlanNodeType.BROKER_SCAN_NODE);
         TBrokerScanNode brokerScanNode = new TBrokerScanNode(desc.getId().asInt());
         if (!preFilterConjuncts.isEmpty()) {
-            for (Expr e : preFilterConjuncts) {
-                brokerScanNode.addToPreFilterExprs(e.treeToThrift());
+            if (Config.enable_vectorized_load && vpreFilterConjunct != null) {
+                brokerScanNode.addToPreFilterExprs(vpreFilterConjunct.treeToThrift());
+            } else {
+                for (Expr e : preFilterConjuncts) {
+                    brokerScanNode.addToPreFilterExprs(e.treeToThrift());
+                }
             }
         }
         planNode.setBrokerScanNode(brokerScanNode);
