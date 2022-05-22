@@ -28,19 +28,30 @@ under the License.
 ### Name
 SHOW USER
 ### Description
-This statement is used to display the current login user name.
+This statement is used to display the current login user.
 
 grammar:
 
 ```sql
  SHOW USER
 ```
+
+illustrate:
+1. Get the current login user identity with field name `UserIdentity`.
+
 ### Example
-1. Display the current login user name
+1. Display the current login user
     
     ```sql
-    SHOW USER;
+    MySQL [(none)]> show user;
+    +--------------+
+    | UserIdentity |
+    +--------------+
+    | 'root'@'%'   |
+    +--------------+
+    1 row in set (0.034 sec)
     ```
+
 ### Keywords
 
     SHOW, USER

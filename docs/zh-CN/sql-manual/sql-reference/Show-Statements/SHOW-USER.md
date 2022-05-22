@@ -31,18 +31,27 @@ under the License.
 SHOW USER
 
 ### Description
-该语句用于展示当前登录用户的用户名
+该语句用于展示当前登录的用户
 
 语法：
 
 ```sql
  SHOW USER
 ```
+说明：
+    1. 返回`UserIdentity`,表示当前登录的用户信息
+
 ### Example
 1. 展示当前登录用户
     
     ```sql
-    SHOW USER;
+    MySQL [(none)]> show user;
+    +--------------+
+    | UserIdentity |
+    +--------------+
+    | 'root'@'%'   |
+    +--------------+
+    1 row in set (0.034 sec)
     ```
 ### Keywords
 
