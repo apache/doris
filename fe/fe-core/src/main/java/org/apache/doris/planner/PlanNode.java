@@ -109,6 +109,8 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
     //  4. Filter data by using "conjuncts".
     protected List<Expr> preFilterConjuncts = Lists.newArrayList();
 
+    protected Expr vpreFilterConjunct = null;
+
     // Fragment that this PlanNode is executed in. Valid only after this PlanNode has been
     // assigned to a fragment. Set and maintained by enclosing PlanFragment.
     protected PlanFragment fragment;
@@ -902,6 +904,11 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
         if (!conjuncts.isEmpty()) {
             vconjunct = convertConjunctsToAndCompoundPredicate(conjuncts);
             initCompoundPredicate(vconjunct);
+        }
+
+        if (!preFilterConjuncts.isEmpty()) {
+            vpreFilterConjunct = convertConjunctsToAndCompoundPredicate(preFilterConjuncts);
+            initCompoundPredicate(vpreFilterConjunct);
         }
 
         for (PlanNode child : children) {
