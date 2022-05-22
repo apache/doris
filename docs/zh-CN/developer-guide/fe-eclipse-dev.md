@@ -99,6 +99,8 @@ java.lang.Exception: Method xxxx should have no parameters
 
 之后在运行 `Run/Debug` 即可。
 
+FE的单元测试会首先启动一个FE服务，然后由测试用例作为客户端执行相应的测试逻辑。在UT报错时，UT的日志只会打印相应的客户端日志，如果需要**查看服务端日志**，可以在路径${DORIS_HOME}/fe/mocked下查看。
+
 ## 运行 FE
 
 可以在 Eclipse 中直接启动一个 FE 进程，方便对代码进行调试。
