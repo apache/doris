@@ -40,8 +40,8 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
     public static final Pattern FIXED = new Pattern(OperatorType.FIXED);
     public static final Pattern MULTI_FIXED = new Pattern(OperatorType.MULTI_FIXED);
 
-    private final List<Predicate<T>> predicates;
-    private final OperatorType operatorType;
+    protected final List<Predicate<T>> predicates;
+    protected final OperatorType operatorType;
 
     /**
      * Constructor for Pattern.
@@ -125,6 +125,10 @@ public class Pattern<T extends TreeNode> extends AbstractTreeNode<Pattern<T>> {
             return true;
         }
 
+        return doMatchRoot(root);
+    }
+
+    protected boolean doMatchRoot(T root) {
         return getOperatorType().equals(root.getOperator().getType())
                 && predicates.stream().allMatch(predicate -> predicate.test(root));
     }

@@ -1,0 +1,68 @@
+package org.apache.doris.nereids.pattern.generator.javaast;
+
+import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+import java.util.Optional;
+
+public class ClassDeclaration extends TypeDeclaration {
+    public final Optional<TypeType> extendsType;
+    public final Optional<TypeParameters> typeParameters;
+    public final List<TypeType> implementTypes;
+    public final List<FieldDeclaration> fieldDeclarations;
+    public final List<MethodDeclaration> methodDeclarations;
+
+    public ClassDeclaration(QualifiedName packageName, List<ImportDeclaration> imports,
+            ClassOrInterfaceModifier modifier, String name, TypeParameters typeParameters,
+            TypeType extendsType, List<TypeType> implementTypes,
+            List<FieldDeclaration> fieldDeclarations, List<MethodDeclaration> methodDeclarations,
+            List<TypeDeclaration> children) {
+        super(packageName, imports, modifier, name, children);
+        this.typeParameters = Optional.ofNullable(typeParameters);
+        this.extendsType = Optional.ofNullable(extendsType);
+        this.implementTypes = ImmutableList.copyOf(implementTypes);
+        this.fieldDeclarations = ImmutableList.copyOf(fieldDeclarations);
+        this.methodDeclarations = ImmutableList.copyOf(methodDeclarations);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder buffer = new StringBuilder();
+        if (packageName.isPresent()) {
+            buffer.append("package ").append(packageName.get()).append(";\n\n");
+        }
+
+        if (!imports.isEmpty()) {
+            for (ImportDeclaration importDeclaration : imports) {
+                buffer.append(importDeclaration).append("\n");
+            }
+            buffer.append("\n");
+        }
+
+        String mod = modifiers.toString();
+        if (!mod.isEmpty()) {
+            mod += " ";
+        }
+        buffer.append(mod).append("class ").append(name);
+        if (typeParameters.isPresent()) {
+            buffer.append(typeParameters.get());
+        }
+        buffer.append(" ");
+        if (extendsType.isPresent()) {
+            buffer.append("extends ").append(extendsType.get()).append(" ");
+        }
+        if (!implementTypes.isEmpty()) {
+            buffer.append("implements ").append(Joiner.on(", ").join(implementTypes)).append(" ");
+        }
+        buffer.append("{\n");
+        for (FieldDeclaration fieldDeclaration : fieldDeclarations) {
+            buffer.append("  ").append(fieldDeclaration).append("\n");
+        }
+        for (MethodDeclaration methodDeclaration : methodDeclarations) {
+            buffer.append("  ").append(methodDeclaration).append("\n");
+        }
+        buffer.append("}\n");
+        return buffer.toString();
+    }
+}

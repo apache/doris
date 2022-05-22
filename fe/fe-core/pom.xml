@@ -643,6 +643,18 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
 
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+            <version>1.3.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.10.1</version>
+        </dependency>
+
     </dependencies>
     <build>
         <finalName>palo-fe</finalName>
@@ -783,6 +795,71 @@ under the License.
                                 <argument>${doris.home}/gensrc/script</argument>
                             </arguments>
                             <skip>${skip.plugin}</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- annotation processor -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.10.1</version>
+                <executions>
+                    <!-- first: compile annotation and annotation processor -->
+                    <execution>
+                        <id>compile-describable-processor</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <proc>none</proc>
+                            <includes>
+                                <include>org/apache/doris/nereids/pattern/Describable.java</include>
+                                <include>org/apache/doris/nereids/pattern/DescribableProcessor.java</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+
+                    <!-- second: generate patterns -->
+                    <execution>
+                        <id>generate-patterns</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <proc>only</proc>
+                            <compilerArgs>
+                                <arg>-AoperatorPath=
+                                      ${basedir}/src/main/java/org/apache/doris/nereids/operators,
+                                      ${basedir}/src/main/java/org/apache/doris/nereids/analyzer
+                                </arg>
+                            </compilerArgs>
+                            <includes>
+                                <include>org/apache/doris/nereids/pattern/PatternGenerator.java</include>
+                            </includes>
+                            <annotationProcessors>
+                                <annotationProcessor>org.apache.doris.nereids.pattern.DescribableProcessor</annotationProcessor>
+                            </annotationProcessors>
+                        </configuration>
+                    </execution>
+
+                    <!-- third: default compile -->
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <excludes>
+                                <exclude>org/apache/doris/nereids/pattern/Describable.java</exclude>
+                                <exclude>org/apache/doris/nereids/pattern/DescribableProcessor.java</exclude>
+                                <exclude>org/apache/doris/nereids/pattern/PatternGenerator.java</exclude>
+                                <exclude>org/apache/doris/nereids/pattern/generator/**</exclude>
+                            </excludes>
                         </configuration>
                     </execution>
                 </executions>

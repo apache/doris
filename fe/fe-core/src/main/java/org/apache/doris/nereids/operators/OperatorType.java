@@ -46,6 +46,7 @@ public enum OperatorType {
     PHYSICAL_EXCHANGE,
 
     // pattern
+    NORMAL_PATTERN,
     ANY,
     MULTI,
     FIXED,

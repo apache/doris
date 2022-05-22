@@ -1,0 +1,224 @@
+package org.apache.doris.nereids.pattern.generator;
+
+import org.apache.doris.nereids.pattern.generator.javaast.ClassDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.EnumConstant;
+import org.apache.doris.nereids.pattern.generator.javaast.EnumDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.FieldDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.MethodDeclaration;
+import org.apache.doris.nereids.pattern.generator.javaast.VariableDeclarator;
+
+import com.google.common.base.Joiner;
+
+import java.util.AbstractMap.SimpleEntry;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+public abstract class PatternGenerator {
+    protected final OperatorAnalyzer analyzer;
+    protected final ClassDeclaration opType;
+    protected final Set<String> parentClass;
+    protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
+
+    public PatternGenerator(OperatorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+        this.analyzer = analyzer;
+        this.opType = opType;
+        this.parentClass = parentClass;
+        this.enumFieldPatternInfos = getEnumFieldPatternInfos();
+    }
+
+    public String getPatternMethodName() {
+        return opType.name.substring(0, 1).toLowerCase(Locale.ENGLISH) + opType.name.substring(1);
+    }
+
+    public static String generateCode(List<PatternGenerator> generators, OperatorAnalyzer analyzer) {
+        String generateCode
+                = "// Licensed to the Apache Software Foundation (ASF) under one\n"
+                + "// or more contributor license agreements.  See the NOTICE file\n"
+                + "// distributed with this work for additional information\n"
+                + "// regarding copyright ownership.  The ASF licenses this file\n"
+                + "// to you under the Apache License, Version 2.0 (the\n"
+                + "// \"License\"); you may not use this file except in compliance\n"
+                + "// with the License.  You may obtain a copy of the License at\n"
+                + "//\n"
+                + "//   http://www.apache.org/licenses/LICENSE-2.0\n"
+                + "//\n"
+                + "// Unless required by applicable law or agreed to in writing,\n"
+                + "// software distributed under the License is distributed on an\n"
+                + "// \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY\n"
+                + "// KIND, either express or implied.  See the License for the\n"
+                + "// specific language governing permissions and limitations\n"
+                + "// under the License.\n"
+                + "\n"
+                + "package org.apache.doris.nereids.pattern;\n"
+                + "\n"
+                + generateImports(generators)
+                + "\n";
+
+        generateCode += "public interface GeneratedPatterns extends Patterns {\n";
+        generateCode += generators.stream()
+                .map(generator -> {
+                    String patternMethods = generator.generate();
+                    // add indent
+                    return Arrays.stream(patternMethods.split("\n"))
+                            .map(line -> "  " + line + "\n")
+                            .collect(Collectors.joining(""));
+                }).collect(Collectors.joining("\n"));
+        return generateCode + "}\n";
+    }
+
+    protected List<EnumFieldPatternInfo> getEnumFieldPatternInfos() {
+        List<EnumFieldPatternInfo> enumFieldInfos = new ArrayList<>();
+        for (Entry<FieldDeclaration, EnumDeclaration> pair : findEnumFieldType()) {
+            FieldDeclaration fieldDecl = pair.getKey();
+            EnumDeclaration enumDecl = pair.getValue();
+
+            Set<String> enumClassNameParts = splitCase(enumDecl.name)
+                    .stream()
+                    .map(part -> part.toLowerCase(Locale.ENGLISH))
+                    .collect(Collectors.toSet());
+
+            for (VariableDeclarator varDecl : fieldDecl.variableDeclarators.variableDeclarators) {
+                String enumFieldName = varDecl.variableDeclaratorId.identifier;
+                Optional<String> getter = findGetter(enumDecl.name, enumFieldName);
+                if (getter.isPresent()) {
+                    for (EnumConstant constant : enumDecl.constants) {
+                        String enumInstance = constant.identifier;
+                        String enumPatternName = getEnumPatternName(enumInstance, enumClassNameParts) + opType.name;
+
+                        enumFieldInfos.add(new EnumFieldPatternInfo(
+                                enumPatternName, enumDecl.getFullQualifiedName(), enumDecl.name, enumInstance, getter.get()));
+                    }
+                }
+            }
+
+        }
+        return enumFieldInfos;
+    }
+
+    protected Optional<String> findGetter(String type, String name) {
+        String getterName = "get" + name.substring(0, 1).toUpperCase(Locale.ENGLISH) + name.substring(1);
+        for (MethodDeclaration methodDecl : opType.methodDeclarations) {
+            if (methodDecl.typeTypeOrVoid.isVoid) {
+                continue;
+            }
+            if (methodDecl.typeTypeOrVoid.typeType.isPresent()
+                    && methodDecl.typeTypeOrVoid.typeType.get().toString().equals(type)) {
+                if (methodDecl.identifier.equals(getterName) && methodDecl.paramNum == 0) {
+                    return Optional.of(getterName);
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    protected String getEnumPatternName(String enumInstance, Set<String> enumClassNameParts) {
+        String[] instanceNameParts = enumInstance.split("_+");
+        List<String> newParts = new ArrayList<>();
+
+        boolean isFirst = true;
+        for (int i = 0; i < instanceNameParts.length; i++) {
+            String part = instanceNameParts[i].toLowerCase(Locale.ENGLISH);
+            // skip instanceNameParts, e.g. INNER_JOIN has two part: [inner and Join].
+            // because 'Join' is the part of the 'JoinType' enum className, so skip 'Join' and return 'inner'
+            if (part.isEmpty() || enumClassNameParts.contains(part)) {
+                continue;
+            }
+            if (!isFirst) {
+                newParts.add(part.substring(0, 1).toUpperCase(Locale.ENGLISH) + part.substring(1));
+            } else {
+                newParts.add(part.substring(0, 1).toLowerCase(Locale.ENGLISH) + part.substring(1));
+            }
+            isFirst = false;
+        }
+
+        return Joiner.on("").join(newParts);
+    }
+
+    protected List<Map.Entry<FieldDeclaration, EnumDeclaration>> findEnumFieldType() {
+        return opType.fieldDeclarations
+                .stream()
+                .map(f -> new SimpleEntry<>(f, analyzer.getType(opType, f.type)))
+                .filter(pair -> pair.getValue().isPresent() && pair.getValue().get() instanceof EnumDeclaration)
+                .map(pair -> new SimpleEntry<>(pair.getKey(), (EnumDeclaration) (pair.getValue().get())))
+                .collect(Collectors.toList());
+    }
+
+    // e.g. split PhysicalBroadcastHashJoin to [Physical, Broadcast, Hash, Join]
+    // e.g. split JoinType to [Join, Type]
+    protected List<String> splitCase(String name) {
+        Pattern pattern = Pattern.compile("([A-Z]+[^A-Z]*)");
+        Matcher matcher = pattern.matcher(name);
+        List<String> parts = new ArrayList<>();
+        while (matcher.find()) {
+            parts.add(matcher.group(0));
+        }
+        return parts;
+    }
+
+    public static PatternGenerator create(OperatorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+        if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator")) {
+            return new LogicalLeafPatternGenerator(analyzer, opType, parentClass);
+        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalUnaryOperator")) {
+            return new LogicalUnaryPatternGenerator(analyzer, opType, parentClass);
+        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator")) {
+            return new LogicalBinaryPatternGenerator(analyzer, opType, parentClass);
+        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator")) {
+            return new PhysicalLeafPatternGenerator(analyzer, opType, parentClass);
+        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalUnaryOperator")) {
+            return new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass);
+        } else if (parentClass.contains("org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator")) {
+            return new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass);
+        } else {
+            throw new IllegalStateException("Unsupported generate operator type: " + opType.getFullQualifiedName());
+        }
+    }
+
+    private static String generateImports(List<PatternGenerator> generators) {
+        Set<String> imports = new HashSet<>();
+        for (PatternGenerator generator : generators) {
+            imports.addAll(generator.getImports());
+        }
+        List<String> sortedImports = new ArrayList<>(imports);
+        sortedImports.sort(Comparator.naturalOrder());
+
+        return sortedImports.stream()
+                .map(it -> "import " + it + ";\n")
+                .collect(Collectors.joining(""));
+    }
+
+    public abstract String generate();
+
+    public abstract Set<String> getImports();
+
+    public abstract boolean isLogical();
+
+    public abstract int childrenNum();
+
+    static class EnumFieldPatternInfo {
+        public final String patternName;
+        public final String enumFullName;
+        public final String enumType;
+        public final String enumInstance;
+        public final String enumInstanceGetter;
+
+        public EnumFieldPatternInfo(String patternName, String enumFullName, String enumType,
+                String enumInstance, String enumInstanceGetter) {
+            this.patternName = patternName;
+            this.enumFullName = enumFullName;
+            this.enumType = enumType;
+            this.enumInstance = enumInstance;
+            this.enumInstanceGetter = enumInstanceGetter;
+        }
+    }
+}
