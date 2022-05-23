@@ -869,8 +869,6 @@ public class FunctionCallExpr extends Expr {
                 childTypes[i] = children.get(i).type;
             }
 
-            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
