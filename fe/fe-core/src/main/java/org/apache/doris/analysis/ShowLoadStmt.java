@@ -238,8 +238,7 @@ public class ShowLoadStmt extends ShowStmt {
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK:
-        {
+        CHECK: {
             if (subExpr instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
                 if (binaryPredicate.getOp() != Operator.EQ) {
