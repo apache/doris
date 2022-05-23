@@ -995,7 +995,7 @@ public class ShowExecutor {
         ShowLoadStmt showStmt = (ShowLoadStmt) stmt;
 
         Catalog catalog = Catalog.getCurrentCatalog();
-        List<Database> dbList=Lists.newArrayList();
+        List<Database> dbList = Lists.newArrayList();
 
         if (showStmt.getIsAll()) {
             if (ctx.getCurrentUserIdentity().isRootUser() || ctx.getCurrentUserIdentity().isAdminUser()) {
@@ -1012,10 +1012,9 @@ public class ShowExecutor {
 
         // combine the List<LoadInfo> of load(v1) and loadManager(v2)
         Load load = catalog.getLoadInstance();
-        List<List<Comparable>> loadInfos =new LinkedList<>();
-        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
-                .map(entity -> entity.name())
-                .collect(Collectors.toSet());
+        List<List<Comparable>> loadInfos = new LinkedList<>();
+        Set<String> statesValue = showStmt.getStates() == null ? null :
+                showStmt.getStates().stream().map(entity -> entity.name()).collect(Collectors.toSet());
 
         for (Database database : dbList) {
             try {

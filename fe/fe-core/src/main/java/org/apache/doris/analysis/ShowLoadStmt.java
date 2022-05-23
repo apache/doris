@@ -71,13 +71,13 @@ public class ShowLoadStmt extends ShowStmt {
     }
 
     /**
-     *
-     * @param isAll SHOW LOAD ALL Status
-     * @param labelExpr Parse SQL Label Params
+     * @param isAll           SHOW LOAD ALL Status
+     * @param labelExpr       Parse SQL Label Params
      * @param orderByElements Parse SQL Order Params
-     * @param limitElement Parse SQL Limit Params
+     * @param limitElement    Parse SQL Limit Params
      */
-    public ShowLoadStmt(boolean isAll, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
+    public ShowLoadStmt(boolean isAll, Expr labelExpr, List<OrderByElement> orderByElements,
+            LimitElement limitElement) {
         this.isAll = isAll;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;
@@ -238,7 +238,8 @@ public class ShowLoadStmt extends ShowStmt {
         boolean hasLabel = false;
         boolean hasState = false;
 
-        CHECK: {
+        CHECK:
+        {
             if (subExpr instanceof BinaryPredicate) {
                 BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
                 if (binaryPredicate.getOp() != Operator.EQ) {
@@ -310,9 +311,10 @@ public class ShowLoadStmt extends ShowStmt {
         }
 
         if (!valid) {
-            throw new AnalysisException("Where clause should looks like: LABEL = \"your_load_label\","
-                    + " or LABEL LIKE \"matcher\", " + " or STATE = \"PENDING|ETL|LOADING|FINISHED|CANCELLED\", "
-                    + " or compound predicate with operator AND");
+            throw new AnalysisException(
+                    "Where clause should looks like: LABEL = \"your_load_label\"," + " or LABEL LIKE \"matcher\", "
+                            + " or STATE = \"PENDING|ETL|LOADING|FINISHED|CANCELLED\", "
+                            + " or compound predicate with operator AND");
         }
     }
 
