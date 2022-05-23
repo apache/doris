@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/exec/vorc_scanner.h"
+
 #include <vec/exec/vorc_reader.h>
 
 namespace doris::vectorized {

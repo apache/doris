@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <arrow/array.h>
+#include <vec/exec/varrow_scanner.h>
+
 #include <map>
 #include <memory>
 #include <sstream>
@@ -24,8 +27,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <arrow/array.h>
-#include <vec/exec/varrow_scanner.h>
 #include "common/status.h"
 #include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"

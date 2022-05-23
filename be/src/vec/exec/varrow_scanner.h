@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <arrow/array.h>
+#include <exec/arrow_reader.h>
+#include <vec/exec/vorc_reader.h>
+
 #include <map>
 #include <memory>
 #include <sstream>
@@ -24,9 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <arrow/array.h>
-#include <exec/arrow_reader.h>
-#include <vec/exec/vorc_reader.h>
 #include "common/status.h"
 #include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"

@@ -15,21 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vorc_scanner.h"
-
-#include "exprs/expr.h"
-#include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/functions/simple_function_factory.h"
-#include "vec/utils/arrow_column_to_doris_column.h"
-
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
 #include "exec/parquet_reader.h"
 #include "exec/s3_reader.h"
+#include "exprs/expr.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "vec/data_types/data_type_factory.hpp"
+#include "vec/exec/vorc_scanner.h"
+#include "vec/functions/simple_function_factory.h"
+#include "vec/utils/arrow_column_to_doris_column.h"
 
 namespace doris::vectorized {
 

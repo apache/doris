@@ -20,10 +20,11 @@
 #include <arrow/adapters/orc/adapter.h>
 #include <arrow/api.h>
 #include <arrow/buffer.h>
-
 #include <stdint.h>
+
 #include <map>
 #include <string>
+
 #include "common/status.h"
 #include "exec/arrow_reader.h"
 namespace doris::vectorized {
