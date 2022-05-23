@@ -52,10 +52,9 @@ struct ToBitmap {
             StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
             uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
                                                                                 &parse_result);
-            if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
-                continue;
+            if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
+                res.back().add(int_value);
             }
-            res.back().add(int_value);
         }
         return Status::OK();
     }
