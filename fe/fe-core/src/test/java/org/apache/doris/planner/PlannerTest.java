@@ -502,14 +502,14 @@ public class PlannerTest extends TestWithFeService {
     }
 
     @Test
-    public void testRewriteNestedUnionStmt() {
+    public void testRewriteNestedUnionStmt() throws Exception {
         String qSQL = "SELECT k1 FROM db1.tbl5 WHERE k1 IN "
                 + "( SELECT k1 FROM ( SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 300 INTERSECT "
                 + "(SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 9 EXCEPT SELECT k1 "
                 + "FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 2) ) t )";
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(qSQL));
-        Assertions.assertTrue(exception.getMessage().contains("Unexpected exception: null"));
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, qSQL);
+        stmtExecutor.execute();
     }
 
 }
