@@ -1074,10 +1074,10 @@ Status HashJoinNode::extract_probe_join_column(Block& block, NullMap& null_map,
                 auto& col_nullmap = nullable->get_null_map_data();
 
                 ignore_null |= !_probe_not_ignore_null[i];
+                VectorizedUtils::update_null_map(null_map, col_nullmap);
                 if (_build_not_ignore_null[i]) {
                     raw_ptrs[i] = nullable;
                 } else {
-                    VectorizedUtils::update_null_map(null_map, col_nullmap);
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
