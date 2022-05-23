@@ -1016,17 +1016,19 @@ public class ShowExecutor {
 
         for (Database database : dbList) {
             try {
-                loadInfos.addAll(load.getLoadJobInfosByDb(database.getId(), database.getFullName(),
-                        showStmt.getLabelValue(),
-                        showStmt.isAccurateMatch(),
-                        showStmt.getStates()));
+                loadInfos.addAll(load
+                        .getLoadJobInfosByDb(database.getId(), database.getFullName(), showStmt.getLabelValue(),
+                                showStmt.isAccurateMatch(), showStmt.getStates()));
 
-                loadInfos.addAll(catalog.getLoadManager().getLoadJobInfosByDb(database.getId(), showStmt.getLabelValue(),
-                        showStmt.isAccurateMatch(),
-                        statesValue));
+                loadInfos.addAll(catalog.getLoadManager()
+                        .getLoadJobInfosByDb(database.getId(), showStmt.getLabelValue(), showStmt.isAccurateMatch(),
+                                statesValue));
             } catch (AnalysisException e) {
-                LOG.error("show load all/database info failed,get load info error,dbName is: {},dbId is: {},msg: {}", database.getFullName(), database.getId(), e.getMessage());
-                throw new AnalysisException("show load all/database info failed,get load info error,dbName is: " + database.getFullName() + ", dbId is: " + database.getId() + ", msg: " + e.getMessage());
+                LOG.error("show load all/database info failed,get load info error,dbName is: {},dbId is: {},msg: {}",
+                        database.getFullName(), database.getId(), e.getMessage());
+                throw new AnalysisException(
+                        "show load all/database info failed,get load info error,dbName is: " + database.getFullName()
+                                + ", dbId is: " + database.getId() + ", msg: " + e.getMessage());
             }
         }
 

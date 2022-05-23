@@ -181,9 +181,9 @@ public class ShowLoadStmt extends ShowStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
 
-        if(isAll){
+        if (isAll) {
             sb.append("SHOW LOAD ALL");
-        }else{
+        } else {
             if (!Strings.isNullOrEmpty(dbName)) {
                 sb.append("SHOW LOAD FROM `").append(dbName).append("`");
             }
