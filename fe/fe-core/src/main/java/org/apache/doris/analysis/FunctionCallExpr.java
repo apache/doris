@@ -877,6 +877,13 @@ public class FunctionCallExpr extends Expr {
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("if")) {
+            Type[] childTypes = collectChildReturnTypes();
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            childTypes[1] = assignmentCompatibleType;
+            childTypes[2] = assignmentCompatibleType;
+            fn = getBuiltinFunction(analyzer, fnName.getFunction(), childTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
