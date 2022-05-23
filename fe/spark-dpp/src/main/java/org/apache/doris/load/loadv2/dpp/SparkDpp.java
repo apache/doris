@@ -991,7 +991,7 @@ public final class SparkDpp implements java.io.Serializable {
                     }
                 }
 
-                // get key column names and value column names seperately
+                // get key column names and value column names separately
                 List<String> keyColumnNames = new ArrayList<>();
                 List<String> valueColumnNames = new ArrayList<>();
                 for (EtlJobConfig.EtlColumn etlColumn : baseIndex.columns) {
