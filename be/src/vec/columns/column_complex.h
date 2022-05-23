@@ -126,10 +126,11 @@ public:
         LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
     }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets & indices, size_t from, size_t limit) const override {
+    void get_indices_of_non_default_rows(IColumn::Offsets& indices, size_t from,
+                                         size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
     }
-    [[noreturn]] ColumnPtr index(const IColumn & indexes, size_t limit) const override {
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
     }
 

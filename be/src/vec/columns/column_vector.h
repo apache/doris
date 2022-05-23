@@ -418,10 +418,11 @@ ColumnPtr ColumnVector<T>::index_impl(const PaddedPODArray<Type>& indexes, size_
     return res;
 }
 
-void get_indices_of_non_default_rows(IColumn::Offsets & indices, size_t from, size_t limit) const override {
+void get_indices_of_non_default_rows(IColumn::Offsets& indices, size_t from,
+                                     size_t limit) const override {
     return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
 }
 
-ColumnPtr index(const IColumn & indexes, size_t limit) const override;
+ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 } // namespace doris::vectorized

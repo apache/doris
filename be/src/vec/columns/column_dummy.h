@@ -155,11 +155,11 @@ public:
         LOG(FATAL) << "should not call the method in column dummy";
     }
 
-    void get_indices_of_non_default_rows(Offsets &, size_t, size_t) const override {
+    void get_indices_of_non_default_rows(Offsets&, size_t, size_t) const override {
         LOG(FATAL) << "should not call the method in column dummy";
     }
 
-    ColumnPtr index(const IColumn & indexes, size_t limit) const override {
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         if (indexes.size() < limit) {
             LOG(FATAL) << "Size of indexes is less than required.";
         }

@@ -328,7 +328,7 @@ public:
         get_indices_of_non_default_rows_impl<ColumnNullable>(indices, from, limit);
     }
 
-    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     // the two functions will not update `_need_update_has_null`

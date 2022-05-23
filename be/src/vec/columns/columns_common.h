@@ -80,14 +80,14 @@ ColumnPtr select_index_impl(const Column& column, const IColumn& indexes, size_t
     }
 }
 
-#define INSTANTIATE_INDEX_IMPL(Column)                                                  \
+#define INSTANTIATE_INDEX_IMPL(Column)                                                   \
     template ColumnPtr Column::index_impl<UInt8>(const PaddedPODArray<UInt8>& indexes,   \
-                                                size_t limit) const;                    \
+                                                 size_t limit) const;                    \
     template ColumnPtr Column::index_impl<UInt16>(const PaddedPODArray<UInt16>& indexes, \
-                                                 size_t limit) const;                   \
+                                                  size_t limit) const;                   \
     template ColumnPtr Column::index_impl<UInt32>(const PaddedPODArray<UInt32>& indexes, \
-                                                 size_t limit) const;                   \
+                                                  size_t limit) const;                   \
     template ColumnPtr Column::index_impl<UInt64>(const PaddedPODArray<UInt64>& indexes, \
-                                                 size_t limit) const;
+                                                  size_t limit) const;
 
 } // namespace doris::vectorized
