@@ -359,17 +359,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
     assert(column_string);
 
     size_t rows = column_string->size();
-    if (column_string->chars_size() != _length * rows) {
-        _column = vectorized::ColumnString::create();
-        auto padded_column =
-                assert_cast<vectorized::ColumnString*>(_column->assume_mutable().get());
-        padded_column->reserve(rows);
-
-        for (size_t i = 0; i < rows; i++) {
-            auto ref = column_string->get_data_at(i);
-            padded_column->insert_data_padded(ref.data, ref.size, _length);
-        }
-
+    // If column_string is not padded to full, we should do padding here.
+    if (should_padding(column_string, _length)) {
+        _column = clone_and_padding(column_string, rows);
         column_string = assert_cast<const vectorized::ColumnString*>(_column.get());
     }
 

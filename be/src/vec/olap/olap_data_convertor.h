@@ -18,6 +18,8 @@
 #pragma once
 #include "olap/tablet_schema.h"
 #include "vec/columns/column.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -100,6 +102,38 @@ private:
         Status convert_to_olap() override;
 
     private:
+        static bool should_padding(const ColumnString* column, size_t padding_length) {
+            // Check sum of data length, including terminating zero.
+            return column->size() * (padding_length + 1) != column->chars.size();
+        }
+
+        static void insert_data_padded(ColumnString* column, StringRef str, size_t padding_length) {
+            const size_t old_size = column->chars.size();
+            const size_t data_size = old_size + str.size;
+            const size_t full_size = old_size + padding_length + 1;
+
+            column->chars.resize(full_size);
+            column->offsets.push_back(full_size);
+
+            if (str.size) {
+                memcpy(column->chars.data() + old_size, str.data, str.size);
+            }
+            memset(column->chars.data() + data_size, 0, full_size - data_size);
+        }
+
+        static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
+            auto column = vectorized::ColumnString::create();
+            auto padded_column =
+                    assert_cast<vectorized::ColumnString*>(column->assume_mutable().get());
+            padded_column->reserve(input->size());
+
+            for (size_t i = 0; i < input->size(); i++) {
+                insert_data_padded(padded_column, input->get_data_at(i), padding_length);
+            }
+
+            return column;
+        }
+
         size_t _length;
         PaddedPODArray<Slice> _slice;
         ColumnPtr _column = nullptr;

@@ -115,7 +115,7 @@ public:
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
                                  const PTabletWriterAddBlockRequest* request,
                                  PTabletWriterAddBlockResult* response,
-                                 google::protobuf::Closure* done) {
+                                 google::protobuf::Closure* done) override {
         brpc::ClosureGuard done_guard(done);
         {
             std::lock_guard<std::mutex> l(_lock);
