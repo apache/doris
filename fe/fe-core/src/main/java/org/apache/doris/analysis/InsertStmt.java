@@ -43,6 +43,7 @@ import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.FEFunctions;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -688,8 +689,14 @@ public class InsertStmt extends DdlStmt {
                     resultExprs.add(NullLiteral.create(col.getType()));
                 }
                 else {
-                    StringLiteral defaultValueExpr = new StringLiteral(col.getDefaultValue());
-                    resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    if(col.getType().isDatetime() && col.isCurrentTimestamp()) {
+                        DateLiteral defaultValueExpr = FEFunctions.now();
+                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    } else {
+                        StringLiteral defaultValueExpr;
+                        defaultValueExpr = new StringLiteral(col.getDefaultValue());
+                        resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
+                    }
                 }
             }
         }

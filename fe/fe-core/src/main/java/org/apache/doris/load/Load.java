@@ -88,6 +88,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.FEFunctions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskQueue;
@@ -1353,7 +1354,11 @@ public class Load {
                         exprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            exprs.add(new StringLiteral(column.getDefaultValue()));
+                            if(column.getType().isDatetime() && column.isCurrentTimestamp()) {
+                                exprs.add(FEFunctions.now()); 
+                            } else {
+                                exprs.add(new StringLiteral(column.getDefaultValue()));
+                            }
                         } else {
                             if (column.isAllowNull()) {
                                 exprs.add(NullLiteral.create(Type.VARCHAR));
@@ -1372,7 +1377,11 @@ public class Load {
                         innerIfExprs.add(funcExpr.getChild(1));
                     } else {
                         if (column.getDefaultValue() != null) {
-                            innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                            if(column.getType().isDatetime() && column.isCurrentTimestamp()) {
+                                innerIfExprs.add(FEFunctions.now()); 
+                            } else {
+                                innerIfExprs.add(new StringLiteral(column.getDefaultValue()));
+                            }
                         } else {
                             if (column.isAllowNull()) {
                                 innerIfExprs.add(NullLiteral.create(Type.VARCHAR));

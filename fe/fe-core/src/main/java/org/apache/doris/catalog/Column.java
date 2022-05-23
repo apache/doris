@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.rewrite.FEFunctions;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
@@ -75,6 +76,8 @@ public class Column implements Writable {
     private boolean isAllowNull;
     @SerializedName(value = "defaultValue")
     private String defaultValue;
+    @SerializedName(value = "isCurrentTimestamp")
+    private boolean isCurrentTimestamp;
     @SerializedName(value = "comment")
     private String comment;
     @SerializedName(value = "stats")
@@ -117,10 +120,10 @@ public class Column implements Writable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true);
+        this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, false);
     }
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-                  String defaultValue, String comment, boolean visible) {
+                  String defaultValue, String comment, boolean visible, boolean isCurrentTimestamp) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -136,6 +139,7 @@ public class Column implements Writable {
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
+        this.isCurrentTimestamp = isCurrentTimestamp;
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
@@ -151,6 +155,7 @@ public class Column implements Writable {
         this.isKey = column.isKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
+        this.isCurrentTimestamp = column.isCurrentTimestamp();
         this.comment = column.getComment();
         this.stats = column.getStats();
         this.visible = column.visible;
@@ -285,9 +290,16 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
         }
+        if(getType().isDatetime() && isCurrentTimestamp()) {
+            return FEFunctions.now();
+        }
         Expr result = defaultValueLiteral.castTo(getType());
         result.checkValueValid();
         return result;
+    }
+
+    public boolean isCurrentTimestamp() {
+        return this.isCurrentTimestamp;
     }
 
     public void setStats(ColumnStats stats) {

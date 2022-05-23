@@ -61,10 +61,19 @@ public class ColumnDef {
     public static class DefaultValue {
         public boolean isSet;
         public String value;
+        // only used for datetime column type
+        public boolean isCurrentTimestamp;
 
         public DefaultValue(boolean isSet, String value) {
             this.isSet = isSet;
             this.value = value;
+            this.isCurrentTimestamp = false;
+        }
+
+        public DefaultValue(boolean isSet, String value, boolean isCurrentTimestamp) {
+            this.isSet = isSet;
+            this.value = value;
+            this.isCurrentTimestamp = true;
         }
 
         // no default value
@@ -76,6 +85,10 @@ public class ColumnDef {
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+
+        // default "CURRENT_TIMESTAMP", only for DATETIME type
+        public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
+        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP,true);
     }
 
     // parameter initialized in constructor
@@ -253,11 +266,11 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet && defaultValue.value != null) {
-            validateDefaultValue(type, defaultValue.value);
+            validateDefaultValue(type, defaultValue.value, defaultValue.isCurrentTimestamp);
         }
     }
 
-    public static void validateDefaultValue(Type type, String defaultValue) throws AnalysisException {
+    public static void validateDefaultValue(Type type, String defaultValue, boolean isCurrentTimestamp) throws AnalysisException {
         Preconditions.checkNotNull(defaultValue);
         Preconditions.checkArgument(type.isScalarType());
         ScalarType scalarType = (ScalarType) type;
@@ -289,8 +302,12 @@ public class ColumnDef {
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 break;
             case DATE:
-            case DATETIME:
                 DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
+                break;
+            case DATETIME:
+                if(!isCurrentTimestamp) {
+                    DateLiteral datetimeLiteral = new DateLiteral(defaultValue, type);
+                }
                 break;
             case CHAR:
             case VARCHAR:
@@ -342,7 +359,7 @@ public class ColumnDef {
 
     public Column toColumn() {
         return new Column(name, typeDef.getType(), isKey, aggregateType, isAllowNull, defaultValue.value, comment,
-                visible);
+                visible, defaultValue.isCurrentTimestamp);
     }
 
     @Override
