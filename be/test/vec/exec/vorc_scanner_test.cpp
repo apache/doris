@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/orc_scanner.h"
+#include "vec/exec/vorc_scanner.h"
 
 #include <gtest/gtest.h>
 #include <runtime/descriptor_helper.h>
@@ -27,6 +27,7 @@
 
 #include "common/object_pool.h"
 #include "exec/local_file_reader.h"
+#include "exec/orc_scanner.h"
 #include "exprs/cast_functions.h"
 #include "exprs/decimalv2_operators.h"
 #include "gen_cpp/Descriptors_types.h"
@@ -37,7 +38,6 @@
 #include "runtime/tuple.h"
 #include "runtime/user_function_cache.h"
 #include "vec/exec/vbroker_scan_node.h"
-#include "vec/exec/vorc_scanner.h"
 
 namespace doris {
 namespace vectorized {
