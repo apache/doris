@@ -472,6 +472,7 @@ module.exports = [
               "coalesce",
               "if",
               "ifnull",
+              "nvl",
               "nullif"
             ],
           },
