@@ -326,7 +326,7 @@ public class StmtRewriter {
                 QueryStmt rewrittenQueryStmt = rewriteSelectStatement((SelectStmt) queryStmt, operand.getAnalyzer());
                 operand.setQueryStmt(rewrittenQueryStmt);
             } else if (queryStmt instanceof SetOperationStmt) {
-                rewriteUnionStatement((SetOperationStmt)queryStmt, operand.getAnalyzer());
+                rewriteUnionStatement((SetOperationStmt) queryStmt, operand.getAnalyzer());
             } else {
                 throw new IllegalStateException("Rewrite union statement failed. "
                     + "Because QueryStmt is neither SelectStmt nor SetOperationStmt");
