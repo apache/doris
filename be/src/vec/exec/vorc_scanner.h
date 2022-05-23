@@ -17,9 +17,6 @@
 
 #pragma once
 
-#include <arrow/array.h>
-#include <vec/exec/varrow_scanner.h>
-
 #include <map>
 #include <memory>
 #include <sstream>
@@ -27,24 +24,25 @@
 #include <unordered_map>
 #include <vector>
 
+#include <arrow/array.h>
+#include <vec/exec/varrow_scanner.h>
 #include "common/status.h"
-#include "gen_cpp/PlanNodes_types.h"
+#include "exec/base_scanner.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
 
-// VParquet scanner convert the data read from Parquet to doris's columns.
-class VParquetScanner : public VArrowScanner {
+// VOrc scanner convert the data read from Orc to doris's columns.
+class VORCScanner : public VArrowScanner {
 public:
-    VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
-                    const TBrokerScanRangeParams& params,
-                    const std::vector<TBrokerRangeDesc>& ranges,
-                    const std::vector<TNetworkAddress>& broker_addresses,
-                    const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+    VORCScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
+                const std::vector<TBrokerRangeDesc>& ranges,
+                const std::vector<TNetworkAddress>& broker_addresses,
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~VParquetScanner() override;
+    ~VORCScanner();
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,

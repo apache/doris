@@ -339,6 +339,8 @@ set(VEC_TEST_FILES
     vec/exec/vbroker_scanner_test.cpp
     vec/exec/vjson_scanner_test.cpp
     vec/exec/vtablet_sink_test.cpp
+    vec/exec/vorc_scanner_test.cpp
+    vec/exec/vparquet_scanner_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_element_test.cpp
     vec/function/function_array_index_test.cpp

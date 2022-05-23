@@ -77,6 +77,7 @@ set(VEC_FILES
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   exec/vaggregation_node.cpp
+  exec/varrow_scanner.cpp
   exec/ves_http_scan_node.cpp
   exec/ves_http_scanner.cpp
   exec/volap_scan_node.cpp
@@ -103,6 +104,8 @@ set(VEC_FILES
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
   exec/vparquet_scanner.cpp
+  exec/vorc_reader.cpp
+  exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp
   exprs/vectorized_fn_call.cpp

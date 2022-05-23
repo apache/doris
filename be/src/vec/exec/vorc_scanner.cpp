@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exec/vparquet_scanner.h"
-
-#include "exec/parquet_reader.h"
+#include "vec/exec/vorc_scanner.h"
+#include <vec/exec/vorc_reader.h>
 
 namespace doris::vectorized {
 
-VParquetScanner::VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
-                                 const TBrokerScanRangeParams& params,
-                                 const std::vector<TBrokerRangeDesc>& ranges,
-                                 const std::vector<TNetworkAddress>& broker_addresses,
-                                 const std::vector<TExpr>& pre_filter_texprs,
-                                 ScannerCounter* counter)
+VORCScanner::VORCScanner(RuntimeState* state, RuntimeProfile* profile,
+                         const TBrokerScanRangeParams& params,
+                         const std::vector<TBrokerRangeDesc>& ranges,
+                         const std::vector<TNetworkAddress>& broker_addresses,
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : VArrowScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
                         counter) {}
-VParquetScanner::~VParquetScanner() = default;
 
-ArrowReaderWrap* VParquetScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
-                                                    int32_t num_of_columns_from_file) {
-    return new ParquetReaderWrap(file_reader, batch_size, num_of_columns_from_file);
+VORCScanner::~VORCScanner() = default;
+
+ArrowReaderWrap* VORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
+                                                int32_t num_of_columns_from_file) {
+    return new VORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);
 }
 
 } // namespace doris::vectorized
