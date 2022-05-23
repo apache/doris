@@ -66,6 +66,10 @@ struct ProcessHashTableBuild {
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
+        // only not build_unique, we need expanse hash table before insert data
+        if constexpr (!build_unique) {
+            hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
+        }
         hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
@@ -1002,7 +1006,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
 
         // make one block for each 4 gigabytes
         constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
-        if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
+        if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
             _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
@@ -1118,7 +1122,7 @@ Status HashJoinNode::extract_probe_join_column(Block& block, NullMap& null_map,
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
-    if (rows == 0) {
+    if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
     COUNTER_UPDATE(_build_rows_counter, rows);
