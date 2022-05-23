@@ -2,8 +2,15 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/incubator-doris, and the tag is `build-env-${version}`
 
+## v20220522
+
+- Added: libgsasl 1.8.0, this version of gsasl is only used for libhdfs3 with kerberos
+- Added: krb5 1.19
+
+Now there will be 2 set of libhdfs, one is without kerberos, the other is with kerberos, saved in `thirdparty/installed/libhdfs_with_kerberos/`
+
 ## v20220321
-- Add libbacktrace, it is used by boost stacktrace to print exception stack.
+- Added: libbacktrace, it is used by boost stacktrace to print exception stack.
 
 ## v20220316
 - Modified: CRoaring 0.3.4 -> 0.4.0

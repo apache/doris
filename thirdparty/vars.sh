@@ -329,6 +329,7 @@ GSASL_NAME="libgsasl-1.10.0.tar.gz"
 GSASL_SOURCE="libgsasl-1.10.0"
 GSASL_MD5SUM="9c8fc632da4ce108fb7581b33de2a5ce"
 
+# gsasl 1.8.0 is only used for libhdfs3 with kerberos
 GSASL2_DOWNLOAD="https://ftp.gnu.org/gnu/gsasl/libgsasl-1.8.0.tar.gz"
 GSASL2_NAME="libgsasl-1.8.0.tar.gz"
 GSASL2_SOURCE="libgsasl-1.8.0"
