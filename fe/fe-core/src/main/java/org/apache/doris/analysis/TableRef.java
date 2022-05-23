@@ -260,7 +260,7 @@ public class TableRef implements ParseNode, Writable {
     }
 
     /**
-     * Return the list of of materialized tuple ids from the TableRef.
+     * Return the list of materialized tuple ids from the TableRef.
      * This method should only be called after the TableRef has been analyzed.
      */
     public List<TupleId> getMaterializedTupleIds() {
