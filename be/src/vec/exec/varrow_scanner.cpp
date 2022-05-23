@@ -185,7 +185,7 @@ Status VArrowScanner::_init_src_block() {
         // TODO, support not nullable for exec efficiently
         auto is_nullable = true;
         DataTypePtr data_type =
-                DataTypeFactory::instance().create_data_type(array->type()->id(), is_nullable);
+                DataTypeFactory::instance().create_data_type(array->type().get(), is_nullable);
         if (data_type == nullptr) {
             return Status::NotSupported(
                     fmt::format("Not support arrow type:{}", array->type()->name()));
