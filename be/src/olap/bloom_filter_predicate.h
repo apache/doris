@@ -110,6 +110,9 @@ void BloomFilterColumnPredicate<T>::evaluate(ColumnBlock* block, uint16_t* sel,
 template <PrimitiveType T>
 void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16_t* sel,
                                              uint16_t* size) const {
+    if (!_enable_pred) {
+        return;
+    }
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
 
@@ -155,6 +158,14 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
             sel[new_size] = idx;
             const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
             new_size += _specific_filter->find_olap_engine(cell_value);
+        }
+    }
+    // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
+    _evaluated_rows += *size;
+    _passed_rows += new_size;
+    if (_evaluated_rows > 1000) {
+        if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
+            _enable_pred = false;
         }
     }
     *size = new_size;
