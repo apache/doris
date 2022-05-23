@@ -42,7 +42,7 @@ import java.util.Set;
 // SHOW LOAD STATUS statement used to get status of load job.
 //
 // syntax:
-//      SHOW LOAD [FROM db] [LIKE mask]
+//      SHOW LOAD [ ALL | FROM db ] [LIKE mask]
 public class ShowLoadStmt extends ShowStmt {
     private static final Logger LOG = LogManager.getLogger(ShowLoadStmt.class);
 
@@ -70,6 +70,13 @@ public class ShowLoadStmt extends ShowStmt {
         this.isAccurateMatch = false;
     }
 
+    /**
+     *
+     * @param isAll SHOW LOAD ALL Status
+     * @param labelExpr Parse SQL Label Params
+     * @param orderByElements Parse SQL Order Params
+     * @param limitElement Parse SQL Limit Params
+     */
     public ShowLoadStmt(boolean isAll, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.isAll = isAll;
         this.whereClause = labelExpr;
