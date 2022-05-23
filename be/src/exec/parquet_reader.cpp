@@ -49,8 +49,7 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size
           _current_group(0),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0) {
-}
+          _current_line_of_batch(0) {}
 
 Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                       const std::string& timezone) {
