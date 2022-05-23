@@ -18,7 +18,7 @@
 #include "vec/function/function_test_util.h"
 
 namespace doris::vectorized {
-int64_t str_to_data_time(std::string datetime_str, bool data_time) {
+int64_t str_to_date_time(std::string datetime_str, bool data_time) {
     VecDateTimeValue v;
     v.from_date_str(datetime_str.c_str(), datetime_str.size());
     if (data_time) { //bool data_time only to simplifly means data_time or data to cast, just use in time-functions uint test
