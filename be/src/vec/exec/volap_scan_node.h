@@ -17,10 +17,13 @@
 
 #pragma once
 
-#include "exec/olap_scan_node.h"
+#include "exec/olap_common.h"
+#include "exec/scan_node.h"
+#include "exprs/bloomfilter_predicate.h"
 #include "exprs/in_predicate.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "olap/tablet.h"
 #include "util/progress_updater.h"
 
 namespace doris {

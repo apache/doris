@@ -578,14 +578,25 @@ Status VOlapTablePartitionParam::_create_partition_key(const TExprNode& t_expr, 
     auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        vectorized::VecDateTimeValue dt;
-        if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                              t_expr.date_literal.value.size())) {
-            std::stringstream ss;
-            ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
-            return Status::InternalError(ss.str());
+        if (TypeDescriptor::from_thrift(t_expr.type).is_date_v2_type()) {
+            vectorized::DateV2Value dt;
+            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
+                                  t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
+        } else {
+            vectorized::VecDateTimeValue dt;
+            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
+                                  t_expr.date_literal.value.size())) {
+                std::stringstream ss;
+                ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
+                return Status::InternalError(ss.str());
+            }
+            column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         }
-        column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         break;
     }
     case TExprNodeType::INT_LITERAL: {

@@ -407,6 +407,96 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
+TEST_F(TestColumn, ConvertDatetimeToDateV2) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("DatetimeColumn", "DATETIME", "REPLACE", 8, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    std::string origin_val = "2019-11-25 19:07:00";
+    val_string_array.emplace_back(origin_val);
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+    ColumnDataHeaderMessage header;
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
+
+    // read data
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 4, false, false, &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+
+    _col_vector.reset(new ColumnVector());
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+    std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
+    EXPECT_TRUE(strncmp(dest_string.c_str(), "2019-11-25", strlen("2019-11-25")) == 0);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
+TEST_F(TestColumn, ConvertDateV2ToDateTime) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 4, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    std::string origin_val = "2019-11-25";
+    val_string_array.emplace_back(origin_val);
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+    ColumnDataHeaderMessage header;
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
+
+    // read data
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateTimeColumn", "DATETIME", "REPLACE", 8, false, false,
+                      &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+
+    _col_vector.reset(new ColumnVector());
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+    std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
+    EXPECT_TRUE(strncmp(dest_string.c_str(), "2019-11-25 00:00:00",
+                        strlen("2019-11-25 00:00:00")) == 0);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
 TEST_F(TestColumn, ConvertDateToDatetime) {
     TabletSchema tablet_schema;
     set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &tablet_schema);
@@ -452,6 +542,96 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
     EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
 }
 
+TEST_F(TestColumn, ConvertDateToDateV2) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    std::string origin_val = "2019-12-04";
+    val_string_array.emplace_back(origin_val);
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+    ColumnDataHeaderMessage header_message;
+    EXPECT_EQ(_column_writer->finalize(&header_message), Status::OK());
+
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 4, false, false, &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+    _col_vector.reset(new ColumnVector());
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.set_field_content(0, data, _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+    std::string expected = "2019-12-04";
+    std::string dest_string =
+            read_row.column_schema(0)->to_string(read_row.cell_ptr(0)).substr(0, expected.length());
+    EXPECT_TRUE(dest_string.compare("2019-12-04") == 0);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
+TEST_F(TestColumn, ConvertDateV2ToDate) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 4, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    std::vector<std::string> val_string_array;
+    std::string origin_val = "2019-12-04";
+    val_string_array.emplace_back(origin_val);
+    OlapTuple tuple(val_string_array);
+    write_row.from_tuple(tuple);
+    block.set_row(0, write_row);
+    block.finalize(1);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+    ColumnDataHeaderMessage header_message;
+    EXPECT_EQ(_column_writer->finalize(&header_message), Status::OK());
+
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+    _col_vector.reset(new ColumnVector());
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.set_field_content(0, data, _mem_pool.get());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+    std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
+    EXPECT_TRUE(dest_string.compare("2019-12-04") == 0);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, data, tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
 TEST_F(TestColumn, ConvertIntToDate) {
     TabletSchema tablet_schema;
     set_tablet_schema("IntColumn", "INT", "REPLACE", 4, false, false, &tablet_schema);
@@ -476,6 +656,48 @@ TEST_F(TestColumn, ConvertIntToDate) {
 
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+
+    _col_vector.reset(new ColumnVector());
+    EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+    char* data = reinterpret_cast<char*>(_col_vector->col_data());
+    read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+    std::string dest_string = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
+    EXPECT_TRUE(strncmp(dest_string.c_str(), "2019-12-05", strlen("2019-12-05")) == 0);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
+    EXPECT_TRUE(st == Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
+TEST_F(TestColumn, ConvertIntToDateV2) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("IntColumn", "INT", "REPLACE", 4, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    int time_val = 20191205;
+    write_row.set_field_content(0, reinterpret_cast<char*>(&time_val), _mem_pool.get());
+    block.set_row(0, write_row);
+    block.finalize(1);
+    EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+    ColumnDataHeaderMessage header;
+    EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
+
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 4, false, false, &convert_tablet_schema);
     create_column_reader(tablet_schema);
 
     RowCursor read_row;
@@ -539,6 +761,64 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     helper.close();
     TabletSchema convert_tablet_schema;
     set_tablet_schema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
+    create_column_reader(tablet_schema);
+    RowCursor read_row;
+    read_row.init(convert_tablet_schema);
+
+    //test not support type
+    const auto* tp = get_scalar_type_info<OLAP_FIELD_TYPE_HLL>();
+    Status st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
+    EXPECT_EQ(st, Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA));
+}
+
+TEST_F(TestColumn, ConvertVarcharToDateV2) {
+    TabletSchema tablet_schema;
+    set_tablet_schema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false, &tablet_schema);
+    create_column_writer(tablet_schema);
+
+    RowCursor write_row;
+    write_row.init(tablet_schema);
+
+    RowBlock block(&tablet_schema);
+    RowBlockInfo block_info;
+    block_info.row_num = 10000;
+    block.init(block_info);
+
+    // test valid format convert
+    std::vector<Slice> valid_src_strs = {
+            "2019-12-17", "19-12-17", "20191217", "191217", "2019/12/17", "19/12/17",
+    };
+    std::string expected_val("2019-12-17");
+    for (auto src_str : valid_src_strs) {
+        write_row.set_field_content(0, reinterpret_cast<char*>(&src_str), _mem_pool.get());
+        block.set_row(0, write_row);
+        block.finalize(1);
+        EXPECT_EQ(_column_writer->write_batch(&block, &write_row), Status::OK());
+
+        ColumnDataHeaderMessage header;
+        EXPECT_EQ(_column_writer->finalize(&header), Status::OK());
+
+        // because file_helper is reused in this case, we should close it.
+        helper.close();
+        TabletSchema convert_tablet_schema;
+        set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 3, false, false,
+                          &convert_tablet_schema);
+        create_column_reader(tablet_schema);
+        RowCursor read_row;
+        read_row.init(convert_tablet_schema);
+
+        _col_vector.reset(new ColumnVector());
+        EXPECT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), Status::OK());
+        char* data = reinterpret_cast<char*>(_col_vector->col_data());
+        read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+        std::string dst_str = read_row.column_schema(0)
+                                      ->to_string(read_row.cell_ptr(0))
+                                      .substr(0, expected_val.length());
+        EXPECT_EQ(expected_val, dst_str);
+    }
+    helper.close();
+    TabletSchema convert_tablet_schema;
+    set_tablet_schema("DateV2Column", "DATEV2", "REPLACE", 3, false, false, &convert_tablet_schema);
     create_column_reader(tablet_schema);
     RowCursor read_row;
     read_row.init(convert_tablet_schema);

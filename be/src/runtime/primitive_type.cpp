@@ -65,6 +65,12 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_LARGEINT;
     case FunctionContext::Type::TYPE_DATE:
         return PrimitiveType::TYPE_DATE;
+    case FunctionContext::Type::TYPE_DATEV2:
+        return PrimitiveType::TYPE_DATEV2;
+    case FunctionContext::Type::TYPE_DATETIMEV2:
+        return PrimitiveType::TYPE_DATETIMEV2;
+    case FunctionContext::Type::TYPE_TIMEV2:
+        return PrimitiveType::TYPE_TIMEV2;
     default:
         DCHECK(false);
     }
@@ -81,6 +87,8 @@ bool is_enumeration_type(PrimitiveType type) {
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
@@ -92,6 +100,7 @@ bool is_enumeration_type(PrimitiveType type) {
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_DATE:
+    case TYPE_DATEV2:
         return true;
 
     case INVALID_TYPE:
@@ -103,7 +112,8 @@ bool is_enumeration_type(PrimitiveType type) {
 }
 
 bool is_date_type(PrimitiveType type) {
-    return type == TYPE_DATETIME || type == TYPE_DATE;
+    return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
+           type == TYPE_DATEV2;
 }
 
 bool is_string_type(PrimitiveType type) {
@@ -151,6 +161,10 @@ int get_byte_size(PrimitiveType type) {
         return 16;
 
     case INVALID_TYPE:
+    // datev2/datetimev2/timev2 is not supported on row-based engine
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
     default:
         DCHECK(false);
     }
@@ -233,6 +247,15 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::DATETIME:
         return TYPE_DATETIME;
 
+    case TPrimitiveType::DATEV2:
+        return TYPE_DATEV2;
+
+    case TPrimitiveType::DATETIMEV2:
+        return TYPE_DATETIMEV2;
+
+    case TPrimitiveType::TIMEV2:
+        return TYPE_TIMEV2;
+
     case TPrimitiveType::TIME:
         return TYPE_TIME;
 
@@ -309,6 +332,15 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_TIME:
         return TPrimitiveType::TIME;
 
+    case TYPE_DATEV2:
+        return TPrimitiveType::DATEV2;
+
+    case TYPE_DATETIMEV2:
+        return TPrimitiveType::DATETIMEV2;
+
+    case TYPE_TIMEV2:
+        return TPrimitiveType::TIMEV2;
+
     case TYPE_VARCHAR:
         return TPrimitiveType::VARCHAR;
 
@@ -381,6 +413,15 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_TIME:
         return "TIME";
+
+    case TYPE_DATEV2:
+        return "DATEV2";
+
+    case TYPE_DATETIMEV2:
+        return "DATETIMEV2";
+
+    case TYPE_TIMEV2:
+        return "TIMEV2";
 
     case TYPE_VARCHAR:
         return "VARCHAR";
@@ -455,6 +496,15 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_DATETIME:
         return "datetime";
+
+    case TYPE_DATEV2:
+        return "datev2";
+
+    case TYPE_DATETIMEV2:
+        return "datetimev2";
+
+    case TYPE_TIMEV2:
+        return "timev2";
 
     case TYPE_VARCHAR:
         return "string";
@@ -535,6 +585,7 @@ int get_slot_size(PrimitiveType type) {
         return 2;
 
     case TYPE_INT:
+    case TYPE_DATEV2:
     case TYPE_FLOAT:
         return 4;
 
@@ -548,6 +599,8 @@ int get_slot_size(PrimitiveType type) {
 
     case TYPE_DATE:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
         // This is the size of the slot, the actual size of the data is 12.
         return sizeof(DateTimeValue);
 

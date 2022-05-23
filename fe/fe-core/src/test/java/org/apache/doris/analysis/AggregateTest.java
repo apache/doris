@@ -93,7 +93,7 @@ public class AggregateTest extends TestWithFeService {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
 
         // normal.
-        {
+        do {
             String query = "select empid, window_funnel(1, 'default', time_col, empid = 1, empid = 2) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
@@ -101,9 +101,9 @@ public class AggregateTest extends TestWithFeService {
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
             }
-        }
+        } while (false);
 
-        {
+        do {
             String query = "select empid, window_funnel(1, 'default', timev2_col, empid = 1, empid = 2) from "
                     + DB_NAME + "." + TABLE_NAME + " group by empid";
             try {
@@ -111,7 +111,7 @@ public class AggregateTest extends TestWithFeService {
             } catch (Exception e) {
                 Assert.fail("must be AnalysisException.");
             }
-        } // CHECKSTYLE IGNORE THIS LINE
+        } while (false);
 
         // less argument.
         do {

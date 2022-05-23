@@ -160,6 +160,10 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
         return *reinterpret_cast<const DateTimeValue*>(v1) <
                *reinterpret_cast<const DateTimeValue*>(v2);
 
+    case TYPE_DATEV2:
+        return *reinterpret_cast<const vectorized::DateV2Value*>(v1) <
+               *reinterpret_cast<const vectorized::DateV2Value*>(v2);
+
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value <
                reinterpret_cast<const PackedInt128*>(v2)->value;
@@ -211,6 +215,10 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_DATETIME:
         return *reinterpret_cast<const DateTimeValue*>(v1) ==
                *reinterpret_cast<const DateTimeValue*>(v2);
+
+    case TYPE_DATEV2:
+        return *reinterpret_cast<const vectorized::DateV2Value*>(v1) ==
+               *reinterpret_cast<const vectorized::DateV2Value*>(v2);
 
     case TYPE_DECIMALV2:
         return reinterpret_cast<const PackedInt128*>(v1)->value ==
@@ -273,6 +281,9 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_DATETIME:
         return HashUtil::hash(v, 16, seed);
 
+    case TYPE_DATEV2:
+        return HashUtil::hash(v, 4, seed);
+
     case TYPE_DECIMALV2:
         return HashUtil::hash(v, 16, seed);
 
@@ -329,6 +340,9 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_DATE:
     case TYPE_DATETIME:
         return HashUtil::fnv_hash(v, 16, seed);
+
+    case TYPE_DATEV2:
+        return HashUtil::fnv_hash(v, 4, seed);
 
     case TYPE_DECIMALV2:
         return HashUtil::fnv_hash(v, 16, seed);
@@ -392,6 +406,12 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
     }
+    case TYPE_DATEV2: {
+        const vectorized::DateV2Value* date_v2_val = (const vectorized::DateV2Value*)v;
+        char buf[64];
+        int len = date_v2_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, len, seed);
+    }
 
     case TYPE_DECIMALV2: {
         const DecimalV2Value* dec_val = (const DecimalV2Value*)v;
@@ -445,6 +465,12 @@ inline uint32_t RawValue::zlib_crc32(const void* v, size_t len, const TypeDescri
         char buf[64];
         int len = date_val->to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, seed);
+    }
+    case TYPE_DATEV2: {
+        auto* date_v2_val = (const vectorized::DateV2Value*)v;
+        char buf[64];
+        int date_v2_len = date_v2_val->to_buffer(buf);
+        return HashUtil::zlib_crc_hash(buf, date_v2_len, seed);
     }
 
     case TYPE_DECIMALV2: {

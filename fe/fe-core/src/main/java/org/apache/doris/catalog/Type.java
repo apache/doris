@@ -207,9 +207,11 @@ public abstract class Type {
     public boolean isWildcardDecimal() {
         return false;
     }
+
     public boolean isWildcardVarchar() {
         return false;
     }
+
     public boolean isWildcardChar() {
         return false;
     }
@@ -344,6 +346,7 @@ public abstract class Type {
     public boolean isDateV2() {
         return isScalarType(PrimitiveType.DATEV2);
     }
+
     /**
      * Returns true if Impala supports this type in the metdata. It does not mean we
      * can manipulate data of this type. For tables that contain columns with these
