@@ -556,7 +556,7 @@ public:
         return *this;
     }
 
-        /// Increase the size of the buffer.
+    /// Increase the size of the buffer.
     void resize(size_t for_num_elems = 0, size_t for_buf_size = 0) {
         SCOPED_RAW_TIMER(&_resize_timer_ns);
 #ifdef DBMS_HASH_MAP_DEBUG_RESIZES
