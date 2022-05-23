@@ -66,7 +66,7 @@ struct ProcessHashTableBuild {
         //resize ahead is good for keys whose values are almost unique.
         //we only resize for the first collected block(<=4G)
         hash_table_ctx.hash_table.resize(_rows);
-        
+
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
