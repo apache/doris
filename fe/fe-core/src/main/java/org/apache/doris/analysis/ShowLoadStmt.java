@@ -134,7 +134,7 @@ public class ShowLoadStmt extends ShowStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
-        if(!isAll){
+        if (!isAll) {
             if (Strings.isNullOrEmpty(dbName)) {
                 dbName = analyzer.getDefaultDb();
                 if (Strings.isNullOrEmpty(dbName)) {
