@@ -83,7 +83,7 @@ public class ShowLoadStmtTest {
     public void testAllDb() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(true, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD ALL ", stmt.toString());
+        Assert.assertEquals("SHOW LOAD ALL", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -134,7 +134,7 @@ public class ShowLoadStmtTest {
     public void testAllDbWhere() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(true, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD ALL ", stmt.toString());
+        Assert.assertEquals("SHOW LOAD ALL", stmt.toString());
 
         SlotRef slotRef = new SlotRef(null, "label");
         StringLiteral stringLiteral = new StringLiteral("abc");

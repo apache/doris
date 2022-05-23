@@ -61,7 +61,7 @@ public class ShowLoadStmt extends ShowStmt {
     public ShowLoadStmt(String db, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
         this.dbName = db;
         this.whereClause = labelExpr;
-        this.isAll=false;
+        this.isAll = false;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
 
@@ -69,8 +69,9 @@ public class ShowLoadStmt extends ShowStmt {
         this.stateValue = null;
         this.isAccurateMatch = false;
     }
+
     public ShowLoadStmt(boolean isAll, Expr labelExpr, List<OrderByElement> orderByElements, LimitElement limitElement) {
-        this.isAll=isAll;
+        this.isAll = isAll;
         this.whereClause = labelExpr;
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
@@ -83,6 +84,7 @@ public class ShowLoadStmt extends ShowStmt {
     public String getDbName() {
         return dbName;
     }
+
     public boolean getIsAll() {
         return isAll;
     }
@@ -131,6 +133,7 @@ public class ShowLoadStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+
         if(!isAll){
             if (Strings.isNullOrEmpty(dbName)) {
                 dbName = analyzer.getDefaultDb();
@@ -172,6 +175,43 @@ public class ShowLoadStmt extends ShowStmt {
                 orderByPairs.add(orderByPair);
             }
         }
+    }
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+
+        if(isAll){
+            sb.append("SHOW LOAD ALL");
+        }else{
+            if (!Strings.isNullOrEmpty(dbName)) {
+                sb.append("SHOW LOAD FROM `").append(dbName).append("`");
+            }
+        }
+
+        if (whereClause != null) {
+            sb.append(" WHERE ").append(whereClause.toSql());
+        }
+
+        // Order By clause
+        if (orderByElements != null) {
+            sb.append(" ORDER BY ");
+            for (int i = 0; i < orderByElements.size(); ++i) {
+                sb.append(orderByElements.get(i).getExpr().toSql());
+                sb.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
+                sb.append((i + 1 != orderByElements.size()) ? ", " : "");
+            }
+        }
+
+        if (getLimit() != -1L) {
+            sb.append(" LIMIT ").append(getLimit());
+        }
+
+        if (getOffset() != -1L) {
+            sb.append(" OFFSET ").append(getOffset());
+        }
+
+        return sb.toString();
     }
 
     private void checkPredicateName(Expr leftChild, Expr rightChild) throws AnalysisException {
@@ -267,42 +307,6 @@ public class ShowLoadStmt extends ShowStmt {
                     + " or LABEL LIKE \"matcher\", " + " or STATE = \"PENDING|ETL|LOADING|FINISHED|CANCELLED\", "
                     + " or compound predicate with operator AND");
         }
-    }
-
-    @Override
-    public String toSql() {
-        StringBuilder sb = new StringBuilder();
-        if(isAll){
-            sb.append("SHOW LOAD ALL ");
-        }else{
-            if (!Strings.isNullOrEmpty(dbName)) {
-                sb.append("SHOW LOAD FROM `").append(dbName).append("` ");
-            }
-        }
-
-        if (whereClause != null) {
-            sb.append("WHERE ").append(whereClause.toSql());
-        }
-
-        // Order By clause
-        if (orderByElements != null) {
-            sb.append(" ORDER BY ");
-            for (int i = 0; i < orderByElements.size(); ++i) {
-                sb.append(orderByElements.get(i).getExpr().toSql());
-                sb.append((orderByElements.get(i).getIsAsc()) ? " ASC" : " DESC");
-                sb.append((i + 1 != orderByElements.size()) ? ", " : "");
-            }
-        }
-
-        if (getLimit() != -1L) {
-            sb.append(" LIMIT ").append(getLimit());
-        }
-
-        if (getOffset() != -1L) {
-            sb.append(" OFFSET ").append(getOffset());
-        }
-
-        return sb.toString();
     }
 
     @Override
