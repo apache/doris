@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_string.h"
 
+#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -497,6 +498,7 @@ void ColumnString::protect() {
     get_offsets().protect();
 }
 
+<<<<<<< HEAD
 void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                                     int direction, std::vector<uint8>& cmp_res,
                                     uint8* __restrict filter) const {
@@ -522,6 +524,9 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
 }
 
 ColumnPtr ColumnString::index(const IColumn & indexes, size_t limit) const {
+=======
+ColumnPtr ColumnString::index(const IColumn& indexes, size_t limit) const {
+>>>>>>> 2d251009b8 ([feature-dynamic-table](syntax) support dynamic table syntax)
     return select_index_impl(*this, indexes, limit);
 }
 

@@ -40,6 +40,7 @@ struct TTabletSchema {
     12: optional i32 sort_col_num
     13: optional bool disable_auto_compaction
     14: optional bool store_row_column = false
+    15: optional bool is_dynamic_schema = false
 }
 
 // this enum stands for different storage format in src_backends

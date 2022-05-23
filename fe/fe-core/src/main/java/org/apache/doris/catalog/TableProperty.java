@@ -60,6 +60,7 @@ public class TableProperty implements Writable {
     private boolean isInMemory = false;
 
     private String storagePolicy = "";
+    private boolean isDynamicSchema = false;
 
     /*
      * the default storage format of this table.
@@ -186,6 +187,12 @@ public class TableProperty implements Writable {
         return storagePolicy;
     }
 
+    public TableProperty buildDynamicSchema() {
+        isDynamicSchema = Boolean.parseBoolean(
+            properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "false"));
+        return this;
+    }
+
     public TableProperty buildDataSortInfo() {
         HashMap<String, String> dataSortInfoProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -264,6 +271,10 @@ public class TableProperty implements Writable {
         return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
     }
 
+    public boolean isDynamicSchema() {
+        return isDynamicSchema;
+    }
+
     public TStorageFormat getStorageFormat() {
         // Force convert all V1 table to V2 table
         if (TStorageFormat.V1 == storageFormat) {
@@ -325,6 +336,7 @@ public class TableProperty implements Writable {
         TableProperty tableProperty = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .executeBuildDynamicProperty()
                 .buildInMemory()
+                .buildDynamicSchema()
                 .buildStorageFormat()
                 .buildDataSortInfo()
                 .buildCompressionType()

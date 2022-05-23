@@ -374,8 +374,8 @@ FieldType get_field_type(const IDataType* data_type) {
     }
 }
 
-Status parse_object_column(ColumnObject& dest, const IColumn& src,
-            bool need_finalize, const int* row_begin, const int* row_end) {
+Status parse_object_column(ColumnObject& dest, const IColumn& src, bool need_finalize,
+                           const int* row_begin, const int* row_end) {
     assert(src.is_column_string());
     const ColumnString* parsing_column {nullptr};
     if (!src.is_nullable()) {

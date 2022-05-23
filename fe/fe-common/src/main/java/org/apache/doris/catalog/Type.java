@@ -106,6 +106,7 @@ public abstract class Type {
     public static final MapType MAP = new MapType();
     public static final ArrayType ARRAY = ArrayType.create();
     public static final StructType STRUCT = new StructType();
+    public static final VariantType VARIANT = new VariantType();
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;

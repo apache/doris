@@ -398,7 +398,7 @@ public:
 
     /// Creates new column with values column[indexes[:limit]]. If limit is 0, all indexes are used.
     /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
-    virtual Ptr index(const IColumn & indexes, size_t limit) const = 0;
+    virtual Ptr index(const IColumn& indexes, size_t limit) const = 0;
 
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
@@ -449,25 +449,24 @@ public:
         LOG(FATAL) << "not support";
     };
 
-
     /// Appends one field multiple times. Can be optimized in inherited classes.
-    virtual void insert_many(const Field & field, size_t length) {
-        for (size_t i = 0; i < length; ++i)
-            insert(field);
+    virtual void insert_many(const Field& field, size_t length) {
+        for (size_t i = 0; i < length; ++i) insert(field);
     }
     /// Returns indices of values in column, that not equal to default value of column.
-    virtual void get_indices_of_non_default_rows(Offsets & indices, size_t from, size_t limit) const = 0;
+    virtual void get_indices_of_non_default_rows(Offsets& indices, size_t from,
+                                                 size_t limit) const = 0;
 
     template <typename Derived>
-    void get_indices_of_non_default_rows_impl(Offsets & indices, size_t from, size_t limit) const;
+    void get_indices_of_non_default_rows_impl(Offsets& indices, size_t from, size_t limit) const;
 
     /// Returns column with @total_size elements.
     /// In result column values from current column are at positions from @offsets.
     /// Other values are filled by @default_value.
     /// @shift means how much rows to skip from the beginning of current column.
     /// Used to create full column from sparse.
-    virtual Ptr create_with_offsets(const Offsets & offsets, const Field & default_field,
-                            size_t total_rows, size_t shift) const;
+    virtual Ptr create_with_offsets(const Offsets& offsets, const Field& default_field,
+                                    size_t total_rows, size_t shift) const;
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.

@@ -42,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -140,7 +141,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null);
+                distributionDesc, properties, extProperties, comment, null, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -155,7 +156,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops);
+                distributionDesc, properties, extProperties, comment, ops, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -169,7 +170,8 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList) {
+            String comment, List<AlterClause> rollupAlterClauseList,
+            boolean isDynamicSchema) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -186,6 +188,12 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
+        if (isDynamicSchema) {
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
+        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;

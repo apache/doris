@@ -17,12 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
 
-public class VariantType extends Type { 
+public class VariantType extends Type {
     public VariantType() {
 
     }
@@ -63,6 +62,7 @@ public class VariantType extends Type {
     public boolean supportsTablePartitioning() {
         return false;
     }
+
     @Override
     public int getSlotSize() {
         return PrimitiveType.VARIANT.getSlotSize();
@@ -70,8 +70,9 @@ public class VariantType extends Type {
 
     @Override
     public boolean isSupported() {
-        return Config.enable_complex_type_support;
+        return true;
     }
+
     @Override
     public boolean matchesType(Type t) {
         return t.isVariantType() || t.isStringType();

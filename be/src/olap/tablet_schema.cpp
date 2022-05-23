@@ -591,6 +591,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
     _store_row_column = schema.store_row_column();
+    _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
@@ -722,6 +723,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_sort_col_num(_sort_col_num);
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
+    tablet_schema_pb->set_is_dynamic_schema(_is_dynamic_schema);
 }
 
 size_t TabletSchema::row_size() const {
