@@ -363,7 +363,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
         _column = vectorized::ColumnString::create();
         auto padded_column =
                 assert_cast<vectorized::ColumnString*>(_column->assume_mutable().get());
-        padded_column->resize(rows);
+        padded_column->reserve(rows);
 
         for (size_t i = 0; i < rows; i++) {
             auto ref = column_string->get_data_at(i);
