@@ -55,7 +55,7 @@ public class InMemoryProfileStorage implements ProfileStorage {
     private final Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
 
     /**
-     * InMemoryProfileStorage
+     * InMemoryProfileStorage.
      */
     public InMemoryProfileStorage() {
         ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -135,7 +135,6 @@ public class InMemoryProfileStorage implements ProfileStorage {
             writeLock.unlock();
         }
     }
-
 
     private ProfileElement createElement(RuntimeProfile profile) {
         ProfileElement element = new ProfileElement();
