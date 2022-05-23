@@ -96,6 +96,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     // only in Rollup or MaterializedIndexMeta is true
     private boolean isReplay = false;
 
+    /**
+     * Constructor.
+     *
+     * @param mvName materialized view name
+     * @param queryStmt query stmt for construct materialized view. Must be SelectStmt
+     * @param properties properties for materialized view
+     */
     public CreateMaterializedViewStmt(String mvName, QueryStmt queryStmt, Map<String, String> properties) {
         this.mvName = mvName;
         this.queryStmt = queryStmt;
