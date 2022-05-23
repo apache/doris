@@ -70,11 +70,11 @@ public class PlannerTest extends TestWithFeService {
                 + " distributed by hash(k1)"
                 + " properties('replication_num' = '1');";
 
-        String tbl5 = "create table db1.tbl5(" +
-                        "k1 int," +
-                        "k2 int) " +
-                        "DISTRIBUTED BY HASH(k2) " +
-                        "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
+        String tbl5 = "create table db1.tbl5("
+                        + "k1 int,"
+                        + "k2 int) "
+                        + "DISTRIBUTED BY HASH(k2) "
+                        + "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
 
         createTables(tbl1, tbl2, tbl3, tbl4, tbl5);
     }
@@ -503,10 +503,10 @@ public class PlannerTest extends TestWithFeService {
 
     @Test
     public void testRewriteNestedUnionStmt() {
-        String qSQL = "SELECT k1 FROM db1.tbl5 WHERE k1 IN " +
-            "( SELECT k1 FROM ( SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 300 INTERSECT " +
-            "(SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 9 EXCEPT SELECT k1 " +
-            "FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 2) ) t )";
+        String qSQL = "SELECT k1 FROM db1.tbl5 WHERE k1 IN "
+            + "( SELECT k1 FROM ( SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 300 INTERSECT "
+            + "(SELECT k1 FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 9 EXCEPT SELECT k1 "
+            + "FROM db1.tbl5 ORDER BY k2 DESC, k1 DESC LIMIT 2) ) t )";
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, () -> parseAndAnalyzeStmt(qSQL));
         Assertions.assertTrue(exception.getMessage().contains("Unexpected exception: null"));
