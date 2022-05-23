@@ -17,7 +17,7 @@
 
 #include "vec/exec/vorc_scanner.h"
 
-#include <vec/exec/vorc_reader.h>
+#include <exec/arrow/orc_reader.h>
 
 namespace doris::vectorized {
 
@@ -33,7 +33,7 @@ VORCScanner::~VORCScanner() = default;
 
 ArrowReaderWrap* VORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                 int32_t num_of_columns_from_file) {
-    return new VORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);
+    return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);
 }
 
 } // namespace doris::vectorized

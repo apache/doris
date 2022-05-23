@@ -26,14 +26,14 @@
 #include <string>
 
 #include "common/status.h"
-#include "exec/arrow_reader.h"
-namespace doris::vectorized {
+#include "exec/arrow/arrow_reader.h"
+namespace doris {
 
 // Reader of orc file
-class VORCReaderWrap : public ArrowReaderWrap {
+class ORCReaderWrap : public ArrowReaderWrap {
 public:
-    VORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
-    virtual ~VORCReaderWrap();
+    ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
+    virtual ~ORCReaderWrap();
 
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::string& timezone) override;
@@ -41,18 +41,12 @@ public:
                       const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) override;
 
 private:
-    Status _column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     Status _next_stripe_reader(bool* eof);
 
 private:
     // orc file reader object
-    std::shared_ptr<::arrow::RecordBatchReader> _rb_reader;
     std::unique_ptr<arrow::adapters::orc::ORCFileReader> _reader;
-    std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _orc_column_ids;
     bool _cur_file_eof; // is read over?
-    int64_t _num_of_stripes;
-    int64_t _current_stripe;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -104,7 +104,6 @@ set(VEC_FILES
   exec/vbroker_scanner.cpp
   exec/vjson_scanner.cpp
   exec/vparquet_scanner.cpp
-  exec/vorc_reader.cpp
   exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
   exprs/vectorized_agg_fn.cpp

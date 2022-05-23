@@ -17,7 +17,7 @@
 
 #include "vec/exec/vparquet_scanner.h"
 
-#include "exec/parquet_reader.h"
+#include "exec/arrow/parquet_reader.h"
 
 namespace doris::vectorized {
 
