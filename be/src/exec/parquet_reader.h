@@ -40,6 +40,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/arrow_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -55,39 +56,23 @@ class SlotDescriptor;
 class MemPool;
 class FileReader;
 
-class ParquetFile : public arrow::io::RandomAccessFile {
-public:
-    ParquetFile(FileReader* file);
-    ~ParquetFile() override;
-    arrow::Result<int64_t> Read(int64_t nbytes, void* buffer) override;
-    arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override;
-    arrow::Result<int64_t> GetSize() override;
-    arrow::Status Seek(int64_t position) override;
-    arrow::Result<std::shared_ptr<arrow::Buffer>> Read(int64_t nbytes) override;
-    arrow::Result<int64_t> Tell() const override;
-    arrow::Status Close() override;
-    bool closed() const override;
-
-private:
-    FileReader* _file;
-    int64_t _pos = 0;
-};
-
 // Reader of broker parquet file
-class ParquetReaderWrap {
+class ParquetReaderWrap : public ArrowReaderWrap {
 public:
-    ParquetReaderWrap(FileReader* file_reader, int32_t num_of_columns_from_file);
-    virtual ~ParquetReaderWrap();
+    // batch_size is not use here
+    ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
+                      int32_t num_of_columns_from_file);
+    virtual ~ParquetReaderWrap() {}
 
     // Read
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                MemPool* mem_pool, bool* eof);
-    void close();
-    Status size(int64_t* size);
-    Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                               const std::string& timezone);
+                MemPool* mem_pool, bool* eof) override;
+    Status size(int64_t* size) override;
+    Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                       const std::string& timezone) override;
     Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                      const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
+                      const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) override;
+    void close() override;
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
@@ -104,9 +89,6 @@ private:
     Status read_next_batch();
 
 private:
-    const int32_t _num_of_columns_from_file;
-    std::shared_ptr<ParquetFile> _parquet;
-
     // parquet file reader object
     std::unique_ptr<::arrow::RecordBatchReader> _rb_batch;
     std::shared_ptr<arrow::RecordBatch> _batch;

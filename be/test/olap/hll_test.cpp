@@ -34,7 +34,7 @@ static uint64_t hash(uint64_t value) {
 }
 //  keep logic same with java version in fe when you change hll_test.cpp,see HllTest.java
 TEST_F(TestHll, Normal) {
-    uint8_t buf[HLL_REGISTERS_COUNT + 1];
+    uint8_t buf[HLL_REGISTERS_COUNT + 1] = {0};
 
     // empty
     {
