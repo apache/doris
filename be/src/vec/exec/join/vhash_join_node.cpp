@@ -974,7 +974,7 @@ Status HashJoinNode::open(RuntimeState* state) {
     if (_runtime_filter_descs.empty()) {
         std::promise<Status> thread_status;
         std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
-            .detach();
+                .detach();
 
         // Open the probe-side child so that it may perform any initialisation in parallel.
         // Don't exit even if we see an error, we still need to wait for the build thread
