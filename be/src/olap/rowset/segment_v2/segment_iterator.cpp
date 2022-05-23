@@ -807,7 +807,11 @@ void SegmentIterator::_init_current_block(
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
+                // TODO(Gabriel): support datetime v2
                 current_columns[cid]->set_datetime_type();
+            } else if (column_desc->type() == OLAP_FIELD_TYPE_DATEV2) {
+                // TODO(Gabriel): support datetime v2
+                current_columns[cid]->set_date_v2_type();
             }
             current_columns[cid]->reserve(_opts.block_row_max);
         }

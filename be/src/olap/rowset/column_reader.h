@@ -350,6 +350,16 @@ public:
             }
             break;
         }
+        case OLAP_FIELD_TYPE_DATEV2: {
+            _values = reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(uint32_t)));
+            uint32_t value = 0;
+            std::stringstream ss(_default_value);
+            ss >> value;
+            for (int i = 0; i < size; ++i) {
+                ((uint32_t*)_values)[i] = value;
+            }
+            break;
+        }
         case OLAP_FIELD_TYPE_DATETIME: {
             _values = reinterpret_cast<void*>(mem_pool->allocate(size * sizeof(uint64_t)));
             uint64_t value = timestamp_from_datetime(_default_value);
@@ -826,6 +836,8 @@ typedef IntegerColumnReaderWrapper<uint24_t, false> DateColumnReader;
 
 // Internal use LONG implementation
 typedef IntegerColumnReaderWrapper<uint64_t, false> DateTimeColumnReader;
+
+typedef IntegerColumnReaderWrapper<uint32_t, false> DateV2ColumnReader;
 
 } // namespace doris
 

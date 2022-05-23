@@ -50,6 +50,10 @@ static IAggregateFunction* create_aggregate_function_single_value(const String& 
         return new AggregateFunctionTemplate<Data<SingleValueDataFixed<Int64>>, false>(
                 argument_type);
     }
+    if (which.idx == TypeIndex::DateV2) {
+        return new AggregateFunctionTemplate<Data<SingleValueDataFixed<UInt32>>, false>(
+                argument_type);
+    }
     if (which.idx == TypeIndex::Decimal128) {
         return new AggregateFunctionTemplate<Data<SingleValueDataFixed<DecimalV2Value>>, false>(
                 argument_type);

@@ -73,6 +73,9 @@ enum class TypeIndex {
     LowCardinality,
     BitMap,
     HLL,
+    DateV2,
+    DateTimeV2,
+    TimeV2,
 };
 
 struct Consted {
@@ -254,6 +257,7 @@ struct TypeId<Int128> {
 
 using Date = Int64;
 using DateTime = Int64;
+using DateV2 = UInt32;
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
@@ -393,6 +397,12 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Date";
     case TypeIndex::DateTime:
         return "DateTime";
+    case TypeIndex::DateV2:
+        return "DateV2";
+    case TypeIndex::DateTimeV2:
+        return "DateTimeV2";
+    case TypeIndex::TimeV2:
+        return "TimeV2";
     case TypeIndex::String:
         return TypeName<String>::get();
     case TypeIndex::FixedString:

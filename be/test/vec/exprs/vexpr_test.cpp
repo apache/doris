@@ -188,6 +188,13 @@ struct literal_traits<TYPE_DATETIME> {
 };
 
 template <>
+struct literal_traits<TYPE_DATEV2> {
+    const static TPrimitiveType::type ttype = TPrimitiveType::DATEV2;
+    const static TExprNodeType::type tnode_type = TExprNodeType::STRING_LITERAL;
+    using CXXType = std::string;
+};
+
+template <>
 struct literal_traits<TYPE_DECIMALV2> {
     const static TPrimitiveType::type ttype = TPrimitiveType::DECIMALV2;
     const static TExprNodeType::type tnode_type = TExprNodeType::DECIMAL_LITERAL;
@@ -218,6 +225,14 @@ void set_literal<TYPE_LARGEINT, __int128_t>(TExprNode& node, const __int128_t& v
 // std::is_same<U, std::string>::value
 template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
           std::enable_if_t<T == TYPE_DATETIME, bool> = true>
+void set_literal(TExprNode& node, const U& value) {
+    TDateLiteral date_literal;
+    date_literal.__set_value(value);
+    node.__set_date_literal(date_literal);
+}
+
+template <PrimitiveType T, class U = typename literal_traits<T>::CXXType,
+          std::enable_if_t<T == TYPE_DATEV2, bool> = true>
 void set_literal(TExprNode& node, const U& value) {
     TDateLiteral date_literal;
     date_literal.__set_value(value);
@@ -339,6 +354,20 @@ TEST(TEST_VEXPR, LITERALTEST) {
         literal.execute(nullptr, &block, &ret);
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
+        EXPECT_EQ(v, dt);
+    }
+    {
+        vectorized::DateV2Value data_time_value;
+        const char* date = "20210407";
+        data_time_value.from_date_str(date, strlen(date));
+        uint32_t dt;
+        memcpy(&dt, &data_time_value, sizeof(uint32_t));
+        VLiteral literal(create_literal<TYPE_DATEV2, std::string>(std::string(date)));
+        Block block;
+        int ret = -1;
+        literal.execute(nullptr, &block, &ret);
+        auto ctn = block.safe_get_by_position(ret);
+        auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
     }
     {

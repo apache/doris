@@ -41,14 +41,28 @@ inline Int64 date_time_add(const Int64& t, Int64 delta, bool& is_null) {
     return binary_cast<doris::vectorized::VecDateTimeValue, Int64>(ts_value);
 }
 
-#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                 \
-    struct CLASS {                                                                \
-        using ReturnType = DataTypeDateTime;                                      \
-        static constexpr auto name = #NAME;                                       \
-        static constexpr auto is_nullable = true;                                 \
-        static inline Int64 execute(const Int64& t, Int64 delta, bool& is_null) { \
-            return date_time_add<TimeUnit::UNIT>(t, delta, is_null);              \
-        }                                                                         \
+template <TimeUnit unit>
+inline Int64 date_time_add(const UInt32& t, Int64 delta, bool& is_null) {
+    auto ts_value = binary_cast<UInt32, doris::vectorized::DateV2Value>(t);
+    TimeInterval interval(unit, delta, false);
+    is_null = !ts_value.date_add_interval(interval, unit);
+
+    return binary_cast<doris::vectorized::DateV2Value, UInt32>(ts_value);
+}
+
+#define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                     \
+    template <typename DateType, typename ArgType, typename ResultType>               \
+    struct CLASS {                                                                    \
+        using ReturnType = ResultType;                                                \
+        static constexpr auto name = #NAME;                                           \
+        static constexpr auto is_nullable = true;                                     \
+        static inline ArgType execute(const ArgType& t, Int64 delta, bool& is_null) { \
+            return date_time_add<TimeUnit::UNIT>(t, delta, is_null);                  \
+        }                                                                             \
+                                                                                      \
+        static DataTypes get_variadic_argument_types() {                              \
+            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()}; \
+        }                                                                             \
     }
 
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
@@ -59,84 +73,132 @@ ADD_TIME_FUNCTION_IMPL(AddWeeksImpl, weeks_add, WEEK);
 ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
 
+template <typename DateType, typename ArgType, typename ResultType>
 struct AddQuartersImpl {
-    using ReturnType = DataTypeDateTime;
+    using ReturnType = ResultType;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static inline Int64 execute(const Int64& t, Int64 delta, bool& is_null) {
+    static inline Int64 execute(const ArgType& t, Int64 delta, bool& is_null) {
         return date_time_add<TimeUnit::MONTH>(t, delta * 3, is_null);
     }
+
+    static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
-template <typename Transform>
+template <typename Transform, typename DateType, typename ArgType, typename ResultType>
 struct SubtractIntervalImpl {
-    using ReturnType = DataTypeDateTime;
+    using ReturnType = ResultType;
     static constexpr auto is_nullable = true;
-    static inline Int64 execute(const Int64& t, Int64 delta, bool& is_null) {
+    static inline Int64 execute(const ArgType& t, Int64 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};
     }
 };
 
-struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl> {
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType, ArgType, ResultType>,
+                                                  DateType, ArgType, ResultType> {
     static constexpr auto name = "seconds_sub";
 };
-struct SubtractMinutesImpl : SubtractIntervalImpl<AddMinutesImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractMinutesImpl : SubtractIntervalImpl<AddMinutesImpl<DateType, ArgType, ResultType>,
+                                                  DateType, ArgType, ResultType> {
     static constexpr auto name = "minutes_sub";
 };
-struct SubtractHoursImpl : SubtractIntervalImpl<AddHoursImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractHoursImpl : SubtractIntervalImpl<AddHoursImpl<DateType, ArgType, ResultType>,
+                                                DateType, ArgType, ResultType> {
     static constexpr auto name = "hours_sub";
 };
-struct SubtractDaysImpl : SubtractIntervalImpl<AddDaysImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractDaysImpl : SubtractIntervalImpl<AddDaysImpl<DateType, ArgType, ResultType>, DateType,
+                                               ArgType, ResultType> {
     static constexpr auto name = "days_sub";
 };
-struct SubtractWeeksImpl : SubtractIntervalImpl<AddWeeksImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractWeeksImpl : SubtractIntervalImpl<AddWeeksImpl<DateType, ArgType, ResultType>,
+                                                DateType, ArgType, ResultType> {
     static constexpr auto name = "weeks_sub";
 };
-struct SubtractMonthsImpl : SubtractIntervalImpl<AddMonthsImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractMonthsImpl : SubtractIntervalImpl<AddMonthsImpl<DateType, ArgType, ResultType>,
+                                                 DateType, ArgType, ResultType> {
     static constexpr auto name = "months_sub";
 };
-struct SubtractQuartersImpl : SubtractIntervalImpl<AddQuartersImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractQuartersImpl : SubtractIntervalImpl<AddQuartersImpl<DateType, ArgType, ResultType>,
+                                                   DateType, ArgType, ResultType> {
     static constexpr auto name = "quarters_sub";
 };
-struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl> {
+
+template <typename DateType, typename ArgType, typename ResultType>
+struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType, ArgType, ResultType>,
+                                                DateType, ArgType, ResultType> {
     static constexpr auto name = "years_sub";
 };
 
+template <typename DateValueType1, typename DateValueType2, typename DateType1, typename DateType2,
+          typename ArgType1, typename ArgType2>
 struct DateDiffImpl {
     using ReturnType = DataTypeInt32;
     static constexpr auto name = "datediff";
     static constexpr auto is_nullable = false;
-    static inline Int32 execute(const Int64& t0, const Int64& t1, bool& is_null) {
-        const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0);
-        const auto& ts1 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t1);
+    static inline Int32 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {
+        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
+        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         return ts0.daynr() - ts1.daynr();
     }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};
+    }
 };
 
+template <typename DateValueType1, typename DateValueType2, typename DateType1, typename DateType2,
+          typename ArgType1, typename ArgType2>
 struct TimeDiffImpl {
     using ReturnType = DataTypeFloat64;
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
-    static inline double execute(const Int64& t0, const Int64& t1, bool& is_null) {
-        const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0);
-        const auto& ts1 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t1);
+    static inline double execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {
+        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
+        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
         return ts0.second_diff(ts1);
     }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};
+    }
 };
 
-#define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT)                                              \
-    struct CLASS {                                                                              \
-        using ReturnType = DataTypeInt64;                                                       \
-        static constexpr auto name = #NAME;                                                     \
-        static constexpr auto is_nullable = false;                                              \
-        static inline int64_t execute(const Int64& t0, const Int64& t1, bool& is_null) {        \
-            const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0); \
-            const auto& ts1 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t1); \
-            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                             \
-            return VecDateTimeValue::datetime_diff<TimeUnit::UNIT>(ts1, ts0);                   \
-        }                                                                                       \
+#define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT)                                           \
+    template <typename DateValueType1, typename DateValueType2, typename DateType1,          \
+              typename DateType2, typename ArgType1, typename ArgType2>                      \
+    struct CLASS {                                                                           \
+        using ReturnType = DataTypeInt64;                                                    \
+        static constexpr auto name = #NAME;                                                  \
+        static constexpr auto is_nullable = false;                                           \
+        static inline Int64 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) { \
+            const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                   \
+            const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                   \
+            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                          \
+            return datetime_diff<TimeUnit::UNIT>(ts1, ts0);                                  \
+        }                                                                                    \
+                                                                                             \
+        static DataTypes get_variadic_argument_types() {                                     \
+            return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};           \
+        }                                                                                    \
     }
 
 TIME_DIFF_FUNCTION_IMPL(YearsDiffImpl, years_diff, YEAR);
@@ -147,29 +209,30 @@ TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 
-#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                      \
-    struct CLASS {                                                                              \
-        using ReturnType = DataTypeInt32;                                                       \
-        static constexpr auto name = #NAME;                                                     \
-        static constexpr auto is_nullable = false;                                              \
-        static inline int64_t execute(const Int64& t0, const Int32 mode, bool& is_null) {       \
-            const auto& ts0 = reinterpret_cast<const doris::vectorized::VecDateTimeValue&>(t0); \
-            is_null = !ts0.is_valid_date();                                                     \
-            return ts0.FUNCTION;                                                                \
-        }                                                                                       \
-        static DataTypes get_variadic_argument_types() {                                        \
-            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeInt32>()};   \
-        }                                                                                       \
+#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                  \
+    template <typename DateValueType, typename DateType, typename ArgType>                  \
+    struct CLASS {                                                                          \
+        using ReturnType = DataTypeInt32;                                                   \
+        static constexpr auto name = #NAME;                                                 \
+        static constexpr auto is_nullable = false;                                          \
+        static inline int64_t execute(const ArgType& t0, const Int32 mode, bool& is_null) { \
+            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                   \
+            is_null = !ts0.is_valid_date();                                                 \
+            return ts0.FUNCTION;                                                            \
+        }                                                                                   \
+        static DataTypes get_variadic_argument_types() {                                    \
+            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};       \
+        }                                                                                   \
     }
 
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)));
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)));
 
-template <typename FromType, typename ToType, typename Transform>
+template <typename FromType1, typename FromType2, typename ToType, typename Transform>
 struct DateTimeOp {
     // use for (DateTime, DateTime) -> other_type
-    static void vector_vector(const PaddedPODArray<FromType>& vec_from0,
-                              const PaddedPODArray<FromType>& vec_from1,
+    static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
+                              const PaddedPODArray<FromType2>& vec_from1,
                               PaddedPODArray<ToType>& vec_to, NullMap& null_map) {
         size_t size = vec_from0.size();
         vec_to.resize(size);
@@ -185,7 +248,7 @@ struct DateTimeOp {
     }
 
     // use for (DateTime, int32) -> other_type
-    static void vector_vector(const PaddedPODArray<FromType>& vec_from0,
+    static void vector_vector(const PaddedPODArray<FromType1>& vec_from0,
                               const PaddedPODArray<Int32>& vec_from1,
                               PaddedPODArray<ToType>& vec_to, NullMap& null_map) {
         size_t size = vec_from0.size();
@@ -198,7 +261,7 @@ struct DateTimeOp {
     }
 
     // use for (DateTime, const DateTime) -> other_type
-    static void vector_constant(const PaddedPODArray<FromType>& vec_from,
+    static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
                                 PaddedPODArray<ToType>& vec_to, NullMap& null_map, Int128& delta) {
         size_t size = vec_from.size();
         vec_to.resize(size);
@@ -211,7 +274,7 @@ struct DateTimeOp {
     }
 
     // use for (DateTime, const ColumnNumber) -> other_type
-    static void vector_constant(const PaddedPODArray<FromType>& vec_from,
+    static void vector_constant(const PaddedPODArray<FromType1>& vec_from,
                                 PaddedPODArray<ToType>& vec_to, NullMap& null_map, Int64 delta) {
         size_t size = vec_from.size();
         vec_to.resize(size);
@@ -224,7 +287,7 @@ struct DateTimeOp {
     }
 
     // use for (const DateTime, ColumnNumber) -> other_type
-    static void constant_vector(const FromType& from, PaddedPODArray<ToType>& vec_to,
+    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
                                 NullMap& null_map, const IColumn& delta) {
         size_t size = delta.size();
         vec_to.resize(size);
@@ -236,8 +299,8 @@ struct DateTimeOp {
         }
     }
 
-    static void constant_vector(const FromType& from, PaddedPODArray<ToType>& vec_to,
-                                NullMap& null_map, const PaddedPODArray<Int64>& delta) {
+    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
+                                NullMap& null_map, const PaddedPODArray<FromType2>& delta) {
         size_t size = delta.size();
         vec_to.resize(size);
         null_map.resize_fill(size, false);
@@ -248,14 +311,14 @@ struct DateTimeOp {
     }
 };
 
-template <typename FromType, typename Transform>
+template <typename FromType1, typename Transform, typename FromType2 = FromType1>
 struct DateTimeAddIntervalImpl {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         using ToType = typename Transform::ReturnType::FieldType;
-        using Op = DateTimeOp<FromType, ToType, Transform>;
+        using Op = DateTimeOp<FromType1, FromType2, ToType, Transform>;
 
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
+        if (const auto* sources = check_and_get_column<ColumnVector<FromType1>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
             auto null_map = ColumnUInt8::create();
             const IColumn& delta_column = *block.get_by_position(arguments[1]).column;
@@ -276,7 +339,7 @@ struct DateTimeAddIntervalImpl {
                 }
             } else {
                 if (const auto* delta_vec_column0 =
-                            check_and_get_column<ColumnVector<FromType>>(delta_column)) {
+                            check_and_get_column<ColumnVector<FromType2>>(delta_column)) {
                     Op::vector_vector(sources->get_data(), delta_vec_column0->get_data(),
                                       col_to->get_data(), null_map->get_data());
                 } else {
@@ -291,17 +354,17 @@ struct DateTimeAddIntervalImpl {
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(null_map));
         } else if (const auto* sources_const =
-                           check_and_get_column_const<ColumnVector<FromType>>(source_col.get())) {
+                           check_and_get_column_const<ColumnVector<FromType1>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
             auto null_map = ColumnUInt8::create();
 
-            if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType>>(
+            if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
                         *block.get_by_position(arguments[1]).column)) {
-                Op::constant_vector(sources_const->template get_value<FromType>(),
+                Op::constant_vector(sources_const->template get_value<FromType1>(),
                                     col_to->get_data(), null_map->get_data(),
                                     delta_vec_column->get_data());
             } else {
-                Op::constant_vector(sources_const->template get_value<FromType>(),
+                Op::constant_vector(sources_const->template get_value<FromType2>(),
                                     col_to->get_data(), null_map->get_data(),
                                     *block.get_by_position(arguments[1]).column);
             }
@@ -344,7 +407,8 @@ public:
         }
 
         if (arguments.size() == 2) {
-            if (!is_date_or_datetime(arguments[0].type)) {
+            if (!is_date_or_datetime(arguments[0].type) &&
+                !is_date_v2_or_datetime_v2(arguments[0].type)) {
                 LOG(FATAL) << fmt::format(
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
@@ -352,6 +416,7 @@ public:
             }
         } else {
             if (!WhichDataType(arguments[0].type).is_date_time() ||
+                !WhichDataType(arguments[0].type).is_date_time_v2() ||
                 !WhichDataType(arguments[2].type).is_string()) {
                 LOG(FATAL) << fmt::format(
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
@@ -368,14 +433,55 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
-        WhichDataType which(from_type);
+        const IDataType* first_arg_type = block.get_by_position(arguments[0]).type.get();
+        const IDataType* second_arg_type = block.get_by_position(arguments[1]).type.get();
+        WhichDataType which1(first_arg_type);
+        WhichDataType which2(second_arg_type);
 
-        if (which.is_date()) {
+        if (which1.is_date() && which2.is_date()) {
+            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
+                                           DataTypeDate::FieldType>::execute(block, arguments,
+                                                                             result);
+        } else if (which1.is_date_time() && which2.is_date()) {
+            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
+                                           DataTypeDate::FieldType>::execute(block, arguments,
+                                                                             result);
+        } else if (which1.is_date_v2() && which2.is_date()) {
+            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
+                                           DataTypeDate::FieldType>::execute(block, arguments,
+                                                                             result);
+        } else if (which1.is_date() && which2.is_date_time()) {
+            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
+                                           DataTypeDateTime::FieldType>::execute(block, arguments,
+                                                                                 result);
+        } else if (which1.is_date() && which2.is_date_v2()) {
+            return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform,
+                                           DataTypeDateV2::FieldType>::execute(block, arguments,
+                                                                               result);
+        } else if (which1.is_date_v2() && which2.is_date_time()) {
+            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
+                                           DataTypeDateTime::FieldType>::execute(block, arguments,
+                                                                                 result);
+        } else if (which1.is_date_v2() && which2.is_date_v2()) {
+            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform,
+                                           DataTypeDateV2::FieldType>::execute(block, arguments,
+                                                                               result);
+        } else if (which1.is_date_time() && which2.is_date_time()) {
+            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
+                                           DataTypeDateTime::FieldType>::execute(block, arguments,
+                                                                                 result);
+        } else if (which1.is_date_time() && which2.is_date_v2()) {
+            return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform,
+                                           DataTypeDateV2::FieldType>::execute(block, arguments,
+                                                                               result);
+        } else if (which1.is_date()) {
             return DateTimeAddIntervalImpl<DataTypeDate::FieldType, Transform>::execute(
                     block, arguments, result);
-        } else if (which.is_date_time()) {
+        } else if (which1.is_date_time()) {
             return DateTimeAddIntervalImpl<DataTypeDateTime::FieldType, Transform>::execute(
+                    block, arguments, result);
+        } else if (which1.is_date_v2()) {
+            return DateTimeAddIntervalImpl<DataTypeDateV2::FieldType, Transform>::execute(
                     block, arguments, result);
         } else {
             return Status::RuntimeError(
@@ -442,12 +548,11 @@ struct CurrentDateImpl {
     static Status execute(FunctionContext* context, Block& block, size_t result,
                           size_t input_rows_count) {
         auto col_to = ColumnVector<Int64>::create();
-        VecDateTimeValue dtv;
+        DateV2Value dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                               context->impl()->state()->timezone_obj())) {
-            reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATE);
-            auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
-                    *reinterpret_cast<VecDateTimeValue*>(&dtv));
+            auto date_packed_int =
+                    binary_cast<DateV2Value, uint32_t>(*reinterpret_cast<DateV2Value*>(&dtv));
             for (int i = 0; i < input_rows_count; i++) {
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);

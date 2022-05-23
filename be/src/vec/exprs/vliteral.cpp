@@ -91,6 +91,12 @@ void VLiteral::init(const TExprNode& node) {
             field = Int64(*reinterpret_cast<__int64_t*>(&value));
             break;
         }
+        case TYPE_DATEV2: {
+            DateV2Value value;
+            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
+            field = value.to_date_uint32();
+            break;
+        }
         case TYPE_DATETIME: {
             VecDateTimeValue value;
             value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());

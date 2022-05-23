@@ -144,7 +144,9 @@ enum FieldType {
     OLAP_FIELD_TYPE_BOOL = 24,
     OLAP_FIELD_TYPE_OBJECT = 25,
     OLAP_FIELD_TYPE_STRING = 26,
-    OLAP_FIELD_TYPE_QUANTILE_STATE = 27
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27,
+    OLAP_FIELD_TYPE_DATEV2 = 28,
+    OLAP_FIELD_TYPE_DATETIMEV2 = 29
 };
 
 // Define all aggregation methods supported by Field

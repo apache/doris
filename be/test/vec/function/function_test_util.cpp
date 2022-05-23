@@ -28,6 +28,14 @@ int64_t str_to_date_time(std::string datetime_str, bool data_time) {
     }
     return binary_cast<VecDateTimeValue, Int64>(v);
 }
+
+uint32_t str_to_date_v2(std::string datetime_str, std::string datetime_format) {
+    DateV2Value v;
+    v.from_date_format_str(datetime_format.c_str(), datetime_format.size(), datetime_str.c_str(),
+                           datetime_str.size());
+    return binary_cast<DateV2Value, UInt32>(v);
+}
+
 size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t index,
                                doris_udf::FunctionContext::TypeDesc& desc, DataTypePtr& type) {
     if (index < 0 || index >= input_types.size()) {
@@ -89,6 +97,14 @@ size_t type_index_to_data_type(const std::vector<std::any>& input_types, size_t 
     case TypeIndex::Date:
         desc.type = doris_udf::FunctionContext::TYPE_DATE;
         type = std::make_shared<DataTypeDate>();
+        return 1;
+    case TypeIndex::DateV2:
+        desc.type = doris_udf::FunctionContext::TYPE_DATEV2;
+        type = std::make_shared<DataTypeDateV2>();
+        return 1;
+    case TypeIndex::DateTimeV2:
+        desc.type = doris_udf::FunctionContext::TYPE_DATETIMEV2;
+        type = std::make_shared<DataTypeDateV2>();
         return 1;
     case TypeIndex::Array: {
         desc.type = doris_udf::FunctionContext::TYPE_ARRAY;
@@ -183,6 +199,13 @@ bool insert_cell(MutableColumnPtr& column, DataTypePtr type_ptr, const std::any&
         v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
                                datetime_str.c_str(), datetime_str.size());
         v.cast_to_date();
+        column->insert_data(reinterpret_cast<char*>(&v), 0);
+    } else if (type.is_date_v2()) {
+        static std::string date_time_format("%Y-%m-%d");
+        auto datetime_str = std::any_cast<std::string>(cell);
+        DateV2Value v;
+        v.from_date_format_str(date_time_format.c_str(), date_time_format.size(),
+                               datetime_str.c_str(), datetime_str.size());
         column->insert_data(reinterpret_cast<char*>(&v), 0);
     } else if (type.is_array()) {
         auto v = std::any_cast<Array>(cell);

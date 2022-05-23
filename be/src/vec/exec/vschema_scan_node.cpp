@@ -228,6 +228,12 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
         break;
     }
 
+    case TYPE_DATEV2: {
+        uint32_t num = *reinterpret_cast<uint32_t*>(slot);
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(num);
+        break;
+    }
+
     case TYPE_DATETIME: {
         VecDateTimeValue value;
         DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);

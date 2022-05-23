@@ -204,6 +204,10 @@ private:
         if (nested_column->is_date_type()) {
             res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map,
                                               *arguments[1].column, nested_null_map, dst_null_map);
+        } else if (nested_column->is_date_v2_type()) {
+            res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map,
+                                                *arguments[1].column, nested_null_map,
+                                                dst_null_map);
         } else if (nested_column->is_datetime_type()) {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map,
                                                   *arguments[1].column, nested_null_map,

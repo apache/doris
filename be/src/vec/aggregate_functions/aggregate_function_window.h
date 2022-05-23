@@ -527,6 +527,10 @@ static IAggregateFunction* create_function_single_value(const String& name,
         return new AggregateFunctionTemplate<
                 Data<LeadAndLagData<Int64, result_is_nullable, false, StoreType>>>(argument_types);
     }
+    if (which.is_date_v2()) {
+        return new AggregateFunctionTemplate<
+                Data<LeadAndLagData<UInt32, result_is_nullable, false, StoreType>>>(argument_types);
+    }
     if (which.is_string_or_fixed_string()) {
         return new AggregateFunctionTemplate<
                 Data<LeadAndLagData<StringRef, result_is_nullable, true, StoreType>>>(

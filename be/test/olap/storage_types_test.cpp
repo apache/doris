@@ -140,6 +140,8 @@ TEST(TypesTest, copy_and_equal) {
     common_test<OLAP_FIELD_TYPE_DATE>((1988 << 9) | (2 << 5) | 1);
     common_test<OLAP_FIELD_TYPE_DATETIME>(19880201010203L);
 
+    common_test<OLAP_FIELD_TYPE_DATEV2>((1988 << 16) | (2 << 8) | 1);
+
     Slice slice("12345abcde");
     common_test<OLAP_FIELD_TYPE_CHAR>(slice);
     common_test<OLAP_FIELD_TYPE_VARCHAR>(slice);
@@ -212,6 +214,10 @@ TEST(ArrayTypeTest, copy_and_equal) {
     uint24_t date_array[3] = {(1988 << 9) | (2 << 5) | 1, (1998 << 9) | (2 << 5) | 1,
                               (2008 << 9) | (2 << 5) | 1};
     common_test_array<OLAP_FIELD_TYPE_DATE>(CollectionValue(date_array, 3, null_signs));
+
+    uint32_t date_v2_array[3] = {(1988 << 16) | (2 << 8) | 1, (1998 << 16) | (2 << 8) | 1,
+                              (2008 << 16) | (2 << 8) | 1};
+    common_test_array<OLAP_FIELD_TYPE_DATEV2>(CollectionValue(date_v2_array, 3, null_signs));
 
     int64_t datetime_array[3] = {19880201010203L, 19980201010203L, 20080204010203L};
     common_test_array<OLAP_FIELD_TYPE_DATETIME>(CollectionValue(datetime_array, 3, null_signs));

@@ -52,6 +52,10 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
     case FieldType::OLAP_FIELD_TYPE_DATE: {
         return std::make_unique<OlapColumnDataConvertorDate>();
     }
+    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
+                std::make_shared<OlapColumnDataConvertorSimple<vectorized::UInt32>>();
+        break;
+    }
     case FieldType::OLAP_FIELD_TYPE_DATETIME: {
         return std::make_unique<OlapColumnDataConvertorDateTime>();
     }

@@ -524,6 +524,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
     template CLASS<decimal12_t>::CLASS(uint32_t column_id, const decimal12_t& value,           \
                                        bool opposite);                                         \
     template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value, bool opposite); \
+    template CLASS<uint32_t>::CLASS(uint32_t column_id, const uint32_t& value, bool opposite); \
     template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value, bool opposite); \
     template CLASS<bool>::CLASS(uint32_t column_id, const bool& value, bool opposite);
 
@@ -545,6 +546,7 @@ COMPARISON_PRED_CONSTRUCTOR_DECLARATION(GreaterEqualPredicate)
     template void CLASS<decimal12_t>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<StringValue>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const;    \
+    template void CLASS<uint32_t>::evaluate(VectorizedRowBatch* batch) const;    \
     template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const;    \
     template void CLASS<bool>::evaluate(VectorizedRowBatch* batch) const;
 
@@ -574,6 +576,8 @@ COMPARISON_PRED_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)  \
             const;                                                                                 \
     template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
+            const;                                                                                 \
+    template void CLASS<uint32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
             const;                                                                                 \
     template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
             const;                                                                                 \
@@ -617,6 +621,9 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template Status CLASS<uint24_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const; \
+    template Status CLASS<uint32_t>::evaluate(const Schema& schema,                               \
+                                              const std::vector<BitmapIndexIterator*>& iterators, \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<uint64_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const; \
@@ -652,6 +659,8 @@ COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(GreaterEqualPredicate)
                                                uint16_t* size) const;                      \
     template void CLASS<uint24_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
                                             uint16_t* size) const;                         \
+    template void CLASS<uint32_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
+                                            uint16_t* size) const;                         \
     template void CLASS<uint64_t>::evaluate(vectorized::IColumn& column, uint16_t* sel,    \
                                             uint16_t* size) const;                         \
     template void CLASS<bool>::evaluate(vectorized::IColumn& column, uint16_t* sel,        \
@@ -684,6 +693,8 @@ COMPARISON_PRED_COLUMN_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template void CLASS<StringValue>::evaluate_vec(vectorized::IColumn& column, uint16_t size, \
                                                    bool* flags) const;                         \
     template void CLASS<uint24_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
+                                                bool* flags) const;                            \
+    template void CLASS<uint32_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \
     template void CLASS<uint64_t>::evaluate_vec(vectorized::IColumn& column, uint16_t size,    \
                                                 bool* flags) const;                            \

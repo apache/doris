@@ -22,6 +22,7 @@
 
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_number_base.h"
+#include "vec/data_types/data_type_time_v2.h"
 
 class DateLUTImpl;
 
@@ -78,6 +79,14 @@ template <typename DataType>
 constexpr bool IsDateType = false;
 template <>
 inline constexpr bool IsDateType<DataTypeDate> = true;
+
+template <typename DataType>
+constexpr bool IsDateV2Type = false;
+template <>
+inline constexpr bool IsDateV2Type<DataTypeDateV2> = true;
+
+template <typename DataType>
+constexpr bool IsDateTimeV2Type = false;
 
 template <typename DataType>
 constexpr bool IsTimeType = IsDateTimeType<DataType> || IsDateType<DataType>;

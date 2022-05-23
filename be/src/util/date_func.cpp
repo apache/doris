@@ -19,6 +19,8 @@
 
 #include <iomanip>
 
+#include "vec/runtime/vdatetime_value.h"
+
 namespace doris {
 
 uint64_t timestamp_from_datetime(const std::string& datetime_str) {
@@ -52,6 +54,20 @@ uint24_t timestamp_from_date(const std::string& date_str) {
     }
 
     return uint24_t(value);
+}
+
+uint32_t timestamp_from_date_v2(const std::string& date_str) {
+    tm time_tm;
+    char* res = strptime(date_str.c_str(), "%Y-%m-%d", &time_tm);
+
+    uint32_t value = 0;
+    if (nullptr != res) {
+        value = (time_tm.tm_year << 16) | (time_tm.tm_mon << 8) | time_tm.tm_mday;
+    } else {
+        value = doris::vectorized::MIN_DATE_V2;
+    }
+
+    return value;
 }
 // refer to https://dev.mysql.com/doc/refman/5.7/en/time.html
 // the time value between '-838:59:59' and '838:59:59'

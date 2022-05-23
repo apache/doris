@@ -32,12 +32,19 @@ template <typename Transform>
 class FunctionDateTimeStringToString : public IFunction {
 public:
     static constexpr auto name = Transform::name;
+    static constexpr bool has_variadic_argument =
+            !std::is_void_v<decltype(has_variadic_argument_types(std::declval<Transform>()))>;
+
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeStringToString>(); }
 
     String get_name() const override { return name; }
 
-    size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
+    size_t get_number_of_arguments() const override { return 0; }
+    DataTypes get_variadic_argument_types_impl() const override {
+        if constexpr (has_variadic_argument) return Transform::get_variadic_argument_types();
+        return {};
+    }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());

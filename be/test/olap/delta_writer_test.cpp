@@ -151,6 +151,12 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
     k10.column_type.__set_scale(3);
     request->tablet_schema.columns.push_back(k10);
 
+    TColumn k11;
+    k11.column_name = "k11";
+    k11.__set_is_key(true);
+    k11.column_type.type = TPrimitiveType::DATEV2;
+    request->tablet_schema.columns.push_back(k11);
+
     TColumn v1;
     v1.column_name = "v1";
     v1.__set_is_key(false);
@@ -224,6 +230,13 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
     v10.column_type.__set_scale(3);
     v10.__set_aggregation_type(TAggregationType::SUM);
     request->tablet_schema.columns.push_back(v10);
+
+    TColumn v11;
+    v11.column_name = "v11";
+    v11.__set_is_key(false);
+    v11.column_type.type = TPrimitiveType::DATEV2;
+    v11.__set_aggregation_type(TAggregationType::REPLACE);
+    request->tablet_schema.columns.push_back(v11);
 }
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
@@ -262,6 +275,13 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
     v1.column_type.type = TPrimitiveType::DATETIME;
     v1.__set_aggregation_type(TAggregationType::REPLACE);
     request->tablet_schema.columns.push_back(v1);
+
+    TColumn v2;
+    v2.column_name = "v2";
+    v2.__set_is_key(false);
+    v2.column_type.type = TPrimitiveType::DATEV2;
+    v2.__set_aggregation_type(TAggregationType::REPLACE);
+    request->tablet_schema.columns.push_back(v2);
 }
 
 static TDescriptorTable create_descriptor_tablet() {
@@ -288,27 +308,31 @@ static TDescriptorTable create_descriptor_tablet() {
             TSlotDescriptorBuilder().string_type(65).column_name("k9").column_pos(8).build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().decimal_type(6, 3).column_name("k10").column_pos(9).build());
+    tuple_builder.add_slot(
+            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("k11").column_pos(10).build());
 
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("v1").column_pos(10).build());
+            TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("v1").column_pos(11).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("v2").column_pos(11).build());
+            TSlotDescriptorBuilder().type(TYPE_SMALLINT).column_name("v2").column_pos(12).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name("v3").column_pos(12).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("v3").column_pos(13).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("v4").column_pos(13).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("v4").column_pos(14).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("v5").column_pos(14).build());
+            TSlotDescriptorBuilder().type(TYPE_LARGEINT).column_name("v5").column_pos(15).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("v6").column_pos(15).build());
+            TSlotDescriptorBuilder().type(TYPE_DATE).column_name("v6").column_pos(16).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v7").column_pos(16).build());
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v7").column_pos(17).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(4).column_name("v8").column_pos(17).build());
+            TSlotDescriptorBuilder().string_type(4).column_name("v8").column_pos(18).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65).column_name("v9").column_pos(18).build());
+            TSlotDescriptorBuilder().string_type(65).column_name("v9").column_pos(19).build());
     tuple_builder.add_slot(
-            TSlotDescriptorBuilder().decimal_type(6, 3).column_name("v10").column_pos(19).build());
+            TSlotDescriptorBuilder().decimal_type(6, 3).column_name("v10").column_pos(20).build());
+    tuple_builder.add_slot(
+            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v11").column_pos(21).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -329,6 +353,8 @@ static TDescriptorTable create_descriptor_tablet_with_sequence_col() {
                                    .build());
     tuple_builder.add_slot(
             TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("v1").column_pos(3).build());
+    tuple_builder.add_slot(
+            TSlotDescriptorBuilder().type(TYPE_DATEV2).column_name("v2").column_pos(4).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -441,25 +467,27 @@ TEST_F(TestDeltaWriter, write) {
         DecimalV2Value decimal_value;
         decimal_value.assign_from_double(1.1);
         *(DecimalV2Value*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
-
-        *(int8_t*)(tuple->get_slot(slots[10]->tuple_offset())) = -127;
-        *(int16_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -32767;
-        *(int32_t*)(tuple->get_slot(slots[12]->tuple_offset())) = -2147483647;
-        *(int64_t*)(tuple->get_slot(slots[13]->tuple_offset())) = -9223372036854775807L;
-
-        memcpy(tuple->get_slot(slots[14]->tuple_offset()), &large_int_value, sizeof(int128_t));
-
-        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))
+        ((doris::vectorized::DateV2Value*)(tuple->get_slot(slots[10]->tuple_offset())))
                 ->from_date_str("2048-11-10", 10);
+
+        *(int8_t*)(tuple->get_slot(slots[11]->tuple_offset())) = -127;
+        *(int16_t*)(tuple->get_slot(slots[12]->tuple_offset())) = -32767;
+        *(int32_t*)(tuple->get_slot(slots[13]->tuple_offset())) = -2147483647;
+        *(int64_t*)(tuple->get_slot(slots[14]->tuple_offset())) = -9223372036854775807L;
+
+        memcpy(tuple->get_slot(slots[15]->tuple_offset()), &large_int_value, sizeof(int128_t));
+
         ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))
+                ->from_date_str("2048-11-10", 10);
+        ((DateTimeValue*)(tuple->get_slot(slots[17]->tuple_offset())))
                 ->from_date_str("2636-08-16 19:39:43", 19);
 
-        char_ptr = (StringValue*)(tuple->get_slot(slots[17]->tuple_offset()));
+        char_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
         char_ptr->ptr = (char*)pool.allocate(4);
         memcpy(char_ptr->ptr, "abcd", 4);
         char_ptr->len = 4;
 
-        var_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
+        var_ptr = (StringValue*)(tuple->get_slot(slots[19]->tuple_offset()));
         var_ptr->ptr = (char*)pool.allocate(5);
         memcpy(var_ptr->ptr, "abcde", 5);
         var_ptr->len = 5;
@@ -467,7 +495,10 @@ TEST_F(TestDeltaWriter, write) {
         DecimalV2Value val_decimal;
         val_decimal.assign_from_double(1.1);
 
-        *(DecimalV2Value*)(tuple->get_slot(slots[19]->tuple_offset())) = val_decimal;
+        *(DecimalV2Value*)(tuple->get_slot(slots[20]->tuple_offset())) = val_decimal;
+
+        ((doris::vectorized::DateV2Value*)(tuple->get_slot(slots[21]->tuple_offset())))
+                ->from_date_str("2048-11-10", 10);
 
         res = delta_writer->write(tuple);
         EXPECT_EQ(Status::OK(), res);
@@ -572,36 +603,45 @@ TEST_F(TestDeltaWriter, vec_write) {
         decimal_value.assign_from_double(1.1);
         columns[9]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
 
+        doris::vectorized::DateV2Value date_v2;
+        date_v2.from_date_str("2048-11-10", 10);
+        auto date_v2_int = date_v2.to_date_uint32();
+        columns[10]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
+
         int8_t v1 = -127;
-        columns[10]->insert_data((const char*)&v1, sizeof(v1));
+        columns[11]->insert_data((const char*)&v1, sizeof(v1));
 
         int16_t v2 = -32767;
-        columns[11]->insert_data((const char*)&v2, sizeof(v2));
+        columns[12]->insert_data((const char*)&v2, sizeof(v2));
 
         int32_t v3 = -2147483647;
-        columns[12]->insert_data((const char*)&v3, sizeof(v3));
+        columns[13]->insert_data((const char*)&v3, sizeof(v3));
 
         int64_t v4 = -9223372036854775807L;
-        columns[13]->insert_data((const char*)&v4, sizeof(v4));
+        columns[14]->insert_data((const char*)&v4, sizeof(v4));
 
         int128_t v5 = -90000;
-        columns[14]->insert_data((const char*)&v5, sizeof(v5));
+        columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
         DateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
         auto v6_int = v6.to_int64();
-        columns[15]->insert_data((const char*)&v6_int, sizeof(v6_int));
+        columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
         DateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
         auto v7_int = v7.to_int64();
-        columns[16]->insert_data((const char*)&v7_int, sizeof(v7_int));
+        columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
 
-        columns[17]->insert_data("abcd", 4);
-        columns[18]->insert_data("abcde", 5);
+        columns[18]->insert_data("abcd", 4);
+        columns[19]->insert_data("abcde", 5);
 
         decimal_value.assign_from_double(1.1);
-        columns[19]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
+        columns[20]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
+
+        date_v2.from_date_str("2048-11-10", 10);
+        date_v2_int = date_v2.to_date_uint32();
+        columns[21]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
 
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());
@@ -765,6 +805,11 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
         c4.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
+
+        doris::vectorized::DateV2Value c5;
+        c5.set_time(2022, 6, 6);
+        uint32_t c5_int = c5.to_date_uint32();
+        columns[4]->insert_data((const char*)&c5_int, sizeof(c5));
 
         res = delta_writer->write(&block, {0});
         ASSERT_TRUE(res.ok());

@@ -61,6 +61,7 @@ public:
             instance.register_data_type("Float32", std::make_shared<DataTypeFloat32>());
             instance.register_data_type("Float64", std::make_shared<DataTypeFloat64>());
             instance.register_data_type("Date", std::make_shared<DataTypeDate>());
+            instance.register_data_type("DateV2", std::make_shared<DataTypeDateV2>());
             instance.register_data_type("DateTime", std::make_shared<DataTypeDateTime>());
             instance.register_data_type("String", std::make_shared<DataTypeString>());
             instance.register_data_type("Decimal",

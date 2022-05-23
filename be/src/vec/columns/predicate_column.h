@@ -63,6 +63,14 @@ private:
         }
     }
 
+    void insert_date_v2_to_res_column(const uint16_t* sel, size_t sel_size,
+                                      vectorized::ColumnVector<UInt32>* res_ptr) {
+        for (size_t i = 0; i < sel_size; i++) {
+            DateV2Value date = DateV2Value::create_from_olap_date(get_date_at(sel[i]));
+            res_ptr->insert_data(reinterpret_cast<char*>(&date), 0);
+        }
+    }
+
     void insert_datetime_to_res_column(const uint16_t* sel, size_t sel_size,
                                        vectorized::ColumnVector<Int64>* res_ptr) {
         for (size_t i = 0; i < sel_size; i++) {
@@ -403,8 +411,9 @@ public:
             insert_datetime_to_res_column(
                     sel, sel_size, reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, uint24_t>) {
-            insert_date_to_res_column(sel, sel_size,
-                                      reinterpret_cast<vectorized::ColumnVector<Int64>*>(col_ptr));
+            insert_date_v2_to_res_column(
+                    sel, sel_size,
+                    reinterpret_cast<vectorized::ColumnVector<UInt32>*>(col_ptr));
         } else if constexpr (std::is_same_v<T, doris::vectorized::Int128>) {
             insert_default_value_res_column(
                     sel, sel_size,

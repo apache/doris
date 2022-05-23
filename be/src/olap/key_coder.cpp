@@ -73,6 +73,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
         add_mapping<OLAP_FIELD_TYPE_STRING>();
         add_mapping<OLAP_FIELD_TYPE_BOOL>();
+        add_mapping<OLAP_FIELD_TYPE_DATEV2>();
     }
 
     template <FieldType field_type>

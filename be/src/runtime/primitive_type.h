@@ -61,10 +61,13 @@ enum PrimitiveType {
     TYPE_HLL,       /* 19 */
     TYPE_DECIMALV2, /* 20 */
 
-    TYPE_TIME,          /* 21 */
-    TYPE_OBJECT,        /* 22 */
-    TYPE_STRING,        /* 23 */
-    TYPE_QUANTILE_STATE /* 24 */
+    TYPE_TIME,           /* 21 */
+    TYPE_OBJECT,         /* 22 */
+    TYPE_STRING,         /* 23 */
+    TYPE_QUANTILE_STATE, /* 24 */
+    TYPE_DATEV2,         /* 25 */
+    TYPE_DATETIMEV2,     /* 26 */
+    TYPE_TIMEV2,         /* 27 */
 };
 
 inline PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
@@ -107,6 +110,12 @@ inline PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_LARGEINT;
     case FunctionContext::Type::TYPE_DATE:
         return PrimitiveType::TYPE_DATE;
+    case FunctionContext::Type::TYPE_DATEV2:
+        return PrimitiveType::TYPE_DATEV2;
+    case FunctionContext::Type::TYPE_DATETIMEV2:
+        return PrimitiveType::TYPE_DATETIMEV2;
+    case FunctionContext::Type::TYPE_TIMEV2:
+        return PrimitiveType::TYPE_TIMEV2;
     default:
         DCHECK(false);
     }
@@ -123,6 +132,8 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_DATETIME:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
     case TYPE_DECIMALV2:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
@@ -134,6 +145,7 @@ inline bool is_enumeration_type(PrimitiveType type) {
     case TYPE_BIGINT:
     case TYPE_LARGEINT:
     case TYPE_DATE:
+    case TYPE_DATEV2:
         return true;
 
     case INVALID_TYPE:
@@ -145,7 +157,8 @@ inline bool is_enumeration_type(PrimitiveType type) {
 }
 
 inline bool is_date_type(PrimitiveType type) {
-    return type == TYPE_DATETIME || type == TYPE_DATE;
+    return type == TYPE_DATETIME || type == TYPE_DATE || type == TYPE_DATETIMEV2 ||
+           type == TYPE_DATEV2;
 }
 
 inline bool is_string_type(PrimitiveType type) {
@@ -192,6 +205,10 @@ inline int get_byte_size(PrimitiveType type) {
         return 16;
 
     case INVALID_TYPE:
+    // datev2/datetimev2/timev2 is not supported on row-based engine
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
     default:
         DCHECK(false);
     }
@@ -235,6 +252,10 @@ inline int get_real_byte_size(PrimitiveType type) {
         return 16;
 
     case INVALID_TYPE:
+    // datev2/datetimev2/timev2 is not supported on row-based engine
+    case TYPE_DATEV2:
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMEV2:
     default:
         DCHECK(false);
     }
@@ -377,6 +398,16 @@ struct PredicatePrimitiveTypeTraits<TYPE_DATE> {
 
 template <>
 struct PredicatePrimitiveTypeTraits<TYPE_DATETIME> {
+    using PredicateFieldType = uint64_t;
+};
+
+template <>
+struct PredicatePrimitiveTypeTraits<TYPE_DATEV2> {
+    using PredicateFieldType = uint24_t;
+};
+
+template <>
+struct PredicatePrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using PredicateFieldType = uint64_t;
 };
 

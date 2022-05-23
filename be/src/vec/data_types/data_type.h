@@ -293,7 +293,10 @@ struct WhichDataType {
 
     bool is_date() const { return idx == TypeIndex::Date; }
     bool is_date_time() const { return idx == TypeIndex::DateTime; }
+    bool is_date_v2() const { return idx == TypeIndex::DateV2; }
+    bool is_date_time_v2() const { return idx == TypeIndex::DateTimeV2; }
     bool is_date_or_datetime() const { return is_date() || is_date_time(); }
+    bool is_date_v2_or_datetime_v2() const { return is_date_v2() || is_date_time_v2(); }
 
     bool is_string() const { return idx == TypeIndex::String; }
     bool is_fixed_string() const { return idx == TypeIndex::FixedString; }
@@ -316,8 +319,14 @@ struct WhichDataType {
 inline bool is_date(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date();
 }
+inline bool is_date_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_v2();
+}
 inline bool is_date_or_datetime(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_date_or_datetime();
+}
+inline bool is_date_v2_or_datetime_v2(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_date_v2_or_datetime_v2();
 }
 inline bool is_enum(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_enum();
@@ -374,7 +383,7 @@ template <typename T>
 inline bool is_columned_as_number(const T& data_type) {
     WhichDataType which(data_type);
     return which.is_int() || which.is_uint() || which.is_float() || which.is_date_or_datetime() ||
-           which.is_uuid();
+           which.is_uuid() || which.is_date_v2();
 }
 
 template <typename T>

@@ -183,6 +183,21 @@ public:
         }
     }
 
+    void insert_date_v2_column(const char* data_ptr, size_t num) {
+        size_t value_size = sizeof(uint24_t);
+        for (int i = 0; i < num; i++) {
+            const char* cur_ptr = data_ptr + value_size * i;
+            uint64_t value = 0;
+            value = *(unsigned char*)(cur_ptr + 2);
+            value <<= 8;
+            value |= *(unsigned char*)(cur_ptr + 1);
+            value <<= 8;
+            value |= *(unsigned char*)(cur_ptr);
+            vectorized::DateV2Value date = DateV2Value::create_from_olap_date(value);
+            this->insert_data(reinterpret_cast<char*>(&date), 0);
+        }
+    }
+
     void insert_datetime_column(const char* data_ptr, size_t num) {
         size_t value_size = sizeof(uint64_t);
         for (int i = 0; i < num; i++) {
@@ -202,6 +217,8 @@ public:
             insert_many_in_copy_way(data_ptr, num);
         } else if (IColumn::is_date) {
             insert_date_column(data_ptr, num);
+        } else if (IColumn::is_date_v2) {
+            insert_date_v2_column(data_ptr, num);
         } else if (IColumn::is_date_time) {
             insert_datetime_column(data_ptr, num);
         } else {

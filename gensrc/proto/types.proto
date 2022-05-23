@@ -97,6 +97,7 @@ message PGenericType {
         DECIMAL128 = 25;
         BYTES = 26;
         NOTHING = 27;
+        DATEV2 = 28;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

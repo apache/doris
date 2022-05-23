@@ -465,14 +465,17 @@ public:
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
     virtual bool is_date_type() const { return is_date; }
+    virtual bool is_date_v2_type() const { return is_date_v2; }
     virtual bool is_datetime_type() const { return is_date_time; }
 
     virtual void set_date_type() { is_date = true; }
+    virtual void set_date_v2_type() { is_date_v2 = true; }
     virtual void set_datetime_type() { is_date_time = true; }
 
     // todo(wb): a temporary implemention, need re-abstract here
     bool is_date = false;
     bool is_date_time = false;
+    bool is_date_v2 = false;
 
 protected:
     /// Template is to devirtualize calls to insert_from method.

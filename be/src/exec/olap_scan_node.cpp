@@ -870,7 +870,8 @@ Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescrip
 }
 
 static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+    if ((slot->type().is_date_type() || slot->type().is_date_v2_type()) &&
+        (expr->type().is_date_type() || expr->type().is_date_v2_type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
@@ -979,6 +980,7 @@ Status OlapScanNode::change_fixed_value_range(ColumnValueRange<T>& temp_range, P
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_DATETIME:
+    case TYPE_DATEV2:
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
     case TYPE_INT:
@@ -1279,6 +1281,7 @@ Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot,
                 case TYPE_VARCHAR:
                 case TYPE_HLL:
                 case TYPE_DATETIME:
+                case TYPE_DATEV2:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
                 case TYPE_BIGINT:

@@ -134,6 +134,20 @@ struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
     }
 };
 
+template <>
+struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
+                          typename CppTypeTraits<OLAP_FIELD_TYPE_DATEV2>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATEV2>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATEV2>(data, opts);
+        return Status::OK();
+    }
+};
+
 template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
                           typename std::enable_if<std::is_integral<CppType>::value>::type> {
@@ -266,6 +280,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
+
+    _add_map<OLAP_FIELD_TYPE_DATEV2, BIT_SHUFFLE>();
+    _add_map<OLAP_FIELD_TYPE_DATEV2, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING, true>();
 
     _add_map<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();

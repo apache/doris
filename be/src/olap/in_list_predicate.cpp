@@ -299,6 +299,8 @@ IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
                                        phmap::flat_hash_set<StringValue>&& values, bool opposite); \
     template CLASS<uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,   \
                                     bool opposite);                                                \
+    template CLASS<uint32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint32_t>&& values,   \
+                                    bool opposite);                                                \
     template CLASS<uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values,   \
                                     bool opposite);
 
@@ -316,6 +318,7 @@ IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
     template void CLASS<decimal12_t>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<StringValue>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const;    \
+    template void CLASS<uint32_t>::evaluate(VectorizedRowBatch* batch) const;    \
     template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const;
 
 IN_LIST_PRED_EVALUATE_DECLARATION(InListPredicate)
@@ -340,6 +343,8 @@ IN_LIST_PRED_EVALUATE_DECLARATION(NotInListPredicate)
     template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)  \
             const;                                                                                 \
     template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
+            const;                                                                                 \
+    template void CLASS<uint32_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
             const;                                                                                 \
     template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size)     \
             const;
@@ -376,6 +381,9 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
             uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
     template Status CLASS<uint24_t>::evaluate(const Schema& schema,                               \
+                                              const std::vector<BitmapIndexIterator*>& iterators, \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
+    template Status CLASS<uint32_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
                                               uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<uint64_t>::evaluate(const Schema& schema,                               \

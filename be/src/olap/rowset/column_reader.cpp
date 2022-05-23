@@ -610,6 +610,12 @@ ColumnReader* ColumnReader::create(uint32_t column_id, const std::vector<TabletC
         break;
     }
 
+    case OLAP_FIELD_TYPE_DATEV2: {
+        reader = new (std::nothrow) DateColumnReader(column_id, column_unique_id);
+
+        break;
+    }
+
     case OLAP_FIELD_TYPE_DECIMAL: {
         reader = new (std::nothrow) DecimalColumnReader(column_id, column_unique_id);
         break;

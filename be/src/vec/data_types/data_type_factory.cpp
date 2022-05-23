@@ -81,6 +81,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DATE:
         nested = std::make_shared<vectorized::DataTypeDate>();
         break;
+    case TYPE_DATEV2:
+        nested = std::make_shared<vectorized::DataTypeDateV2>();
+        break;
     case TYPE_DATETIME:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
@@ -149,6 +152,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type) 
         break;
     case OLAP_FIELD_TYPE_DATE:
         result = std::make_shared<vectorized::DataTypeDate>();
+        break;
+    case OLAP_FIELD_TYPE_DATEV2:
+        result = std::make_shared<vectorized::DataTypeDateV2>();
         break;
     case OLAP_FIELD_TYPE_DATETIME:
         result = std::make_shared<vectorized::DataTypeDateTime>();
@@ -222,6 +228,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     case PGenericType::DATE:
         nested = std::make_shared<DataTypeDate>();
+        break;
+    case PGenericType::DATEV2:
+        nested = std::make_shared<DataTypeDateV2>();
         break;
     case PGenericType::DATETIME:
         nested = std::make_shared<DataTypeDateTime>();

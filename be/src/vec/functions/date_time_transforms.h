@@ -33,14 +33,25 @@
 
 namespace doris::vectorized {
 
-#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                    \
-    struct CLASS {                                                                   \
-        static constexpr auto name = #UNIT;                                          \
-        static inline auto execute(const Int64& t, bool& is_null) {                  \
-            const auto& date_time_value = (doris::vectorized::VecDateTimeValue&)(t); \
-            is_null = !date_time_value.is_valid_date();                              \
-            return date_time_value.FUNCTION;                                         \
-        }                                                                            \
+#define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                            \
+    template <typename DateValueType, typename ArgType>                      \
+    struct CLASS {                                                           \
+        using ARG_TYPE = ArgType;                                            \
+        static constexpr auto name = #UNIT;                                  \
+                                                                             \
+        static inline auto execute(const ARG_TYPE& t, bool& is_null) {       \
+            const auto& date_time_value = (DateValueType&)(t);               \
+            is_null = !date_time_value.is_valid_date();                      \
+            return date_time_value.FUNCTION;                                 \
+        }                                                                    \
+                                                                             \
+        static DataTypes get_variadic_argument_types() {                     \
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) { \
+                return {std::make_shared<DataTypeDateTime>()};               \
+            } else {                                                         \
+                return {std::make_shared<DataTypeDateV2>()};                 \
+            }                                                                \
+        }                                                                    \
     }
 
 #define TO_TIME_FUNCTION(CLASS, UNIT) TIME_FUNCTION_IMPL(CLASS, UNIT, UNIT())
@@ -60,49 +71,76 @@ TIME_FUNCTION_IMPL(DayOfWeekImpl, dayofweek, day_of_week());
 // TODO: the method should be always not nullable
 TIME_FUNCTION_IMPL(ToDaysImpl, to_days, daynr());
 
-#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                            \
-    struct CLASS {                                                                   \
-        static constexpr auto name = #UNIT;                                          \
-        static inline auto execute(const Int64& t, bool& is_null) {                  \
-            const auto& date_time_value = (doris::vectorized::VecDateTimeValue&)(t); \
-            is_null = !date_time_value.is_valid_date();                              \
-            return date_time_value.FUNCTION;                                         \
-        }                                                                            \
-                                                                                     \
-        static DataTypes get_variadic_argument_types() {                             \
-            return {std::make_shared<DataTypeDateTime>()};                           \
-        }                                                                            \
+#define TIME_FUNCTION_ONE_ARG_IMPL(CLASS, UNIT, FUNCTION)                    \
+    template <typename DateValueType, typename ArgType>                      \
+    struct CLASS {                                                           \
+        using ARG_TYPE = ArgType;                                            \
+        static constexpr auto name = #UNIT;                                  \
+                                                                             \
+        static inline auto execute(const ARG_TYPE& t, bool& is_null) {       \
+            const auto& date_time_value = (DateValueType&)(t);               \
+            is_null = !date_time_value.is_valid_date();                      \
+            return date_time_value.FUNCTION;                                 \
+        }                                                                    \
+                                                                             \
+        static DataTypes get_variadic_argument_types() {                     \
+            if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) { \
+                return {std::make_shared<DataTypeDateTime>()};               \
+            } else {                                                         \
+                return {std::make_shared<DataTypeDateV2>()};                 \
+            }                                                                \
+        }                                                                    \
     }
 
 TIME_FUNCTION_ONE_ARG_IMPL(ToWeekOneArgImpl, week, week(mysql_week_mode(0)));
 TIME_FUNCTION_ONE_ARG_IMPL(ToYearWeekOneArgImpl, yearweek, year_week(mysql_week_mode(0)));
 
+template <typename DateValueType, typename ArgType>
 struct ToDateImpl {
+    using ARG_TYPE = ArgType;
     static constexpr auto name = "to_date";
 
-    static inline auto execute(const Int64& t, bool& is_null) {
-        auto dt = binary_cast<Int64, doris::vectorized::VecDateTimeValue>(t);
+    static inline auto execute(const ArgType& t, bool& is_null) {
+        auto dt = binary_cast<ArgType, DateValueType>(t);
         is_null = !dt.is_valid_date();
-        dt.cast_to_date();
-        return binary_cast<doris::vectorized::VecDateTimeValue, Int64>(dt);
+        if constexpr (!std::is_same_v<DateValueType, doris::vectorized::DateV2Value>) {
+            dt.cast_to_date();
+        }
+        return binary_cast<DateValueType, ArgType>(dt);
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DateValueType, VecDateTimeValue>) {
+            return {std::make_shared<DataTypeDateTime>()};
+        } else {
+            return {std::make_shared<DataTypeDateV2>()};
+        }
     }
 };
-struct DateImpl : public ToDateImpl {
+
+template <typename DateValue, typename ArgType>
+struct DateImpl : public ToDateImpl<DateValue, ArgType> {
     static constexpr auto name = "date";
 };
 
 // TODO: This function look like no need do indeed copy here, we should optimize
 // this function
+template <typename ArgType>
 struct TimeStampImpl {
+    using ARG_TYPE = ArgType;
     static constexpr auto name = "timestamp";
-    static inline auto execute(const Int64& t, bool& is_null) { return t; }
+
+    static inline auto execute(const ARG_TYPE& t, bool& is_null) { return t; }
 };
 
+template <typename DateValueType, typename ArgType>
 struct DayNameImpl {
+    using ARG_TYPE = ArgType;
+    using DATE_TYPE = DateValueType;
     static constexpr auto name = "dayname";
     static constexpr auto max_size = MAX_DAY_NAME_LEN;
 
-    static inline auto execute(const VecDateTimeValue& dt, ColumnString::Chars& res_data,
+    static inline auto execute(const DateValueType& dt, ColumnString::Chars& res_data,
                                size_t& offset, bool& is_null) {
         const auto* day_name = dt.day_name();
         is_null = !dt.is_valid_date();
@@ -117,14 +155,25 @@ struct DayNameImpl {
         }
         return offset;
     }
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DATE_TYPE, VecDateTimeValue>) {
+            return {std::make_shared<DataTypeDateTime>()};
+        } else {
+            return {std::make_shared<DataTypeDateV2>()};
+        }
+    }
 };
 
+template <typename DateValueType, typename ArgType>
 struct MonthNameImpl {
+    using ARG_TYPE = ArgType;
+    using DATE_TYPE = DateValueType;
     static constexpr auto name = "monthname";
     static constexpr auto max_size = MAX_MONTH_NAME_LEN;
 
-    static inline auto execute(const VecDateTimeValue& dt, ColumnString::Chars& res_data,
-                               size_t& offset, bool& is_null) {
+    static inline auto execute(const DATE_TYPE& dt, ColumnString::Chars& res_data, size_t& offset,
+                               bool& is_null) {
         const auto* month_name = dt.month_name();
         is_null = !dt.is_valid_date();
         if (month_name == nullptr || is_null) {
@@ -138,16 +187,25 @@ struct MonthNameImpl {
         }
         return offset;
     }
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DATE_TYPE, VecDateTimeValue>) {
+            return {std::make_shared<DataTypeDateTime>()};
+        } else {
+            return {std::make_shared<DataTypeDateV2>()};
+        }
+    }
 };
 
+template <typename DateType, typename ArgType>
 struct DateFormatImpl {
-    using FromType = Int64;
+    using FromType = ArgType;
 
     static constexpr auto name = "date_format";
 
-    static inline auto execute(const Int64& t, StringRef format, ColumnString::Chars& res_data,
+    static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset) {
-        const auto& dt = (VecDateTimeValue&)t;
+        const auto& dt = (DateType&)t;
         if (format.size > 128) {
             offset += 1;
             res_data.emplace_back(0);
@@ -165,9 +223,18 @@ struct DateFormatImpl {
         offset += len;
         return std::pair {offset, false};
     }
+
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (std::is_same_v<DateType, VecDateTimeValue>) {
+            return {std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeString>()};
+        } else {
+            return {std::make_shared<DataTypeDateV2>(), std::make_shared<DataTypeString>()};
+        }
+    }
 };
 
 // TODO: This function should be depend on argments not always nullable
+template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int32;
 
@@ -178,7 +245,7 @@ struct FromUnixTimeImpl {
         // TODO: use default time zone, slowly and incorrect, just for test use
         static cctz::time_zone time_zone = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
 
-        VecDateTimeValue dt;
+        DateType dt;
         if (format.size > 128 || val < 0 || val > INT_MAX || !dt.from_unixtime(val, time_zone)) {
             offset += 1;
             res_data.emplace_back(0);
@@ -212,6 +279,22 @@ struct TransformerToStringOneArgument {
         for (int i = 0; i < len; ++i) {
             const auto& t = ts[i];
             const auto& date_time_value = reinterpret_cast<const VecDateTimeValue&>(t);
+            res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
+                                                reinterpret_cast<bool&>(null_map[i]));
+        }
+    }
+
+    static void vector(const PaddedPODArray<UInt32>& ts, ColumnString::Chars& res_data,
+                       ColumnString::Offsets& res_offsets, NullMap& null_map) {
+        const auto len = ts.size();
+        res_data.resize(len * Transform::max_size);
+        res_offsets.resize(len);
+        null_map.resize_fill(len, false);
+
+        size_t offset = 0;
+        for (int i = 0; i < len; ++i) {
+            const auto& t = ts[i];
+            const auto& date_time_value = reinterpret_cast<const DateV2Value&>(t);
             res_offsets[i] = Transform::execute(date_time_value, res_data, offset,
                                                 reinterpret_cast<bool&>(null_map[i]));
         }

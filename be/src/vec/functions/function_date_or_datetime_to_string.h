@@ -48,7 +48,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        const auto* sources = check_and_get_column<ColumnVector<Int64>>(source_col.get());
+        const auto* sources =
+                check_and_get_column<ColumnVector<typename Transform::ARG_TYPE>>(source_col.get());
         auto col_res = ColumnString::create();
         auto null_map = ColumnVector<UInt8>::create();
         // Support all input of datetime is valind to make sure not null return

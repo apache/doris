@@ -83,7 +83,8 @@ struct ConvertImpl {
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
 
         if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType>) ||
+            if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> || IsTimeType<FromDataType> ||
+                            IsDateV2Type<FromDataType>) ||
                           !IsDataTypeDecimalOrNumber<ToDataType>)
                 return Status::RuntimeError(
                         fmt::format("Illegal column {} of first argument of function {}",
@@ -121,6 +122,11 @@ struct ConvertImpl {
                         vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64(),
                                 vec_to.get_scale());
+                    } else if constexpr (IsDateV2Type<FromDataType> &&
+                                         IsDataTypeDecimal<ToDataType>) {
+                        vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
+                                reinterpret_cast<const DateV2Value&>(vec_from[i]).to_date_uint32(),
+                                vec_to.get_scale());
                     }
                 } else if constexpr (IsTimeType<FromDataType>) {
                     if constexpr (IsTimeType<ToDataType>) {
@@ -130,6 +136,9 @@ struct ConvertImpl {
                         } else {
                             DataTypeDate::cast_to_date(vec_to[i]);
                         }
+                    } else if constexpr (IsDateV2Type<ToDataType>) {
+                        // FIXME(Gabriel): to support datetime v2
+                        CHECK(false);
                     } else {
                         vec_to[i] =
                                 reinterpret_cast<const VecDateTimeValue&>(vec_from[i]).to_int64();
@@ -180,7 +189,10 @@ struct ConvertImplToTimeType {
         using ColVecFrom =
                 std::conditional_t<IsDecimalNumber<FromFieldType>, ColumnDecimal<FromFieldType>,
                                    ColumnVector<FromFieldType>>;
-        using ColVecTo = ColumnVector<Int64>;
+
+        using DateValueType =
+                std::conditional_t<IsDateV2Type<ToFieldType>, DateV2Value, VecDateTimeValue>;
+        using ColVecTo = ColumnVector<ToFieldType>;
 
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
@@ -197,13 +209,13 @@ struct ConvertImplToTimeType {
             auto& vec_null_map_to = col_null_map_to->get_data();
 
             for (size_t i = 0; i < size; ++i) {
-                auto& date_value = reinterpret_cast<VecDateTimeValue&>(vec_to[i]);
+                auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
                 if constexpr (IsDecimalNumber<FromFieldType>) {
-                    vec_null_map_to[i] = !date_value.from_date_int64(
-                            convert_from_decimal<FromDataType, DataTypeInt64>(
+                    vec_null_map_to[i] =
+                            !date_value.from_date(convert_from_decimal<FromDataType, DataTypeInt64>(
                                     vec_from[i], vec_from.get_scale()));
                 } else {
-                    vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
+                    vec_null_map_to[i] = !date_value.from_date(vec_from[i]);
                 }
                 // DateType of VecDateTimeValue should cast to date
                 if constexpr (IsDateType<ToDataType>) {
@@ -316,6 +328,10 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, const DateL
 
     if constexpr (IsDateType<DataType>) {
         return try_read_date_text(x, rb);
+    }
+
+    if constexpr (IsDateV2Type<DataType>) {
+        return try_read_date_v2_text(x, rb);
     }
 
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -606,6 +622,7 @@ using FunctionToDecimal64 =
 using FunctionToDecimal128 =
         FunctionConvert<DataTypeDecimal<Decimal128>, NameToDecimal128, UnknownMonotonicity>;
 using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
+using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
 using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
 
 template <typename DataType>
@@ -673,6 +690,10 @@ struct FunctionTo<DataTypeDate> {
 template <>
 struct FunctionTo<DataTypeDateTime> {
     using Type = FunctionToDateTime;
+};
+template <>
+struct FunctionTo<DataTypeDateV2> {
+    using Type = FunctionToDateV2;
 };
 
 class PreparedFunctionCast : public PreparedFunctionImpl {
@@ -961,9 +982,11 @@ private:
             /// In case when converting to Nullable type, we apply different parsing rule,
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
-        } else if (requested_result_is_nullable && IsTimeType<DataType> &&
-                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                     check_and_get_data_type<DataTypeDate>(from_type.get()))) {
+        } else if (requested_result_is_nullable &&
+                   (IsTimeType<DataType> || IsDateV2Type<DataType>)&&!(
+                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                           check_and_get_data_type<DataTypeDateV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();
@@ -1001,7 +1024,7 @@ private:
 
         WhichDataType which(type_index);
         bool ok = which.is_int() || which.is_native_uint() || which.is_decimal() ||
-                  which.is_float() || which.is_date_or_datetime() ||
+                  which.is_float() || which.is_date_or_datetime() || which.is_date_v2() ||
                   which.is_string_or_fixed_string();
         if (!ok) {
             LOG(FATAL) << fmt::format(
@@ -1196,7 +1219,8 @@ private:
                           std::is_same_v<ToDataType, DataTypeFloat32> ||
                           std::is_same_v<ToDataType, DataTypeFloat64> ||
                           std::is_same_v<ToDataType, DataTypeDate> ||
-                          std::is_same_v<ToDataType, DataTypeDateTime>) {
+                          std::is_same_v<ToDataType, DataTypeDateTime> ||
+                          std::is_same_v<ToDataType, DataTypeDateV2>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),
                                      requested_result_is_nullable);
                 return true;

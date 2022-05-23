@@ -136,6 +136,7 @@ void AggregationNode::_init_hash_method(std::vector<VExprContext*>& probe_exprs)
             return;
         case TYPE_INT:
         case TYPE_FLOAT:
+        case TYPE_DATEV2:
             _agg_data.init(AggregatedDataVariants::Type::int32_key, is_nullable);
             return;
         case TYPE_BIGINT:

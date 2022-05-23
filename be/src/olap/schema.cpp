@@ -153,6 +153,9 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     case OLAP_FIELD_TYPE_DATE:
         return doris::vectorized::PredicateColumnType<uint24_t>::create();
 
+    case OLAP_FIELD_TYPE_DATEV2:
+        return doris::vectorized::PredicateColumnType<uint32_t>::create();
+
     case OLAP_FIELD_TYPE_DATETIME:
         return doris::vectorized::PredicateColumnType<uint64_t>::create();
 

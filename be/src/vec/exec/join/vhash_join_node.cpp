@@ -1207,6 +1207,7 @@ void HashJoinNode::_hash_table_init() {
             break;
         case TYPE_INT:
         case TYPE_FLOAT:
+        case TYPE_DATEV2:
             _hash_table_variants.emplace<I32HashTableContext>();
             break;
         case TYPE_BIGINT:
