@@ -17,6 +17,7 @@
 
 #pragma once
 #include "olap/tablet_schema.h"
+#include "vec/columns/column.h"
 #include "vec/core/block.h"
 
 namespace doris::vectorized {
@@ -101,6 +102,7 @@ private:
     private:
         size_t _length;
         PaddedPODArray<Slice> _slice;
+        ColumnPtr _column = nullptr;
     };
 
     class OlapColumnDataConvertorVarChar : public OlapColumnDataConvertorBase {

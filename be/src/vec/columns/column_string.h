@@ -75,6 +75,8 @@ public:
 
     size_t size() const override { return offsets.size(); }
 
+    size_t chars_size() const { return chars.size(); }
+
     size_t byte_size() const override { return chars.size() + offsets.size() * sizeof(offsets[0]); }
 
     size_t allocated_bytes() const override {
@@ -148,12 +150,17 @@ public:
     }
 
     void insert_data(const char* pos, size_t length) override {
+        insert_data_padded(pos, length, length);
+    }
+
+    // if length<padded_length, padding data to padded_length with 0
+    void insert_data_padded(const char* pos, size_t length, size_t padded_length) {
         const size_t old_size = chars.size();
-        const size_t new_size = old_size + length + 1;
+        const size_t new_size = old_size + padded_length + 1;
 
         chars.resize(new_size);
         if (length) memcpy(chars.data() + old_size, pos, length);
-        chars[old_size + length] = 0;
+        chars[old_size + padded_length] = 0;
         offsets.push_back(new_size);
     }
 
