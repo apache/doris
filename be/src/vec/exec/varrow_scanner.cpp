@@ -19,7 +19,7 @@
 #include "exec/buffered_reader.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
-#include "exec/parquet_reader.h"
+#include "exec/arrow/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"

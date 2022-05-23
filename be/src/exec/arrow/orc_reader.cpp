@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/exec/vorc_reader.h"
+#include "exec/arrow/orc_reader.h"
 
 #include <arrow/array.h>
 #include <arrow/status.h>
@@ -25,21 +25,18 @@
 #include "runtime/mem_pool.h"
 #include "runtime/tuple.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-VORCReaderWrap::VORCReaderWrap(FileReader* file_reader, int64_t batch_size,
+ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
                                int32_t num_of_columns_from_file)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file) {
-    _rb_reader = nullptr;
     _reader = nullptr;
     _cur_file_eof = false;
-    _num_of_stripes = 0;
-    _current_stripe = 0;
 }
 
-VORCReaderWrap::~VORCReaderWrap() {}
+ORCReaderWrap::~ORCReaderWrap() {}
 
-Status VORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+Status ORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                    const std::string& timezone) {
     // Open ORC file reader
     auto maybe_reader =
@@ -50,8 +47,8 @@ Status VORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slo
         return Status::InternalError("Failed to create orc file reader");
     }
     _reader = std::move(maybe_reader.ValueOrDie());
-    _num_of_stripes = _reader->NumberOfStripes();
-    if (_num_of_stripes == 0) {
+    _total_groups = _reader->NumberOfStripes();
+    if (_total_groups == 0) {
         return Status::EndOfFile("Empty Orc File");
     }
 
@@ -73,12 +70,12 @@ Status VORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slo
         return Status::EndOfFile("end of file");
     }
 
-    RETURN_IF_ERROR(_column_indices(tuple_slot_descs));
+    RETURN_IF_ERROR(column_indices(tuple_slot_descs));
     return Status::OK();
 }
 
-Status VORCReaderWrap::_next_stripe_reader(bool* eof) {
-    if (_current_stripe >= _num_of_stripes) {
+Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
+    if (_current_group >= _total_groups) {
         *eof = true;
         return Status::OK();
     }
@@ -88,35 +85,17 @@ Status VORCReaderWrap::_next_stripe_reader(bool* eof) {
     // which may cause OOM issues by loading the whole stripe into memory.
     // Note this will only read rows for the current stripe, not the entire file.
     arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> maybe_rb_reader =
-            _reader->NextStripeReader(_batch_size, _orc_column_ids);
+            _reader->NextStripeReader(_batch_size, _include_column_ids);
     if (!maybe_rb_reader.ok()) {
         LOG(WARNING) << "Get RecordBatch Failed. " << maybe_rb_reader.status();
         return Status::InternalError(maybe_rb_reader.status().ToString());
     }
     _rb_reader = maybe_rb_reader.ValueOrDie();
-    _current_stripe++;
+    _current_group++;
     return Status::OK();
 }
 
-Status VORCReaderWrap::_column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
-    _orc_column_ids.clear();
-    for (int i = 0; i < _num_of_columns_from_file; i++) {
-        auto slot_desc = tuple_slot_descs.at(i);
-        // Get the Column Reader for the boolean column
-        auto iter = _map_column.find(slot_desc->col_name());
-        if (iter != _map_column.end()) {
-            _orc_column_ids.emplace_back(iter->second);
-        } else {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
-        }
-    }
-    return Status::OK();
-}
-
-Status VORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
+Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
                                   const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
     *eof = false;
     do {
@@ -136,4 +115,4 @@ Status VORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "exec/parquet_reader.h"
+#include "exec/arrow/parquet_reader.h"
 
 #include <arrow/array.h>
 #include <arrow/status.h>
@@ -45,8 +45,6 @@ namespace doris {
 ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                                      int32_t num_of_columns_from_file)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file),
-          _total_groups(0),
-          _current_group(0),
           _rows_of_group(0),
           _current_line_of_group(0),
           _current_line_of_batch(0) {}
@@ -107,7 +105,7 @@ Status ParquetReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_
         _current_line_of_batch = 0;
         //save column type
         std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
-        for (int i = 0; i < _parquet_column_ids.size(); i++) {
+        for (int i = 0; i < _include_column_ids.size(); i++) {
             std::shared_ptr<arrow::Field> field = field_schema->field(i);
             if (!field) {
                 LOG(WARNING) << "Get field schema failed. Column order:" << i;
@@ -151,24 +149,6 @@ inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc
     return;
 }
 
-Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
-    _parquet_column_ids.clear();
-    for (int i = 0; i < _num_of_columns_from_file; i++) {
-        auto slot_desc = tuple_slot_descs.at(i);
-        // Get the Column Reader for the boolean column
-        auto iter = _map_column.find(slot_desc->col_name());
-        if (iter != _map_column.end()) {
-            _parquet_column_ids.emplace_back(iter->second);
-        } else {
-            std::stringstream str_error;
-            str_error << "Invalid Column Name:" << slot_desc->col_name();
-            LOG(WARNING) << str_error.str();
-            return Status::InvalidArgument(str_error.str());
-        }
-    }
-    return Status::OK();
-}
-
 inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc) {
     if (!slot_desc->is_nullable()) {
         std::stringstream str_error;
@@ -190,7 +170,7 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
                    << ". start to read next row group";
         _current_group++;
         if (_current_group >= _total_groups) { // read completed.
-            _parquet_column_ids.clear();
+            _include_column_ids.clear();
             *eof = true;
             return Status::OK();
         }
@@ -274,7 +254,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     const uint8_t* value = nullptr;
     int column_index = 0;
     try {
-        size_t slots = _parquet_column_ids.size();
+        size_t slots = _include_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
             column_index = i; // column index in batch record
@@ -563,13 +543,13 @@ void ParquetReaderWrap::prefetch_batch() {
         if (_closed || current_group >= _total_groups) {
             return;
         }
-        _status = _reader->GetRecordBatchReader({current_group}, _parquet_column_ids, &_rb_batch);
+        _status = _reader->GetRecordBatchReader({current_group}, _include_column_ids, &_rb_reader);
         if (!_status.ok()) {
             _closed = true;
             return;
         }
         arrow::RecordBatchVector batches;
-        _status = _rb_batch->ReadAll(&batches);
+        _status = _rb_reader->ReadAll(&batches);
         if (!_status.ok()) {
             _closed = true;
             return;

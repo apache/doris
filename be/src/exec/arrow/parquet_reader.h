@@ -40,7 +40,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "exec/arrow_reader.h"
+#include "exec/arrow/arrow_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -77,7 +77,6 @@ public:
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value,
                    int32_t len);
-    Status column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs);
     Status set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc);
     Status read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof);
     const std::shared_ptr<arrow::RecordBatch>& get_batch();
@@ -90,15 +89,10 @@ private:
 
 private:
     // parquet file reader object
-    std::unique_ptr<::arrow::RecordBatchReader> _rb_batch;
     std::shared_ptr<arrow::RecordBatch> _batch;
     std::unique_ptr<parquet::arrow::FileReader> _reader;
     std::shared_ptr<parquet::FileMetaData> _file_metadata;
-    std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _parquet_column_ids;
     std::vector<arrow::Type::type> _parquet_column_type;
-    int _total_groups; // groups in a parquet file
-    int _current_group;
 
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;

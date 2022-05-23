@@ -17,12 +17,12 @@
 
 #include "exec/parquet_scanner.h"
 
+#include "exec/arrow/parquet_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
-#include "exec/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "runtime/exec_env.h"

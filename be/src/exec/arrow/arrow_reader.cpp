@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "exec/arrow_reader.h"
+#include "exec/arrow/arrow_reader.h"
 
 #include <arrow/array.h>
 #include <arrow/status.h>
@@ -40,6 +40,9 @@ ArrowReaderWrap::ArrowReaderWrap(FileReader* file_reader, int64_t batch_size,
                                  int32_t num_of_columns_from_file)
         : _batch_size(batch_size), _num_of_columns_from_file(num_of_columns_from_file) {
     _arrow_file = std::shared_ptr<ArrowFile>(new ArrowFile(file_reader));
+    _rb_reader = nullptr;
+    _total_groups = 0;
+    _current_group = 0;
 }
 
 ArrowReaderWrap::~ArrowReaderWrap() {
@@ -51,6 +54,24 @@ void ArrowReaderWrap::close() {
     if (!st.ok()) {
         LOG(WARNING) << "close file error: " << st.ToString();
     }
+}
+
+Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
+    _include_column_ids.clear();
+    for (int i = 0; i < _num_of_columns_from_file; i++) {
+        auto slot_desc = tuple_slot_descs.at(i);
+        // Get the Column Reader for the boolean column
+        auto iter = _map_column.find(slot_desc->col_name());
+        if (iter != _map_column.end()) {
+            _include_column_ids.emplace_back(iter->second);
+        } else {
+            std::stringstream str_error;
+            str_error << "Invalid Column Name:" << slot_desc->col_name();
+            LOG(WARNING) << str_error.str();
+            return Status::InvalidArgument(str_error.str());
+        }
+    }
+    return Status::OK();
 }
 
 ArrowFile::ArrowFile(FileReader* file) : _file(file) {}
