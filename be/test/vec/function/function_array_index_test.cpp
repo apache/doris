@@ -70,6 +70,89 @@ TEST(function_array_index_test, array_contains) {
         check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
     }
 
+    // array_contains(Array<Int128>, Int128)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Int128, TypeIndex::Int128};
+
+        Array vec = {Int128(11111111111LL), Int128(22222LL), Int128(333LL)};
+        DataSet data_set = {{{vec, Int128(11111111111LL)}, UInt8(1)},
+                            {{vec, Int128(4)}, UInt8(0)},
+                            {{Null(), Int128(1)}, Null()},
+                            {{empty_arr, Int128(1)}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
+    // array_contains(Array<Float32>, Float32)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float32, TypeIndex::Float32};
+
+        Array vec = {float(1.2345), float(2.222), float(3.0)};
+        DataSet data_set = {{{vec, float(2.222)}, UInt8(1)},
+                            {{vec, float(4)}, UInt8(0)},
+                            {{Null(), float(1)}, Null()},
+                            {{empty_arr, float(1)}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
+    // array_contains(Array<Float64>, Float64)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Float64, TypeIndex::Float64};
+
+        Array vec = {double(1.2345), double(2.222), double(3.0)};
+        DataSet data_set = {{{vec, double(2.222)}, UInt8(1)},
+                            {{vec, double(4)}, UInt8(0)},
+                            {{Null(), double(1)}, Null()},
+                            {{empty_arr, double(1)}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
+    // array_contains(Array<Date>, Date)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
+
+        Array vec = {str_to_data_time("2022-01-02", false), str_to_data_time("", false),
+                     str_to_data_time("2022-07-08", false)};
+        DataSet data_set = {{{vec, std::string("2022-01-02")}, UInt8(1)},
+                            {{vec, std::string("")}, UInt8(1)},
+                            {{vec, std::string("2022-01-03")}, UInt8(0)},
+                            {{Null(), std::string("2022-01-04")}, Null()},
+                            {{empty_arr, std::string("2022-01-02")}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
+    // array_contains(Array<DateTime>, DateTime)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
+
+        Array vec = {str_to_data_time("2022-01-02 00:00:00"), str_to_data_time(""),
+                     str_to_data_time("2022-07-08 00:00:00")};
+        DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, UInt8(1)},
+                            {{vec, std::string("")}, UInt8(1)},
+                            {{vec, std::string("2022-01-03 00:00:00")}, UInt8(0)},
+                            {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
+                            {{empty_arr, std::string("2022-01-02 00:00:00")}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
+    // array_contains(Array<Decimal128>, Decimal128)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Decimal128};
+
+        Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
+                     ut_type::DECIMALFIELD(0.0)};
+        DataSet data_set = {{{vec, ut_type::DECIMAL(-17014116.67)}, UInt8(1)},
+                            {{vec, ut_type::DECIMAL(0)}, UInt8(1)},
+                            {{Null(), ut_type::DECIMAL(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMAL(0)}, UInt8(0)}};
+
+        check_function<DataTypeUInt8, true>(func_name, input_types, data_set);
+    }
+
     // array_contains(Array<String>, String)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
@@ -124,6 +207,50 @@ TEST(function_array_index_test, array_position) {
                             {{vec, Int64(4)}, Int64(0)},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(1)}, Int64(0)}};
+
+        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    }
+
+    // array_position(Array<Date>, Date)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Date};
+
+        Array vec = {str_to_data_time("2022-01-02", false), str_to_data_time("", false),
+                     str_to_data_time("2022-07-08", false)};
+        DataSet data_set = {{{vec, std::string("2022-01-02")}, Int64(1)},
+                            {{vec, std::string("")}, Int64(2)},
+                            {{vec, std::string("2022-01-03")}, Int64(0)},
+                            {{Null(), std::string("2022-01-04")}, Null()},
+                            {{empty_arr, std::string("2022-01-02")}, Int64(0)}};
+
+        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    }
+
+    // array_position(Array<DateTime>, DateTime)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::DateTime};
+
+        Array vec = {str_to_data_time("2022-01-02 00:00:00"), str_to_data_time(""),
+                     str_to_data_time("2022-07-08 00:00:00")};
+        DataSet data_set = {{{vec, std::string("2022-01-02 00:00:00")}, Int64(1)},
+                            {{vec, std::string("")}, Int64(2)},
+                            {{vec, std::string("2022-01-03 00:00:00")}, Int64(0)},
+                            {{Null(), std::string("2022-01-04 00:00:00")}, Null()},
+                            {{empty_arr, std::string("2022-01-02 00:00:00")}, Int64(0)}};
+
+        check_function<DataTypeInt64, true>(func_name, input_types, data_set);
+    }
+
+    // array_position(Array<Decimal128>, Decimal128)
+    {
+        InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Decimal128, TypeIndex::Decimal128};
+
+        Array vec = {ut_type::DECIMALFIELD(17014116.67), ut_type::DECIMALFIELD(-17014116.67),
+                     ut_type::DECIMALFIELD(0)};
+        DataSet data_set = {{{vec, ut_type::DECIMAL(-17014116.67)}, Int64(2)},
+                            {{vec, ut_type::DECIMAL(0)}, Int64(3)},
+                            {{Null(), ut_type::DECIMAL(0)}, Null()},
+                            {{empty_arr, ut_type::DECIMAL(0)}, Int64(0)}};
 
         check_function<DataTypeInt64, true>(func_name, input_types, data_set);
     }

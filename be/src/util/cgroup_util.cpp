@@ -91,7 +91,7 @@ static Status read_cgroup_value(const string& limit_file_path, int64_t* val) {
                 strings::Substitute("Error reading $0: $1", limit_file_path, get_str_err_msg()));
     }
     StringParser::ParseResult pr;
-    // Parse into an an int64_t If it overflows, returning the max value of int64_t is ok because that
+    // Parse into an int64_t If it overflows, returning the max value of int64_t is ok because that
     // is effectively unlimited.
     *val = StringParser::string_to_int<int64_t>(line.c_str(), line.size(), &pr);
     if ((pr != StringParser::PARSE_SUCCESS && pr != StringParser::PARSE_OVERFLOW)) {

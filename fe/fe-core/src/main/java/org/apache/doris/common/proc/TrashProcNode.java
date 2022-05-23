@@ -17,18 +17,17 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.system.Backend;
-import org.apache.doris.common.Pair;
-import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.util.DebugUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

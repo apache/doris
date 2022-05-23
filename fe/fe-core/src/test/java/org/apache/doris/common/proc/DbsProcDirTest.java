@@ -23,7 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,9 +32,6 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class DbsProcDirTest {
     private Database db1;

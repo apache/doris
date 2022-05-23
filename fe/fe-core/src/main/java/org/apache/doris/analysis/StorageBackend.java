@@ -25,7 +25,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
-
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

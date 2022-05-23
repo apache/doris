@@ -17,15 +17,14 @@
 
 package org.apache.doris.http;
 
+import okhttp3.Request;
+import okhttp3.Response;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
-
-import okhttp3.Request;
-import okhttp3.Response;
 
 
 public class TableRowCountActionTest extends DorisHttpTestCase {

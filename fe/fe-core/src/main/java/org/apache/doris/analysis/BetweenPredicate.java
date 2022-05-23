@@ -22,6 +22,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -108,6 +109,21 @@ public class BetweenPredicate extends Predicate {
 
     @Override
     public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        BetweenPredicate that = (BetweenPredicate) o;
+        return isNotBetween == that.isNotBetween;
+    }
 
     @Override
     public int hashCode() {

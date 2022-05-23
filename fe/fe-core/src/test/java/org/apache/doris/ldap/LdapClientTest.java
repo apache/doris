@@ -23,7 +23,9 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.LdapInfo;
 
 import com.clearspring.analytics.util.Lists;
-
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,10 +34,6 @@ import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.query.LdapQuery;
 
 import java.util.List;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class LdapClientTest {
     private static final String ADMIN_PASSWORD = "admin";
@@ -77,7 +75,7 @@ public class LdapClientTest {
         LdapConfig.ldap_group_basedn = "ou=group,dc=baidu,dc=com";
         LdapConfig.ldap_user_filter = "(&(uid={login}))";
     }
-    
+
     private void mockLdapTemplateSearch(List list) {
         new Expectations() {
             {

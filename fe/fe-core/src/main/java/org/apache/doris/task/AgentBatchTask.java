@@ -46,7 +46,6 @@ import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
 import org.apache.doris.thrift.TUploadReq;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,7 +55,7 @@ import java.util.List;
 import java.util.Map;
 
 /*
- * This class group tasks by backend 
+ * This class group tasks by backend
  */
 public class AgentBatchTask implements Runnable {
     private static final Logger LOG = LogManager.getLogger(AgentBatchTask.class);
@@ -95,7 +94,7 @@ public class AgentBatchTask implements Runnable {
         }
         return tasks;
     }
-    
+
     public int getTaskNum() {
         int num = 0;
         for (List<AgentTask> tasks : backendIdToTasks.values()) {

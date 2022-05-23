@@ -21,17 +21,16 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Optional;
 import java.util.Set;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class InsertLoadJobTest {
 

@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "exec/parquet_scanner.h"
 #include "olap/row.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -221,29 +220,12 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_
         // 1. init RowsetBuilder of cur_tablet for current push
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
                     << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
-        RowsetWriterContext context;
-        context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        context.tablet_uid = cur_tablet->tablet_uid();
-        context.tablet_id = cur_tablet->tablet_id();
-        context.partition_id = _request.partition_id;
-        context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.data_dir = cur_tablet->data_dir();
-        context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-            context.rowset_type = BETA_ROWSET;
-        }
-        context.path_desc = cur_tablet->tablet_path_desc();
-        context.tablet_schema = &(cur_tablet->tablet_schema());
-        context.rowset_state = PREPARED;
-        context.txn_id = _request.transaction_id;
-        context.load_id = load_id;
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
         // set this value to OVERLAP_UNKNOWN
-        context.segments_overlap = OVERLAP_UNKNOWN;
-
         std::unique_ptr<RowsetWriter> rowset_writer;
-        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
+        res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
+                                               OVERLAP_UNKNOWN, &rowset_writer);
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
@@ -407,30 +389,9 @@ Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tab
         }
 
         // 2. init RowsetBuilder of cur_tablet for current push
-        VLOG_NOTICE << "init RowsetBuilder.";
-        RowsetWriterContext context;
-        context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        context.tablet_uid = cur_tablet->tablet_uid();
-        context.tablet_id = cur_tablet->tablet_id();
-        context.partition_id = _request.partition_id;
-        context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.data_dir = cur_tablet->data_dir();
-        context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-            context.rowset_type = BETA_ROWSET;
-        }
-        context.path_desc = cur_tablet->tablet_path_desc();
-        context.tablet_schema = &(cur_tablet->tablet_schema());
-        context.rowset_state = PREPARED;
-        context.txn_id = _request.transaction_id;
-        context.load_id = load_id;
-        // although the hadoop load output files are fully sorted,
-        // but it depends on thirparty implementation, so we conservatively
-        // set this value to OVERLAP_UNKNOWN
-        context.segments_overlap = OVERLAP_UNKNOWN;
-
         std::unique_ptr<RowsetWriter> rowset_writer;
-        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
+        res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
+                                               OVERLAP_UNKNOWN, &rowset_writer);
         if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;

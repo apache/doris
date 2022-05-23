@@ -41,7 +41,6 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,7 +59,7 @@ public class CheckConsistencyJob {
 
     private JobState state;
     private long tabletId;
-    
+
     // backend id -> check sum
     // add backend id to this map only after sending task
     private Map<Long, Long> checksumMap;
@@ -124,7 +123,7 @@ public class CheckConsistencyJob {
         if (ConnectContext.get() != null) {
             resourceInfo = ConnectContext.get().toResourceCtx();
         }
-        
+
         Tablet tablet = null;
 
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -395,4 +394,3 @@ public class CheckConsistencyJob {
         }
     }
 }
-

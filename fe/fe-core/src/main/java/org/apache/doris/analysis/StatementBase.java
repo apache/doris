@@ -72,7 +72,9 @@ public abstract class StatementBase implements ParseNode {
      * tables/views get collected in the Analyzer before failing analyze().
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         this.analyzer = analyzer;
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -129,7 +131,9 @@ public abstract class StatementBase implements ParseNode {
      */
     public void setColLabels(List<String> colLabels) {
         List<String> oldLabels = getColLabels();
-        if (oldLabels == colLabels) return;
+        if (oldLabels == colLabels) {
+            return;
+        }
         oldLabels.clear();
         oldLabels.addAll(colLabels);
     }
@@ -151,11 +155,11 @@ public abstract class StatementBase implements ParseNode {
         Preconditions.checkNotNull(resultExprs);
         Preconditions.checkState(resultExprs.size() == types.size());
         for (int i = 0; i < types.size(); ++i) {
-            //The specific type of the date type is determined by the 
+            //The specific type of the date type is determined by the
             //actual type of the return value, not by the function return value type in FE Function
             //such as the result of str_to_date may be either DATE or DATETIME
             if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
-                continue;                               
+                continue;
             }
             if (!resultExprs.get(i).getType().equals(types.get(i))) {
                 resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));

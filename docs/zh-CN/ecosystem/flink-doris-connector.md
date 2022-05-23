@@ -113,7 +113,7 @@ sh build.sh --flink 1.14.3 --scala 2.12
 
 > 注：如果你是从 tag 检出的源码，则可以直接执行 `sh build.sh --tag`，而无需指定 flink 和 scala 的版本。因为 tag 源码中的版本是固定的。比如 `1.13.5-2.12-1.0.1` 表示 flink 版本 1.13.5，scala 版本 2.12，connector 版本 1.0.1。
 
-编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `jars/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
+编译成功后，会在 `target/` 目录下生成文件，如：`flink-doris-connector-1.14_2.12-1.0.0-SNAPSHOT.jar` 。将此文件复制到 `Flink` 的 `ClassPath` 中即可使用 `Flink-Doris-Connector` 。例如， `Local` 模式运行的 `Flink` ，将此文件放入 `lib/` 文件夹下。 `Yarn` 集群模式运行的 `Flink` ，则将此文件放入预部署包中。
 
 **备注**
 
@@ -427,7 +427,7 @@ outputFormat.close();
 | doris.request.read.timeout.ms    | 30000             | 向 Doris 发送请求的读取超时时间                                |
 | doris.request.query.timeout.s    | 3600              | 查询 Doris 的超时时间，默认值为1小时，-1表示无超时限制             |
 | doris.request.tablet.size        | Integer. MAX_VALUE | 一个 Partition 对应的 Doris Tablet 个数。<br />此数值设置越小，则会生成越多的 Partition。从而提升 Flink 侧的并行度，但同时会对 Doris 造成更大的压力。 |
-| doris.batch.size                 | 1024              | 一次从 BE 读取数据的最大行数。增大此数值可减少 Flink 与 Doris 之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
+| doris.batch.size                 | 1024              | 一次从 BE 读取数据的最大行数。增大此数值可减少 Flink 与 Doris 之间建立连接的次数。<br />从而减轻网络延迟所带来的额外时间开销。 |
 | doris.exec.mem.limit             | 2147483648        | 单个查询的内存限制。默认为 2GB，单位为字节                      |
 | doris.deserialize.arrow.async    | false             | 是否支持异步转换 Arrow 格式到 flink-doris-connector 迭代所需的 RowBatch            |
 | doris.deserialize.queue.size     | 64                | 异步转换 Arrow 格式的内部处理队列，当 doris.deserialize.arrow.async 为 true 时生效        |

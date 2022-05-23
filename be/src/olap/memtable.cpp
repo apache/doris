@@ -245,7 +245,7 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
 vectorized::Block MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
-    // TODO: should try to insert data by column, not by row. to opt the the code
+    // TODO: should try to insert data by column, not by row. to opt the code
     if (_keys_type == KeysType::DUP_KEYS) {
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
@@ -302,9 +302,11 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
         }
     } else {
         vectorized::Block block = _collect_vskiplist_results();
-        RETURN_NOT_OK(_rowset_writer->add_block(&block));
+        // beta rowset flush parallel, segment write add block is not
+        // thread safe, so use tmp variable segment_write instead of
+        // member variable
+        RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
         _flush_size = block.allocated_bytes();
-        RETURN_NOT_OK(_rowset_writer->flush());
     }
     return Status::OK();
 }

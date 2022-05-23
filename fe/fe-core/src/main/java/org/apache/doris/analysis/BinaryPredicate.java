@@ -37,7 +37,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -53,7 +52,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     private final static Logger LOG = LogManager.getLogger(BinaryPredicate.class);
 
     // true if this BinaryPredicate is inferred from slot equivalences, false otherwise.
-    private boolean isInferred_ = false;
+    private boolean isInferred = false;
 
     public enum Operator {
         EQ("=", "eq", TExprOpcode.EQ),
@@ -105,8 +104,9 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return LE;
                 case EQ_FOR_NULL:
                     return this;
+                default:
+                    return null;
             }
-            return null;
         }
 
         public Operator converse() {
@@ -164,15 +164,17 @@ public class BinaryPredicate extends Predicate implements Writable {
         super(other);
         op = other.op;
         slotIsleft= other.slotIsleft;
-        isInferred_ = other.isInferred_;
+        isInferred = other.isInferred;
     }
 
-    public boolean isInferred() { return isInferred_; }
-    public void setIsInferred() { isInferred_ = true; }
+    public boolean isInferred() { return isInferred; }
+    public void setIsInferred() { isInferred = true; }
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue; // NULL is handled through type promotion.
+            if (t.isNull()) {
+                continue; // NULL is handled through type promotion.
+            }
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.EQ.getName(), Lists.newArrayList(t, t), Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
@@ -456,7 +458,9 @@ public class BinaryPredicate extends Predicate implements Writable {
      * casts, returns those two slots; otherwise returns null.
      */
     public static Pair<SlotId, SlotId> getEqSlots(Expr e) {
-        if (!(e instanceof BinaryPredicate)) return null;
+        if (!(e instanceof BinaryPredicate)) {
+            return null;
+        }
         return ((BinaryPredicate) e).getEqSlots();
     }
 
@@ -466,11 +470,17 @@ public class BinaryPredicate extends Predicate implements Writable {
      */
     @Override
     public Pair<SlotId, SlotId> getEqSlots() {
-        if (op != Operator.EQ) return null;
+        if (op != Operator.EQ) {
+            return null;
+        }
         SlotRef lhs = getChild(0).unwrapSlotRef(true);
-        if (lhs == null) return null;
+        if (lhs == null) {
+            return null;
+        }
         SlotRef rhs = getChild(1).unwrapSlotRef(true);
-        if (rhs == null) return null;
+        if (rhs == null) {
+            return null;
+        }
         return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
     }
 
@@ -513,8 +523,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     //        private final FunctionOperator functionOp;
     //        private final FunctionOperator filterFunctionOp;
     //
-    //        private Operator(String description, 
-    //                         FunctionOperator functionOp, 
+    //        private Operator(String description,
+    //                         FunctionOperator functionOp,
     //                         FunctionOperator filterFunctionOp) {
     //            this.description = description;
     //            this.functionOp = functionOp;

@@ -27,10 +27,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
 
 public class RefreshDbStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(RefreshDbStmt.class);

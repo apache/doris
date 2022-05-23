@@ -34,8 +34,6 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
-import java.util.List;
-
 import com.clearspring.analytics.util.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
@@ -43,17 +41,19 @@ import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.List;
+
 public class UpdateStmtExecutorTest {
 
     @Test
     public void testCommitAndPublishTxn(@Injectable Analyzer analyzer,
                                         @Injectable Coordinator coordinator,
                                         @Mocked GlobalTransactionMgr globalTransactionMgr) {
-        Cluster test_cluster = new Cluster("test_cluster", 0);
-        Database test_db = new Database(1, "test_db");
-        test_db.setClusterName("test_cluster");
-        Catalog.getCurrentCatalog().addCluster(test_cluster);
-        Catalog.getCurrentCatalog().unprotectCreateDb(test_db);
+        Cluster testCluster = new Cluster("test_cluster", 0);
+        Database testDb = new Database(1, "test_db");
+        testDb.setClusterName("test_cluster");
+        Catalog.getCurrentCatalog().addCluster(testCluster);
+        Catalog.getCurrentCatalog().unprotectCreateDb(testDb);
         UpdateStmtExecutor updateStmtExecutor = new UpdateStmtExecutor();
         Deencapsulation.setField(updateStmtExecutor, "dbId", 1);
         Deencapsulation.setField(updateStmtExecutor, "effectRows", 0);

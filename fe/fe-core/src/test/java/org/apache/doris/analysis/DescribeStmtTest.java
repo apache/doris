@@ -21,13 +21,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
 import org.junit.Test;
-
-import mockit.Mock;
-import mockit.MockUp;
 
 public class DescribeStmtTest {
     private Analyzer analyzer;

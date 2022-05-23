@@ -25,7 +25,7 @@ import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
 import com.google.common.collect.Lists;
-
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.ldap.core.DirContextOperations;
@@ -38,8 +38,6 @@ import org.springframework.ldap.query.LdapQuery;
 import org.springframework.ldap.transaction.compensating.manager.TransactionAwareContextSourceProxy;
 
 import java.util.List;
-
-import lombok.Data;
 
 // This class is used to connect to the LDAP service.
 public class LdapClient {

@@ -182,31 +182,53 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 - two_phase_commit
 
-  Stream load 导入可以开启两阶段事务提交模式。开启方式为在 HEADER 中声明 `two_phase_commit=true` 。默认的两阶段批量事务提交为关闭。 两阶段批量事务提交模式的意思是：Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为PRECOMMITTED，用户手动触发commit操作之后，数据才可见。
+  Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
-  1. 用户可以调用如下接口对stream load事务触发commit操作：
+  默认的两阶段批量事务提交为关闭。
 
+  > **开启方式：** 在be.conf中配置`disable_stream_load_2pc=false`（重启生效） 并且 在 HEADER 中声明 `two_phase_commit=true` 。 
+  
+  示例：
+  
+  1. 发起stream load预提交操作
   ```shell
-  curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://fe_host:http_port/api/{db}/_stream_load_2pc
+  curl  --location-trusted -u user:passwd -H "two_phase_commit:true" -T test.txt http://fe_host:http_port/api/{db}/{table}/_stream_load
+  {
+      "TxnId": 18036,
+      "Label": "55c8ffc9-1c40-4d51-b75e-f2265b3602ef",
+      "TwoPhaseCommit": "true",
+      "Status": "Success",
+      "Message": "OK",
+      "NumberTotalRows": 100,
+      "NumberLoadedRows": 100,
+      "NumberFilteredRows": 0,
+      "NumberUnselectedRows": 0,
+      "LoadBytes": 1031,
+      "LoadTimeMs": 77,
+      "BeginTxnTimeMs": 1,
+      "StreamLoadPutTimeMs": 1,
+      "ReadDataTimeMs": 0,
+      "WriteDataTimeMs": 58,
+      "CommitAndPublishTimeMs": 0
+  }
   ```
-
-  或
-
+  2. 对事务触发commit操作
   ```shell
-  curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:commit" http://be_host:webserver_port/api/{db}/_stream_load_2pc
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18036" -H "txn_operation:commit"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "transaction [18036] commit successfully."
+  }
   ```
-
-  1. 用户可以调用如下接口对stream load事务触发abort操作：
-
+  3. 对事务触发abort操作
   ```shell
-  curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://fe_host:http_port/api/{db}/_stream_load_2pc
-  ```
+  curl -X PUT --location-trusted -u user:passwd  -H "txn_id:18037" -H "txn_operation:abort"  http://fe_host:http_port/api/{db}/_stream_load_2pc
+  {
+      "status": "Success",
+      "msg": "transaction [18037] abort successfully."
+  }
+   ```
 
-  或
-
-  ```shell
-  curl -X PUT --location-trusted -u user:passwd -H "txn_id:txnId" -H "txn_operation:abort" http://be_host:webserver_port/api/{db}/_stream_load_2pc
-  ```
 
 ### 返回结果
 

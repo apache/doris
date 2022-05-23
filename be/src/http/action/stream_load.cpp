@@ -78,27 +78,29 @@ static TFileFormatType::type parse_format(const std::string& format_str,
         return parse_format("CSV", compress_type);
     }
     TFileFormatType::type format_type = TFileFormatType::FORMAT_UNKNOWN;
-    if (boost::iequals(format_str, "CSV")) {
+    if (iequal(format_str, "CSV")) {
         if (compress_type.empty()) {
             format_type = TFileFormatType::FORMAT_CSV_PLAIN;
         }
-        if (boost::iequals(compress_type, "GZ")) {
+        if (iequal(compress_type, "GZ")) {
             format_type = TFileFormatType::FORMAT_CSV_GZ;
-        } else if (boost::iequals(compress_type, "LZO")) {
+        } else if (iequal(compress_type, "LZO")) {
             format_type = TFileFormatType::FORMAT_CSV_LZO;
-        } else if (boost::iequals(compress_type, "BZ2")) {
+        } else if (iequal(compress_type, "BZ2")) {
             format_type = TFileFormatType::FORMAT_CSV_BZ2;
-        } else if (boost::iequals(compress_type, "LZ4FRAME")) {
+        } else if (iequal(compress_type, "LZ4FRAME")) {
             format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
-        } else if (boost::iequals(compress_type, "LZOP")) {
+        } else if (iequal(compress_type, "LZOP")) {
             format_type = TFileFormatType::FORMAT_CSV_LZOP;
-        } else if (boost::iequals(compress_type, "DEFLATE")) {
+        } else if (iequal(compress_type, "DEFLATE")) {
             format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
         }
-    } else if (boost::iequals(format_str, "JSON")) {
+    } else if (iequal(format_str, "JSON")) {
         if (compress_type.empty()) {
             format_type = TFileFormatType::FORMAT_JSON;
         }
+    } else if (iequal(format_str, "PARQUET")) {
+        format_type = TFileFormatType::FORMAT_PARQUET;
     }
     return format_type;
 }
@@ -264,12 +266,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
     // get format of this put
     if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
-        boost::iequals(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+        iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
         return Status::InternalError("compress data of JSON format is not supported.");
     }
     std::string format_str = http_req->header(HTTP_FORMAT_KEY);
-    if (boost::iequals(format_str, BeConsts::CSV_WITH_NAMES) ||
-        boost::iequals(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
+    if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
+        iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
         ctx->header_type = format_str;
         //treat as CSV
         format_str = BeConsts::CSV;
@@ -291,7 +293,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
     size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
     bool read_json_by_line = false;
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
             read_json_by_line = true;
         }
     }
@@ -348,7 +350,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
 
     int64_t start_read_data_time = MonotonicNanos();
     while (evbuffer_get_length(evbuf) > 0) {
-        auto bb = ByteBuffer::allocate(4096);
+        auto bb = ByteBuffer::allocate(128 * 1024);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
@@ -392,7 +394,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.__set_header_type(ctx->header_type);
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
-        auto pipe = std::make_shared<StreamLoadPipe>(1024 * 1024 /* max_buffered_bytes */,
+        auto pipe = std::make_shared<StreamLoadPipe>(kMaxPipeBufferedBytes /* max_buffered_bytes */,
                                                      64 * 1024 /* min_chunk_size */,
                                                      ctx->body_bytes /* total_length */);
         RETURN_IF_ERROR(_exec_env->load_stream_mgr()->put(ctx->id, pipe));
@@ -440,9 +442,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_negative(false);
     }
     if (!http_req->header(HTTP_STRICT_MODE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "false")) {
+        if (iequal(http_req->header(HTTP_STRICT_MODE), "false")) {
             request.__set_strictMode(false);
-        } else if (boost::iequals(http_req->header(HTTP_STRICT_MODE), "true")) {
+        } else if (iequal(http_req->header(HTTP_STRICT_MODE), "true")) {
             request.__set_strictMode(true);
         } else {
             return Status::InvalidArgument("Invalid strict mode format. Must be bool type");
@@ -465,7 +467,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_json_root(http_req->header(HTTP_JSONROOT));
     }
     if (!http_req->header(HTTP_STRIP_OUTER_ARRAY).empty()) {
-        if (boost::iequals(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
+        if (iequal(http_req->header(HTTP_STRIP_OUTER_ARRAY), "true")) {
             request.__set_strip_outer_array(true);
         } else {
             request.__set_strip_outer_array(false);
@@ -474,7 +476,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_strip_outer_array(false);
     }
     if (!http_req->header(HTTP_NUM_AS_STRING).empty()) {
-        if (boost::iequals(http_req->header(HTTP_NUM_AS_STRING), "true")) {
+        if (iequal(http_req->header(HTTP_NUM_AS_STRING), "true")) {
             request.__set_num_as_string(true);
         } else {
             request.__set_num_as_string(false);
@@ -483,7 +485,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         request.__set_num_as_string(false);
     }
     if (!http_req->header(HTTP_FUZZY_PARSE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_FUZZY_PARSE), "true")) {
+        if (iequal(http_req->header(HTTP_FUZZY_PARSE), "true")) {
             request.__set_fuzzy_parse(true);
         } else {
             request.__set_fuzzy_parse(false);
@@ -493,7 +495,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
 
     if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
-        if (boost::iequals(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
             request.__set_read_json_by_line(true);
         } else {
             request.__set_read_json_by_line(false);
@@ -517,7 +519,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
 
     if (!http_req->header(HTTP_LOAD_TO_SINGLE_TABLET).empty()) {
-        if (boost::iequals(http_req->header(HTTP_LOAD_TO_SINGLE_TABLET), "true")) {
+        if (iequal(http_req->header(HTTP_LOAD_TO_SINGLE_TABLET), "true")) {
             request.__set_load_to_single_tablet(true);
         } else {
             request.__set_load_to_single_tablet(false);

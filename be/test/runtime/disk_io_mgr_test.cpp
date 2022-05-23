@@ -625,13 +625,13 @@ TEST_F(DiskIoMgrTest, SingleReaderCancel) {
                 EXPECT_TRUE(status.ok());
 
                 std::atomic<int> num_ranges_processed;
-                int num_succesful_ranges = ranges.size() / 2;
+                int num_successful_ranges = ranges.size() / 2;
                 // Read half the ranges
-                for (int i = 0; i < num_succesful_ranges; ++i) {
+                for (int i = 0; i < num_successful_ranges; ++i) {
                     scan_range_thread(&io_mgr, reader, data, strlen(data), Status::OK(), 1,
                                       &num_ranges_processed);
                 }
-                EXPECT_EQ(num_ranges_processed, num_succesful_ranges);
+                EXPECT_EQ(num_ranges_processed, num_successful_ranges);
 
                 // Start up some threads and then cancel
                 ThreadGroup threads;

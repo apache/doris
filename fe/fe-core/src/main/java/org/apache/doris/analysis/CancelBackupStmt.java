@@ -32,7 +32,7 @@ public class CancelBackupStmt extends CancelStmt {
 
     private String dbName;
     private boolean isRestore;
-    
+
     public CancelBackupStmt(String dbName, boolean isRestore) {
         this.dbName = dbName;
         this.isRestore = isRestore;

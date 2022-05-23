@@ -23,7 +23,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.LoadErrorHub;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

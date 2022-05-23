@@ -26,7 +26,6 @@ import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,11 +40,11 @@ import java.util.Set;
  * For example:
  *      where a = 1 and b in (2,3,4) and c in (5,6,7)
  *      a/b/c are distribution columns
- * 
+ *
  * the config 'max_distribution_pruner_recursion_depth' will limit the max recursion depth of pruning.
  * the recursion depth is calculated by the product of element number of all predicates.
  * The above example's depth is 9(= 1 * 3 * 3)
- * 
+ *
  * If depth is larger than 'max_distribution_pruner_recursion_depth', all buckets will be return without pruning.
  */
 public class HashDistributionPruner implements DistributionPruner {

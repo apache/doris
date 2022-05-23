@@ -25,10 +25,9 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.common.DdlException;
 
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -106,7 +105,7 @@ public class EsTablePartitions {
         }
         return esTablePartitions;
     }
-    
+
     public PartitionInfo getPartitionInfo() {
         return partitionInfo;
     }
@@ -118,11 +117,11 @@ public class EsTablePartitions {
     public Map<Long, String> getPartitionIdToIndices() {
         return partitionIdToIndices;
     }
-    
+
     public void addPartition(String indexName, long partitionId) {
         partitionIdToIndices.put(partitionId, indexName);
     }
-    
+
     public void addIndexState(String indexName, EsShardPartitions indexState) {
         if (indexState.getPartitionDesc() != null) {
             partitionedIndexStates.put(indexName, indexState);
@@ -138,14 +137,14 @@ public class EsTablePartitions {
     public Map<String, EsShardPartitions> getUnPartitionedIndexStates() {
         return unPartitionedIndexStates;
     }
-    
+
     public EsShardPartitions getEsShardPartitions(long partitionId) {
         if (partitionIdToIndices.containsKey(partitionId)) {
             return partitionedIndexStates.get(partitionIdToIndices.get(partitionId));
         }
         return null;
     }
-    
+
     public EsShardPartitions getEsShardPartitions(String indexName) {
         if (partitionedIndexStates.containsKey(indexName)) {
             return partitionedIndexStates.get(indexName);

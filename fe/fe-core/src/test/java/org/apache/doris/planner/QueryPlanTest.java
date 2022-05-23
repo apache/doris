@@ -17,8 +17,6 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.DropDbStmt;
@@ -50,11 +48,12 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class QueryPlanTest extends TestWithFeService {
 

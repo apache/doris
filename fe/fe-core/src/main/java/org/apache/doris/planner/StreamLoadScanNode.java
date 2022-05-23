@@ -27,6 +27,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.task.LoadTaskInfo;
@@ -39,11 +40,10 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.charset.Charset;
 import java.util.List;
@@ -89,7 +89,7 @@ public class StreamLoadScanNode extends LoadScanNode {
 
         this.analyzer = analyzer;
         brokerScanRange = new TBrokerScanRange();
-        
+
         deleteCondition = taskInfo.getDeleteCondition();
         mergeType = taskInfo.getMergeType();
 
@@ -141,7 +141,8 @@ public class StreamLoadScanNode extends LoadScanNode {
         }
 
         Load.initColumns(dstTable, columnExprDescs, null /* no hadoop function */,
-                exprsByName, analyzer, srcTupleDesc, slotDescByName, params);
+                exprsByName, analyzer, srcTupleDesc, slotDescByName, params,
+                taskInfo.getFormatType(), VectorizedUtil.isVectorized());
 
         // analyze where statement
         initAndSetPrecedingFilter(taskInfo.getPrecedingFilter(), this.srcTupleDesc, analyzer);

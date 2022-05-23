@@ -26,13 +26,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.util.List;
-import java.util.Map;
-
 import io.fabric8.kubernetes.api.model.EndpointAddress;
 import io.fabric8.kubernetes.api.model.EndpointPort;
 import io.fabric8.kubernetes.api.model.EndpointSubset;
@@ -41,10 +34,15 @@ import io.fabric8.kubernetes.client.ConfigBuilder;
 import io.fabric8.kubernetes.client.DefaultKubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClient;
 import io.fabric8.kubernetes.client.KubernetesClientException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
 
 public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
-    
+
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
     // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Palo, such as Frontends, Backends, ...
     // and each service has a name in k8s.
@@ -52,7 +50,7 @@ public class K8sDeployManager extends DeployManager {
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
-    
+
     // we arbitrarily set all broker name as what ENV_BROKER_NAME specified.
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
@@ -69,7 +67,7 @@ public class K8sDeployManager extends DeployManager {
     public static final String K8S_CA_CERT_FILE = "cce-ca.pem";
     public static final String K8S_CLIENT_CERT_FILE = "cce-admin.pem";
     public static final String K8S_CLIENT_KEY_FILE = "cce-admin-key.pem";
-    
+
     public static final String TEST_MASTER_URL = "https://127.0.0.1:1111/";
     public static final String TEST_NAMESPACE = "default";
     public static final String TEST_SERVICENAME = "palo-fe";
@@ -184,7 +182,7 @@ public class K8sDeployManager extends DeployManager {
         if (client != null) {
             return client;
         }
-        
+
         try {
             if (Config.with_k8s_certs) {
                 // for test only

@@ -154,7 +154,6 @@ private:
                                        bool update_meta, bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    Status _create_initial_rowset_unlocked(const TCreateTabletReq& request, Tablet* tablet);
 
     Status _drop_tablet_directly_unlocked(TTabletId tablet_id, bool keep_files = false);
 

@@ -34,6 +34,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
+import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -57,8 +58,6 @@ import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
-
-import com.google.common.base.Strings;
 
 import java.io.IOException;
 import java.text.ParseException;
@@ -283,6 +282,29 @@ public class HiveMetaStoreClientHelper {
         } catch (TException e) {
             LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
             throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        }
+        return table;
+    }
+
+    /**
+     * Get hive table with dbName and tableName.
+     *
+     * @param dbName database name
+     * @param tableName table name
+     * @param metaStoreUris hive metastore uris
+     * @return HiveTable
+     * @throws DdlException when get table from hive metastore failed.
+     */
+    public static Table getTable(String dbName, String tableName, String metaStoreUris) throws DdlException {
+        HiveMetaStoreClient client = getClient(metaStoreUris);
+        Table table;
+        try {
+            table = client.getTable(dbName, tableName);
+        } catch (TException e) {
+            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
+            throw new DdlException("Connect hive metastore failed. Error: " + e.getMessage());
+        } finally {
+            client.close();
         }
         return table;
     }

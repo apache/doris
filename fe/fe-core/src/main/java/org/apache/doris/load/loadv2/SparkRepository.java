@@ -24,11 +24,11 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.thrift.TBrokerFileStatus;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -225,15 +225,15 @@ public class SparkRepository {
             // fileName should like:
             //      __lib_md5sum_spark-dpp-1.0.0-jar-with-dependencies.jar
             //      __lib_md5sum_spark-2x.zip
-            String[] lib_arg = unwrap(PREFIX_LIB, fileName).split(FILE_NAME_SEPARATOR);
-            if (lib_arg.length != 2) {
+            String[] libArg = unwrap(PREFIX_LIB, fileName).split(FILE_NAME_SEPARATOR);
+            if (libArg.length != 2) {
                 continue;
             }
-            String md5sum = lib_arg[0];
+            String md5sum = libArg[0];
             if (Strings.isNullOrEmpty(md5sum)) {
                 continue;
             }
-            String type = lib_arg[1];
+            String type = libArg[1];
             SparkLibrary.LibType libType = null;
             if (type.equals(SPARK_DPP)) {
                 libType = SparkLibrary.LibType.DPP;

@@ -189,7 +189,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
         int const_expr_lists_size = _const_expr_lists[_const_expr_list_idx].size();
         std::vector<int> result_list(const_expr_lists_size);
         for (size_t i = 0; i < const_expr_lists_size; ++i) {
-            _const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block, &result_list[i]);
+            RETURN_IF_ERROR(_const_expr_lists[_const_expr_list_idx][i]->execute(&tmp_block,
+                                                                                &result_list[i]));
         }
         tmp_block.erase_not_in(result_list);
         mblock.merge(tmp_block);

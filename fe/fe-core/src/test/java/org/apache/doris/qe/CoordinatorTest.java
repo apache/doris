@@ -17,11 +17,6 @@
 
 package org.apache.doris.qe;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
-import mockit.Mocked;
-import org.apache.commons.collections.map.HashedMap;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -51,6 +46,12 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import mockit.Mocked;
+import org.apache.commons.collections.map.HashedMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -75,7 +76,7 @@ public class CoordinatorTest extends Coordinator {
     @Mocked
     static FrontendOptions frontendOptions;
     static Analyzer analyzer = new Analyzer(catalog, context);
-    
+
     public CoordinatorTest() {
         super(context, analyzer, planner);
     }
@@ -106,13 +107,13 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in coordinator
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
         List<TScanRangeParams> scanRangeParamsList = new ArrayList<>();
         scanRangeParamsList.add(new TScanRangeParams());
 
-        ScanRangeMap.put(scanNodeId, scanRangeParamsList);
+        scanRangeMap.put(scanNodeId, scanRangeParamsList);
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -298,10 +299,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in coordinator
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(coordinator, "fragmentIdTobucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -424,10 +425,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in bucketShuffleJoinController
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -480,10 +481,10 @@ public class CoordinatorTest extends Coordinator {
         // 2. set bucketSeqToScanRange in bucketShuffleJoinController
         Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap = new HashMap<>();
         BucketSeqToScanRange bucketSeqToScanRange = new BucketSeqToScanRange();
-        Map<Integer, List<TScanRangeParams>> ScanRangeMap = new HashMap<>();
-        ScanRangeMap.put(scanNodeId, new ArrayList<>());
+        Map<Integer, List<TScanRangeParams>> scanRangeMap = new HashMap<>();
+        scanRangeMap.put(scanNodeId, new ArrayList<>());
         for (int i = 0; i < 3; i++) {
-            bucketSeqToScanRange.put(i, ScanRangeMap);
+            bucketSeqToScanRange.put(i, scanRangeMap);
         }
         fragmentIdBucketSeqToScanRangeMap.put(planFragmentId, bucketSeqToScanRange);
         Deencapsulation.setField(bucketShuffleJoinController, "fragmentIdBucketSeqToScanRangeMap", fragmentIdBucketSeqToScanRangeMap);
@@ -844,5 +845,3 @@ public class CoordinatorTest extends Coordinator {
         }
     }
 }
-
-

@@ -64,7 +64,7 @@ public class NullLiteral extends LiteralExpr {
       super.resetAnalysisState();
       type = Type.NULL;
     }
-    
+
     @Override
     public Expr clone() {
         return new NullLiteral(this);
@@ -144,7 +144,7 @@ public class NullLiteral extends LiteralExpr {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
     }
-    
+
     public static NullLiteral read(DataInput in) throws IOException {
         NullLiteral literal = new NullLiteral();
         literal.readFields(in);

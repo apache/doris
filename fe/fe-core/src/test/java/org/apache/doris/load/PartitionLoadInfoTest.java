@@ -42,7 +42,7 @@ public class PartitionLoadInfoTest {
         Source source = new Source(files, columns, "\t", "\n", false);
         return source;
     }
- 
+
     @Test
     public void testSerialization() throws Exception {
         File file = new File("./partitionLoadInfoTest");
@@ -57,33 +57,33 @@ public class PartitionLoadInfoTest {
         PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(sources);
         partitionLoadInfo.setVersion(100000);
         partitionLoadInfo.write(dos);
-        
+
         PartitionLoadInfo partitionLoadInfo0 = new PartitionLoadInfo();
         partitionLoadInfo0.write(dos);
-        
+
         dos.flush();
         dos.close();
 
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         PartitionLoadInfo partitionLoadInfo1 = new PartitionLoadInfo();
         partitionLoadInfo1.readFields(dis);
-        
+
         PartitionLoadInfo rPartitionLoadInfo0 = new PartitionLoadInfo();
         rPartitionLoadInfo0.readFields(dis);
-        
+
         List<Source> sources1 = partitionLoadInfo1.getSources();
 
         Assert.assertEquals(partitionLoadInfo1.getVersion(), 100000);
         Assert.assertEquals(sources1.size(), 2);
-        Assert.assertEquals(sources1.get(0).getFileUrls().size(), 10);       
+        Assert.assertEquals(sources1.get(0).getFileUrls().size(), 10);
         Assert.assertEquals(sources1.get(0).getColumnNames().size(), 10);
-        Assert.assertEquals(sources1.get(1).getFileUrls().size(), 30);       
+        Assert.assertEquals(sources1.get(1).getFileUrls().size(), 30);
         Assert.assertEquals(sources1.get(1).getColumnNames().size(), 30);
-        
+
         Assert.assertTrue(partitionLoadInfo1.equals(partitionLoadInfo));
         Assert.assertTrue(rPartitionLoadInfo0.equals(partitionLoadInfo0));
         Assert.assertFalse(partitionLoadInfo0.equals(partitionLoadInfo1));
-       
+
         dis.close();
         file.delete();
     }

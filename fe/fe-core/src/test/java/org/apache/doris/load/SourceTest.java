@@ -35,7 +35,7 @@ public class SourceTest {
         File file = new File("./sourceTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         Source source0 = new Source();
         source0.write(dos);
 
@@ -49,22 +49,22 @@ public class SourceTest {
         }
         Source source1 = new Source(files, columns, "\t", "\n", false);
         source1.write(dos);
-        
+
         Source source2 = new Source();
         source2.setFileUrls(null);
         source2.setColumnNames(null);
         source2.write(dos);
-        
+
         dos.flush();
         dos.close();
 
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Source rSource0 = new Source();
         rSource0.readFields(dis);
-        
+
         Source rSource1 = new Source();
         rSource1.readFields(dis);
-        
+
         Source rSource2 = new Source();
         rSource2.readFields(dis);
 
@@ -74,7 +74,7 @@ public class SourceTest {
         Assert.assertTrue(rSource1.equals(source1));
         Assert.assertFalse(rSource2.equals(source2));
         Assert.assertFalse(rSource0.equals(source1));
-        
+
         rSource2.setFileUrls(null);
         Assert.assertFalse(rSource2.equals(source2));
         rSource2.setColumnNames(null);
@@ -82,7 +82,7 @@ public class SourceTest {
         rSource2.setColumnNames(null);
         rSource2.setFileUrls(null);
         Assert.assertTrue(rSource2.equals(source2));
-        
+
         dis.close();
         file.delete();
     }

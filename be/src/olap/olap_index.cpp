@@ -377,7 +377,7 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
         BinarySearchIterator index_fin(_meta[off].count());
 
         if (index_comparator.set_segment_id(off) != Status::OK()) {
-            throw "index of of range";
+            throw "index of range";
         }
 
         if (!find_last) {

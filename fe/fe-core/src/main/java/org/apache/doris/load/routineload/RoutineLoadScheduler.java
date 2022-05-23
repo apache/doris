@@ -28,7 +28,6 @@ import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

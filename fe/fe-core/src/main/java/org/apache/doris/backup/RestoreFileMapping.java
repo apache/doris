@@ -62,7 +62,7 @@ public class RestoreFileMapping implements Writable {
         public long getReplicaId() {
             return chain[4];
         }
-        
+
         @Override
         public String toString() {
             StringBuilder sb = new StringBuilder();
@@ -77,7 +77,7 @@ public class RestoreFileMapping implements Writable {
             if (!(obj instanceof IdChain)) {
                 return false;
             }
-            
+
             IdChain other = (IdChain) obj;
             for (int i = 0; i < 5; i++) {
                 // DO NOT use ==, Long_1 != Long_2
@@ -85,7 +85,7 @@ public class RestoreFileMapping implements Writable {
                     return false;
                 }
             }
-            
+
             return true;
         }
 
@@ -120,7 +120,7 @@ public class RestoreFileMapping implements Writable {
             return chain;
         }
     }
-    
+
     // catalog ids -> repository ids
     private Map<IdChain, IdChain> mapping = Maps.newHashMap();
     // tablet id -> is overwrite

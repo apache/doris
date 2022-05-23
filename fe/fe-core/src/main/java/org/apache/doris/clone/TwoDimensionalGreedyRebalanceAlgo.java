@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.common.Pair;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,8 +67,12 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             PartitionMove that = (PartitionMove) o;
             return Objects.equal(partitionId, that.partitionId) &&
                     Objects.equal(indexId, that.indexId) &&
@@ -135,7 +140,7 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             // Nothing to balance: cluster is empty.
             return Lists.newArrayList();
         }
-		
+
         NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
         if (keySet.isEmpty() || keySet.last() == 0L) {
             // the number of replica on specified medium we get from getReplicaNumByBeIdAndStorageMedium() is
@@ -291,9 +296,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             moveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
 
             skewMap.remove(skew, partitionBalanceInfo);
-            long min_count = newInfo.beByReplicaCount.keySet().first();
-            long max_count = newInfo.beByReplicaCount.keySet().last();
-            skewMap.put(max_count - min_count, newInfo);
+            long minCount = newInfo.beByReplicaCount.keySet().first();
+            long maxCount = newInfo.beByReplicaCount.keySet().last();
+            skewMap.put(maxCount - minCount, newInfo);
         } catch (IllegalStateException e) {
             // If touch IllegalState, the skew map doesn't be modified, so we should rollback the move of beByTotalReplicaCount
             moveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);

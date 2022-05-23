@@ -17,10 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
-
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.URI;
@@ -30,7 +29,6 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,7 +36,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-
 
 /**
  * Base class for all functions.
@@ -603,7 +600,7 @@ public class Function implements Writable {
         }
 
         public static FunctionType fromCode(int code) {
-            switch (code) {
+            switch (code) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                 case 0:
                     return ORIGIN;
                 case 1:
@@ -640,8 +637,8 @@ public class Function implements Writable {
         if (location != null) {
             libUrl = location.getLocation();
         }
-        writeOptionString(output, libUrl);
-        writeOptionString(output, checksum);
+        IOUtils.writeOptionString(output, libUrl);
+        IOUtils.writeOptionString(output, checksum);
     }
 
     @Override

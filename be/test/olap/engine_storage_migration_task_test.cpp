@@ -194,7 +194,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->close_wait(nullptr, nullptr, false);
+    res = delta_writer->close_wait();
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success

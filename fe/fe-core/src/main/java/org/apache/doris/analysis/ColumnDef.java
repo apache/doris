@@ -30,7 +30,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,11 +48,11 @@ public class ColumnDef {
      *     k1 INT NOT NULL DEFAULT "10"
      *     k1 INT NULL
      *     k1 INT NULL DEFAULT NULL
-     *     
+     *
      * ColumnnDef will be transformed to Column in Analysis phase, and in Column, default value is a String.
      * No matter does the user set the default value as NULL explicitly, or not set default value,
      * the default value in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
-     * 
+     *
      * But this is OK because Column has another attribute "isAllowNull".
      * If the column is not allowed to be null, and user does not set the default value,
      * even if default value saved in Column is null, the "null" value can not be loaded into this column,
@@ -281,6 +280,7 @@ public class ColumnDef {
                 if (floatLiteral.getType().equals(Type.DOUBLE)) {
                     throw new AnalysisException("Default value will loose precision: " + defaultValue);
                 }
+                break;
             case DOUBLE:
                 FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
                 break;

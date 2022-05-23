@@ -45,16 +45,16 @@ import java.io.IOException;
 // cmy@192.168.%
 // cmy@[domain.name]
 public class UserIdentity implements Writable {
-    
+
     @SerializedName(value = "user")
     private String user;
-    
+
     @SerializedName(value = "host")
     private String host;
-    
+
     @SerializedName(value = "isDomain")
     private boolean isDomain;
-    
+
     private boolean isAnalyzed = false;
 
     public static final UserIdentity ROOT;
@@ -260,4 +260,3 @@ public class UserIdentity implements Writable {
         isAnalyzed = true;
     }
 }
-

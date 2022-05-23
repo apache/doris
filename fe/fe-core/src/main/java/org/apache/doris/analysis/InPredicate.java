@@ -34,7 +34,6 @@ import org.apache.doris.thrift.TInPredicate;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,12 +60,16 @@ public class InPredicate extends Predicate {
 
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
-            if (t.isNull()) continue;
+            if (t.isNull()) {
+                continue;
+            }
             // TODO we do not support codegen for CHAR and the In predicate must be codegened
             // because it has variable number of arguments. This will force CHARs to be
             // cast up to strings; meaning that "in" comparisons will not have CHAR comparison
             // semantics.
-            if (t.getPrimitiveType() == PrimitiveType.CHAR) continue;
+            if (t.getPrimitiveType() == PrimitiveType.CHAR) {
+                continue;
+            }
 
             String typeString = Function.getUdfTypeName(t.getPrimitiveType());
 
@@ -164,14 +167,14 @@ public class InPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        
+
         if (contains(Subquery.class)) {
             // An [NOT] IN predicate with a subquery must contain two children, the second of
             // which is a Subquery.
             if (children.size() != 2 || !(getChild(1) instanceof Subquery)) {
                 throw new AnalysisException("Unsupported IN predicate with a subquery: " +
                     toSql());
-            } 
+            }
             Subquery subquery = (Subquery)getChild(1);
             if (!subquery.returnsScalarColumn()) {
                 throw new AnalysisException("Subquery must return a single column: " +

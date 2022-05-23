@@ -376,4 +376,3 @@ public final class LocalJournalCursor implements JournalCursor {
 
     }
 }
-

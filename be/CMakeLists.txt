@@ -85,6 +85,7 @@ set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/../")
 set(BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed/")
+set(HDFS3_KRB5_INSTALL_DIR "$ENV{DORIS_THIRDPARTY}/installed/libhdfs_with_kerberos/")
 set(GENSRC_DIR "${BASE_DIR}/../gensrc/build/")
 set(SRC_DIR "${BASE_DIR}/src/")
 set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
@@ -97,6 +98,7 @@ else()
 endif()
 message(STATUS "make test: ${MAKE_TEST}")
 option(WITH_MYSQL "Support access MySQL" ON)
+option(WITH_KERBEROS "Enable or disable Kereberos support" ${WITH_KERBEROS})
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -328,17 +330,40 @@ set_target_properties(minizip PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(idn STATIC IMPORTED)
 set_target_properties(idn PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libidn.a)
 
-add_library(gsasl STATIC IMPORTED)
-set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
-
 add_library(breakpad STATIC IMPORTED)
 set_target_properties(breakpad PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libbreakpad_client.a)
 
-if (ARCH_AMD64)
-    # libhdfs3 only support x86 or amd64
+if (WITH_KERBEROS)
+    # kerberos lib for libhdfs3 
+    add_library(gsasl STATIC IMPORTED)
+    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libgsasl.a)
+
+    add_library(krb5support STATIC IMPORTED)
+    set_target_properties(krb5support PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libkrb5support.a)
+    
+    add_library(krb5 STATIC IMPORTED)
+    set_target_properties(krb5 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libkrb5.a)
+
+    add_library(com_err STATIC IMPORTED)
+    set_target_properties(com_err PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libcom_err.a)
+
+    add_library(k5crypto STATIC IMPORTED)
+    set_target_properties(k5crypto PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libk5crypto.a)
+
+    add_library(gssapi_krb5 STATIC IMPORTED)
+    set_target_properties(gssapi_krb5 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libgssapi_krb5.a)
+
+    add_library(hdfs3 STATIC IMPORTED)
+    set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${HDFS3_KRB5_INSTALL_DIR}/lib/libhdfs3.a)
+else()
+    add_library(gsasl STATIC IMPORTED)
+    set_target_properties(gsasl PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libgsasl.a)
+
     add_library(hdfs3 STATIC IMPORTED)
     set_target_properties(hdfs3 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libhdfs3.a)
+endif()
 
+if (ARCH_AMD64)
     add_library(xml2 STATIC IMPORTED)
     set_target_properties(xml2 PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib64/libxml2.a)
 
@@ -370,7 +395,7 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
 # Enable the cpu and heap profile of brpc
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBRPC_ENABLE_CPU_PROFILER")
 
-if (USE_LLD AND NOT MAKE_TEST)
+if (USE_LLD)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fuse-ld=lld")
 endif ()
 
@@ -421,6 +446,10 @@ endif()
 #   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
 set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
+
+if (USE_DWARF)
+    set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
+endif()
 
 # For CMAKE_BUILD_TYPE=Debug
 set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -O0")
@@ -502,6 +531,14 @@ endif()
 
 set(WL_START_GROUP "-Wl,--start-group")
 set(WL_END_GROUP "-Wl,--end-group")
+
+
+set(KRB5_LIBS
+    krb5support
+    krb5
+    com_err
+    gssapi_krb5
+    k5crypto)
 
 set(AWS_LIBS
     aws-sdk-s3
@@ -636,6 +673,12 @@ if (WITH_MYSQL)
         )
 endif()
 
+if (WITH_KERBEROS)
+    set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+    	${KRB5_LIBS}
+        )
+endif()
+
 set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} ${WL_END_GROUP})
 
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
@@ -647,6 +690,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
     -static-libstdc++
     -static-libgcc
     -lstdc++fs
+    -lresolv
 )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")

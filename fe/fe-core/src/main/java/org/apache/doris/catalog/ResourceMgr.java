@@ -36,7 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,8 +48,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-
-import com.google.gson.annotations.SerializedName;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -74,7 +72,8 @@ public class ResourceMgr implements Writable {
     public void createResource(CreateResourceStmt stmt) throws DdlException {
         if (stmt.getResourceType() != ResourceType.SPARK
                 && stmt.getResourceType() != ResourceType.ODBC_CATALOG
-                && stmt.getResourceType() != ResourceType.S3) {
+                && stmt.getResourceType() != ResourceType.S3
+                && stmt.getResourceType() != ResourceType.STORAGE_POLICY) {
             throw new DdlException("Only support SPARK, ODBC_CATALOG and REMOTE_STORAGE resource.");
         }
         Resource resource = Resource.fromStmt(stmt);

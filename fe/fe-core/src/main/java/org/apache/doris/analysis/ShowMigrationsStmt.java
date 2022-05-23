@@ -34,9 +34,9 @@ public class ShowMigrationsStmt extends ShowStmt {
             .add("cluster").add("srcdb").add("desdb").add("progress").build();
 
     public ShowMigrationsStmt() {
-        
+
     }
-    
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();

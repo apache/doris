@@ -40,27 +40,27 @@ import java.util.Map;
  *      MockedFrontend mockedFrontend = MockedFrontend.getInstance();
  *      mockedFrontend.init(confMap);
  *      mockedFrontend.start(new String[0]);
- *      
+ *
  *      ...
- *      
+ *
  * confMap is a instance of Map<String, String>.
  * Here you can add any FE configuration you want to add. For example:
  *      confMap.put("http_port", "8032");
- *      
+ *
  * FrontendProcess already contains a minimal set of FE configurations.
  * Any configuration in confMap will form the final fe.conf file with this minimal set.
- *      
+ *
  * 1 environment variable must be set:
  *      DORIS_HOME/
- * 
+ *
  * The running dir is set when calling init();
  * There will be 3 directories under running dir/:
  *      running dir/conf/
  *      running dir/log/
  *      running dir/palo-meta/
- *      
+ *
  *  All these 3 directories will be cleared first.
- *  
+ *
  */
 public class MockedFrontend {
     public static final String FE_PROCESS = "fe";
@@ -99,7 +99,7 @@ public class MockedFrontend {
     private boolean isInit = false;
 
     // init the fe process. This must be called before starting the frontend process.
-    // 1. check if all neccessary environment variables are set.
+    // 1. check if all necessary environment variables are set.
     // 2. clear and create 3 dirs: runningDir/log/, runningDir/palo-meta/, runningDir/conf/
     // 3. init fe.conf
     //      The content of "fe.conf" is a merge set of input `feConf` and MIN_FE_CONF

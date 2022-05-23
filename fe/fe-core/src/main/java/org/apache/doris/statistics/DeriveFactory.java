@@ -23,14 +23,14 @@ public class DeriveFactory {
 
     public BaseStatsDerive getStatsDerive(PlanNode.NodeType nodeType) {
         switch (nodeType) {
+            case OLAP_SCAN_NODE:
+                return new OlapScanStatsDerive();
             case AGG_NODE:
             case HASH_JOIN_NODE:
             case MERGE_NODE:
-                break;
-            case OLAP_SCAN_NODE:
-                return new OlapScanStatsDerive();
             case DEFAULT:
+            default:
+                return new BaseStatsDerive();
         }
-        return new BaseStatsDerive();
     }
 }

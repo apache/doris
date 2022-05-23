@@ -23,7 +23,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,9 +34,6 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class TabletTest {
 
@@ -49,7 +47,7 @@ public class TabletTest {
     @Mocked
     private Catalog catalog;
 
-    @Before 
+    @Before
     public void makeTablet() {
         invertedIndex = new TabletInvertedIndex();
         new Expectations(catalog) {
@@ -89,8 +87,8 @@ public class TabletTest {
         Assert.assertEquals(replica1, tablet.getReplicaByBackendId(replica1.getBackendId()));
         Assert.assertEquals(replica2, tablet.getReplicaByBackendId(replica2.getBackendId()));
         Assert.assertEquals(replica3, tablet.getReplicaByBackendId(replica3.getBackendId()));
-        
-        
+
+
         long newTabletId = 20000;
         tablet.setTabletId(newTabletId);
         Assert.assertEquals("tabletId=" + newTabletId, tablet.toString());
@@ -115,7 +113,7 @@ public class TabletTest {
         tablet.clearReplica();
         Assert.assertEquals(0, tablet.getReplicas().size());
     }
-        
+
     @Test
     public void testSerialization() throws Exception {
         File file = new File("./olapTabletTest");
@@ -124,18 +122,18 @@ public class TabletTest {
         tablet.write(dos);
         dos.flush();
         dos.close();
-        
+
         // 2. Read a object from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         Tablet rTablet1 = Tablet.read(dis);
         Assert.assertEquals(1, rTablet1.getId());
         Assert.assertEquals(3, rTablet1.getReplicas().size());
         Assert.assertEquals(rTablet1.getReplicas().get(0).getVersion(), rTablet1.getReplicas().get(1).getVersion());
-        
+
         Assert.assertTrue(rTablet1.equals(tablet));
         Assert.assertTrue(rTablet1.equals(rTablet1));
         Assert.assertFalse(rTablet1.equals(this));
-        
+
         Tablet tablet2 = new Tablet(1);
         Replica replica1 = new Replica(1L, 1L, 100L, 0, 200000L, 3000L, ReplicaState.NORMAL, 0, 0);
         Replica replica2 = new Replica(2L, 2L, 100L, 0, 200000L, 3000L, ReplicaState.NORMAL, 0, 0);
@@ -145,13 +143,13 @@ public class TabletTest {
         Assert.assertFalse(tablet2.equals(tablet));
         tablet2.addReplica(replica3);
         Assert.assertTrue(tablet2.equals(tablet));
-        
+
         Tablet tablet3 = new Tablet(1);
         tablet3.addReplica(replica1);
         tablet3.addReplica(replica2);
         tablet3.addReplica(new Replica(4L, 4L, 100L, 0, 200000L, 3000L, ReplicaState.NORMAL, 0, 0));
         Assert.assertFalse(tablet3.equals(tablet));
-        
+
         dis.close();
         file.delete();
     }

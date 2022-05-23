@@ -26,7 +26,6 @@ import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
@@ -92,7 +91,7 @@ public class AdminStmtTest extends TestWithFeService {
         replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertFalse(replica.isBad());
     }
-    
+
     @Test
     public void testSetReplicaStatusOperationLog() throws IOException, AnalysisException {
         String fileName = "./SetReplicaStatusOperationLog";
@@ -101,20 +100,20 @@ public class AdminStmtTest extends TestWithFeService {
             File file = new File(fileName);
             file.createNewFile();
             DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-            
+
             SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
             log.write(out);
             out.flush();
             out.close();
-            
+
             // 2. Read objects from file
             DataInputStream in = new DataInputStream(new FileInputStream(file));
-            
+
             SetReplicaStatusOperationLog readLog = SetReplicaStatusOperationLog.read(in);
             Assert.assertEquals(log.getBackendId(), readLog.getBackendId());
             Assert.assertEquals(log.getTabletId(), readLog.getTabletId());
             Assert.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
-            
+
             in.close();
         } finally {
             File file = new File(fileName);

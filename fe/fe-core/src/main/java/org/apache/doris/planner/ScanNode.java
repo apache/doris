@@ -20,9 +20,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -42,8 +39,9 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.glassfish.jersey.internal.guava.Sets;
@@ -193,6 +191,7 @@ abstract public class ScanNode extends PlanNode {
                         break;
                     case CONVERT_SUCCESS:
                         result.intersect(ranges.ranges);
+                        break;
                     case CONVERT_FAILURE:
                     default:
                         break;

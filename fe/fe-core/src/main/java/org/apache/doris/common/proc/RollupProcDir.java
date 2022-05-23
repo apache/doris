@@ -17,7 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.RollupJobV2;
@@ -29,12 +28,13 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.OrderByPair;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.OrderByPair;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

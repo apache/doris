@@ -38,7 +38,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -97,9 +96,9 @@ public class AggregationNode extends PlanNode {
      * Sets this node as a preaggregation. Only valid to call this if it is not marked
      * as a preaggregation
      */
-    public void setIsPreagg(PlannerContext ctx_) {
-        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisableStreamPreaggregations()
-                && !ctx_.getQueryOptions().disable_stream_preaggregations
+    public void setIsPreagg(PlannerContext ctx) {
+        useStreamingPreagg =  ctx.getQueryOptions().isSetDisableStreamPreaggregations()
+                && !ctx.getQueryOptions().disable_stream_preaggregations
                 && aggInfo.getGroupingExprs().size() > 0;
     }
 

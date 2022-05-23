@@ -118,3 +118,128 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 
 ### Best Practice
 
+1. 查看返回结果
+
+   INSERT 操作是一个同步操作，返回结果即表示操作结束。用户需要根据返回结果的不同，进行对应的处理。
+
+   1. 执行成功，结果集为空
+
+      如果 insert 对应 select 语句的结果集为空，则返回如下：
+
+      
+
+      ```sql
+      mysql> insert into tbl1 select * from empty_tbl;
+      Query OK, 0 rows affected (0.02 sec)
+      ```
+
+      `Query OK` 表示执行成功。`0 rows affected` 表示没有数据被导入。
+
+   2. 执行成功，结果集不为空
+
+      在结果集不为空的情况下。返回结果分为如下几种情况：
+
+      1. Insert 执行成功并可见：
+
+         
+
+         ```sql
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 4 rows affected (0.38 sec)
+         {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 with label my_label1 select * from tbl2;
+         Query OK, 4 rows affected (0.38 sec)
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 2 rows affected, 2 warnings (0.31 sec)
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 2 rows affected, 2 warnings (0.31 sec)
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
+         ```
+
+         `Query OK` 表示执行成功。`4 rows affected` 表示总共有4行数据被导入。`2 warnings` 表示被过滤的行数。
+
+         同时会返回一个 json 串：
+
+         
+
+         ```json
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005', 'err':'some other error'}
+         ```
+
+         `label` 为用户指定的 label 或自动生成的 label。Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。
+
+         `status` 表示导入数据是否可见。如果可见，显示 `visible`，如果不可见，显示 `committed`。
+
+         `txnId` 为这个 insert 对应的导入事务的 id。
+
+         `err` 字段会显示一些其他非预期错误。
+
+         当需要查看被过滤的行时，用户可以通过如下语句
+
+         
+
+         ```sql
+         show load where label="xxx";
+         ```
+
+         返回结果中的 URL 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
+
+         **数据不可见是一个临时状态，这批数据最终是一定可见的**
+
+         可以通过如下语句查看这批数据的可见状态：
+
+         
+
+         ```sql
+         show transaction where id=4005;
+         ```
+
+         返回结果中的 `TransactionStatus` 列如果为 `visible`，则表述数据可见。
+
+   3. 执行失败
+
+      执行失败表示没有任何数据被成功导入，并返回如下：
+
+      
+
+      ```sql
+      mysql> insert into tbl1 select * from tbl2 where k1 = "a";
+      ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0bf8a2
+      ```
+
+      其中 `ERROR 1064 (HY000): all partitions have no load data` 显示失败原因。后面的 url 可以用于查询错误的数据：
+
+      
+
+      ```sql
+      show load warnings on "url";
+      ```
+
+      可以查看到具体错误行。
+
+2. 超时时间
+
+   INSERT 操作的超时时间由 [会话变量](../../../../advanced/variables.md) `query_timeout` 控制。默认为5分钟。超时则作业会被取消。
+
+3. Label 和原子性
+
+   INSERT 操作同样能够保证导入的原子性，可以参阅 [导入事务和原子性](../../../../data-operate/import/import-scenes/load-atomicity.md) 文档。
+
+   当需要使用 `CTE(Common Table Expressions)` 作为 insert 操作中的查询部分时，必须指定 `WITH LABEL` 和 `column` 部分。
+
+4. 过滤阈值
+
+   与其他导入方式不同，INSERT 操作不能指定过滤阈值（`max_filter_ratio`）。默认的过滤阈值为 1，即素有错误行都可以被忽略。
+
+   对于有要求数据不能够被过滤的业务场景，可以通过设置 [会话变量](../../../../advanced/variables.md) `enable_insert_strict` 为 `true` 来确保当有数据被过滤掉的时候，`INSERT` 不会被执行成功。
+
+5. 性能问题
+
+   不见使用 `VALUES` 方式进行单行的插入。如果必须这样使用，请将多行数据合并到一个 INSERT 语句中进行批量提交。

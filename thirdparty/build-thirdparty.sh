@@ -904,16 +904,46 @@ build_gsasl() {
     make -j $PARALLEL && make install
 }
 
+# build_gsasl2 just for libgsasl1.8.0
+build_gsasl2() {
+    check_if_source_exist $GSASL2_SOURCE
+    cd $TP_SOURCE_DIR/$GSASL2_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL && make install
+}
+
+# krb5
+build_krb5() {
+    check_if_source_exist $KRB5_SOURCE
+    cd $TP_SOURCE_DIR/$KRB5_SOURCE/src
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CFLAGS="-fcommon" \
+    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --disable-shared --enable-static
+    make -j $PARALLEL && make install
+}
+
 # hdfs3
 build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
+    # build libhdfs3 without kerberos
+    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR
     make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
     make install
 }
 
+# hdfs3_with_kerberos
+build_hdfs3_with_kerberos() {
+    check_if_source_exist $HDFS3_SOURCE
+    cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
+    # build libhdfs3 with kerberos support
+    ../bootstrap --dependency="$HDFS3_KRB5_INSTALL_DIR:$TP_INSTALL_DIR -DWITH_KERBEROS=true" --prefix=$HDFS3_KRB5_INSTALL_DIR
+    make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
+    make install
+}
 # benchmark
 build_benchmark() {
     check_if_source_exist $BENCHMARK_SOURCE
@@ -999,7 +1029,10 @@ build_lzma
 build_xml2
 build_idn
 build_gsasl
+build_gsasl2
+build_krb5
 build_hdfs3
+build_hdfs3_with_kerberos
 build_benchmark
 build_breakpad
 build_simdjson

@@ -66,7 +66,6 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -337,7 +336,7 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
-        
+
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
         Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
@@ -358,4 +357,3 @@ public class OlapTableSink extends DataSink {
     }
 
 }
-

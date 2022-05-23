@@ -29,7 +29,6 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Strings;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -151,6 +150,7 @@ public class LoadSubmitter {
         }
     }
 
+    // CHECKSTYLE OFF: These name must match the name in json, case-sensitive.
     public static class SubmitResult {
         public String TxnId;
         public String Label;
@@ -170,4 +170,5 @@ public class LoadSubmitter {
         public String CommitAndPublishTimeMs;
         public String ErrorURL;
     }
+    // CHECKSTYLE ON
 }

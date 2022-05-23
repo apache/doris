@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.update;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DescriptorTable;
@@ -47,13 +48,11 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.doris.alter.SchemaChangeHandler.SHADOW_NAME_PRFIX;
-
 
 public class UpdatePlanner extends Planner {
 
-    private final IdGenerator<PlanNodeId> nodeIdGenerator_ = PlanNodeId.createGenerator();
-    private final IdGenerator<PlanFragmentId> fragmentIdGenerator_ =
+    private final IdGenerator<PlanNodeId> nodeIdGenerator = PlanNodeId.createGenerator();
+    private final IdGenerator<PlanFragmentId> fragmentIdGenerator =
             PlanFragmentId.createGenerator();
 
     private long targetDBId;
@@ -80,7 +79,7 @@ public class UpdatePlanner extends Planner {
 
     public void plan(long txnId) throws UserException {
         // 1. gen scan node
-        OlapScanNode olapScanNode = new OlapScanNode(nodeIdGenerator_.getNextId(), srcTupleDesc, "OlapScanNode");
+        OlapScanNode olapScanNode = new OlapScanNode(nodeIdGenerator.getNextId(), srcTupleDesc, "OlapScanNode");
         /* BEGIN: Temporary code, this part of the code needs to be refactored */
         olapScanNode.closePreAggregation("This an update operation");
         olapScanNode.useBaseIndexId();
@@ -98,7 +97,7 @@ public class UpdatePlanner extends Planner {
                 analyzer.getContext().getSessionVariable().sendBatchParallelism, false);
         olapTableSink.complete();
         // 3. gen plan fragment
-        PlanFragment planFragment = new PlanFragment(fragmentIdGenerator_.getNextId(), olapScanNode,
+        PlanFragment planFragment = new PlanFragment(fragmentIdGenerator.getNextId(), olapScanNode,
                 DataPartition.RANDOM);
         planFragment.setSink(olapTableSink);
         planFragment.setOutputExprs(computeOutputExprs());
@@ -163,8 +162,8 @@ public class UpdatePlanner extends Planner {
         for (int i = 0; i < targetTable.getFullSchema().size(); i++) {
             Column column = targetTable.getFullSchema().get(i);
             // pay attention to case ignore of column name
-            String originColumnName = (column.getName().startsWith(SHADOW_NAME_PRFIX) ?
-                    column.getName().substring(SHADOW_NAME_PRFIX.length()) : column.getName())
+            String originColumnName = (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PRFIX) ?
+                    column.getName().substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length()) : column.getName())
                     .toLowerCase();
             Expr setExpr = columnNameToSetExpr.get(originColumnName);
             SlotDescriptor srcSlotDesc = columnNameToSrcSlotDesc.get(originColumnName);

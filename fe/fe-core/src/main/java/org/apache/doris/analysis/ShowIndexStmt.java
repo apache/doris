@@ -57,7 +57,7 @@ public class ShowIndexStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        
+
         if (!Strings.isNullOrEmpty(dbName)) {
             // if user specify the `from db`, overwrite the db in tableName with this db.
             // for example:

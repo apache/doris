@@ -33,7 +33,6 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -362,6 +361,7 @@ public class ArithmeticExpr extends Expr {
                     if (isConstant()) {
                         castUpperInteger(t1, t2);
                     }
+                    break;
                 case MOD:
                     if (t1.isDecimalV2() || t2.isDecimalV2()) {
                         castBinaryOp(findCommonType(t1, t2));

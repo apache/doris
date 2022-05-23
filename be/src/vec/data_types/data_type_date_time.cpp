@@ -88,4 +88,10 @@ void DataTypeDateTime::cast_to_date_time(Int64& x) {
     x = binary_cast<doris::vectorized::VecDateTimeValue, Int64>(value);
 }
 
+MutableColumnPtr DataTypeDateTime::create_column() const {
+    auto col = DataTypeNumberBase<Int64>::create_column();
+    col->set_datetime_type();
+    return col;
+}
+
 } // namespace doris::vectorized

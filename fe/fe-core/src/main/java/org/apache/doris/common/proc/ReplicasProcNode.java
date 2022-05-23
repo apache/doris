@@ -39,7 +39,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             .add("LstFailedTime").add("SchemaHash").add("DataSize").add("RowCount").add("State")
             .add("IsBad").add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus")
             .build();
-    
+
     private long tabletId;
     private List<Replica> replicas;
 
@@ -88,4 +88,3 @@ public class ReplicasProcNode implements ProcNodeInterface {
         return result;
     }
 }
-

@@ -382,7 +382,7 @@ FROM BINLOG
 );
 ```
 
-创建数据同步作业的的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
+创建数据同步作业的详细语法可以连接到 Doris 后，[CREATE SYNC JOB](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB.md) 查看语法帮助。这里主要详细介绍，创建作业时的注意事项。
 
 语法：
 ```
@@ -493,10 +493,6 @@ binlog_desc
 ### FE配置
 
 下面配置属于数据同步作业的系统级别配置，主要通过修改 fe.conf 来调整配置值。
-
-- `enable_create_sync_job`
-
-  开启数据同步作业功能。默认为 false，关闭此功能。
 
 - `sync_commit_interval_second`
 

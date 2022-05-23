@@ -24,7 +24,6 @@ import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

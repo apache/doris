@@ -293,7 +293,7 @@ public enum PrimitiveType {
 
         // BITMAP
         builder.put(BITMAP, BITMAP);
-        
+
         // QUANTILE_STATE
         builder.put(QUANTILE_STATE, QUANTILE_STATE);
 
@@ -535,7 +535,7 @@ public enum PrimitiveType {
 
         compatibilityMatrix[DECIMALV2.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[DECIMALV2.ordinal()][TIME.ordinal()] = INVALID_TYPE;
-        
+
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 

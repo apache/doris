@@ -30,7 +30,6 @@ import org.apache.doris.common.property.PropertySchema;
 import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.collect.Maps;
-
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

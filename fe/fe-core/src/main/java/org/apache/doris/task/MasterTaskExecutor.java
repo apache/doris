@@ -20,7 +20,6 @@ package org.apache.doris.task;
 import org.apache.doris.common.ThreadPoolManager;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,7 +62,7 @@ public class MasterTaskExecutor {
     /**
      * submit task to task executor
      * @param task
-     * @return true if submit success 
+     * @return true if submit success
      *         false if task exists
      */
     public boolean submit(MasterTask task) {
@@ -77,13 +76,13 @@ public class MasterTaskExecutor {
             return true;
         }
     }
-    
+
     public void close() {
         scheduledThreadPool.shutdown();
         executor.shutdown();
         runningTasks.clear();
     }
-    
+
     public int getTaskNum() {
         synchronized (runningTasks) {
             return runningTasks.size();

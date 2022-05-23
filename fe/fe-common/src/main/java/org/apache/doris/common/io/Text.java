@@ -20,9 +20,9 @@ package org.apache.doris.common.io;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -85,7 +85,7 @@ public class Text implements Writable {
         set(utf8);
     }
 
-    
+
     // Returns the raw bytes; however, only data up to getLength() is valid.
     public byte[] getBytes() {
         return bytes;
@@ -111,13 +111,13 @@ public class Text implements Writable {
      * Returns the Unicode Scalar Value (32-bit integer value) for the character
      * at <code>position</code>. Note that this method avoids using the
      * converter or doing String instantiation
-     * 
+     *
      * @return the Unicode scalar value at position or -1 if the position is
      *         invalid or points to a trailing byte
      */
     public int charAt(int position) {
         if (position > this.length) {
-            return -1; 
+            return -1;
         }
         if (position < 0) {
             return -1;
@@ -136,7 +136,7 @@ public class Text implements Writable {
      * as position <code>start</code>. The starting position is measured in
      * bytes and the return value is in terms of byte position in the buffer.
      * The backing buffer is not converted to a string for this operation.
-     * 
+     *
      * @return byte position of the first occurence of the search string in the
      *         UTF-8 buffer or -1 if not found
      */
@@ -204,7 +204,7 @@ public class Text implements Writable {
 
     /**
      * Set the Text to range of bytes
-     * 
+     *
      * @param utf8
      *            the data to copy from
      * @param start
@@ -220,7 +220,7 @@ public class Text implements Writable {
 
     /**
      * Append a range of bytes to the end of the given text
-     * 
+     *
      * @param utf8
      *            the data to copy from
      * @param start
@@ -237,7 +237,7 @@ public class Text implements Writable {
     /**
      * Append a range of bytes to the end of the given text, and adjust
      * underlying buffer to reduce mem copy times
-     * 
+     *
      * @param utf8
      *            the data to copy from
      * @param start
@@ -265,9 +265,9 @@ public class Text implements Writable {
      * capacity and existing content of the buffer are unchanged. If
      * <code>len</code> is larger than the current capacity, the Text object's
      * capacity is increased to match.
-     * 
+     *
      * @param len the number of bytes we need
-     * 
+     *
      * @param keepData should the old data be kept
      */
     public void setCapacity(int len, boolean keepData) {
@@ -282,7 +282,7 @@ public class Text implements Writable {
 
     /**
      * Convert text back to string
-     * 
+     *
      * @see java.lang.Object#toString()
      */
     public String toString() {
@@ -336,7 +336,7 @@ public class Text implements Writable {
     public int hashCode() {
         return super.hashCode();
     }
-    
+
     public static String decode(byte[] utf8) throws CharacterCodingException {
         return decode(ByteBuffer.wrap(utf8), true);
     }
@@ -371,7 +371,7 @@ public class Text implements Writable {
     /**
      * Converts the provided String to bytes using the UTF-8 encoding. If the
      * input is malformed, invalid chars are replaced by a default value.
-     * 
+     *
      * @return ByteBuffer: bytes stores at ByteBuffer.array() and length is
      *         ByteBuffer.limit()
      */
@@ -386,7 +386,7 @@ public class Text implements Writable {
      * <code>replace</code> is true, then malformed input is replaced with the
      * substitution character, which is U+FFFD. Otherwise the method throws a
      * MalformedInputException.
-     * 
+     *
      * @return ByteBuffer: bytes stores at ByteBuffer.array() and length is
      *         ByteBuffer.limit()
      */
@@ -438,7 +438,7 @@ public class Text implements Writable {
 
     /**
      * Check if a byte array contains valid utf-8
-     * 
+     *
      * @param utf8
      *            byte array
      * @throws MalformedInputException
@@ -450,7 +450,7 @@ public class Text implements Writable {
 
     /**
      * Check to see if a byte array is valid utf-8
-     * 
+     *
      * @param utf8
      *            the array of bytes
      * @param start
@@ -469,7 +469,7 @@ public class Text implements Writable {
         while (count < start + len) {
             int aByte = ((int) utf8[count] & 0xFF);
 
-            switch (state) {
+            switch (state) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case LEAD_BYTE:
                 leadByte = aByte;
                 length = bytesFromUTF8[aByte];
@@ -520,8 +520,9 @@ public class Text implements Writable {
                 }
                 // falls through to regular trail-byte test!!
             case TRAIL_BYTE:
-                if (aByte < 0x80 || aByte > 0xBF)
+                if (aByte < 0x80 || aByte > 0xBF) {
                     throw new MalformedInputException(count);
+                }
                 if (--length == 0) {
                     state = LEAD_BYTE;
                 } else {
@@ -570,28 +571,35 @@ public class Text implements Writable {
         byte b = bytes.get();
         bytes.reset();
         int extraBytesToRead = bytesFromUTF8[(b & 0xFF)];
-        if (extraBytesToRead < 0)
+        if (extraBytesToRead < 0) {
             return -1; // trailing byte!
+        }
         int ch = 0;
 
-        switch (extraBytesToRead) {
+        switch (extraBytesToRead) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
         case 5:
             ch += (bytes.get() & 0xFF);
             ch <<= 6; /* remember, illegal UTF-8 */
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 4:
             ch += (bytes.get() & 0xFF);
             ch <<= 6; /* remember, illegal UTF-8 */
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 3:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 2:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 1:
             ch += (bytes.get() & 0xFF);
             ch <<= 6;
+            // CHECKSTYLE IGNORE THIS LINE: fall through
         case 0:
             ch += (bytes.get() & 0xFF);
+            // CHECKSTYLE IGNORE THIS LINE: fall through, missing switch default
         }
         ch -= offsetsFromUTF8[extraBytesToRead];
 
@@ -604,7 +612,7 @@ public class Text implements Writable {
     /**
      * For the given string, returns the number of UTF-8 bytes required to
      * encode the string.
-     * 
+     *
      * @param string
      *            text to encode
      * @return number of UTF-8 bytes required to encode

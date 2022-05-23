@@ -69,7 +69,7 @@ public class ThreadPoolManagerTest {
         for (int i = 0; i < 4; i++) {
             testFixedThreaddPool.submit(task);
         }
-        
+
         Assert.assertTrue(testFixedThreaddPool.getActiveCount() <= 2);
         Assert.assertTrue(testFixedThreaddPool.getQueue().size() > 0);
         Assert.assertEquals(2, testFixedThreaddPool.getPoolSize());
