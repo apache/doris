@@ -91,9 +91,9 @@ public:
 protected:
     uint32_t _column_id;
     bool _opposite;
-    uint64_t _evaluated_rows = 1;
-    uint64_t _passed_rows = 0;
-    bool _enable_pred = true;
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
+    mutable bool _enable_pred = true;
 };
 
 } //namespace doris
