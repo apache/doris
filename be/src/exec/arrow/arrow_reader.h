@@ -93,10 +93,10 @@ protected:
     const int32_t _num_of_columns_from_file;
     std::shared_ptr<ArrowFile> _arrow_file;
     std::shared_ptr<::arrow::RecordBatchReader> _rb_reader;
-    int _total_groups; // groups(stripes) in a parquet(orc) file
-    int _current_group; // current group(stripe)
+    int _total_groups;                      // groups(stripes) in a parquet(orc) file
+    int _current_group;                     // current group(stripe)
     std::map<std::string, int> _map_column; // column-name <---> column-index
-    std::vector<int> _include_column_ids; // columns that need to get from file
+    std::vector<int> _include_column_ids;   // columns that need to get from file
 };
 
 } // namespace doris

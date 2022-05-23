@@ -28,7 +28,7 @@
 namespace doris {
 
 ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
-                               int32_t num_of_columns_from_file)
+                             int32_t num_of_columns_from_file)
         : ArrowReaderWrap(file_reader, batch_size, num_of_columns_from_file) {
     _reader = nullptr;
     _cur_file_eof = false;
@@ -37,7 +37,7 @@ ORCReaderWrap::ORCReaderWrap(FileReader* file_reader, int64_t batch_size,
 ORCReaderWrap::~ORCReaderWrap() {}
 
 Status ORCReaderWrap::init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                                   const std::string& timezone) {
+                                  const std::string& timezone) {
     // Open ORC file reader
     auto maybe_reader =
             arrow::adapters::orc::ORCFileReader::Open(_arrow_file, arrow::default_memory_pool());
@@ -96,7 +96,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
 }
 
 Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                  const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
+                                 const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
     *eof = false;
     do {
         auto st = _rb_reader->ReadNext(batch);

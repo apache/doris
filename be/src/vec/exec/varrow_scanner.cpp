@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exec/arrow/parquet_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
-#include "exec/arrow/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
