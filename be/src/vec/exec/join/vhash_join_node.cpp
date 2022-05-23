@@ -63,6 +63,8 @@ struct ProcessHashTableBuild {
             _join_node->_mem_used += bucket_bytes - old_bucket_bytes;
             COUNTER_SET(_join_node->_build_buckets_counter, bucket_size);
         }};
+        //resize ahead is good for keys whose values are almost unique.
+        //we only resize for the first collected block(<=4G)
         hash_table_ctx.hash_table.resize(_rows);
         
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
