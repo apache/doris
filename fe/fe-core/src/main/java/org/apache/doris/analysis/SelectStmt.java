@@ -118,23 +118,20 @@ public class SelectStmt extends QueryStmt {
     // Members that need to be reset to origin
     private SelectList originSelectList;
 
-    public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
-        super(orderByElement, limitElement);
+    public SelectStmt(ValueList valueList) {
+        super(null, LimitElement.NO_LIMIT);
         this.valueList = valueList;
         this.selectList = new SelectList();
         this.fromClause = new FromClause();
         this.colLabels = Lists.newArrayList();
     }
 
-    SelectStmt(
-            SelectList selectList,
+    SelectStmt(SelectList selectList,
             FromClause fromClause,
             Expr wherePredicate,
             GroupByClause groupByClause,
-            Expr havingPredicate,
-            ArrayList<OrderByElement> orderByElements,
-            LimitElement limitElement) {
-        super(orderByElements, limitElement);
+            Expr havingPredicate) {
+        super(null, LimitElement.NO_LIMIT);
         this.selectList = selectList;
         this.originSelectList = selectList.clone();
         if (fromClause == null) {
