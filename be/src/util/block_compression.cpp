@@ -22,6 +22,8 @@
 #include <snappy/snappy-sinksource.h>
 #include <snappy/snappy.h>
 #include <zlib.h>
+#include <zstd.h>
+#include <zstd_errors.h>
 
 #include <limits>
 
@@ -375,6 +377,152 @@ public:
     }
 };
 
+// for ZSTD compression and decompression, with BOTH fast and high compression ratio
+class ZstdBlockCompression : public BlockCompressionCodec {
+public:
+    // reenterable initialization for compress/decompress context
+    inline Status init() override {
+        if (!ctx_c) {
+            ctx_c = ZSTD_createCCtx();
+            if (!ctx_c) {
+                return Status::InvalidArgument("Fail to ZSTD_createCCtx");
+            }
+        }
+
+        if (!ctx_d) {
+            ctx_d = ZSTD_createDCtx();
+            if (!ctx_d) {
+                return Status::InvalidArgument("Fail to ZSTD_createDCtx");
+            }
+        }
+
+        return Status::OK();
+    }
+
+    ~ZstdBlockCompression() override {
+        if (ctx_c) ZSTD_freeCCtx(ctx_c);
+        if (ctx_d) ZSTD_freeDCtx(ctx_d);
+    }
+
+    size_t max_compressed_len(size_t len) const override {
+        if (len > std::numeric_limits<int32_t>::max()) {
+            return 0;
+        }
+        return ZSTD_compressBound(len);
+    }
+
+    Status compress(const Slice& input, Slice* output) const override {
+        std::vector<Slice> inputs {input};
+        return compress(inputs, output);
+    }
+
+    // follow ZSTD official example
+    //  https://github.com/facebook/zstd/blob/dev/examples/streaming_compression.c
+    Status compress(const std::vector<Slice>& inputs, Slice* output) const {
+        if (!ctx_c)
+            return Status::InvalidArgument("compression context NOT initialized");
+
+        // reset ctx to start new compress session
+        auto ret = ZSTD_CCtx_reset(ctx_c, ZSTD_reset_session_only);
+        if (ZSTD_isError(ret)) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "ZSTD_CCtx_reset error: $0", ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+        }
+        // set compression level to default 3
+        ret = ZSTD_CCtx_setParameter(ctx_c, ZSTD_c_compressionLevel, ZSTD_CLEVEL_DEFAULT);
+        if (ZSTD_isError(ret)) {
+            return Status::InvalidArgument(
+                    strings::Substitute("ZSTD_CCtx_setParameter compression level error: $0",
+                                        ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+        }
+        // set checksum flag to 1
+        ret = ZSTD_CCtx_setParameter(ctx_c, ZSTD_c_checksumFlag, 1);
+        if (ZSTD_isError(ret)) {
+            return Status::InvalidArgument(
+                    strings::Substitute("ZSTD_CCtx_setParameter checksumFlag error: $0",
+                                        ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+        }
+
+        ZSTD_outBuffer out_buf = {output->data, output->size, 0};
+
+        for (size_t i = 0; i < inputs.size(); i++) {
+            ZSTD_inBuffer in_buf = {inputs[i].data, inputs[i].size, 0};
+
+            bool last_input = (i == inputs.size() - 1);
+            auto mode = last_input ? ZSTD_e_end : ZSTD_e_continue;
+
+            bool finished = false;
+            do {
+                // do compress
+                auto ret = ZSTD_compressStream2(ctx_c, &out_buf, &in_buf, mode);
+
+                if (ZSTD_isError(ret)) {
+                    return Status::InvalidArgument(
+                            strings::Substitute("ZSTD_compressStream2 error: $0",
+                                                ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+                }
+
+                // ret is ZSTD hint for needed output buffer size
+                if (ret > 0 && out_buf.pos == out_buf.size) {
+                    return Status::InvalidArgument(
+                            strings::Substitute("ZSTD_compressStream2 output buffer full"));
+                }
+
+                finished = last_input ? (ret == 0) : (in_buf.pos == inputs[i].size);
+            } while (!finished);
+        }
+
+        // set compressed size for caller
+        output->size = out_buf.pos;
+
+        return Status::OK();
+    }
+
+    // follow ZSTD official example
+    //  https://github.com/facebook/zstd/blob/dev/examples/streaming_decompression.c
+    Status decompress(const Slice& input, Slice* output) const {
+        if (!ctx_d)
+            return Status::InvalidArgument("decompression context NOT initialized");
+
+        // reset ctx to start a new decompress session
+        auto ret = ZSTD_DCtx_reset(ctx_d, ZSTD_reset_session_only);
+        if (ZSTD_isError(ret)) {
+            return Status::InvalidArgument(strings::Substitute(
+                    "ZSTD_DCtx_reset error: $0", ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+        }
+
+        ZSTD_inBuffer in_buf = {input.data, input.size, 0};
+        ZSTD_outBuffer out_buf = {output->data, output->size, 0};
+
+        while (in_buf.pos < in_buf.size) {
+            // do decompress
+            auto ret = ZSTD_decompressStream(ctx_d, &out_buf, &in_buf);
+
+            if (ZSTD_isError(ret)) {
+                return Status::InvalidArgument(
+                        strings::Substitute("ZSTD_decompressStream error: $0",
+                                            ZSTD_getErrorString(ZSTD_getErrorCode(ret))));
+            }
+
+            // ret is ZSTD hint for needed output buffer size
+            if (ret > 0 && out_buf.pos == out_buf.size) {
+                return Status::InvalidArgument(
+                        strings::Substitute("ZSTD_decompressStream output buffer full"));
+            }
+        }
+
+        // set decompressed size for caller
+        output->size = out_buf.pos;
+
+        return Status::OK();
+    }
+
+private:
+    // will be reused by compress/decompress
+    ZSTD_CCtx* ctx_c = nullptr;
+    ZSTD_DCtx* ctx_d = nullptr;
+};
+
 Status get_block_compression_codec(segment_v2::CompressionTypePB type,
                                    std::unique_ptr<BlockCompressionCodec>& codec) {
     BlockCompressionCodec* ptr = nullptr;
@@ -393,6 +541,9 @@ Status get_block_compression_codec(segment_v2::CompressionTypePB type,
         break;
     case segment_v2::CompressionTypePB::ZLIB:
         ptr = new ZlibBlockCompression();
+        break;
+    case segment_v2::CompressionTypePB::ZSTD:
+        ptr = new ZstdBlockCompression();
         break;
     default:
         return Status::NotFound(strings::Substitute("unknown compression type($0)", type));
