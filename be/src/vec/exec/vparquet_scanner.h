@@ -36,7 +36,7 @@
 namespace doris::vectorized {
 
 // VParquet scanner convert the data read from Parquet to doris's columns.
-class VParquetScanner final: public VArrowScanner {
+class VParquetScanner final : public VArrowScanner {
 public:
     VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                     const TBrokerScanRangeParams& params,
