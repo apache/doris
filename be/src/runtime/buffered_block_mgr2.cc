@@ -317,9 +317,7 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
     }
     int buffers_needed = BitUtil::ceil(size, max_block_size());
     unique_lock<mutex> lock(_lock);
-    Status st = _mem_tracker->try_consume(size);
-    WARN_IF_ERROR(st, "consume failed");
-    if (size < max_block_size() && st) {
+    if (size < max_block_size() && _mem_tracker->try_consume(size)) {
         // For small allocations (less than a block size), just let the allocation through.
         client->_tracker->consume(size);
         return true;
@@ -328,7 +326,7 @@ bool BufferedBlockMgr2::consume_memory(Client* client, int64_t size) {
     if (available_buffers(client) + client->_num_tmp_reserved_buffers < buffers_needed) {
         return false;
     }
-    st = _mem_tracker->try_consume(size);
+    Status st = _mem_tracker->try_consume(size);
     WARN_IF_ERROR(st, "consume failed");
     if (st) {
         // There was still unallocated memory, don't need to recycle allocated blocks.
@@ -1083,10 +1081,9 @@ Status BufferedBlockMgr2::find_buffer_for_block(Block* block, bool* in_mem) {
 Status BufferedBlockMgr2::find_buffer(unique_lock<mutex>& lock, BufferDescriptor** buffer_desc) {
     *buffer_desc = nullptr;
 
-    Status st = _mem_tracker->try_consume(_max_block_size);
-    WARN_IF_ERROR(st, "try to allocate a new buffer failed");
     // First, try to allocate a new buffer.
-    if (_free_io_buffers.size() < _block_write_threshold && st) {
+    if (_free_io_buffers.size() < _block_write_threshold &&
+        _mem_tracker->try_consume(_max_block_size)) {
         uint8_t* new_buffer = new uint8_t[_max_block_size];
         *buffer_desc = _obj_pool.add(new BufferDescriptor(new_buffer, _max_block_size));
         (*buffer_desc)->all_buffers_it =
