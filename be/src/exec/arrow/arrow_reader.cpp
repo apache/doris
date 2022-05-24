@@ -57,6 +57,7 @@ void ArrowReaderWrap::close() {
 }
 
 Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
+    DCHECK(_num_of_columns_from_file >= tuple_slot_descs.size());
     _include_column_ids.clear();
     for (int i = 0; i < _num_of_columns_from_file; i++) {
         auto slot_desc = tuple_slot_descs.at(i);
@@ -111,7 +112,6 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
     while (nbytes > 0) {
         Status result = _file->readat(_pos, nbytes, &reads, out);
         if (!result.ok()) {
-            bytes_read = 0;
             return arrow::Status::IOError("Readat failed.");
         }
         if (reads == 0) {

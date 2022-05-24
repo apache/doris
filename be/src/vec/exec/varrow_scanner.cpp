@@ -143,7 +143,7 @@ Status VArrowScanner::_next_arrow_batch() {
     }
     // second, loop until find available arrow batch or EOF
     while (!_scanner_eof) {
-        RETURN_IF_ERROR(_cur_file_reader->next_batch(&_batch, _src_slot_descs, &_cur_file_eof));
+        RETURN_IF_ERROR(_cur_file_reader->next_batch(&_batch, &_cur_file_eof));
         if (_cur_file_eof) {
             RETURN_IF_ERROR(_open_next_reader());
             _cur_file_eof = false;

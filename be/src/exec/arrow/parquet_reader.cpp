@@ -161,8 +161,7 @@ inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescript
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs,
-                                            bool* eof) {
+Status ParquetReaderWrap::read_record_batch(bool* eof) {
     if (_current_line_of_group >= _rows_of_group) { // read next row group
         VLOG_DEBUG << "read_record_batch, current group id:" << _current_group
                    << " current line of group:" << _current_line_of_group
@@ -193,10 +192,9 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 }
 
 Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                     const std::vector<SlotDescriptor*>& tuple_slot_descs,
                                      bool* eof) {
     if (_batch->num_rows() == 0 || _current_line_of_batch != 0 || _current_line_of_group != 0) {
-        RETURN_IF_ERROR(read_record_batch(tuple_slot_descs, eof));
+        RETURN_IF_ERROR(read_record_batch(eof));
     }
     *batch = get_batch();
     return Status::OK();
@@ -523,7 +521,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     // update data value
     ++_current_line_of_group;
     ++_current_line_of_batch;
-    return read_record_batch(tuple_slot_descs, eof);
+    return read_record_batch(eof);
 }
 
 void ParquetReaderWrap::prefetch_batch() {

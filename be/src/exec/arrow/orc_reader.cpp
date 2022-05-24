@@ -94,7 +94,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
 }
 
 Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                 const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
+                                 bool* eof) {
     *eof = false;
     do {
         auto st = _rb_reader->ReadNext(batch);
