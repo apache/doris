@@ -464,6 +464,7 @@ CONF_Int32(memory_max_alignment, "16");
 // write buffer size before flush
 CONF_mInt64(write_buffer_size, "209715200");
 
+// max buffer size used in memtable for the aggregated table
 CONF_mInt64(memtable_max_buffer_size, "419430400");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
