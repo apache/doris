@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -55,12 +54,7 @@ public class Group {
         } else {
             this.physicalPlanList.add(groupExpression);
         }
-        logicalProperties = new LogicalProperties();
-        try {
-            logicalProperties.setOutput(groupExpression.getPlan().getOutput());
-        } catch (UnboundException e) {
-            throw new RuntimeException(e);
-        }
+        logicalProperties = groupExpression.getParent().getLogicalProperties();
         groupExpression.setParent(this);
     }
 

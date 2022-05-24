@@ -15,37 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
+import java.util.List;
+
 /**
- * Physical filter plan node.
+ * interface for all concrete logical plan operator.
  */
-public class PhysicalFilter<CHILD_TYPE extends Plan>
-        extends PhysicalUnary<PhysicalFilter<CHILD_TYPE>, CHILD_TYPE> {
-
-    private final Expression predicates;
-
-    public PhysicalFilter(Expression predicates, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL_FILTER, child);
-        this.predicates = predicates;
-    }
-
-    public Expression getPredicates() {
-        return predicates;
-    }
-
-    @Override
-    public String toString() {
-        String cond;
-        if (predicates == null) {
-            cond = "<null>";
-        } else {
-            cond = predicates.toString();
-        }
-        return "Filter (" + cond + ")";
-    }
+public interface LogicalOperator<TYPE extends LogicalOperator<TYPE>> extends PlanOperator<TYPE> {
+    List<Slot> computeOutput(Plan... inputs);
 }

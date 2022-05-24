@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans;
+package org.apache.doris.nereids.operators.plans;
 
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.common.AnalysisException;

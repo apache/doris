@@ -15,34 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.pattern;
-
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.Iterator;
+package org.apache.doris.nereids.operators;
 
 /**
- * Get all pattern matching subtree in query plan.
+ * Types for all Operator in Nereids, include PlanOperator and Pattern placeholder type.
  */
-public class PatternMatching implements Iterable<Plan<?, ?>> {
+public enum OperatorType {
+    // logical plan
+    LOGICAL_UNBOUND_RELATION,
+    LOGICAL_BOUND_RELATION,
+    LOGICAL_PROJECT,
+    LOGICAL_FILTER,
+    LOGICAL_JOIN,
 
-    @Override
-    public Iterator<Plan<?, ?>> iterator() {
-        return new PatternMatchingIterator();
-    }
+    // physical plan
+    PHYSICAL_OLAP_SCAN,
+    PHYSICAL_PROJECT,
+    PHYSICAL_FILTER,
+    PHYSICAL_BROADCAST_HASH_JOIN,
 
-    /**
-     * Iterator to get all subtrees.
-     */
-    public static class PatternMatchingIterator implements Iterator<Plan<?, ?>> {
-        @Override
-        public boolean hasNext() {
-            return false;
-        }
-
-        @Override
-        public Plan<?, ?> next() {
-            return null;
-        }
-    }
+    // pattern
+    ANY,
+    MULTI,
 }

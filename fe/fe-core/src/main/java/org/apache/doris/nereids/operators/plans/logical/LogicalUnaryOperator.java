@@ -15,37 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
+import org.apache.doris.nereids.operators.AbstractOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
-import java.util.function.BiFunction;
 
 /**
- * Abstract class for all logical plan in Nereids.
+ * Abstract class for all logical operator that have one input.
  */
-public interface LogicalPlan<
-            PLAN_TYPE extends LogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE> {
+public abstract class LogicalUnaryOperator<
+            TYPE extends LogicalUnaryOperator<TYPE, INPUT_TYPE>,
+            INPUT_TYPE extends Plan>
+        extends AbstractOperator<TYPE>
+        implements LogicalOperator<TYPE>, UnaryPlanOperator<TYPE, INPUT_TYPE> {
 
-    @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    /**
-     * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
-     * passed function. The original plan is returned when the context does not exist.
-     */
-    default <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
-        if (ctx != null) {
-            return f.apply(ctx, this);
-        } else {
-            return this;
-        }
+    public LogicalUnaryOperator(OperatorType type) {
+        super(type);
     }
+
+    @Override
+    public final List<Slot> computeOutput(Plan... inputs) {
+        return doComputeOutput((INPUT_TYPE) inputs[0]);
+    }
+
+    public abstract List<Slot> doComputeOutput(INPUT_TYPE input);
 }

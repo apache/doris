@@ -49,6 +49,10 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
+import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.operators.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -60,11 +64,10 @@ import org.apache.doris.nereids.trees.expressions.Literal;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
-import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnary;
 
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.ParserRuleContext;
@@ -75,6 +78,7 @@ import org.antlr.v4.runtime.tree.TerminalNode;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -89,7 +93,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      */
     private final BiFunction<WhereClauseContext, LogicalPlan, LogicalPlan> withWhereClause =
             (WhereClauseContext ctx, LogicalPlan plan)
-                    -> new LogicalFilter(expression((ctx.booleanExpression())), plan);
+                    -> new LogicalUnary(new LogicalFilter(expression((ctx.booleanExpression()))), plan);
 
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -201,7 +205,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         LogicalPlan withProject;
         if (CollectionUtils.isNotEmpty(namedExpressions)) {
-            withProject = new LogicalProject(namedExpressions, withFilter);
+            withProject = new LogicalUnary(new LogicalProject(namedExpressions), withFilter);
         } else {
             withProject = withFilter;
         }
@@ -217,7 +221,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (left == null) {
                 left = right;
             } else {
-                left = new LogicalJoin(JoinType.INNER_JOIN, null, left, right);
+                left = new LogicalBinary(new LogicalJoin(JoinType.INNER_JOIN, null), left, right);
             }
             left = withJoinRelations(left, relation);
         }
@@ -257,7 +261,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 condition = expression(joinCriteria.booleanExpression());
             }
 
-            last = new LogicalJoin(joinType, condition, last, plan(join.relationPrimary()));
+            last = new LogicalBinary(
+                    new LogicalJoin(joinType, Optional.ofNullable(condition)),
+                    last, plan(join.relationPrimary())
+            );
         }
         return last;
     }
@@ -270,7 +277,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
         UnboundRelation relation = new UnboundRelation(tableId);
         // TODO: sample and time travel, alias, sub query
-        return relation;
+        return new LogicalLeaf(relation);
     }
 
     /**

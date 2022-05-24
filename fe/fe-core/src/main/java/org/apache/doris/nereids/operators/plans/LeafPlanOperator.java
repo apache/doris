@@ -15,36 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
-
-import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.NodeType;
-
-import java.util.List;
+package org.apache.doris.nereids.operators.plans;
 
 /**
- * Abstract class for all physical scan node.
+ * interface for all concrete leaf plan operator.
  */
-public abstract class PhysicalScan<PLAN_TYPE extends PhysicalScan<PLAN_TYPE>>
-        extends PhysicalLeaf<PLAN_TYPE> {
-
-    protected final Table table;
-    protected final List<String> qualifier;
-
-    /**
-     * Constructor for PhysicalScan.
-     *
-     * @param type node type
-     * @param table scan table
-     * @param qualifier table's name
-     */
-    public PhysicalScan(NodeType type, Table table, List<String> qualifier) {
-        super(type);
-        this.table = table;
-        this.qualifier = qualifier;
-    }
-
-    public Table getTable() {
-        return table;
-    }
+public interface LeafPlanOperator<TYPE extends LeafPlanOperator<TYPE>> extends PlanOperator<TYPE> {
 }
