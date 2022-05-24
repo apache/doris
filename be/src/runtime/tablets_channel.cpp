@@ -210,7 +210,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                  google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
     OLAPStatus st = writer->close_wait();
-    if (st != OLAP_SUCCESS) {
+    if (st == OLAP_SUCCESS) {
         if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
