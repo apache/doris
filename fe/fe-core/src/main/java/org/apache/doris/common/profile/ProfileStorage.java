@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.RuntimeProfile;
 
@@ -27,9 +27,7 @@ import java.util.List;
  * The interface of profile to read and write record from storage system.
  */
 public interface ProfileStorage {
-    String getProfileContent(String queryID);
-
-    MultiProfileTreeBuilder getProfileBuilder(String queryID) throws AnalysisException;
+    ProfileElement getProfile(String queryID);
 
     List<List<String>> getAllProfiles(ProfileType type);
 
