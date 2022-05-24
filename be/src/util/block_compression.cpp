@@ -419,8 +419,7 @@ public:
     // follow ZSTD official example
     //  https://github.com/facebook/zstd/blob/dev/examples/streaming_compression.c
     Status compress(const std::vector<Slice>& inputs, Slice* output) const {
-        if (!ctx_c)
-            return Status::InvalidArgument("compression context NOT initialized");
+        if (!ctx_c) return Status::InvalidArgument("compression context NOT initialized");
 
         // reset ctx to start new compress session
         auto ret = ZSTD_CCtx_reset(ctx_c, ZSTD_reset_session_only);
@@ -481,8 +480,7 @@ public:
     // follow ZSTD official example
     //  https://github.com/facebook/zstd/blob/dev/examples/streaming_decompression.c
     Status decompress(const Slice& input, Slice* output) const {
-        if (!ctx_d)
-            return Status::InvalidArgument("decompression context NOT initialized");
+        if (!ctx_d) return Status::InvalidArgument("decompression context NOT initialized");
 
         // reset ctx to start a new decompress session
         auto ret = ZSTD_DCtx_reset(ctx_d, ZSTD_reset_session_only);
