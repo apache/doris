@@ -17,13 +17,14 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.RuntimeProfile;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +53,17 @@ public class InMemoryProfileStorage implements ProfileStorage {
 
     // record the order of profiles by queryId
     private final Deque<String> queryIdDeque;
+
+    /**
+     * Store the base element of each query.
+     */
+    private static class ProfileElement {
+        public Map<String, String> infoStrings = Maps.newHashMap();
+        public String profileContent = "";
+        public MultiProfileTreeBuilder builder = null;
+        public String errMsg = "";
+    }
+
     private final Map<String, ProfileElement> queryIdToProfileMap; // from QueryId to RuntimeProfile
 
     /**
@@ -66,10 +78,30 @@ public class InMemoryProfileStorage implements ProfileStorage {
     }
 
     @Override
-    public ProfileElement getProfile(String queryID) {
+    public String getProfileContent(String queryID) {
         readLock.lock();
         try {
-            return queryIdToProfileMap.get(queryID);
+            ProfileElement element = queryIdToProfileMap.get(queryID);
+            if (element == null) {
+                return null;
+            }
+            return element.profileContent;
+        } finally {
+            readLock.unlock();
+        }
+    }
+
+    @Override
+    public MultiProfileTreeBuilder getProfileBuilder(String queryID) throws AnalysisException {
+        readLock.lock();
+        try {
+            ProfileElement element = queryIdToProfileMap.get(queryID);
+            if (element == null || element.builder == null) {
+                throw new AnalysisException("failed to get fragment profile tree. err: "
+                        + (element == null ? "not found" : element.errMsg));
+            }
+
+            return element.builder;
         } finally {
             readLock.unlock();
         }

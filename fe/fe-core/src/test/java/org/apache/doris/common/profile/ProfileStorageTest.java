@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.RuntimeProfile;
 
 import org.junit.Assert;
@@ -32,11 +32,13 @@ public class ProfileStorageTest {
 
         Assert.assertEquals(1, profileStorage.getAllProfiles(null).size());
 
-        ProfileElement element = profileStorage.getProfile("test_profile0");
-        Assert.assertNotNull(element);
-        Assert.assertNotNull(element.profileContent);
-        Assert.assertNotNull(element.infoStrings);
-        Assert.assertNotNull(element.builder);
+        String content = profileStorage.getProfileContent("test_profile0");
+        Assert.assertNotNull(content);
+        try {
+            Assert.assertNotNull(profileStorage.getProfileBuilder("test_profile0"));
+        } catch (AnalysisException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -47,8 +49,8 @@ public class ProfileStorageTest {
         }
 
         Assert.assertEquals(100, profileStorage.getAllProfiles(null).size());
-        ProfileElement element = profileStorage.getProfile("test_profile0");
-        Assert.assertNull(element);
+        String content = profileStorage.getProfileContent("test_profile0");
+        Assert.assertNull(content);
     }
 
     private void insertDummyProfile(int index, ProfileStorage storage) {
