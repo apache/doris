@@ -15,34 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.pattern;
+package org.apache.doris.nereids.operators.plans;
 
-import org.apache.doris.nereids.trees.plans.Plan;
-
-import java.util.Iterator;
+import org.apache.doris.nereids.operators.Operator;
 
 /**
- * Get all pattern matching subtree in query plan.
+ * interface for all concrete plan operator.
  */
-public class PatternMatching implements Iterable<Plan<?, ?>> {
-
-    @Override
-    public Iterator<Plan<?, ?>> iterator() {
-        return new PatternMatchingIterator();
-    }
-
-    /**
-     * Iterator to get all subtrees.
-     */
-    public static class PatternMatchingIterator implements Iterator<Plan<?, ?>> {
-        @Override
-        public boolean hasNext() {
-            return false;
-        }
-
-        @Override
-        public Plan<?, ?> next() {
-            return null;
-        }
-    }
+public interface PlanOperator<TYPE extends PlanOperator<TYPE>> extends Operator<TYPE> {
 }

@@ -15,35 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.operators.plans.PlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
-
-import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 
 /**
- * Physical project plan node.
+ * interface for all concrete physical operator.
  */
-public class PhysicalProject<CHILD_TYPE extends Plan>
-        extends PhysicalUnary<PhysicalProject<CHILD_TYPE>, CHILD_TYPE> {
-
-    private final List<? extends NamedExpression> projects;
-
-    public PhysicalProject(List<? extends NamedExpression> projects, CHILD_TYPE child) {
-        super(NodeType.PHYSICAL_PROJECT, child);
-        this.projects = projects;
-    }
-
-    public List<? extends NamedExpression> getProjects() {
-        return projects;
-    }
-
-    @Override
-    public String toString() {
-        return "Project (" + StringUtils.join(projects, ", ") + ")";
-    }
+public interface PhysicalOperator<TYPE extends PhysicalOperator<TYPE>> extends PlanOperator<TYPE> {
+    List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs);
 }

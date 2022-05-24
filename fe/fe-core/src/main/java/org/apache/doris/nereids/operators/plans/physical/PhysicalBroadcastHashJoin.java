@@ -15,28 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.JoinType;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import org.apache.commons.lang3.StringUtils;
-
+import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Physical node represents broadcast hash join.
+ * Physical operator represents broadcast hash join.
  */
-public class PhysicalBroadcastHashJoin<
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends PhysicalBinary<PhysicalBroadcastHashJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
-            LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends Plan>
+        extends PhysicalBinaryOperator<PhysicalBroadcastHashJoin<LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
+            LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
 
     private final JoinType joinType;
-    private final Expression onClause;
+    private final Optional<Expression> onClause;
+
+    /**
+     * Constructor for PhysicalBroadcastHashJoin.
+     *
+     * @param joinType logical join type in Nereids
+     */
+    public PhysicalBroadcastHashJoin(JoinType joinType) {
+        this(joinType, Optional.empty());
+    }
 
     /**
      * Constructor for PhysicalBroadcastHashJoin.
@@ -44,11 +50,10 @@ public class PhysicalBroadcastHashJoin<
      * @param joinType logical join type in Nereids
      * @param onClause on clause expression
      */
-    public PhysicalBroadcastHashJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild,
-                                     Expression onClause) {
-        super(NodeType.PHYSICAL_BROADCAST_HASH_JOIN, leftChild, rightChild);
-        this.joinType = joinType;
-        this.onClause = onClause;
+    public PhysicalBroadcastHashJoin(JoinType joinType, Optional<Expression> onClause) {
+        super(OperatorType.PHYSICAL_BROADCAST_HASH_JOIN);
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
     }
 
     public JoinType getJoinType() {
@@ -56,7 +61,7 @@ public class PhysicalBroadcastHashJoin<
     }
 
     public Optional<Expression> getOnClause() {
-        return Optional.ofNullable(onClause);
+        return onClause;
     }
 
     @Override
@@ -64,9 +69,6 @@ public class PhysicalBroadcastHashJoin<
         StringBuilder sb = new StringBuilder("Broadcast Hash Join (").append(joinType);
         if (onClause != null) {
             sb.append(", ").append(onClause);
-        }
-        if (logicalProperties != null && !logicalProperties.getOutput().isEmpty()) {
-            sb.append(", output: ").append(StringUtils.join(logicalProperties.getOutput(), ", "));
         }
         return sb.append(")").toString();
     }

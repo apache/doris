@@ -19,9 +19,9 @@ package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.analyzer.identifier.TableIdentifier;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.logical.LogicalLeafOperator;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.util.Utils;
 
 import com.clearspring.analytics.util.Lists;
@@ -32,11 +32,11 @@ import java.util.List;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalLeaf<UnboundRelation> {
+public class UnboundRelation extends LogicalLeafOperator<UnboundRelation> {
     private final List<String> nameParts;
 
     public UnboundRelation(List<String> nameParts) {
-        super(NodeType.LOGICAL_UNBOUND_RELATION);
+        super(OperatorType.LOGICAL_UNBOUND_RELATION);
         this.nameParts = nameParts;
     }
 
@@ -46,7 +46,7 @@ public class UnboundRelation extends LogicalLeaf<UnboundRelation> {
      * @param identifier relation identifier
      */
     public UnboundRelation(TableIdentifier identifier) {
-        super(NodeType.LOGICAL_UNBOUND_RELATION);
+        super(OperatorType.LOGICAL_UNBOUND_RELATION);
         this.nameParts = Lists.newArrayList();
         if (identifier.getDatabaseName().isPresent()) {
             nameParts.add(identifier.getDatabaseName().get());
@@ -64,8 +64,9 @@ public class UnboundRelation extends LogicalLeaf<UnboundRelation> {
     }
 
     @Override
-    public List<Slot> getOutput() throws UnboundException {
-        throw new UnboundException("output");
+    public List<Slot> doComputeOutput() {
+        // fixme: throw unchecked exception
+        throw new IllegalStateException(new UnboundException("output"));
     }
 
     @Override

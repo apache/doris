@@ -19,7 +19,7 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
-import com.clearspring.analytics.util.Lists;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -27,13 +27,13 @@ import java.util.List;
  * Logical properties used for analysis and optimize in Nereids.
  */
 public class LogicalProperties {
-    protected List<Slot> output = Lists.newArrayList();
+    protected List<Slot> output;
+
+    public LogicalProperties(List<Slot> output) {
+        this.output = ImmutableList.copyOf(output);
+    }
 
     public List<Slot> getOutput() {
         return output;
-    }
-
-    public void setOutput(List<Slot> output) {
-        this.output = output;
     }
 }

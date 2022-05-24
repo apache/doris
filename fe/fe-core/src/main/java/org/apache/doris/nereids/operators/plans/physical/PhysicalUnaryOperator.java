@@ -15,40 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
+import org.apache.doris.nereids.operators.AbstractOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.UnaryPlanOperator;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
- * Abstract class for all concrete logical plan.
+ * Abstract class for all physical operator that have one input.
  */
-public abstract class AbstractLogicalPlan<
-            PLAN_TYPE extends AbstractLogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends AbstractPlan<PLAN_TYPE, OP_TYPE>
-        implements LogicalPlan<PLAN_TYPE, OP_TYPE> {
+public abstract class PhysicalUnaryOperator<
+            TYPE extends PhysicalUnaryOperator<TYPE, INPUT_TYPE>,
+            INPUT_TYPE extends Plan>
+        extends AbstractOperator<TYPE>
+        implements PhysicalOperator<TYPE>, UnaryPlanOperator<TYPE, INPUT_TYPE> {
 
-    protected final LogicalProperties logicalProperties;
-
-    public AbstractLogicalPlan(NodeType type, OP_TYPE operator, Plan... children) {
-        super(type, operator, children);
-        this.logicalProperties = new LogicalProperties(operator.computeOutput(children));
+    public PhysicalUnaryOperator(OperatorType type) {
+        super(type);
     }
 
     @Override
-    public LogicalProperties getLogicalProperties() {
-        return logicalProperties;
+    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
+        return doComputeOutput(logicalProperties, (INPUT_TYPE) inputs[0]);
     }
 
-    @Override
-    public List<Slot> getOutput() {
+    public List<Slot> doComputeOutput(LogicalProperties logicalProperties, INPUT_TYPE input) {
         return logicalProperties.getOutput();
     }
 }

@@ -17,17 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.operators.plans.physical.PhysicalLeafOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.LeafPlan;
 
 /**
  * Abstract class for all physical plan that have no child.
  */
-public abstract class PhysicalLeaf<PLAN_TYPE extends PhysicalLeaf<PLAN_TYPE>>
-        extends AbstractPhysicalPlan<PLAN_TYPE>
-        implements LeafPlan<PLAN_TYPE> {
+public class PhysicalLeaf<OP_TYPE extends PhysicalLeafOperator>
+        extends AbstractPhysicalPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE>
+        implements LeafPlan<PhysicalLeaf<OP_TYPE>, OP_TYPE> {
 
-    public PhysicalLeaf(NodeType type) {
-        super(type);
+    public PhysicalLeaf(OP_TYPE operator, LogicalProperties logicalProperties) {
+        super(NodeType.PHYSICAL, operator, logicalProperties);
     }
 }
