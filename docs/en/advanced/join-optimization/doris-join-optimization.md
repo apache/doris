@@ -152,7 +152,7 @@ If the first 4 methods are connected in series, it still does not work. At this 
 
 ## Optimization case practice
 
-### Case one
+### Case 1
 
 A four-table join query, through Profile, found that the second join took a long time, taking 14 seconds.
 
