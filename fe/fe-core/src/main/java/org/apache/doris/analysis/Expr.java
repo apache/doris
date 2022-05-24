@@ -302,7 +302,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return isAnalyzed;
     }
 
-    // todo: Why define checkValueValid() in Expr that are only implemented in IntLiteral？
     public void checkValueValid() throws AnalysisException {}
 
     public ExprId getId() {

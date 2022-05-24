@@ -53,61 +53,63 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             return expr;
         }
         InPredicate inPredicate = (InPredicate) expr;
+        SlotRef slotRef;
         if (inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren() || inPredicate.isNotIn()
-                || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+                || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)
+                || (slotRef = inPredicate.getChild(0).getSrcSlotRef()) == null || slotRef.getColumn() == null) {
             return expr;
         }
-        SlotRef slotRef = inPredicate.getChild(0).getSrcSlotRef();
         Type columnType = slotRef.getColumn().getType();
         if (!columnType.isFixedPointType()) {
             return expr;
         }
 
-        InPredicate newInPredicate = inPredicate.clone();
+        Expr newColumnExpr = expr.getChild(0).getType().getPrimitiveType() == columnType.getPrimitiveType()
+                ? expr.getChild(0) : expr.getChild(0).castTo(columnType);
+        List<Expr> newInList = Lists.newArrayList();
         boolean isCast = false;
-        List<Expr> invalidChildren = Lists.newArrayList();
-        for (int i = 1; i < newInPredicate.getChildren().size(); ++i) {
-            LiteralExpr childExpr = (LiteralExpr) newInPredicate.getChild(i);
+        for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
+            LiteralExpr childExpr = (LiteralExpr) inPredicate.getChild(i);
+            if (!(childExpr.getType().isNumericType() || childExpr.getType().getPrimitiveType().isCharFamily())) {
+                return expr;
+            }
             if (childExpr.getType().getPrimitiveType().equals(columnType.getPrimitiveType())) {
+                newInList.add(childExpr);
                 continue;
             }
 
+            // StringLiteral "2.0" cannot be directly converted to IntLiteral or LargeIntLiteral, and FloatLiteral
+            // cannot be directly converted to LargeIntLiteral, so it is converted to decimal first.
             if (childExpr.getType().getPrimitiveType().isCharFamily() || childExpr.getType().isFloatingPointType()) {
                 try {
                     childExpr = (LiteralExpr) childExpr.castTo(Type.DECIMALV2);
-                } catch (Exception e) {
-                    newInPredicate.setChild(i, childExpr);
-                    invalidChildren.add(childExpr);
+                } catch (AnalysisException e) {
                     continue;
                 }
             }
 
-            if (childExpr.getType().isNumericType()) {
-                try {
-                    LiteralExpr newExpr = (LiteralExpr) childExpr.castTo(columnType);
-                    newExpr.checkValueValid();
-                    if (childExpr.compareLiteral(newExpr) == 0) {
-                        newInPredicate.setChild(i, newExpr);
-                        isCast = true;
-                    } else {
-                        throw new AnalysisException("Converting the type will result in a loss of accuracy.");
-                    }
-                } catch (Exception e) {
-                    newInPredicate.setChild(i, childExpr);
-                    invalidChildren.add(childExpr);
+            try {
+                // Convert childExpr to column type and compare the converted values. There are 3 possible situations:
+                // 1. The value of childExpr exceeds the range of the column type, then castTo() will throw an
+                //   exception. For example, the value of childExpr is 128 and the column type is tinyint.
+                // 2. childExpr is converted to column type, but the value of childExpr loses precision.
+                //   For example, 2.1 is converted to 2;
+                // 3. childExpr is precisely converted to column type. For example, 2.0 is converted to 2.
+                // In cases 1 and 2 above, childExpr should be discarded.
+                LiteralExpr newExpr = (LiteralExpr) childExpr.castTo(columnType);
+                if (childExpr.compareLiteral(newExpr) == 0) {
+                    isCast = true;
+                    newInList.add(newExpr);
                 }
-            } else {
-                return expr;
+            } catch (AnalysisException ignored) {
+                // pass
             }
         }
-        if (invalidChildren.size() == newInPredicate.getChildren().size() - 1) {
+        if (newInList.isEmpty()) {
             return new BoolLiteral(false);
         }
-        if (newInPredicate.getChild(0).getType().getPrimitiveType() != columnType.getPrimitiveType()) {
-            newInPredicate.castChild(columnType, 0);
-            isCast = true;
-        }
-        newInPredicate.getChildren().removeAll(invalidChildren);
-        return !isCast && invalidChildren.isEmpty() ? expr : newInPredicate;
+        // Expr rewriting if there is childExpr discarded or type is converted.
+        return newInList.size() + 1 < expr.getChildren().size() || isCast
+                ? new InPredicate(newColumnExpr, newInList, false) : expr;
     }
 }
