@@ -36,13 +36,12 @@ import java.util.List;
  * Optimize the InPredicate when the child expr type is integerType, largeIntType, floatingPointType, decimalV2,
  * char, varchar, string and the column type is integerType, largeIntType: convert the child expr type to the column
  * type and discard the expressions that cannot be converted exactly.
- * <p>
- * For example:
- * column type is integerType or largeIntType, then
- * col in (1, 2.5, 2.0, "3.0", "4.6") -> col in (1, 2, 3)
- * col in (2.5, "4.6") -> false
- * <p>
- * column type is tinyType, then
+ *
+ * <p>For example:<br>
+ * column type is integerType or largeIntType, then:<br>
+ * col in (1, 2.5, 2.0, "3.0", "4.6") -> col in (1, 2, 3)<br>
+ * col in (2.5, "4.6") -> false<br>
+ * column type is tinyType, then:<br>
  * col in (1, 2.0, 128, "1000") -> col in (1, 2)
  */
 public class RewriteInPredicateRule implements ExprRewriteRule {
@@ -54,8 +53,8 @@ public class RewriteInPredicateRule implements ExprRewriteRule {
             return expr;
         }
         InPredicate inPredicate = (InPredicate) expr;
-        if (inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren() || inPredicate.isNotIn() ||
-                !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+        if (inPredicate.contains(Subquery.class) || !inPredicate.isLiteralChildren() || inPredicate.isNotIn()
+                || !(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
             return expr;
         }
         SlotRef slotRef = inPredicate.getChild(0).getSrcSlotRef();

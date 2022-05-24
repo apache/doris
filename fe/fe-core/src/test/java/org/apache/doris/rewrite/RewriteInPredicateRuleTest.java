@@ -45,9 +45,9 @@ public class RewriteInPredicateRuleTest extends TestWithFeService {
         connectContext = createDefaultCtx();
         createDatabase(DB_NAME);
         useDatabase(DB_NAME);
-        String createTableFormat = "create table %s(id %s, `date` datetime, cost bigint sum) " +
-                "aggregate key(`id`, `date`) distributed by hash (`id`) buckets 4 " +
-                "properties (\"replication_num\"=\"1\");";
+        String createTableFormat = "create table %s(id %s, `date` datetime, cost bigint sum) "
+                + "aggregate key(`id`, `date`) distributed by hash (`id`) buckets 4 "
+                + "properties (\"replication_num\"=\"1\");";
         createTable(String.format(createTableFormat, TABLE_SMALL, PrimitiveType.SMALLINT));
         createTable(String.format(createTableFormat, TABLE_LARGE, PrimitiveType.LARGEINT));
     }
