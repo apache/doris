@@ -107,28 +107,23 @@ private:
             return column->size() * (padding_length + 1) != column->chars.size();
         }
 
-        static void insert_data_padded(ColumnString* column, StringRef str, size_t padding_length) {
-            const size_t old_size = column->chars.size();
-            const size_t data_size = old_size + str.size;
-            const size_t full_size = old_size + padding_length + 1;
-
-            column->chars.resize(full_size);
-            column->offsets.push_back(full_size);
-
-            if (str.size) {
-                memcpy(column->chars.data() + old_size, str.data, str.size);
-            }
-            memset(column->chars.data() + data_size, 0, full_size - data_size);
-        }
-
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
             auto column = vectorized::ColumnString::create();
             auto padded_column =
                     assert_cast<vectorized::ColumnString*>(column->assume_mutable().get());
-            padded_column->reserve(input->size());
+
+            column->offsets.resize(input->size());
+            column->chars.resize(input->size() * (padding_length + 1));
+            memset(padded_column->chars.data(), 0, input->size() * (padding_length + 1));
 
             for (size_t i = 0; i < input->size(); i++) {
-                insert_data_padded(padded_column, input->get_data_at(i), padding_length);
+                column->offsets[i] = (i + 1) * (padding_length + 1);
+
+                auto str = input->get_data_at(i);
+                if (str.size) {
+                    memcpy(padded_column->chars.data() + i * (padding_length + 1), str.data,
+                           str.size);
+                }
             }
 
             return column;
