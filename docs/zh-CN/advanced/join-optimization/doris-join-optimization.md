@@ -71,7 +71,7 @@ Doris 支持 4 种 Shuffle 方式
 
    左表数据不移动，右表数据根据分区计算的结果发送到左表扫表的节点
 
-4. Colocation 
+4. Colocate
 
    它与 Bucket Shuffle Join 相似，相当于在数据导入的时候，根据预设的 Join 列的场景已经做好了数据的 Shuffle。那么实际查询的时候就可以直接进行 Join 计算而不需要考虑数据的 Shuffle 问题了。
 
