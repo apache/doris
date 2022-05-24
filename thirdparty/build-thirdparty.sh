@@ -643,6 +643,7 @@ build_arrow() {
     export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
     export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
     export ARROW_XSIMD_URL=${TP_SOURCE_DIR}/${XSIMD_NAME}
+    export ARROW_ORC_URL=${TP_SOURCE_DIR}/${ORC_NAME}
 
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
@@ -664,6 +665,8 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
+    -DORC_LIB=$TP_INSTALL_DIR/lib/liborc.a -DORC_INCLUDE_DIR=$TP_INSTALL_DIR/include/orc \
+    -DORC_SOURCE=SYSTEM \
     -DBoost_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
@@ -1011,6 +1014,7 @@ build_rocksdb
 build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
+build_orc
 build_arrow
 build_s2
 build_bitshuffle
@@ -1019,7 +1023,6 @@ build_fmt
 build_parallel_hashmap
 build_pdqsort
 build_libdivide
-build_orc
 build_cctz
 build_tsan_header
 build_mysql
