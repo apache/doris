@@ -163,7 +163,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
     // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
     _evaluated_rows += *size;
     _passed_rows += new_size;
-    if (_evaluated_rows > 1000) {
+    if (_evaluated_rows > 100) {
         if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
             _enable_pred = false;
         }
