@@ -80,8 +80,7 @@ public:
         return Status::NotSupported("Not Implemented read");
     }
     // for vec
-    virtual Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                              bool* eof) = 0;
+    virtual Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) = 0;
     virtual void close();
     virtual Status size(int64_t* size) { return Status::NotSupported("Not Implemented size"); }
 

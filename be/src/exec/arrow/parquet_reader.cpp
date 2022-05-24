@@ -191,8 +191,7 @@ Status ParquetReaderWrap::read_record_batch(bool* eof) {
     return Status::OK();
 }
 
-Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                     bool* eof) {
+Status ParquetReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
     if (_batch->num_rows() == 0 || _current_line_of_batch != 0 || _current_line_of_group != 0) {
         RETURN_IF_ERROR(read_record_batch(eof));
     }

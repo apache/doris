@@ -93,8 +93,7 @@ Status ORCReaderWrap::_next_stripe_reader(bool* eof) {
     return Status::OK();
 }
 
-Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                                 bool* eof) {
+Status ORCReaderWrap::next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) {
     *eof = false;
     do {
         auto st = _rb_reader->ReadNext(batch);

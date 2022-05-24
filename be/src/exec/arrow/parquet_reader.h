@@ -70,8 +70,7 @@ public:
     Status size(int64_t* size) override;
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::string& timezone) override;
-    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                      bool* eof) override;
+    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
     void close() override;
 
 private:

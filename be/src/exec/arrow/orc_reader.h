@@ -37,8 +37,7 @@ public:
 
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::string& timezone) override;
-    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch,
-                      bool* eof) override;
+    Status next_batch(std::shared_ptr<arrow::RecordBatch>* batch, bool* eof) override;
 
 private:
     Status _next_stripe_reader(bool* eof);
