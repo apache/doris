@@ -167,7 +167,8 @@ public class HiveMetaStoreClientHelper {
      * @throws DdlException
      */
     public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-                                          List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl) throws DdlException {
+                                          List<TBrokerFileStatus> fileStatuses,
+                                          Table remoteHiveTbl) throws DdlException {
         List<RemoteIterator<LocatedFileStatus>> remoteIterators;
         if (remoteHiveTbl.getPartitionKeys().size() > 0) {
             String metaStoreUris = hiveTable.getHiveProperties().get(HiveTable.HIVE_METASTORE_URIS);
@@ -209,6 +210,15 @@ public class HiveMetaStoreClientHelper {
         return hdfsUrl;
     }
 
+    /**
+     * list partitions from hiveMetaStore.
+     *
+     * @param metaStoreUris hiveMetaStore uris
+     * @param remoteHiveTbl Hive table
+     * @param hivePartitionPredicate filter when list partitions
+     * @return a list of hive partitions
+     * @throws DdlException when connect hiveMetaStore failed.
+     */
     public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
                        ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
         List<Partition> hivePartitions = new ArrayList<>();

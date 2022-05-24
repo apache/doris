@@ -17,8 +17,6 @@
 
 package org.apache.doris.planner;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
@@ -43,6 +41,9 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.THdfsParams;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Partition;
@@ -66,6 +67,9 @@ import java.util.ListIterator;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * Hudi scan node to query hudi table.
+ */
 public class HudiScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(HudiScanNode.class);
 
@@ -87,6 +91,12 @@ public class HudiScanNode extends BrokerScanNode {
 
     private List<TScanRangeLocations> scanRangeLocations;
 
+    public HudiScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
+                        List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
+        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded);
+        this.hudiTable = (HudiTable) destTupleDesc.getTable();
+    }
+
     public String getHdfsUri() {
         return hdfsUri;
     }
@@ -107,20 +117,14 @@ public class HudiScanNode extends BrokerScanNode {
         return partitionKeys;
     }
 
-    public HudiScanNode(PlanNodeId id, TupleDescriptor destTupleDesc, String planNodeName,
-                        List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded) {
-        super(id, destTupleDesc, planNodeName, fileStatusesList, filesAdded);
-        this.hudiTable = (HudiTable) destTupleDesc.getTable();
-    }
-
     /**
      *  super init will invoke initFileGroup, In initFileGroup will do
      *  1, get hudi table from hive metastore
      *  2, resolve hudi table type, query mode, table base path, partition columns information.
      *  3. generate fileGroup
      *
-     * @param analyzer
-     * @throws UserException
+     * @param analyzer analyzer
+     * @throws UserException when init failed.
      */
     @Override
     public void init(Analyzer analyzer) throws UserException {
@@ -153,7 +157,7 @@ public class HudiScanNode extends BrokerScanNode {
     }
 
     /**
-     * Override this function just for skip parent's getFileStatus
+     * Override this function just for skip parent's getFileStatus.
      */
     @Override
     protected void getFileStatus() throws DdlException {
@@ -224,7 +228,7 @@ public class HudiScanNode extends BrokerScanNode {
 
 
     /**
-     * Extracts partition predicate from SelectStmt.whereClause that can be pushed down to Hive
+     * Extracts partition predicate from SelectStmt.whereClause that can be pushed down to Hive.
      */
     private void extractHivePartitionPredicate() throws DdlException {
         ListIterator<Expr> it = conjuncts.listIterator();
@@ -272,7 +276,7 @@ public class HudiScanNode extends BrokerScanNode {
         // because all hoodie input format have UseFileSplitsFromInputFormat annotation
         JobConf jobConf = new JobConf(configuration);
         FileInputFormat.setInputPaths(jobConf, splitsPath);
-        InputSplit[] inputSplits = inputFormat.getSplits(jobConf,0);
+        InputSplit[] inputSplits = inputFormat.getSplits(jobConf, 0);
         return inputSplits;
 
     }
@@ -285,17 +289,17 @@ public class HudiScanNode extends BrokerScanNode {
             return;
         }
 
-        THdfsParams tHdfsParams = new THdfsParams();
-        String fullPath = ((FileSplit)inputSplits[0]).getPath().toUri().toString();
-        String filePath = ((FileSplit)inputSplits[0]).getPath().toUri().getPath();
+        THdfsParams hdfsParams = new THdfsParams();
+        String fullPath = ((FileSplit) inputSplits[0]).getPath().toUri().toString();
+        String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
-        tHdfsParams.setFsName(fsName);
+        hdfsParams.setFsName(fsName);
         Log.info("Hudi  path's host is  " + fsName);
 
         TFileFormatType formatType = TFileFormatType.FORMAT_PARQUET;
         ParamCreateContext context = getParamCreateContexts().get(0);
-        for(InputSplit split: inputSplits) {
-            FileSplit fileSplit = (FileSplit)split;
+        for (InputSplit split : inputSplits) {
+            FileSplit fileSplit = (FileSplit) split;
 
             TScanRangeLocations curLocations = newLocations(context.params, brokerDesc);
             List<String> partitionValuesFromPath = BrokerUtil.parseColumnsFromPath(fileSplit.getPath().toString(),
@@ -304,7 +308,7 @@ public class HudiScanNode extends BrokerScanNode {
 
             TBrokerRangeDesc rangeDesc = createBrokerRangeDesc(fileSplit, formatType,
                     partitionValuesFromPath, numberOfColumnsFromFile, brokerDesc);
-            rangeDesc.setHdfsParams(tHdfsParams);
+            rangeDesc.setHdfsParams(hdfsParams);
             rangeDesc.setReadByColumnDef(true);
 
             curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
@@ -337,6 +341,8 @@ public class HudiScanNode extends BrokerScanNode {
             case FILE_HDFS:
                 BrokerUtil.generateHdfsParam(brokerDesc.getProperties(), rangeDesc);
                 break;
+            default:
+                break;
         }
         return rangeDesc;
     }
@@ -353,7 +359,7 @@ public class HudiScanNode extends BrokerScanNode {
     }
 
     /**
-     * Analyze columns from path, the partition columns
+     * Analyze columns from path, the partition columns.
      */
     private void analyzeColumnFromPath() {
         for (String colName : partitionKeys) {

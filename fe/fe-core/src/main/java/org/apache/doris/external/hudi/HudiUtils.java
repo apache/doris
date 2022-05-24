@@ -21,14 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.external.hive.util.HiveUtil;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.external.hive.util.HiveUtil;
 import org.apache.hudi.hadoop.HoodieParquetInputFormat;
 import org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,6 +137,13 @@ public class HudiUtils {
         }
     }
 
+    /**
+     * resolve hudi table from hive metaStore.
+     *
+     * @param table a doris hudi table
+     * @return a doris hudi table which has been resolved.
+     * @throws AnalysisException when remoteTable is not exist or not a hudi table
+     */
     public static HudiTable resolveHudiTable(HudiTable table) throws AnalysisException {
         String metastoreUris = table.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
         org.apache.hadoop.hive.metastore.api.Table remoteHiveTable = null;

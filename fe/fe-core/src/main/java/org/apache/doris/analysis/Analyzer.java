@@ -619,7 +619,7 @@ public class Analyzer {
                     partition -> partition.getState() == PartitionState.RESTORE
             ).collect(Collectors.toList()).isEmpty();
 
-            if(!isNotRestoring){
+            if (!isNotRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
                 // support query that partitions is not restoring.
             } else {
@@ -628,9 +628,9 @@ public class Analyzer {
             }
         }
 
-        if (table.getType() == TableType.HUDI && ((HudiTable) table).getFullSchema().isEmpty()) {
+        if (table.getType() == TableType.HUDI && table.getFullSchema().isEmpty()) {
             // resolve hudi table's schema when table schema is empty from doris meta
-            table = HudiUtils.resolveHudiTable((HudiTable)table);
+            table = HudiUtils.resolveHudiTable((HudiTable) table);
         }
 
         // tableName.getTbl() stores the table name specified by the user in the from statement.

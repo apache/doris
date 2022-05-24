@@ -291,4 +291,26 @@ public class CreateTableStmtTest {
                 + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
                 + "\"hudi.table\"  =  \"test\")", stmt.toString());
     }
+
+    @Test
+    public void testCreateHudiTableWithSchema() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("hudi.database", "doris");
+        properties.put("hudi.table", "test");
+        properties.put("hudi.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
+        ColumnDef idCol = new ColumnDef("id", TypeDef.create(PrimitiveType.INT));
+        stmt.addColumnDef(idCol);
+        ColumnDef nameCol = new ColumnDef("name", TypeDef.create(PrimitiveType.STRING));
+        stmt.addColumnDef(nameCol);
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "id int, \n"
+                + "name string\n"
+                + ") ENGINE = hudi\n"
+                + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
+                + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"hudi.table\"  =  \"test\")", stmt.toString());
+    }
 }
