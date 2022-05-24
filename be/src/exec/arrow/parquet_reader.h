@@ -57,12 +57,12 @@ class MemPool;
 class FileReader;
 
 // Reader of broker parquet file
-class ParquetReaderWrap : public ArrowReaderWrap {
+class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
     ParquetReaderWrap(FileReader* file_reader, int64_t batch_size,
                       int32_t num_of_columns_from_file);
-    virtual ~ParquetReaderWrap() {}
+    ~ParquetReaderWrap() override = default;
 
     // Read
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,

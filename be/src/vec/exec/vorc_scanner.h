@@ -36,14 +36,14 @@
 namespace doris::vectorized {
 
 // VOrc scanner convert the data read from Orc to doris's columns.
-class VORCScanner : public VArrowScanner {
+class VORCScanner final : public VArrowScanner {
 public:
     VORCScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                 const std::vector<TBrokerRangeDesc>& ranges,
                 const std::vector<TNetworkAddress>& broker_addresses,
                 const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~VORCScanner();
+    ~VORCScanner() override = default;
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,

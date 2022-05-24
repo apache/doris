@@ -29,8 +29,6 @@ VORCScanner::VORCScanner(RuntimeState* state, RuntimeProfile* profile,
         : VArrowScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs,
                         counter) {}
 
-VORCScanner::~VORCScanner() = default;
-
 ArrowReaderWrap* VORCScanner::_new_arrow_reader(FileReader* file_reader, int64_t batch_size,
                                                 int32_t num_of_columns_from_file) {
     return new ORCReaderWrap(file_reader, batch_size, num_of_columns_from_file);

@@ -30,10 +30,10 @@
 namespace doris {
 
 // Reader of orc file
-class ORCReaderWrap : public ArrowReaderWrap {
+class ORCReaderWrap final : public ArrowReaderWrap {
 public:
     ORCReaderWrap(FileReader* file_reader, int64_t batch_size, int32_t num_of_columns_from_file);
-    virtual ~ORCReaderWrap();
+    ~ORCReaderWrap() override = default;
 
     Status init_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs,
                        const std::string& timezone) override;

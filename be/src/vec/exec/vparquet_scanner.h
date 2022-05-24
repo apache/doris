@@ -36,7 +36,7 @@
 namespace doris::vectorized {
 
 // VParquet scanner convert the data read from Parquet to doris's columns.
-class VParquetScanner : public VArrowScanner {
+class VParquetScanner final: public VArrowScanner {
 public:
     VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                     const TBrokerScanRangeParams& params,
@@ -44,7 +44,7 @@ public:
                     const std::vector<TNetworkAddress>& broker_addresses,
                     const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~VParquetScanner() override;
+    ~VParquetScanner() override = default;
 
 protected:
     ArrowReaderWrap* _new_arrow_reader(FileReader* file_reader, int64_t batch_size,
