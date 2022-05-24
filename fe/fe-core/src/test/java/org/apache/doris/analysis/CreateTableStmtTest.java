@@ -301,13 +301,14 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
         ColumnDef idCol = new ColumnDef("id", TypeDef.create(PrimitiveType.INT));
         stmt.addColumnDef(idCol);
-        ColumnDef nameCol = new ColumnDef("name", TypeDef.create(PrimitiveType.STRING));
+        ColumnDef nameCol = new ColumnDef("name", TypeDef.create(PrimitiveType.STRING), false,
+                null, true, ColumnDef.DefaultValue.NOT_SET, "");
         stmt.addColumnDef(nameCol);
         stmt.analyze(analyzer);
 
         Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
-                + "id int, \n"
-                + "name string\n"
+                + "  `id` int(11) NULL COMMENT \"\",\n"
+                + "  `name` text NULL COMMENT \"\"\n"
                 + ") ENGINE = hudi\n"
                 + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
                 + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
