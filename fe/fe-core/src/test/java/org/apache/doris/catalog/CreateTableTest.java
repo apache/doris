@@ -139,12 +139,14 @@ public class CreateTableTest {
                         + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
         ExceptionChecker
-                .expectThrowsNoException(() -> createTable("create table test.tbl9(key1 int, key2 varchar(10)) \n"
-                        + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'compression' = 'lz4f');"));
+                .expectThrowsNoException(() -> createTable("create table test.compression1(key1 int, key2 varchar(10)) \n"
+                        + "distributed by hash(key1) buckets 1 \n"
+                        + "properties('replication_num' = '1', 'compression' = 'lz4f');"));
 
         ExceptionChecker
-                .expectThrowsNoException(() -> createTable("create table test.tbl10(key1 int, key2 varchar(10)) \n"
-                        + "distributed by hash(key1) buckets 1 properties('replication_num' = '1', 'compression' = 'snappy');"));
+                .expectThrowsNoException(() -> createTable("create table test.compression2(key1 int, key2 varchar(10)) \n"
+                        + "distributed by hash(key1) buckets 1 \n"
+                        + "properties('replication_num' = '1', 'compression' = 'snappy');"));
 
         ExceptionChecker
                 .expectThrowsNoException(() -> createTable("create table test.tbl8\n" + "(k1 varchar(40), k2 int, v1 int)\n"

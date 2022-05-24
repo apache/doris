@@ -235,7 +235,7 @@ public class TableProperty implements Writable {
     public String getRemoteStorageResource() {
         return remoteStorageResource;
     }
-    
+
     public TCompressionType getCompressionType() {
         return compressionType;
     }
