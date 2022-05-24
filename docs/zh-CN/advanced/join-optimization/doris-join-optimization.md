@@ -127,7 +127,7 @@ Doris 提供了三种不同的 Runtime Filter 类型：
 
 
 
-## Join Reader
+## Join Reorder
 
 数据库一旦涉及到多表 Join，Join 的顺序对整个 Join 查询的性能是影响很大的。假设有三张表 Join，参考下面这张图，左边是 a 表跟 b 张表先做 Join，中间结果的有 2000 行，然后与 c 表再进行 Join 计算。
 
