@@ -180,8 +180,7 @@ module.exports = [
         children: [
           "bucket-shuffle-join",
           "colocation-join",
-          "runtime-filter",
-          "doris-join-optimization"
+          "runtime-filter"
         ],
       },
       {
