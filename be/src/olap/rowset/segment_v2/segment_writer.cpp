@@ -118,7 +118,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
-    if (UNLIKELY(_short_key_row_pos == 0)) {
+    if (UNLIKELY(_short_key_row_pos == 0 && _row_count == 0 && num_rows > 0)) {
         short_key_pos.push_back(0);
     }
     while (_short_key_row_pos + _opts.num_rows_per_block < _row_count + num_rows) {
