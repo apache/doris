@@ -59,7 +59,6 @@ public:
 
     Status init();
 
-    Status write(Tuple* tuple);
     Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
