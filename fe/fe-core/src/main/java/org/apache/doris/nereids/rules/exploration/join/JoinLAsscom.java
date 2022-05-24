@@ -17,12 +17,12 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.operators.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-
+import org.apache.doris.nereids.trees.plans.logical.LogicalBinary;
 
 /**
  * Rule for change inner join left associative to right.
@@ -38,16 +38,21 @@ public class JoinLAsscom extends OneExplorationRuleFactory {
     @Override
     public Rule<Plan> build() {
         return innerLogicalJoin(innerLogicalJoin(), any()).then(topJoin -> {
-            LogicalJoin bottomJoin = topJoin.left();
+            LogicalBinary<LogicalJoin, Plan, Plan> bottomJoin = topJoin.left();
 
-            Plan c = topJoin.right();
             Plan a = bottomJoin.left();
             Plan b = bottomJoin.right();
+            Plan c = topJoin.right();
 
-            LogicalJoin newBottomJoin =
-                    new LogicalJoin(bottomJoin.getJoinType(), bottomJoin.getOnClause(), a, c);
-            LogicalJoin newTopJoin =
-                    new LogicalJoin(bottomJoin.getJoinType(), topJoin.getOnClause(), newBottomJoin, b);
+            Plan newBottomJoin = plan(
+                    new LogicalJoin(bottomJoin.op.getJoinType(), bottomJoin.op.getOnClause()),
+                    a, c
+            );
+
+            Plan newTopJoin = plan(
+                    new LogicalJoin(bottomJoin.op.getJoinType(), topJoin.op.getOnClause()),
+                    newBottomJoin, b
+            );
             return newTopJoin;
         }).toRule(RuleType.LOGICAL_JOIN_L_ASSCOM);
     }

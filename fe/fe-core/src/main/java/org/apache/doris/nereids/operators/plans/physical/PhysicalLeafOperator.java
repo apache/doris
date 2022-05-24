@@ -15,46 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.operators.AbstractOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.LeafPlanOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
 
 /**
- * Logical filter plan node.
+ * Abstract class for all physical operator that have no input.
  */
-public class LogicalFilter<CHILD_TYPE extends Plan>
-         extends LogicalUnary<LogicalFilter<CHILD_TYPE>, CHILD_TYPE> {
+public abstract class PhysicalLeafOperator<TYPE extends PhysicalLeafOperator<TYPE>>
+        extends AbstractOperator<TYPE>
+        implements PhysicalOperator<TYPE>, LeafPlanOperator<TYPE> {
 
-    private final Expression predicates;
-
-    public LogicalFilter(Expression predicates, CHILD_TYPE child) {
-        super(NodeType.LOGICAL_FILTER, child);
-        this.predicates = predicates;
-    }
-
-    public Expression getPredicates() {
-        return predicates;
+    public PhysicalLeafOperator(OperatorType type) {
+        super(type);
     }
 
     @Override
-    public List<Slot> getOutput() throws UnboundException {
-        return output;
+    public final List<Slot> computeOutputs(LogicalProperties logicalProperties, Plan... inputs) {
+        return doComputeOutput(logicalProperties);
     }
 
-    @Override
-    public String toString() {
-        String cond;
-        if (predicates == null) {
-            cond = "<null>";
-        } else {
-            cond = predicates.toString();
-        }
-        return "Filter (" + cond + ")";
+    public List<Slot> doComputeOutput(LogicalProperties logicalProperties) {
+        return logicalProperties.getOutput();
     }
 }

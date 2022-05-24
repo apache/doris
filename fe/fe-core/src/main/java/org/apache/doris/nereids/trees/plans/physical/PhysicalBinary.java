@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.operators.plans.physical.PhysicalBinaryOperator;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -24,14 +26,17 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Abstract class for all physical plan that have two children.
  */
-public abstract class PhysicalBinary<
-            PLAN_TYPE extends PhysicalBinary<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+public class PhysicalBinary<
+            OP_TYPE extends PhysicalBinaryOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractPhysicalPlan<PLAN_TYPE>
-        implements BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractPhysicalPlan<PhysicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, OP_TYPE>
+        implements BinaryPlan<
+            PhysicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public PhysicalBinary(NodeType type, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(type, leftChild, rightChild);
+    public PhysicalBinary(OP_TYPE operator, LogicalProperties logicalProperties,
+            LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(NodeType.PHYSICAL, operator, logicalProperties, leftChild, rightChild);
     }
 }
