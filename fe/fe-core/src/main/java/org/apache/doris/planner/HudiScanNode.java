@@ -26,6 +26,8 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -216,10 +218,10 @@ public class HudiScanNode extends BrokerScanNode {
         // init slot desc add expr map, also transform hadoop functions
         for (Column column : columns) {
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(context.srcTupleDescriptor);
-            slotDesc.setType(column.getType());
+            slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
             slotDesc.setIsMaterialized(true);
             slotDesc.setIsNullable(true);
-            slotDesc.setColumn(column);
+            slotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
             params.addToSrcSlotIds(slotDesc.getId().asInt());
             slotDescByName.put(column.getName(), slotDesc);
         }
