@@ -48,6 +48,10 @@ public:
     bool write_slot(const SlotDescriptor* slot_desc, Tuple* tuple, const char* data, int len,
                     bool copy_string, bool need_escape, MemPool* pool);
 
+    void write_string_column(const SlotDescriptor* slot_desc,
+                             vectorized::MutableColumnPtr* column_ptr, const char* data,
+                             size_t len);
+
     bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
                       const char* data, size_t len, bool copy_string, bool need_escape);
 
