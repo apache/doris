@@ -95,6 +95,7 @@ public class FunctionCallExpr extends Expr {
                     .addAll(DECIMAL_SAME_TYPE_SET)
                     .addAll(DECIMAL_WIDER_TYPE_SET)
                     .addAll(STDDEV_FUNCTION_SET).build();
+    private static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
 
     // use to record the num of json_object parameters
@@ -1063,7 +1064,8 @@ public class FunctionCallExpr extends Expr {
                 this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION,
                     ((ScalarType) argTypes[0]).getScalarScale());
             } else if (STDDEV_FUNCTION_SET.contains(fnName.getFunction())) {
-                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION, 9);
+                // for all stddev function, use decimal(38,9) as computing result
+                this.type = ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION, STDDEV_DECIMAL_SCALE);
             }
         }
         // rewrite return type if is nested type function
