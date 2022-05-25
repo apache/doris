@@ -370,8 +370,11 @@ public class StmtExecutor implements ProfileWriter {
                     for (ScanNode scanNode : scanNodeList) {
                         if (scanNode instanceof OlapScanNode) {
                             OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitations(olapScanNode.getSelectedPartitionNum().longValue(),
-                                    olapScanNode.getSelectedTabletsNum(), olapScanNode.getCardinality(), context.getQualifiedUser());
+                            Catalog.getCurrentCatalog().getSqlBlockRuleMgr().checkLimitations(
+                                    olapScanNode.getSelectedPartitionNum().longValue(),
+                                    olapScanNode.getSelectedTabletsNum(),
+                                    olapScanNode.getCardinality(),
+                                    context.getQualifiedUser());
                         }
                     }
                 }
