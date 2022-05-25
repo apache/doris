@@ -156,6 +156,7 @@ Status OlapScanner::_init_tablet_reader_params(
 
     // Condition
     for (auto& filter : filters) {
+        LOG(INFO) << "yyyyyyytablet OlapScanner: " << apache::thrift::ThriftDebugString(filter);
         _tablet_reader_params.conditions.push_back(filter);
     }
     std::copy(bloom_filters.cbegin(), bloom_filters.cend(),
