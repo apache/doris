@@ -91,7 +91,7 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
-import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.TablePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -643,8 +643,8 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_POLICY: {
-                data = Policy.read(in);
+            case OperationType.OP_CREATE_TABLE_POLICY: {
+                data = TablePolicy.read(in);
                 isRead = true;
                 break;
             }

@@ -220,8 +220,9 @@ public class OperationType {
     public static final short OP_DROP_SQL_BLOCK_RULE = 302;
 
     // policy 310-320
-    public static final short OP_CREATE_POLICY = 310;
+    public static final short OP_CREATE_TABLE_POLICY = 310;
     public static final short OP_DROP_POLICY = 311;
+    public static final short OP_CREATE_STORAGE_POLICY = 312;
 
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {

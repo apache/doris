@@ -64,7 +64,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
-import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.TablePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -811,8 +811,8 @@ public class EditLog {
                     catalog.getAlterInstance().replayProcessModifyEngine(log);
                     break;
                 }
-                case OperationType.OP_CREATE_POLICY: {
-                    Policy log = (Policy) journal.getData();
+                case OperationType.OP_CREATE_TABLE_POLICY: {
+                    TablePolicy log = (TablePolicy) journal.getData();
                     catalog.getPolicyMgr().replayCreate(log);
                     break;
                 }
@@ -1424,8 +1424,8 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
-    public void logCreatePolicy(Policy policy) {
-        logEdit(OperationType.OP_CREATE_POLICY, policy);
+    public void logCreatePolicy(TablePolicy policy) {
+        logEdit(OperationType.OP_CREATE_TABLE_POLICY, policy);
     }
 
     public void logDropPolicy(DropPolicyLog log) {

@@ -1354,11 +1354,16 @@ create_stmt ::=
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
-    /* row policy */
+    /* table policy */
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
     KW_USING LPAREN expr:wherePredicate RPAREN
     {:
         RESULT = new CreatePolicyStmt(PolicyTypeEnum.ROW, ifNotExists, policyName, tbl, filterType, user, wherePredicate);
+    :}
+    /* storage policy */
+    | KW_CREATE KW_STORAGE KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_TO user_identity:user opt_properties:properties
+    {:
+        RESULT = new CreatePolicyStmt(PolicyTypeEnum.STORAGE, ifNotExists, policyName, user, properties);
     :}
     ;
 
