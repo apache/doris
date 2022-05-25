@@ -24,24 +24,24 @@ import java.util.Iterator;
 /**
  * Get all pattern matching subtree in query plan.
  */
-public class PatternMatching implements Iterable<Plan<?>> {
+public class PatternMatching implements Iterable<Plan<?, ?>> {
 
     @Override
-    public Iterator<Plan<?>> iterator() {
+    public Iterator<Plan<?, ?>> iterator() {
         return new PatternMatchingIterator();
     }
 
     /**
      * Iterator to get all subtrees.
      */
-    public static class PatternMatchingIterator implements Iterator<Plan<?>> {
+    public static class PatternMatchingIterator implements Iterator<Plan<?, ?>> {
         @Override
         public boolean hasNext() {
             return false;
         }
 
         @Override
-        public Plan<?> next() {
+        public Plan<?, ?> next() {
             return null;
         }
     }

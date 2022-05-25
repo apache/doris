@@ -32,11 +32,11 @@ import java.util.List;
 public class GroupExpression {
     private Group parent;
     private List<Group> children;
-    private final Plan<?> plan;
+    private final Plan<?, ?> plan;
     private final BitSet ruleMasks;
     private boolean statDerived;
 
-    public GroupExpression(Plan<?> plan) {
+    public GroupExpression(Plan<?, ?> plan) {
         this(plan, Lists.newArrayList());
     }
 
@@ -46,7 +46,7 @@ public class GroupExpression {
      * @param plan {@link Plan} to reference
      * @param children children groups in memo
      */
-    public GroupExpression(Plan<?> plan, List<Group> children) {
+    public GroupExpression(Plan<?, ?> plan, List<Group> children) {
         this.plan = plan;
         this.children = children;
         this.ruleMasks = new BitSet(RuleType.SENTINEL.ordinal());
@@ -65,7 +65,7 @@ public class GroupExpression {
         this.parent = parent;
     }
 
-    public Plan<?> getPlan() {
+    public Plan<?, ?> getPlan() {
         return plan;
     }
 

@@ -50,9 +50,9 @@ public class Memo {
      * @return Reference of plan in Memo
      */
     // TODO: need to merge PlanRefSet if new PlanRef is same with some one already in memo
-    public GroupExpression newGroupExpression(Plan<?> plan, Group target) {
+    public GroupExpression newGroupExpression(Plan<?, ?> plan, Group target) {
         List<GroupExpression> childGroupExpr = Lists.newArrayList();
-        for (Plan<?> childrenPlan : plan.children()) {
+        for (Plan<?, ?> childrenPlan : plan.children()) {
             childGroupExpr.add(newGroupExpression(childrenPlan, null));
         }
         GroupExpression newGroupExpression = new GroupExpression(plan);

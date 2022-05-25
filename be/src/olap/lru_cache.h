@@ -15,6 +15,7 @@
 
 #include "olap/olap_common.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 
@@ -236,6 +237,7 @@ typedef struct LRUHandle {
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
+    MemTracker* mem_tracker;
     char key_data[1]; // Beginning of key
 
     CacheKey key() const {
@@ -250,6 +252,9 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
+        if (mem_tracker)
+            mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                                     total_size);
         ::free(this);
     }
 
@@ -308,7 +313,8 @@ public:
     // Like Cache methods, but with an extra "hash" parameter.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL,
+                          MemTracker* tracker = nullptr);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);

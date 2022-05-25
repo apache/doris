@@ -15,37 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
- * Logical project plan node.
+ * Logical project plan operator.
  */
-public class LogicalProject<CHILD_TYPE extends Plan>
-        extends LogicalUnary<LogicalProject<CHILD_TYPE>, CHILD_TYPE> {
+public class LogicalProject<INPUT_TYPE extends Plan>
+        extends LogicalUnaryOperator<LogicalProject<INPUT_TYPE>, INPUT_TYPE> {
 
     private final List<? extends NamedExpression> projects;
 
     /**
-     * Constructor for LogicalProjectPlan.
+     * Constructor for LogicalProject.
      *
      * @param projects project list
-     * @param child child plan node
      */
-    public LogicalProject(List<? extends NamedExpression> projects, CHILD_TYPE child) {
-        super(NodeType.LOGICAL_PROJECT, child);
-        this.projects = projects;
-        updateOutput();
+    public LogicalProject(List<? extends NamedExpression> projects) {
+        super(OperatorType.LOGICAL_PROJECT);
+        this.projects = Objects.requireNonNull(projects, "projects can not be null");
     }
 
     /**
@@ -58,20 +57,17 @@ public class LogicalProject<CHILD_TYPE extends Plan>
     }
 
     @Override
-    public List<Slot> getOutput() {
-        return output;
-    }
-
-    private void updateOutput() {
-        output = Lists.newArrayListWithCapacity(projects.size());
-        for (NamedExpression projection : projects) {
-            try {
-                output.add(projection.toSlot());
-            } catch (UnboundException e) {
-                output.clear();
-                break;
-            }
-        }
+    public List<Slot> doComputeOutput(INPUT_TYPE input) {
+        // fixme: not throw a checked exception
+        return projects.stream()
+                .map(namedExpr -> {
+                    try {
+                        return namedExpr.toSlot();
+                    } catch (UnboundException e) {
+                        throw new IllegalStateException(e);
+                    }
+                })
+                .collect(ImmutableList.toImmutableList());
     }
 
     @Override
