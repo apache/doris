@@ -39,7 +39,6 @@ set(UTIL_FILES
   errno.cpp
   hash_util.hpp
   histogram.cpp
-  json_util.cpp
   doris_metrics.cpp
   mem_info.cpp
   metrics.cpp

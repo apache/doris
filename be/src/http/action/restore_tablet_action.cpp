@@ -53,7 +53,7 @@ void RestoreTabletAction::handle(HttpRequest* req) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
     Status status = _handle(req);
-    std::string result = to_json(status);
+    std::string result = status.to_json();
     LOG(INFO) << "handle request result:" << result;
     if (status.ok()) {
         HttpChannel::send_reply(req, HttpStatus::OK, result);
