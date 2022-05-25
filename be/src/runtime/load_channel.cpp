@@ -137,7 +137,7 @@ bool LoadChannel::is_finished() {
 }
 
 Status LoadChannel::cancel() {
-    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER(_mem_tracker);
     std::lock_guard<std::mutex> l(_lock);
     for (auto& it : _tablets_channels) {
         it.second->cancel();
