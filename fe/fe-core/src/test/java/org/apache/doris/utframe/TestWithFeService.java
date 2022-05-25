@@ -17,17 +17,21 @@
 
 package org.apache.doris.utframe;
 
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.blockrule.SqlBlockRuleMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -385,6 +389,18 @@ public abstract class TestWithFeService {
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
         Catalog.getCurrentCatalog().getPolicyMgr().dropPolicy(stmt);
+    }
+
+    protected void createSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+    }
+
+    protected void alterSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+    }
+
+    protected void dropSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr().dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
