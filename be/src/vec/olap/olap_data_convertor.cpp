@@ -358,10 +358,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorChar::convert_to_olap() {
 
     assert(column_string);
 
-    size_t rows = column_string->size();
     // If column_string is not padded to full, we should do padding here.
     if (should_padding(column_string, _length)) {
-        _column = clone_and_padding(column_string, rows);
+        _column = clone_and_padding(column_string, _length);
         column_string = assert_cast<const vectorized::ColumnString*>(_column.get());
     }
 
