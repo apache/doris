@@ -136,7 +136,7 @@ When the disk capacity is higher than High Watermark or even Flood Stage, many o
     * If the disk usage does not reach 90% of the **Flood Stage**, expired trash files and expired snapshot files will be cleaned up. At this time, some recent files will be retained without affecting the recovery of data. 
     * If the disk usage has reached 90% of the **Flood Stage**, **all trash files** and expired snapshot files will be cleaned up, **This will affect the operation of restoring data from the trash bin**.
 
-    The time interval for automatic execution can be changed by `max_garbage_sweep_interval` and `max_garbage_sweep_interval` in the configuration items. 
+    The time interval for automatic execution can be changed by `max_garbage_sweep_interval` and `min_garbage_sweep_interval` in the configuration items. 
 
     When the recovery fails due to lack of trash files, the following results may be returned: 
 
