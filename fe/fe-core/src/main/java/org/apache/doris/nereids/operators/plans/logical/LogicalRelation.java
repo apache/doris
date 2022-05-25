@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.logical;
 
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /**
- * Logical relation plan node.
+ * Logical relation plan operator.
  */
-public class LogicalRelation extends LogicalLeaf<LogicalRelation> {
+public class LogicalRelation extends LogicalLeafOperator<LogicalRelation> {
 
     private final Table table;
     private final List<String> qualifier;
@@ -42,13 +43,9 @@ public class LogicalRelation extends LogicalLeaf<LogicalRelation> {
      * @param qualifier qualified relation name
      */
     public LogicalRelation(Table table, List<String> qualifier) {
-        super(NodeType.LOGICAL_BOUND_RELATION);
-        this.table = table;
-        this.qualifier = qualifier;
-        this.output = table.getBaseSchema()
-                .stream()
-                .map(col -> SlotReference.fromColumn(col, qualifier))
-                .collect(Collectors.toList());
+        super(OperatorType.LOGICAL_BOUND_RELATION);
+        this.table = Objects.requireNonNull(table, "table can not be null");
+        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
     }
 
     public Table getTable() {
@@ -60,14 +57,15 @@ public class LogicalRelation extends LogicalLeaf<LogicalRelation> {
     }
 
     @Override
-    public List<Slot> getOutput() {
-        return output;
+    public String toString() {
+        return "Relation(" + StringUtils.join(qualifier, ".") + "." + table.getName() + ")";
     }
 
     @Override
-    public String toString() {
-        return "Relation(" + StringUtils.join(qualifier, ".") + "." + table.getName()
-            + ", output: " + StringUtils.join(output, ", ")
-            + ")";
+    public List<Slot> doComputeOutput() {
+        return table.getBaseSchema()
+                .stream()
+                .map(col -> SlotReference.fromColumn(col, qualifier))
+                .collect(ImmutableList.toImmutableList());
     }
 }

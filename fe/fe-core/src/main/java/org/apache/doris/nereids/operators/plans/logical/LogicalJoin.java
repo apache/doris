@@ -15,30 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.logical;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.operators.plans.JoinType;
+import org.apache.doris.nereids.rules.exploration.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.StringUtils;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
- * Logical join plan node.
+ * Logical join plan operator.
  */
-public class LogicalJoin<
-            LEFT_CHILD_TYPE extends Plan,
-            RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LogicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+public class LogicalJoin<LEFT_INPUT_TYPE extends Plan, RIGHT_INPUT_TYPE extends Plan>
+        extends LogicalBinaryOperator<LogicalJoin<LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE>,
+            LEFT_INPUT_TYPE, RIGHT_INPUT_TYPE> {
 
     private final JoinType joinType;
-    private final Expression onClause;
+    private final Optional<Expression> onClause;
 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
@@ -47,17 +47,24 @@ public class LogicalJoin<
      * Constructor for LogicalJoinPlan.
      *
      * @param joinType logical type for join
-     * @param onClause on clause for join node
-     * @param left left child of join node
-     * @param right right child of join node
      */
-    public LogicalJoin(JoinType joinType, Expression onClause, LEFT_CHILD_TYPE left, RIGHT_CHILD_TYPE right) {
-        super(NodeType.LOGICAL_JOIN, left, right);
-        this.joinType = joinType;
-        this.onClause = onClause;
+    public LogicalJoin(JoinType joinType) {
+        this(joinType, Optional.empty());
     }
 
-    public Expression getOnClause() {
+    /**
+     * Constructor for LogicalJoinPlan.
+     *
+     * @param joinType logical type for join
+     * @param onClause on clause for join node
+     */
+    public LogicalJoin(JoinType joinType, Optional<Expression> onClause) {
+        super(OperatorType.LOGICAL_JOIN);
+        this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
+        this.onClause = Objects.requireNonNull(onClause, "onClause can not be null");
+    }
+
+    public Optional<Expression> getOnClause() {
         return onClause;
     }
 
@@ -66,22 +73,18 @@ public class LogicalJoin<
     }
 
     @Override
-    public List<Slot> getOutput() throws UnboundException {
-        if (CollectionUtils.isEmpty(output)) {
-            switch (joinType) {
-                case LEFT_SEMI_JOIN:
-                    output.addAll(left().getOutput());
-                    break;
-                case RIGHT_SEMI_JOIN:
-                    output.addAll(right().getOutput());
-                    break;
-                default:
-                    output.addAll(left().getOutput());
-                    output.addAll(right().getOutput());
-                    break;
-            }
+    public List<Slot> doComputeOutput(LEFT_INPUT_TYPE leftInput, RIGHT_INPUT_TYPE rightInput) {
+        switch (joinType) {
+            case LEFT_SEMI_JOIN:
+                return ImmutableList.copyOf(leftInput.getOutput());
+            case RIGHT_SEMI_JOIN:
+                return ImmutableList.copyOf(rightInput.getOutput());
+            default:
+                return ImmutableList.<Slot>builder()
+                        .addAll(leftInput.getOutput())
+                        .addAll(rightInput.getOutput())
+                        .build();
         }
-        return output;
     }
 
     @Override
@@ -89,9 +92,6 @@ public class LogicalJoin<
         StringBuilder sb = new StringBuilder("Join (").append(joinType);
         if (onClause != null) {
             sb.append(", ").append(onClause);
-        }
-        if (CollectionUtils.isNotEmpty(output)) {
-            sb.append(", output: ").append(StringUtils.join(output, ", "));
         }
         return sb.append(")").toString();
     }

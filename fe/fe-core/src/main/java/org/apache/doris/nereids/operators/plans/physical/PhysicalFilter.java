@@ -15,37 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.logical;
+package org.apache.doris.nereids.operators.plans.physical;
 
-import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
+import org.apache.doris.nereids.operators.OperatorType;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.List;
-import java.util.function.BiFunction;
+import java.util.Objects;
 
 /**
- * Abstract class for all logical plan in Nereids.
+ * Physical filter plan operator.
  */
-public interface LogicalPlan<
-            PLAN_TYPE extends LogicalPlan<PLAN_TYPE, OP_TYPE>,
-            OP_TYPE extends LogicalOperator>
-        extends Plan<PLAN_TYPE, OP_TYPE> {
+public class PhysicalFilter<INPUT_TYPE extends Plan>
+        extends PhysicalUnaryOperator<PhysicalFilter<INPUT_TYPE>, INPUT_TYPE> {
+
+    private final Expression predicates;
+
+    public PhysicalFilter(Expression predicates) {
+        super(OperatorType.PHYSICAL_FILTER);
+        this.predicates = Objects.requireNonNull(predicates, "predicates can not be null");
+    }
+
+    public Expression getPredicates() {
+        return predicates;
+    }
 
     @Override
-    List<Plan> children();
-
-    @Override
-    Plan child(int index);
-
-    /**
-     * Map a [[LogicalPlan]] to another [[LogicalPlan]] if the passed context exists using the
-     * passed function. The original plan is returned when the context does not exist.
-     */
-    default <C> LogicalPlan optionalMap(C ctx, BiFunction<C, LogicalPlan, LogicalPlan> f) {
-        if (ctx != null) {
-            return f.apply(ctx, this);
+    public String toString() {
+        String cond;
+        if (predicates == null) {
+            cond = "<null>";
         } else {
-            return this;
+            cond = predicates.toString();
         }
+        return "Filter (" + cond + ")";
     }
 }

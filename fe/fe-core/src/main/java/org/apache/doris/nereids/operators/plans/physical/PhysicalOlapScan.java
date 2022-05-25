@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.physical;
+package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.nereids.trees.NodeType;
+import org.apache.doris.nereids.operators.OperatorType;
 
 import com.clearspring.analytics.util.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -27,7 +27,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 
 /**
- * Physical olap scan plan node.
+ * Physical olap scan plan operator.
  */
 public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     private final long selectedIndexId;
@@ -41,7 +41,7 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
      * @param qualifier table's name
      */
     public PhysicalOlapScan(OlapTable olapTable, List<String> qualifier) {
-        super(NodeType.PHYSICAL_OLAP_SCAN, olapTable, qualifier);
+        super(OperatorType.PHYSICAL_OLAP_SCAN, olapTable, qualifier);
         this.selectedIndexId = olapTable.getBaseIndexId();
         this.selectedTabletId = Lists.newArrayList();
         this.selectedPartitionId = olapTable.getPartitionIds();
@@ -65,8 +65,7 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     @Override
     public String toString() {
         return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + table.getName()
-            + " (output: " + logicalProperties.getOutput()
-            + ", selected index id: " + selectedTabletId
+            + " (selected index id: " + selectedTabletId
             + ", selected partition ids: " + selectedPartitionId
             + ", selected tablet ids: " + selectedTabletId
             + ")";

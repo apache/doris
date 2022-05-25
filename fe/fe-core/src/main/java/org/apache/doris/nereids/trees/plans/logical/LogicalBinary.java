@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.operators.plans.logical.LogicalBinaryOperator;
 import org.apache.doris.nereids.trees.NodeType;
 import org.apache.doris.nereids.trees.plans.BinaryPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -24,14 +25,15 @@ import org.apache.doris.nereids.trees.plans.Plan;
 /**
  * Abstract class for all logical plan that have two children.
  */
-public abstract class LogicalBinary<
-            PLAN_TYPE extends LogicalBinary<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+public class LogicalBinary<
+            OP_TYPE extends LogicalBinaryOperator,
             LEFT_CHILD_TYPE extends Plan,
             RIGHT_CHILD_TYPE extends Plan>
-        extends AbstractLogicalPlan<PLAN_TYPE>
-        implements BinaryPlan<PLAN_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends AbstractLogicalPlan<LogicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>, OP_TYPE>
+        implements BinaryPlan<LogicalBinary<OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE>,
+            OP_TYPE, LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
-    public LogicalBinary(NodeType type, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
-        super(type, leftChild, rightChild);
+    public LogicalBinary(OP_TYPE operator, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
+        super(NodeType.LOGICAL, operator, leftChild, rightChild);
     }
 }
