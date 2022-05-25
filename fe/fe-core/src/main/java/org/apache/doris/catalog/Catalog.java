@@ -4156,8 +4156,10 @@ public class Catalog {
                 separatePartition, hidePassword, false);
     }
 
-    /***get table ddl stmt
-     * @param getDdlForLike get schema for 'create table like' or not. when true, without hidden columns.
+    /**
+     * Get table ddl stmt.
+     *
+     * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
      */
     public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
                                   List<String> addPartitionStmt, List<String> createRollupStmt,
