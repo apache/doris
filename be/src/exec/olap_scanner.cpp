@@ -23,7 +23,9 @@
 #include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "olap/decimal12.h"
+#include "olap/field.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
 #include "olap/uint24.h"
 #include "olap_scan_node.h"
 #include "olap_utils.h"
@@ -85,6 +87,14 @@ Status OlapScanner::prepare(
                << ", with schema_hash=" << schema_hash << ", reason=" << err;
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
+        }
+        _tablet_schema = _tablet->tablet_schema();
+        if (!_parent->_olap_scan_node.columns_desc.empty() &&
+            _parent->_olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            _tablet_schema.clear_columns();
+            for (const auto& column_desc : _parent->_olap_scan_node.columns_desc) {
+                _tablet_schema.append_column(TabletColumn(column_desc));
+            }
         }
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
@@ -170,6 +180,7 @@ Status OlapScanner::_init_tablet_reader_params(
     RETURN_IF_ERROR(_init_return_columns(!_tablet_reader_params.direct_mode));
 
     _tablet_reader_params.tablet = _tablet;
+    _tablet_reader_params.tablet_schema = &_tablet_schema;
     _tablet_reader_params.reader_type = READER_QUERY;
     _tablet_reader_params.aggregation = _aggregation;
     _tablet_reader_params.version = Version(0, _version);
@@ -210,7 +221,7 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.return_columns.push_back(i);
         }
         for (auto index : _return_columns) {
-            if (_tablet->tablet_schema().column(index).is_key()) {
+            if (_tablet_schema.column(index).is_key()) {
                 continue;
             } else {
                 _tablet_reader_params.return_columns.push_back(index);
@@ -219,13 +230,12 @@ Status OlapScanner::_init_tablet_reader_params(
     }
 
     // use _tablet_reader_params.return_columns, because reader use this to merge sort
-    Status res =
-            _read_row_cursor.init(_tablet->tablet_schema(), _tablet_reader_params.return_columns);
+    Status res = _read_row_cursor.init(_tablet_schema, _tablet_reader_params.return_columns);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init row cursor.res = " << res;
         return Status::InternalError("failed to initialize storage read row cursor");
     }
-    _read_row_cursor.allocate_memory_for_string_type(_tablet->tablet_schema());
+    _read_row_cursor.allocate_memory_for_string_type(_tablet_schema);
 
     // If a agg node is this scan node direct parent
     // we will not call agg object finalize method in scan node,
@@ -244,7 +254,9 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
         if (!slot->is_materialized()) {
             continue;
         }
-        int32_t index = _tablet->field_index(slot->col_name());
+        int32_t index = slot->col_unique_id() >= 0
+                                ? _tablet_schema.field_index(slot->col_unique_id())
+                                : _tablet_schema.field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name();
@@ -252,7 +264,7 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
-        if (slot->is_nullable() && !_tablet->tablet_schema().column(index).is_nullable())
+        if (slot->is_nullable() && !_tablet_schema.column(index).is_nullable())
             _tablet_columns_convert_to_null_set.emplace(index);
         _query_slots.push_back(slot);
     }
@@ -261,13 +273,13 @@ Status OlapScanner::_init_return_columns(bool need_seq_col) {
     if (_tablet->tablet_schema().has_sequence_col() && need_seq_col) {
         bool has_replace_col = false;
         for (auto col : _return_columns) {
-            if (_tablet->tablet_schema().column(col).aggregation() ==
+            if (_tablet_schema.column(col).aggregation() ==
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
                 has_replace_col = true;
                 break;
             }
         }
-        if (auto sequence_col_idx = _tablet->tablet_schema().sequence_col_idx();
+        if (auto sequence_col_idx = _tablet_schema.sequence_col_idx();
             has_replace_col && std::find(_return_columns.begin(), _return_columns.end(),
                                          sequence_col_idx) == _return_columns.end()) {
             _return_columns.push_back(sequence_col_idx);

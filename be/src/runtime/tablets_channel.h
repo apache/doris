@@ -204,6 +204,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         if constexpr (std::is_same_v<TabletWriterAddRequest, PTabletWriterAddBatchRequest>) {
             return RowBatch(*_row_desc, request.row_batch());
         } else {
+            LOG(INFO) << "2 block columns: " << vectorized::Block(request.block()).columns();
             return vectorized::Block(request.block());
         }
     };

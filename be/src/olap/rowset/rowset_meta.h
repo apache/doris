@@ -31,6 +31,7 @@
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
+#include "olap/tablet_schema.h"
 
 namespace doris {
 
@@ -326,6 +327,14 @@ public:
     int64_t oldest_write_timestamp() const { return _rowset_meta_pb.oldest_write_timestamp(); }
 
     int64_t newest_write_timestamp() const { return _rowset_meta_pb.newest_write_timestamp(); }
+    void set_tablet_schema(const TabletSchema* tablet_schema) {
+        TabletSchemaPB* ts_pb = _rowset_meta_pb.mutable_tablet_schema();
+        tablet_schema->to_schema_pb(ts_pb);
+        CHECK(_schema == nullptr);
+        _schema = std::make_shared<TabletSchema>(*tablet_schema);
+    }
+
+    const TabletSchema* tablet_schema() { return _schema.get(); }
 
 private:
     friend class AlphaRowsetMeta;
@@ -369,6 +378,10 @@ private:
             }
             set_num_segments(num_segments);
         }
+        if (_rowset_meta_pb.has_tablet_schema()) {
+            _schema = std::make_shared<TabletSchema>();
+            _schema->init_from_pb(_rowset_meta_pb.tablet_schema());
+        }
     }
 
     friend bool operator==(const RowsetMeta& a, const RowsetMeta& b) {
@@ -384,6 +397,7 @@ private:
 
 private:
     RowsetMetaPB _rowset_meta_pb;
+    std::shared_ptr<TabletSchema> _schema = nullptr;
     RowsetId _rowset_id;
     io::FileSystemPtr _fs;
     bool _is_removed_from_rowset_meta = false;

@@ -47,6 +47,8 @@ struct WriteRequest {
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
     bool is_high_priority = false;
+    POlapTableSchemaParam ptable_schema_param;
+    int64_t index_id;
 };
 
 // Writer for a particular (load, index, tablet).
@@ -107,6 +109,10 @@ private:
 
     void _reset_mem_table();
 
+    void _build_current_tablet_schema(int64_t index_id,
+                                      const POlapTableSchemaParam& table_schema_param,
+                                      const TabletSchema& ori_tablet_schema);
+
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
@@ -116,7 +122,11 @@ private:
     // TODO: Recheck the lifetime of _mem_table, Look should use unique_ptr
     std::shared_ptr<MemTable> _mem_table;
     std::unique_ptr<Schema> _schema;
-    const TabletSchema* _tablet_schema;
+    //const TabletSchema* _tablet_schema;
+    // tablet schema owned by delta writer, all write will use this tablet schema
+    // it's build from tablet_schema（stored when create tablet） and OlapTableSchema
+    // every request will have it's own tablet schema so simple schema change can work
+    std::shared_ptr<TabletSchema> _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
