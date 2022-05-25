@@ -42,7 +42,7 @@ using InputDataSet = std::vector<std::vector<std::any>>; // without result
 using DataSet = std::vector<std::pair<std::vector<std::any>, std::any>>;
 using InputTypeSet = std::vector<std::any>;
 
-int64_t str_to_data_time(std::string datetime_str, bool data_time = true);
+int64_t str_to_date_time(std::string datetime_str, bool data_time = true);
 
 namespace ut_type {
 using TINYINT = int8_t;
