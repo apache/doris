@@ -696,6 +696,7 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
+                  "SELECT"
                 ],
               },
               "OUTFILE"             
