@@ -56,7 +56,7 @@ class SlotDescriptor;
 class MemPool;
 class FileReader;
 
-// Reader of broker parquet file
+// Reader of parquet file
 class ParquetReaderWrap final : public ArrowReaderWrap {
 public:
     // batch_size is not use here
