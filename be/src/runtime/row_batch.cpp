@@ -273,10 +273,6 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
         try {
             // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
             _compression_scratch.resize(max_compressed_size);
-        } catch (const std::bad_alloc& e) {
-            can_compress = false;
-            LOG(WARNING) << "Try to alloc " << max_compressed_size
-                         << " bytes for compression scratch failed. " << e.what();
         } catch (...) {
             can_compress = false;
             std::exception_ptr p = std::current_exception();
@@ -309,11 +305,8 @@ Status RowBatch::serialize(PRowBatch* output_batch, size_t* uncompressed_size,
         *compressed_size = pb_size;
         if (pb_size > std::numeric_limits<int32_t>::max()) {
             // the protobuf has a hard limit of 2GB for serialized data.
-            return Status::InternalError(
-                    fmt::format("The rowbatch is large than 2GB({}), can not send by Protobuf. "
-                                "please set BE config 'transfer_data_by_brpc_attachment' to true "
-                                "and restart BE.",
-                                pb_size));
+            return Status::InternalError(fmt::format(
+                    "The rowbatch is large than 2GB({}), can not send by Protobuf.", pb_size));
         }
     } else {
         *uncompressed_size = pb_size + tuple_byte_size;
