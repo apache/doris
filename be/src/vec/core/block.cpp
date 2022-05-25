@@ -669,7 +669,16 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
-    allocated_buf->resize(content_uncompressed_size);
+    try {
+        allocated_buf->resize(content_uncompressed_size);
+    } catch (...) {
+        std::exception_ptr p = std::current_exception();
+        std::string msg = fmt::format("Try to alloc {} bytes for allocated_buf failed. reason {}",
+                                      content_uncompressed_size,
+                                      p ? p.__cxa_exception_type()->name() : "null");
+        LOG(WARNING) << msg;
+        return Status::BufferAllocFailed(msg);
+    }
     char* buf = allocated_buf->data();
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf);
@@ -678,12 +687,21 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
 
     // compress
     if (config::compress_rowbatches && content_uncompressed_size > 0) {
-        // Try compressing the content to compression_scratch,
-        // swap if compressed data is smaller
+        size_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
         std::string compression_scratch;
-        uint32_t max_compressed_size = snappy::MaxCompressedLength(content_uncompressed_size);
-        compression_scratch.resize(max_compressed_size);
-
+        try {
+            // Try compressing the content to compression_scratch,
+            // swap if compressed data is smaller
+            // Allocation of extra-long contiguous memory may fail, and data compression cannot be used if it fails
+            compression_scratch.resize(max_compressed_size);
+        } catch (...) {
+            std::exception_ptr p = std::current_exception();
+            std::string msg =
+                    fmt::format("Try to alloc {} bytes for compression scratch failed. reason {}",
+                                max_compressed_size, p ? p.__cxa_exception_type()->name() : "null");
+            LOG(WARNING) << msg;
+            return Status::BufferAllocFailed(msg);
+        }
         size_t compressed_size = 0;
         char* compressed_output = compression_scratch.data();
         snappy::RawCompress(allocated_buf->data(), content_uncompressed_size, compressed_output,
@@ -701,7 +719,10 @@ Status Block::serialize(PBlock* pblock, size_t* uncompressed_bytes, size_t* comp
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     }
-
+    if (*compressed_bytes >= std::numeric_limits<int32_t>::max()) {
+        return Status::InternalError(fmt::format(
+                "The block is large than 2GB({}), can not send by Protobuf.", *compressed_bytes));
+    }
     return Status::OK();
 }
 
