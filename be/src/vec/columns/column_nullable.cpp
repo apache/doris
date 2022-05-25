@@ -102,7 +102,10 @@ StringRef ColumnNullable::serialize_value_into_arena(size_t n, Arena& arena,
     static constexpr auto s = sizeof(arr[0]);
 
     auto pos = arena.alloc_continue(s, begin);
-    memcpy(pos, &arr[n], s);
+    // Value of `NULL` may be 1 or JOIN_NULL_HINT, we serialize both to 1.
+    // Because we need same key for both `NULL` values while processing `group by`.
+    UInt8* val = reinterpret_cast<UInt8*>(pos);
+    *val = (arr[n] ? 1 : 0);
 
     if (arr[n]) return StringRef(pos, s);
 
