@@ -4152,11 +4152,13 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword, false);
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt,
+            separatePartition, hidePassword, false);
     }
 
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
+    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
+                                  List<String> addPartitionStmt, List<String> createRollupStmt,
+                                  boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
