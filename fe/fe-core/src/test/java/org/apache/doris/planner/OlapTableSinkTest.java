@@ -157,7 +157,12 @@ public class OlapTableSinkTest {
         TupleDescriptor tuple = getTuple();
 
         long unknownPartId = 12345L;
-
+        new Expectations() {
+            {
+                dstTable.getPartition(unknownPartId);
+                result = null;
+            }
+        };
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
         sink.init(new TUniqueId(1, 2), 3, 4, 1000, 1, false);
