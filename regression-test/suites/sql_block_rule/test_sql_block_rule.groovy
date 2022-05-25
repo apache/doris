@@ -16,38 +16,40 @@
 // under the License.
 
 suite("test_sql_block_rule", "sql_block_rule") {
-    try {
-        sql """
+    sql """
                 USE regression_test
               """
 
-        sql """
+    sql """
                 CREATE SQL_BLOCK_RULE test_rule_sql
-                PROPERTIES("sql"="select \\* from table_2", "global"= "true", "enable"= "true")
+                PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
               """
 
-        qt_select """
-                SELECT * FROM table_2
+    test {
+        sql "SELECT * FROM table_2"
+        exception "sql match regex sql block rule: test_rule_sql"
+    }
+
+    sql """
+                DROP SQL_BLOCK_RULE test_rule_sql
               """
 
-        sql """
+    sql """
                 CREATE SQL_BLOCK_RULE test_rule_num
                 PROPERTIES("tablet_num"="1", "global"= "true", "enable"= "true")
               """
 
-        test {
-            sql "SELECT * FROM table_2"
-            exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
-        }
+    test {
+        sql "SELECT * FROM table_2"
+        exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
+    }
 
-        qt_select """
+    qt_select """
                 SHOW SQL_BLOCK_RULE
               """
 
-    } finally {
-        sql """
-                DROP SQL_BLOCK_RULE test_rule_sql,test_rule_num
+    sql """
+                DROP SQL_BLOCK_RULE test_rule_num
               """
-    }
 
 }
