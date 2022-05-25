@@ -35,17 +35,22 @@ import java.util.List;
 public class ArrayLiteral extends LiteralExpr {
 
     public ArrayLiteral() {
-        this.type = new ArrayType(Type.NULL);
+        type = new ArrayType(Type.NULL, false);
         children = new ArrayList<>();
     }
 
     public ArrayLiteral(LiteralExpr... v) {
-        if (v.length < 1) {
-            this.type = new ArrayType(Type.NULL);
-            return;
+        Type itemType = Type.NULL;
+        boolean containsNull = false;
+        for (LiteralExpr expr : v) {
+            if (itemType == Type.NULL || expr.type.getSlotSize() > itemType.getSlotSize()) {
+                itemType = expr.type;
+            }
+            if (expr.isNullable()) {
+                containsNull = true;
+            }
         }
-
-        this.type = new ArrayType(v[0].type);
+        type = new ArrayType(itemType, containsNull);
         children = new ArrayList<>(v.length);
         children.addAll(Arrays.asList(v));
     }
