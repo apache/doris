@@ -17,4 +17,5 @@
 
 suite("test_nullif", "query") {
     qt_select "select nullif(k6, \"false\") k from test_query_db.test order by k1"
+    qt_select "select if(c_date is null,c_timestamp,c_date) from regression_test.datetype"
 }
