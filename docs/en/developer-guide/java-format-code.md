@@ -54,6 +54,10 @@ Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
 Click the plus sign under Configuration File, select `Use a local Checkstyle file`, and select the `fe/check/checkstyle/checkstyle.xml` file.
 
+**NOTE:** Make sure that the version of `Checkstyle` is 9.3 or newer (the latest version is recommanded).
+
+![](/images/idea-checkstyle-version.png)
+
 ### VS Code
 
 If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture
