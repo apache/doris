@@ -57,7 +57,7 @@ void ArrowReaderWrap::close() {
 }
 
 Status ArrowReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
-    DCHECK(_num_of_columns_from_file >= tuple_slot_descs.size());
+    DCHECK(_num_of_columns_from_file <= tuple_slot_descs.size());
     _include_column_ids.clear();
     for (int i = 0; i < _num_of_columns_from_file; i++) {
         auto slot_desc = tuple_slot_descs.at(i);
