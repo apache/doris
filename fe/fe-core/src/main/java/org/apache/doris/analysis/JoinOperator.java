@@ -32,7 +32,6 @@ public enum JoinOperator {
     RIGHT_ANTI_JOIN("RIGHT ANTI JOIN", TJoinOp.RIGHT_ANTI_JOIN),
     RIGHT_OUTER_JOIN("RIGHT OUTER JOIN", TJoinOp.RIGHT_OUTER_JOIN),
     FULL_OUTER_JOIN("FULL OUTER JOIN", TJoinOp.FULL_OUTER_JOIN),
-    MERGE_JOIN("MERGE JOIN", TJoinOp.MERGE_JOIN),
     CROSS_JOIN("CROSS JOIN", TJoinOp.CROSS_JOIN),
     // Variant of the LEFT ANTI JOIN that is used for the equal of
     // NOT IN subqueries. It can have a single equality join conjunct
