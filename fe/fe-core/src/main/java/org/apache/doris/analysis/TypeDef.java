@@ -115,10 +115,6 @@ public class TypeDef implements ParseNode {
     if (type.isNull()) {
       throw new AnalysisException("Unsupported data type: " + type.toSql());
     }
-    if (!type.getPrimitiveType().isIntegerType() &&
-            !type.getPrimitiveType().isCharFamily()) {
-      throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
-    }
     if (type.getPrimitiveType().isStringType()
             && !type.isAssignedStrLenInColDefinition()) {
       type.setLength(1);

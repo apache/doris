@@ -803,20 +803,38 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
         }
         auto item_column = array_column->get_data_ptr().get();
         auto offset = array_column->get_offsets()[row - 1];
+        auto iterator = collection_value->iterator(item_type_desc.type);
         for (int i = 0; i < collection_value->length(); ++i) {
-            char* item_dst = reinterpret_cast<char*>(collection_value->mutable_data()) +
-                             i * item_type_desc.get_slot_size();
             if (array[i].is_null()) {
                 const auto& null_value = doris_udf::AnyVal(true);
-                collection_value->set(i, item_type_desc.type, &null_value);
+                iterator.set(&null_value);
             } else {
                 auto item_offset = offset + i;
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
                                                : StringRef();
-                deep_copy_slot(item_dst, pool, item_type_desc, data_ref, item_column, item_offset,
-                               padding_char);
+                if (item_type_desc.is_date_type()) {
+                    // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
+                    DateTimeValue datetime_value;
+                    deep_copy_slot(&datetime_value, pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                    DateTimeVal datetime_val;
+                    datetime_value.to_datetime_val(&datetime_val);
+                    iterator.set(&datetime_val);
+                } else if (item_type_desc.is_decimal_type()) {
+                    // In CollectionValue, decimal type data is stored as decimal12_t.
+                    DecimalV2Value decimal_value;
+                    deep_copy_slot(&decimal_value, pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                    DecimalV2Val decimal_val;
+                    decimal_value.to_decimal_val(&decimal_val);
+                    iterator.set(&decimal_val);
+                } else {
+                    deep_copy_slot(iterator.get(), pool, item_type_desc, data_ref, item_column,
+                                   item_offset, padding_char);
+                }
             }
+            iterator.next();
         }
     } else if (type_desc.is_date_type()) {
         VecDateTimeValue ts =

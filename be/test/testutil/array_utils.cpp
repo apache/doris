@@ -58,10 +58,36 @@ TypeDesc ArrayUtils::create_function_type_desc(const ColumnPB& column_pb) {
     type_desc.scale = column_pb.frac();
     if (column_pb.type() == "ARRAY") {
         type_desc.type = FunctionContext::TYPE_ARRAY;
+    } else if (column_pb.type() == "BOOLEAN") {
+        type_desc.type = FunctionContext::TYPE_BOOLEAN;
+    } else if (column_pb.type() == "TINYINT") {
+        type_desc.type = FunctionContext::TYPE_TINYINT;
+    } else if (column_pb.type() == "SMALLINT") {
+        type_desc.type = FunctionContext::TYPE_SMALLINT;
     } else if (column_pb.type() == "INT") {
         type_desc.type = FunctionContext::TYPE_INT;
+    } else if (column_pb.type() == "BIGINT") {
+        type_desc.type = FunctionContext::TYPE_BIGINT;
+    } else if (column_pb.type() == "LARGEINT") {
+        type_desc.type = FunctionContext::TYPE_LARGEINT;
+    } else if (column_pb.type() == "FLOAT") {
+        type_desc.type = FunctionContext::TYPE_FLOAT;
+    } else if (column_pb.type() == "DOUBLE") {
+        type_desc.type = FunctionContext::TYPE_DOUBLE;
+    } else if (column_pb.type() == "CHAR") {
+        type_desc.type = FunctionContext::TYPE_CHAR;
     } else if (column_pb.type() == "VARCHAR") {
         type_desc.type = FunctionContext::TYPE_VARCHAR;
+    } else if (column_pb.type() == "STRING") {
+        type_desc.type = FunctionContext::TYPE_STRING;
+    } else if (column_pb.type() == "DATE") {
+        type_desc.type = FunctionContext::TYPE_DATE;
+    } else if (column_pb.type() == "DATETIME") {
+        type_desc.type = FunctionContext::TYPE_DATETIME;
+    } else if (column_pb.type().compare(0, 7, "DECIMAL") == 0) {
+        type_desc.type = FunctionContext::TYPE_DECIMALV2;
+    } else {
+        DCHECK(false) << "Failed to create function type descriptor.";
     }
     for (const auto& sub_column_pb : column_pb.children_columns()) {
         type_desc.children.push_back(create_function_type_desc(sub_column_pb));

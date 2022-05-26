@@ -127,7 +127,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
     }
 
     // convert column data from engine format to storage layer format
-    std::vector<vectorized::IOlapColumnDataAccessorSPtr> short_key_columns;
+    std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
     size_t num_key_columns = _tablet_schema->num_short_key_columns();
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto converted_result = _olap_data_convertor.convert_column_data(cid);
