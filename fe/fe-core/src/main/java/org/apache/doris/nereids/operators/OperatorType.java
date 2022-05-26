@@ -33,6 +33,9 @@ public enum OperatorType {
     PHYSICAL_PROJECT,
     PHYSICAL_FILTER,
     PHYSICAL_BROADCAST_HASH_JOIN,
+    PHYSICAL_AGGREGATION,
+    PHYSICAL_SORT,
+    PHYSICAL_HASH_JOIN,
 
     // pattern
     ANY,
