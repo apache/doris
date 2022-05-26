@@ -132,7 +132,7 @@ Sparse index chooses fixed length prefix in schema as index content, and Doris c
 * One particular feature of this is the varchar type field. The varchar type field can only be used as the last field of the sparse index. The index is truncated at varchar, so if varchar appears in front, the length of the index may be less than 36 bytes. Specifically, you can refer to [data model](./data-model.md), [ROLLUP and query](./hit-the-rollup.md).
 * In addition to sparse index, Doris also provides bloomfilter index. Bloomfilter index has obvious filtering effect on columns with high discrimination. If you consider that varchar cannot be placed in a sparse index, you can create a bloomfilter index.
 
-### 1.5 Physical and Chemical View (rollup)
+### 1.5 Rollup
 
 Rollup can essentially be understood as a physical index of the original table. When creating Rollup, only some columns in Base Table can be selected as Schema. The order of fields in Schema can also be different from that in Base Table.
 
