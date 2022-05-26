@@ -37,4 +37,7 @@ public enum OperatorType {
     // pattern
     ANY,
     MULTI,
+    FIXED,
+    MULTI_FIXED,
+    ;
 }

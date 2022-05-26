@@ -22,14 +22,15 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.TreeNode;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
  */
-public abstract class Job {
+public abstract class Job<NODE_TYPE extends TreeNode> {
     protected JobType type;
     protected PlannerContext context;
 
@@ -46,8 +47,9 @@ public abstract class Job {
         return context.getOptimizerContext().getRuleSet();
     }
 
-    public void prunedInvalidRules(GroupExpression groupExpression, List<Rule<Plan>> candidateRules) {
-
+    public List<Rule<NODE_TYPE>> getValidRules(GroupExpression groupExpression,
+            List<Rule<NODE_TYPE>> candidateRules) {
+        return candidateRules.stream().filter(groupExpression::notApplied).collect(Collectors.toList());
     }
 
     public abstract void execute() throws AnalysisException;

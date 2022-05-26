@@ -18,6 +18,9 @@
 package org.apache.doris.nereids.trees;
 
 
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.operators.Operator;
+
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -33,15 +36,43 @@ public abstract class AbstractTreeNode<NODE_TYPE extends AbstractTreeNode<NODE_T
 
     protected final NodeType type;
     protected final List<TreeNode> children;
+    protected final GroupExpression groupExpression;
+
 
     public AbstractTreeNode(NodeType type, TreeNode... children) {
-        this.type = type;
-        this.children = ImmutableList.copyOf(children);
+        this(type, null, children);
     }
 
-    public AbstractTreeNode(NodeType type, List<NODE_TYPE> children) {
+    /**
+     * Constructor for plan node.
+     *
+     * @param type node type
+     * @param groupExpression group expression related to the operator of this node
+     * @param children children of this node
+     */
+    public AbstractTreeNode(NodeType type, GroupExpression groupExpression, TreeNode... children) {
         this.type = type;
-        this.children = ImmutableList.copyOf(children);
+        if (children.length != 0 && children[0] == null) {
+            this.children = ImmutableList.of();
+        } else {
+            this.children = ImmutableList.copyOf(children);
+        }
+        this.groupExpression = groupExpression;
+    }
+
+    @Override
+    public Operator getOperator() {
+        throw new RuntimeException();
+    }
+
+    @Override
+    public GroupExpression getGroupExpression() {
+        return groupExpression;
+    }
+
+    @Override
+    public NODE_TYPE newChildren(List<TreeNode> children) {
+        throw new RuntimeException();
     }
 
     @Override

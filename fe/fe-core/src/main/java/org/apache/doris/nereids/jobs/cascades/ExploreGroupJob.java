@@ -22,11 +22,12 @@ import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.plans.Plan;
 
 /**
  * Job to explore {@link Group} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExploreGroupJob extends Job {
+public class ExploreGroupJob extends Job<Plan> {
     private final Group group;
 
     /**
@@ -45,7 +46,7 @@ public class ExploreGroupJob extends Job {
         if (group.isExplored()) {
             return;
         }
-        for (GroupExpression groupExpression : group.getLogicalPlanList()) {
+        for (GroupExpression groupExpression : group.getLogicalExpressions()) {
             pushTask(new ExplorePlanJob(groupExpression, context));
         }
         group.setExplored(true);

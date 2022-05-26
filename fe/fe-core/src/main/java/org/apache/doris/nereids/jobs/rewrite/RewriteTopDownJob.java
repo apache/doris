@@ -21,20 +21,64 @@ import org.apache.doris.nereids.PlannerContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.pattern.GroupExpressionMatching;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.TreeNode;
+
+import com.google.common.base.Preconditions;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Top down job for rewrite, use pattern match.
  */
-public class RewriteTopDownJob extends Job {
+public class RewriteTopDownJob<NODE_TYPE extends TreeNode> extends Job<NODE_TYPE> {
     private final Group group;
+    private final List<Rule<NODE_TYPE>> rules;
+    private final boolean childrenOptimized;
 
-    public RewriteTopDownJob(Group group, PlannerContext context) {
-        super(JobType.TOP_DOWN_REWRITE, context);
-        this.group = group;
+    public RewriteTopDownJob(Group group, List<Rule<NODE_TYPE>> rules, PlannerContext context) {
+        this(group, rules, context, false);
+    }
+
+    private RewriteTopDownJob(Group group, List<Rule<NODE_TYPE>> rules,
+            PlannerContext context, boolean childrenOptimized) {
+        super(JobType.BOTTOM_UP_REWRITE, context);
+        this.group = Objects.requireNonNull(group, "group cannot be null");
+        this.rules = Objects.requireNonNull(rules, "rules cannot be null");
+        this.childrenOptimized = childrenOptimized;
     }
 
     @Override
     public void execute() {
+        GroupExpression logicalExpression = group.getLogicalExpression();
 
+        List<Rule<NODE_TYPE>> validRules = getValidRules(logicalExpression, rules);
+        for (Rule<NODE_TYPE> rule : validRules) {
+            GroupExpressionMatching<NODE_TYPE> groupExpressionMatching
+                    = new GroupExpressionMatching<>(rule.getPattern(), logicalExpression);
+            for (NODE_TYPE before : groupExpressionMatching) {
+                List<NODE_TYPE> afters = rule.transform(before, context);
+                Preconditions.checkArgument(afters.size() == 1);
+                NODE_TYPE after = afters.get(0);
+                if (after != before) {
+                    context.getOptimizerContext().getMemo().copyIn(after, group, rule.isRewrite());
+                    pushTask(new RewriteTopDownJob<>(group, rules, context, false));
+                    return;
+                }
+            }
+            logicalExpression.setApplied(rule);
+        }
+
+        if (!childrenOptimized) {
+            for (Group childGroup : logicalExpression.children()) {
+                pushTask(new RewriteTopDownJob<>(childGroup, rules, context, false));
+
+                pushTask(new RewriteTopDownJob<>(group, rules, context, true));
+                return;
+            }
+        }
     }
 }

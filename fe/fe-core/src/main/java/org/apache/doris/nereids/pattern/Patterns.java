@@ -57,6 +57,10 @@ public interface Patterns {
         return new PatternDescriptor<>(Pattern.MULTI, defaultPromise());
     }
 
+    default <T extends RULE_TYPE, RULE_TYPE extends TreeNode> PatternDescriptor<T, RULE_TYPE> fixed() {
+        return new PatternDescriptor<>(Pattern.FIXED, defaultPromise());
+    }
+
     /**
      * create a unboundRelation pattern.
      */
@@ -126,7 +130,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == joinType);
+        ).when(j -> j.operator.getJoinType() == joinType);
     }
 
     /**
@@ -139,7 +143,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == joinType);
+        ).when(j -> j.operator.getJoinType() == joinType);
     }
 
     /**
@@ -161,7 +165,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, Plan, Plan>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == JoinType.INNER_JOIN);
+        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
     }
 
     /**
@@ -173,7 +177,7 @@ public interface Patterns {
         return new PatternDescriptor<LogicalBinary<LogicalJoin, C1, C2>, Plan>(
                 new Pattern<>(OperatorType.LOGICAL_JOIN, leftChildPattern.pattern, rightChildPattern.pattern),
                 defaultPromise()
-        ).when(j -> j.op.getJoinType() == JoinType.INNER_JOIN);
+        ).when(j -> j.operator.getJoinType() == JoinType.INNER_JOIN);
     }
 
     /**

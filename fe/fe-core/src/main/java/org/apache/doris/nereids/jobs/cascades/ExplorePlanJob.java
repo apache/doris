@@ -32,7 +32,7 @@ import java.util.List;
 /**
  * Job to explore {@link GroupExpression} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class ExplorePlanJob extends Job {
+public class ExplorePlanJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
     /**
@@ -49,16 +49,16 @@ public class ExplorePlanJob extends Job {
     @Override
     public void execute() {
         List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
-        prunedInvalidRules(groupExpression, explorationRules);
-        explorationRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
+        List<Rule<Plan>> validRules = getValidRules(groupExpression, explorationRules);
+        validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        for (Rule rule : explorationRules) {
+        for (Rule<Plan> rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (childPattern.arity() > 0) {
-                    Group childSet = groupExpression.getChildren().get(i);
-                    pushTask(new ExploreGroupJob(childSet, context));
+                if (childPattern.arity() > 0 && !childPattern.isFixed()) {
+                    Group child = groupExpression.child(i);
+                    pushTask(new ExploreGroupJob(child, context));
                 }
             }
         }

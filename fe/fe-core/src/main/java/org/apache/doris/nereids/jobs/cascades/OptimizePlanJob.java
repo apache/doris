@@ -33,7 +33,7 @@ import java.util.List;
 /**
  * Job to optimize {@link org.apache.doris.nereids.trees.plans.Plan} in {@link org.apache.doris.nereids.memo.Memo}.
  */
-public class OptimizePlanJob extends Job {
+public class OptimizePlanJob extends Job<Plan> {
     private final GroupExpression groupExpression;
 
     public OptimizePlanJob(GroupExpression groupExpression, PlannerContext context) {
@@ -46,22 +46,20 @@ public class OptimizePlanJob extends Job {
         List<Rule<Plan>> validRules = new ArrayList<>();
         List<Rule<Plan>> explorationRules = getRuleSet().getExplorationRules();
         List<Rule<Plan>> implementationRules = getRuleSet().getImplementationRules();
-        prunedInvalidRules(groupExpression, explorationRules);
-        prunedInvalidRules(groupExpression, implementationRules);
-        validRules.addAll(explorationRules);
-        validRules.addAll(implementationRules);
+        validRules.addAll(getValidRules(groupExpression, explorationRules));
+        validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.sort(Comparator.comparingInt(o -> o.getRulePromise().promise()));
 
-        for (Rule rule : validRules) {
+        for (Rule<Plan> rule : validRules) {
             pushTask(new ApplyRuleJob(groupExpression, rule, context));
 
             // If child_pattern has any more children (i.e non-leaf), then we will explore the
             // child before applying the rule. (assumes task pool is effectively a stack)
             for (int i = 0; i < rule.getPattern().children().size(); ++i) {
                 Pattern childPattern = rule.getPattern().child(i);
-                if (childPattern.arity() > 0) {
-                    Group childSet = groupExpression.getChildren().get(i);
-                    pushTask(new ExploreGroupJob(childSet, context));
+                if (childPattern.arity() > 0 && Pattern.FIXED.equals(childPattern)) {
+                    Group child = groupExpression.child(i);
+                    pushTask(new ExploreGroupJob(child, context));
                 }
             }
         }

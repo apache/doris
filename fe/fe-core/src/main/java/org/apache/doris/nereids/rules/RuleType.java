@@ -23,18 +23,22 @@ package org.apache.doris.nereids.rules;
 public enum RuleType {
     // binding rules
     BINDING_UNBOUND_RELATION_RULE,
+    BINDING_SENTINEL,
 
     // rewrite rules
     COLUMN_PRUNE_PROJECTION,
+    REWRITE_SENTINEL,
 
     // exploration rules
     LOGICAL_JOIN_COMMUTATIVE,
     LOGICAL_LEFT_JOIN_ASSOCIATIVE,
     LOGICAL_JOIN_L_ASSCOM,
     LOGICAL_JOIN_EXCHANGE,
+    EXPLORATION_SENTINEL,
 
     // implementation rules
     LOGICAL_JOIN_TO_HASH_JOIN_RULE,
+    IMPLEMENTATION_SENTINEL,
 
     // sentinel, use to count rules
     SENTINEL,
