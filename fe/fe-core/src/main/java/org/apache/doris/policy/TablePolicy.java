@@ -49,6 +49,15 @@ public class TablePolicy extends Policy {
 
     private static final Logger LOG = LogManager.getLogger(TablePolicy.class);
 
+    /**
+     * Policy bind user.
+     **/
+    @SerializedName(value = "user")
+    private UserIdentity user;
+
+    @SerializedName(value = "dbId")
+    protected long dbId;
+
     @SerializedName(value = "tableId")
     private long tableId;
 
@@ -63,7 +72,9 @@ public class TablePolicy extends Policy {
     public TablePolicy(final PolicyTypeEnum type, final String policyName, long dbId,
                   UserIdentity user, String originStmt, final long tableId,
                   final FilterType filterType, final Expr wherePredicate) {
-        super(type, policyName, dbId, user, originStmt);
+        super(type, policyName, originStmt);
+        this.user = user;
+        this.dbId = dbId;
         this.tableId = tableId;
         this.filterType = filterType;
         this.wherePredicate = wherePredicate;
@@ -106,7 +117,8 @@ public class TablePolicy extends Policy {
             return false;
         }
         TablePolicy tablePolicy = (TablePolicy) policy;
-        return tablePolicy.getTableId() == tableId
+        return tablePolicy.getDbId() == dbId
+                && tablePolicy.getTableId() == tableId
                 && tablePolicy.getType().equals(type)
                 && StringUtils.equals(tablePolicy.getPolicyName(), policyName)
                 && (tablePolicy.getUser() == null || user == null

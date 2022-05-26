@@ -56,31 +56,17 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName;
 
-    @SerializedName(value = "dbId")
-    protected long dbId;
-
-    /**
-     * Policy bind user.
-     **/
-    @SerializedName(value = "user")
-    protected final UserIdentity user;
-
     /**
      * Use for Serialization/deserialization.
      **/
     @SerializedName(value = "originStmt")
     protected String originStmt;
 
-    public Policy() {
-        user = null;
-    }
+    public Policy() {}
 
-    public Policy(final PolicyTypeEnum type, final String policyName, long dbId,
-                  UserIdentity user, String originStmt) {
+    public Policy(final PolicyTypeEnum type, final String policyName, String originStmt) {
         this.type = type;
         this.policyName = policyName;
-        this.dbId = dbId;
-        this.user = user;
         this.originStmt = originStmt;
     }
     /**

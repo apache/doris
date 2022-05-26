@@ -21,7 +21,6 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.CreateTablePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -37,7 +36,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang.StringUtils;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,14 +60,14 @@ public class PolicyMgr implements Writable {
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
-    @SerializedName(value = "dbIdToPolicyMap")
-    private Map<Long, List<Policy>> dbIdToPolicyMap = Maps.newConcurrentMap();
+    @SerializedName(value = "typeToPolicyMap")
+    private Map<PolicyTypeEnum, List<Policy>> typeToPolicyMap = Maps.newConcurrentMap();
 
     /**
      * Cache merge policy for match.
      * key：dbId:tableId-type-user
      **/
-    private Map<Long, Map<String, TablePolicy>> dbIdToMergePolicyMap = Maps.newConcurrentMap();
+    private Map<Long, Map<String, TablePolicy>> dbIdToMergeTablePolicyMap = Maps.newConcurrentMap();
 
     private Set<String> userPolicySet = Sets.newConcurrentHashSet();
 
@@ -201,14 +200,14 @@ public class PolicyMgr implements Writable {
     public TablePolicy getMatchRowPolicy(long dbId, long tableId, String user) {
         readLock();
         try {
-            if (!dbIdToMergePolicyMap.containsKey(dbId)) {
+            if (!dbIdToMergeTablePolicyMap.containsKey(dbId)) {
                 return null;
             }
             String key = Joiner.on("-").join(tableId, PolicyTypeEnum.ROW.name(), user);
-            if (!dbIdToMergePolicyMap.get(dbId).containsKey(key)) {
+            if (!dbIdToMergeTablePolicyMap.get(dbId).containsKey(key)) {
                 return null;
             }
-            return dbIdToMergePolicyMap.get(dbId).get(key);
+            return dbIdToMergeTablePolicyMap.get(dbId).get(key);
         } finally {
             readUnlock();
         }
@@ -328,7 +327,7 @@ public class PolicyMgr implements Writable {
                     mergeMap.put(key, andMap.get(key));
                 }
             });
-            dbIdToMergePolicyMap.put(dbId, mergeMap);
+            dbIdToMergeTablePolicyMap.put(dbId, mergeMap);
         } finally {
             readUnlock();
         }
