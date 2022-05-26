@@ -132,21 +132,21 @@ struct ProcessRuntimeFilterBuild {
         if (_join_node->_runtime_filter_descs.empty()) {
             return Status::OK();
         }
-        VRuntimeFilterSlots* runtime_filter_slots =
-                new VRuntimeFilterSlots(_join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
-                                        _join_node->_runtime_filter_descs);
+        VRuntimeFilterSlots runtime_filter_slots(_join_node->_probe_expr_ctxs,
+                                                 _join_node->_build_expr_ctxs,
+                                                 _join_node->_runtime_filter_descs);
 
-        RETURN_IF_ERROR(runtime_filter_slots->init(state, hash_table_ctx.hash_table.get_size()));
+        RETURN_IF_ERROR(runtime_filter_slots.init(state, hash_table_ctx.hash_table.get_size()));
 
-        if (!runtime_filter_slots->empty() && !_join_node->_inserted_rows.empty()) {
+        if (!runtime_filter_slots.empty() && !_join_node->_inserted_rows.empty()) {
             {
                 SCOPED_TIMER(_join_node->_push_compute_timer);
-                runtime_filter_slots->insert(_join_node->_inserted_rows);
+                runtime_filter_slots.insert(_join_node->_inserted_rows);
             }
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            runtime_filter_slots->publish();
+            runtime_filter_slots.publish();
         }
 
         return Status::OK();
