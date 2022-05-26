@@ -166,7 +166,9 @@ public class MarkDownParser {
         }
         // Note that multiple line breaks at content's end will be merged to be one,
         // and other whitespace characters will be deleted.
-        return Maps.immutableEntry(key.substring(headLevel).trim(),
+        // Also, the header in md file is like "## STREAM-LOAD", we need to convert it to "STREAM LOAD",
+        // so that we can execute "help stream load" to show the help doc.
+        return Maps.immutableEntry(key.substring(headLevel).trim().replaceAll("-", " "),
                 sb.toString().replaceAll("\\s+$", "\n"));
     }
 }
