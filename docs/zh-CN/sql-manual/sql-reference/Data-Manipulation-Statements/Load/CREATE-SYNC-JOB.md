@@ -62,46 +62,35 @@ binlog_desc
 
    ```sql
    FROM mysql_db.src_tbl INTO des_tbl
-   [partitions]
    [columns_mapping]
    ```
-
+   
    1. `mysql_db.src_tbl`
-
+   
       指定mysql端的数据库和源表。
-
+   
    2. `des_tbl`
-
+   
       指定doris端的目标表，只支持Unique表，且需开启表的batch delete功能(开启方法请看help alter table的'批量删除功能')。
-
-   3. `partitions`
-
-      指定导入目的表的哪些 partition 中。如果不指定，则会自动导入到对应的 partition 中。
-
-      示例：
-
-      ```
-      PARTITION(p1, p2, p3)
-      ```
-
+   
    4. `column_mapping`
-
+   
       指定mysql源表和doris目标表的列之间的映射关系。如果不指定，FE会默认源表和目标表的列按顺序一一对应。
-
+   
       不支持 col_name = expr 的形式表示列。
-
+   
       示例：
-
+   
       ```
       假设目标表列为(k1, k2, v1)，
       
       改变列k1和k2的顺序
-      COLUMNS(k2, k1, v1)
+      (k2, k1, v1)
       
       忽略源数据的第四列
-      COLUMNS(k2, k1, v1, dummy_column)
+      (k2, k1, v1, dummy_column)
       ```
-
+   
 3. `binlog_desc`
 
    用来描述远端数据源，目前仅支持canal一种。
@@ -151,8 +140,8 @@ binlog_desc
    ```SQL
    CREATE SYNC `test_db`.`job1`
    (
-   	FROM `mysql_db`.`t1` INTO `test1` COLUMNS(k1, k2, v1) PARTITIONS (p1, p2),
-   	FROM `mysql_db`.`t2` INTO `test2` COLUMNS(k3, k4, v2) PARTITION p1
+   	FROM `mysql_db`.`t1` INTO `test1` (k1, k2, v1),
+   	FROM `mysql_db`.`t2` INTO `test2` (k3, k4, v2) 
    )
    FROM BINLOG
    (
