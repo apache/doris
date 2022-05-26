@@ -35,6 +35,10 @@ suite("test_sql_block_rule", "sql_block_rule") {
               """
 
     sql """
+                SELECT * FROM table_2
+              """
+
+    sql """
                 CREATE SQL_BLOCK_RULE test_rule_num
                 PROPERTIES("tablet_num"="1", "global"= "true", "enable"= "true")
               """
@@ -50,6 +54,10 @@ suite("test_sql_block_rule", "sql_block_rule") {
 
     sql """
                 DROP SQL_BLOCK_RULE test_rule_num
+              """
+
+    sql """
+                SELECT * FROM table_2
               """
 
 }
