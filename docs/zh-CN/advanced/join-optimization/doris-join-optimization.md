@@ -102,7 +102,7 @@ Doris 在进行 Hash Join 计算时会在右表构建一个哈希表，左表流
 
 当前 Doris 支持三种类型 RuntimeFilter
 
-- 一种是 IN— IN，很好理解，将一个 hashset 下推到数据扫描节点。
+- 一种是 IN，很好理解，将一个 hashset 下推到数据扫描节点。
 - 第二种就是 BloomFilter，就是利用哈希表的数据构造一个 BloomFilter，然后把这个 BloomFilter 下推到查询数据的扫描节点。。
 - 最后一种就是 MinMax，就是个 Range 范围，通过右表数据确定 Range 范围之后，下推给数据扫描节点。
 
