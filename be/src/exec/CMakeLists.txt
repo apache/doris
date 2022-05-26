@@ -22,6 +22,9 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
+    arrow/arrow_reader.cpp
+    arrow/orc_reader.cpp
+    arrow/parquet_reader.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
     broker_scan_node.cpp
@@ -94,7 +97,6 @@ set(EXEC_FILES
     local_file_writer.cpp
     broker_writer.cpp
     parquet_scanner.cpp
-    parquet_reader.cpp
     parquet_writer.cpp
     orc_scanner.cpp
     odbc_connector.cpp
