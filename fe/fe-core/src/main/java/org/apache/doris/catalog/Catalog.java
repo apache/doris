@@ -4143,11 +4143,10 @@ public class Catalog {
             HudiUtils.validateColumns(hudiTable, hiveTable);
         }
         switch (hiveTable.getTableType()) {
-            case "VIRTUAL_VIEW":
-                throw new DdlException("VIRTUAL_VIEW table is not supported.");
             case "EXTERNAL_TABLE":
             case "MANAGED_TABLE":
                 break;
+            case "VIRTUAL_VIEW":
             default:
                 throw new DdlException("unsupported hudi table type [" + hiveTable.getTableType() + "].");
         }

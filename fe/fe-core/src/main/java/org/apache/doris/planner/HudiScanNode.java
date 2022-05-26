@@ -66,6 +66,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -296,9 +297,17 @@ public class HudiScanNode extends BrokerScanNode {
         String filePath = ((FileSplit) inputSplits[0]).getPath().toUri().getPath();
         String fsName = fullPath.replace(filePath, "");
         hdfsParams.setFsName(fsName);
-        Log.info("Hudi  path's host is  " + fsName);
+        Log.debug("Hudi path's host is " + fsName);
 
-        TFileFormatType formatType = TFileFormatType.FORMAT_PARQUET;
+        TFileFormatType formatType = null;
+        if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("parquet")) {
+            formatType = TFileFormatType.FORMAT_PARQUET;
+        } else if (this.inputFormatName.toUpperCase(Locale.ROOT).contains("orc")) {
+            formatType = TFileFormatType.FORMAT_ORC;
+        } else {
+            throw new UserException("unsupported hudi table type [" + this.inputFormatName + "].");
+        }
+
         ParamCreateContext context = getParamCreateContexts().get(0);
         for (InputSplit split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
@@ -314,7 +323,7 @@ public class HudiScanNode extends BrokerScanNode {
             rangeDesc.setReadByColumnDef(true);
 
             curLocations.getScanRange().getBrokerScanRange().addToRanges(rangeDesc);
-            Log.info("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
+            Log.debug("Assign to backend " + curLocations.getLocations().get(0).getBackendId()
                     + " with hudi split: " +  fileSplit.getPath()
                     + " ( " + fileSplit.getStart() + "," + fileSplit.getLength() + ")");
 
