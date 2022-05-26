@@ -19,6 +19,7 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
@@ -41,6 +42,12 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 import java_cup.runtime.Symbol;
 import mockit.Expectations;
@@ -318,7 +325,7 @@ public class RoutineLoadJobTest {
     @Test
     public void testGetShowCreateInfo() throws UserException {
         KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
-                11, "localhost:9092", "test_topic");
+                11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);

@@ -135,6 +135,18 @@ Node resource division refers to setting tags for BE nodes in a Doris cluster, a
     In this way, we have achieved physical resource isolation for different user queries by dividing nodes and restricting user resource usage. Furthermore, we can create different users for different business departments and restrict each user from using different resource groups. In order to avoid the use of resource interference between different business parts. For example, there is a business table in the cluster that needs to be shared by all 9 business departments, but it is hoped that resource preemption between different departments can be avoided as much as possible. Then we can create 3 copies of this table and store them in 3 resource groups. Next, we create 9 users for 9 business departments, and limit the use of one resource group for every 3 users. In this way, the degree of competition for resources is reduced from 9 to 3.
     
     On the other hand, for the isolation of online and offline tasks. We can use resource groups to achieve this. For example, we can divide nodes into two resource groups, Online and Offline. The table data is still stored in 3 copies, of which 2 copies are stored in the Online resource group, and 1 copy is stored in the Offline resource group. The Online resource group is mainly used for online data services with high concurrency and low latency. Some large queries or offline ETL operations can be executed using nodes in the Offline resource group. So as to realize the ability to provide online and offline services simultaneously in a unified cluster.
+
+4. Resource group assignments for load job
+
+    The resource usage of load jobs (including insert, broker load, routine load, stream load, etc.) can be divided into two parts:
+    1. Computing resources: responsible for reading data sources, data transformation and distribution.
+    2. Write resource: responsible for data encoding, compression and writing to disk.
+
+    The write resource must be the node where the replica is located, and the computing resource can theoretically select any node to complete. Therefore, the allocation of resource groups for load jobs is divided into two steps:
+    1. Use user-level resource tags to limit the resource groups that computing resources can use.
+    2. Use the resource tag of the replica to limit the resource group that the write resource can use.
+
+    So if you want all the resources used by the load operation to be limited to the resource group where the data is located, you only need to set the resource tag of the user level to the same as the resource tag of the replica.
     
 ## Single query resource limit
 
