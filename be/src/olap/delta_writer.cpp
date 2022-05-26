@@ -203,9 +203,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         }
     }
 
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
+    if (_mem_table->need_to_agg()) {
+        _mem_table->shrink_memtable_by_agg();
+        if (_mem_table->is_flush()) {
+            RETURN_NOT_OK(_flush_memtable_async());
+            _reset_mem_table();
+        }
     }
 
     return Status::OK();

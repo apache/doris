@@ -26,6 +26,7 @@ import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -227,6 +228,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
     protected OriginStatement origStmt;
+    // User who submit this job. Maybe null for the old version job(before v1.1)
+    protected UserIdentity userIdentity;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
@@ -248,13 +251,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public RoutineLoadJob(Long id, String name, String clusterName,
-            long dbId, long tableId, LoadDataSourceType dataSourceType) {
+                          long dbId, long tableId, LoadDataSourceType dataSourceType,
+                          UserIdentity userIdentity) {
         this(id, dataSourceType);
         this.name = name;
         this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
         this.authCode = 0;
+        this.userIdentity = userIdentity;
 
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
@@ -425,6 +430,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public PartitionNames getPartitions() {
         return partitions;
+    }
+
+    public UserIdentity getUserIdentity() {
+        return userIdentity;
     }
 
     @Override
@@ -1530,6 +1539,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             Text.writeString(out, entry.getKey());
             Text.writeString(out, entry.getValue());
         }
+
+        if (userIdentity == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            userIdentity.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1604,6 +1620,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Exception e) {
             throw new IOException("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_110) {
+            if (in.readBoolean()) {
+                userIdentity = UserIdentity.read(in);
+                userIdentity.setIsAnalyzed();
+            } else {
+                userIdentity = null;
+            }
         }
     }
 

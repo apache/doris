@@ -15,17 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.privilege;
+package org.apache.doris.nereids.operators.plans;
 
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.nereids.operators.Operator;
 
-import java.io.DataOutput;
-import java.io.IOException;
-
-public class UserResourceProperty implements Writable {
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
+/**
+ * interface for all concrete plan operator.
+ */
+public interface PlanOperator<TYPE extends PlanOperator<TYPE>> extends Operator<TYPE> {
 }

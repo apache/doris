@@ -90,13 +90,13 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::DateTime, TypeIndex::Int64};
 
-        Array vec = {str_to_data_time("2022-01-02 01:00:00"), str_to_data_time(""),
-                     str_to_data_time("2022-07-08 03:00:00")};
+        Array vec = {str_to_date_time("2022-01-02 01:00:00"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08 03:00:00")};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, str_to_data_time("2022-01-02 01:00:00")},
+                            {{vec, Int64(1)}, str_to_date_time("2022-01-02 01:00:00")},
                             {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, str_to_data_time("2022-07-08 03:00:00")},
-                            {{vec, Int64(-2)}, str_to_data_time("")},
+                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08 03:00:00")},
+                            {{vec, Int64(-2)}, str_to_date_time("")},
                             {{vec, Int64(-4)}, Null()},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(0)}, Null()},
@@ -109,13 +109,13 @@ TEST(function_array_element_test, element_at) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::Date, TypeIndex::Int64};
 
-        Array vec = {str_to_data_time("2022-01-02"), str_to_data_time(""),
-                     str_to_data_time("2022-07-08")};
+        Array vec = {str_to_date_time("2022-01-02"), str_to_date_time(""),
+                     str_to_date_time("2022-07-08")};
         DataSet data_set = {{{vec, Int64(0)}, Null()},
-                            {{vec, Int64(1)}, str_to_data_time("2022-01-02")},
+                            {{vec, Int64(1)}, str_to_date_time("2022-01-02")},
                             {{vec, Int64(4)}, Null()},
-                            {{vec, Int64(-1)}, str_to_data_time("2022-07-08")},
-                            {{vec, Int64(-2)}, str_to_data_time("")},
+                            {{vec, Int64(-1)}, str_to_date_time("2022-07-08")},
+                            {{vec, Int64(-2)}, str_to_date_time("")},
                             {{vec, Int64(-4)}, Null()},
                             {{Null(), Int64(1)}, Null()},
                             {{empty_arr, Int64(0)}, Null()},

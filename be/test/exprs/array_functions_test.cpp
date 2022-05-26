@@ -68,7 +68,7 @@ TEST_F(ArrayFunctionsTest, array) {
         for (auto&& iter = value.iterator(TYPE_INT); iter.has_next(); iter.next()) {
             i++;
             IntVal a;
-            iter.value(&a);
+            iter.get(&a);
             EXPECT_EQ(i, a.val);
         }
     }

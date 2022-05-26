@@ -115,16 +115,15 @@ public class TypeDef implements ParseNode {
         if (type.isNull()) {
             throw new AnalysisException("Unsupported data type: " + type.toSql());
         }
-        if (!type.getPrimitiveType().isIntegerType() && !type.getPrimitiveType().isCharFamily()) {
-            throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
-        }
-        if (type.getPrimitiveType().isStringType() && !type.isAssignedStrLenInColDefinition()) {
+        if (type.getPrimitiveType().isStringType()
+                && !type.isAssignedStrLenInColDefinition()) {
             type.setLength(1);
         }
         analyze(type);
     }
 
-    private void analyzeScalarType(ScalarType scalarType) throws AnalysisException {
+    private void analyzeScalarType(ScalarType scalarType)
+            throws AnalysisException {
         PrimitiveType type = scalarType.getPrimitiveType();
         switch (type) {
             case CHAR:
@@ -148,7 +147,8 @@ public class TypeDef implements ParseNode {
                     throw new AnalysisException(name + " size must be > 0: " + len);
                 }
                 if (scalarType.getLength() > maxLen) {
-                    throw new AnalysisException(name + " size must be <= " + maxLen + ": " + len);
+                    throw new AnalysisException(
+                            name + " size must be <= " + maxLen + ": " + len);
                 }
                 break;
             }
@@ -157,20 +157,18 @@ public class TypeDef implements ParseNode {
                 int scale = scalarType.decimalScale();
                 // precision: [1, 27]
                 if (precision < 1 || precision > 27) {
-                    throw new AnalysisException(
-                            "Precision of decimal must between 1 and 27." + " Precision was set to: " + precision
-                                    + ".");
+                    throw new AnalysisException("Precision of decimal must between 1 and 27."
+                            + " Precision was set to: " + precision + ".");
                 }
                 // scale: [0, 9]
                 if (scale < 0 || scale > 9) {
-                    throw new AnalysisException(
-                            "Scale of decimal must between 0 and 9." + " Scale was set to: " + scale + ".");
+                    throw new AnalysisException("Scale of decimal must between 0 and 9."
+                            + " Scale was set to: " + scale + ".");
                 }
                 // scale < precision
                 if (scale >= precision) {
-                    throw new AnalysisException(
-                            "Scale of decimal must be smaller than precision." + " Scale is " + scale
-                                    + " and precision is " + precision);
+                    throw new AnalysisException("Scale of decimal must be smaller than precision."
+                            + " Scale is " + scale + " and precision is " + precision);
                 }
                 break;
             }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.operators.plans.logical.LogicalOperator;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
@@ -25,7 +26,10 @@ import java.util.function.BiFunction;
 /**
  * Abstract class for all logical plan in Nereids.
  */
-public interface LogicalPlan<PLAN_TYPE extends LogicalPlan<PLAN_TYPE>> extends Plan<PLAN_TYPE> {
+public interface LogicalPlan<
+            PLAN_TYPE extends LogicalPlan<PLAN_TYPE, OP_TYPE>,
+            OP_TYPE extends LogicalOperator>
+        extends Plan<PLAN_TYPE, OP_TYPE> {
 
     @Override
     List<Plan> children();
