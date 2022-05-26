@@ -2146,6 +2146,12 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### max_bytes_sync_commit
+
+ The maximum number of threads in the data synchronization job thread pool. There is only one thread pool in the entire FE, which is used to process all data synchronization tasks in the FE that send data to the BE. The implementation of the thread pool is in the `SyncTaskPool` class.
+
+Default: 10
+
 ### backend_rpc_timeout_ms
 
  Timeout millisecond for Fe sending rpc request to BE
