@@ -143,7 +143,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         Map<String, Map<String, Expr>> sysVarsMap = new HashMap<>();
         // map to collect InformationFunction
         Map<String, Map<String, Expr>> infoFnsMap = new HashMap<>();
-        for (Map.Entry<String, Expr> entry : exprMap.entrySet()){
+        for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
             Map<String, TExpr> constMap = new HashMap<>();
             Map<String, Expr> oriConstMap = new HashMap<>();
             Map<String, Expr> sysVarMap = new HashMap<>();
@@ -193,7 +193,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @throws AnalysisException
      */
     // public only for unit test
-    public void getConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    public void getConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
                               Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
         if (expr.isConstant()) {
@@ -231,7 +231,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
     }
 
-    private void recursiveGetChildrenConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    private void recursiveGetChildrenConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
                                                Analyzer analyzer, Map<String, Expr> sysVarMap,
                                                Map<String, Expr> infoFnMap)throws AnalysisException {
         for (int i = 0; i < expr.getChildren().size(); i++) {

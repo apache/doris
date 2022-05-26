@@ -119,10 +119,10 @@ public final class RuntimeFilter {
 
         @Override
         public String toString() {
-            return "Target Id: " + node.getId() + " " +
-                    "Target expr: " + expr.debugString() + " " +
-                    "Is only Bound By Key: " + isBoundByKeyColumns +
-                    "Is local: " + isLocalTarget;
+            return "Target Id: " + node.getId() + " "
+                    + "Target expr: " + expr.debugString() + " "
+                    + "Is only Bound By Key: " + isBoundByKeyColumns
+                    + "Is local: " + isLocalTarget;
         }
     }
 
@@ -149,10 +149,17 @@ public final class RuntimeFilter {
     }
 
     @Override
-    public int hashCode() { return id.hashCode(); }
+    public int hashCode() {
+        return id.hashCode();
+    }
 
-    public void markFinalized() { finalized = true; }
-    public boolean isFinalized() { return finalized; }
+    public void markFinalized() {
+        finalized = true;
+    }
+
+    public boolean isFinalized() {
+        return finalized;
+    }
 
     /**
      * Serializes a runtime filter to Thrift.
@@ -173,16 +180,45 @@ public final class RuntimeFilter {
         return tFilter;
     }
 
-    public List<RuntimeFilterTarget> getTargets() { return targets; }
-    public boolean hasTargets() { return !targets.isEmpty(); }
-    public Expr getSrcExpr() { return srcExpr; }
-    public Expr getOrigTargetExpr() { return origTargetExpr; }
-    public Map<TupleId, List<SlotId>> getTargetSlots() { return targetSlotsByTid; }
-    public RuntimeFilterId getFilterId() { return id; }
-    public TRuntimeFilterType getType() { return runtimeFilterType; }
-    public void setType(TRuntimeFilterType type) { runtimeFilterType = type; }
-    public boolean hasRemoteTargets() { return hasRemoteTargets; }
-    public HashJoinNode getBuilderNode() { return builderNode; }
+    public List<RuntimeFilterTarget> getTargets() {
+        return targets;
+    }
+
+    public boolean hasTargets() {
+        return !targets.isEmpty();
+    }
+
+    public Expr getSrcExpr() {
+        return srcExpr;
+    }
+
+    public Expr getOrigTargetExpr() {
+        return origTargetExpr;
+    }
+
+    public Map<TupleId, List<SlotId>> getTargetSlots() {
+        return targetSlotsByTid;
+    }
+
+    public RuntimeFilterId getFilterId() {
+        return id;
+    }
+
+    public TRuntimeFilterType getType() {
+        return runtimeFilterType;
+    }
+
+    public void setType(TRuntimeFilterType type) {
+        runtimeFilterType = type;
+    }
+
+    public boolean hasRemoteTargets() {
+        return hasRemoteTargets;
+    }
+
+    public HashJoinNode getBuilderNode() {
+        return builderNode;
+    }
 
     /**
      * Static function to create a RuntimeFilter from 'joinPredicate' that is assigned
@@ -313,7 +349,7 @@ public final class RuntimeFilter {
         Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
         // We need to iterate over all the slots of 'expr' and check if they have
         // equivalent slots that are bound by the same base table tuple(s).
-        for (SlotId slotId: sids) {
+        for (SlotId slotId : sids) {
             Map<TupleId, List<SlotId>> currSlotsByTid = getBaseTblEquivSlots(analyzer, slotId);
             if (currSlotsByTid.isEmpty()) {
                 return Collections.emptyMap();
@@ -357,7 +393,7 @@ public final class RuntimeFilter {
     private static Map<TupleId, List<SlotId>> getBaseTblEquivSlots(Analyzer analyzer,
                                                                    SlotId srcSid) {
         Map<TupleId, List<SlotId>> slotsByTid = new HashMap<>();
-        for (SlotId targetSid: analyzer.getValueTransferTargets(srcSid)) {
+        for (SlotId targetSid : analyzer.getValueTransferTargets(srcSid)) {
             TupleDescriptor tupleDesc = analyzer.getSlotDesc(targetSid).getParent();
             if (tupleDesc.getTable() == null) {
                 continue;
@@ -369,7 +405,7 @@ public final class RuntimeFilter {
     }
 
     public Expr getTargetExpr(PlanNodeId targetPlanNodeId) {
-        for (RuntimeFilterTarget target: targets) {
+        for (RuntimeFilterTarget target : targets) {
             if (target.node.getId() != targetPlanNodeId) {
                 continue;
             }
@@ -392,16 +428,22 @@ public final class RuntimeFilter {
         return builderNode.getCardinality() / (double) builderNode.getChild(0).getCardinality();
     }
 
-    public void addTarget(RuntimeFilterTarget target) { targets.add(target); }
+    public void addTarget(RuntimeFilterTarget target) {
+        targets.add(target);
+    }
 
-    public void setIsBroadcast(boolean isBroadcast) { isBroadcastJoin = isBroadcast; }
+    public void setIsBroadcast(boolean isBroadcast) {
+        isBroadcastJoin = isBroadcast;
+    }
 
-    public void computeNdvEstimate() { ndvEstimate = builderNode.getChild(1).getCardinality(); }
+    public void computeNdvEstimate() {
+        ndvEstimate = builderNode.getChild(1).getCardinality();
+    }
 
     public void extractTargetsPosition() {
         Preconditions.checkNotNull(builderNode.getFragment());
         Preconditions.checkState(hasTargets());
-        for (RuntimeFilterTarget target: targets) {
+        for (RuntimeFilterTarget target : targets) {
             Preconditions.checkNotNull(target.node.getFragment());
             hasLocalTargets = hasLocalTargets || target.isLocalTarget;
             hasRemoteTargets = hasRemoteTargets || !target.isLocalTarget;
@@ -442,7 +484,7 @@ public final class RuntimeFilter {
         double m = -k * ndv / Math.log(1 - Math.pow(fpp, 1.0 / k));
 
         // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
-        return Math.max(0, (int)(Math.ceil(Math.log(m / 8)/Math.log(2))));
+        return Math.max(0, (int) (Math.ceil(Math.log(m / 8) / Math.log(2))));
     }
 
     /**
@@ -452,7 +494,7 @@ public final class RuntimeFilter {
         Preconditions.checkState(hasTargets());
         builderNode.addRuntimeFilter(this);
         builderNode.fragment.setBuilderRuntimeFilterIds(getFilterId());
-        for (RuntimeFilterTarget target: targets) {
+        for (RuntimeFilterTarget target : targets) {
             target.node.addRuntimeFilter(this);
             // fragment is expected to use this filter id
             target.node.fragment.setTargetRuntimeFilterIds(this.id);
@@ -469,11 +511,11 @@ public final class RuntimeFilter {
     }
 
     public String debugString() {
-        return "FilterID: " + id + " " +
-                "Source: " + builderNode.getId() + " " +
-                "SrcExpr: " + getSrcExpr().debugString() + " " +
-                "Target(s): " +
-                Joiner.on(", ").join(targets) + " " +
-                "Selectivity: " + getSelectivity();
+        return "FilterID: " + id + " "
+                +      "Source: " + builderNode.getId() + " "
+                +      "SrcExpr: " + getSrcExpr().debugString() + " "
+                +      "Target(s): "
+                +      Joiner.on(", ").join(targets) + " "
+                + "Selectivity: " + getSelectivity();
     }
 }

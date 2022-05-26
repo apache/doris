@@ -39,15 +39,14 @@ public class AdminShowReplicaTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        createTable("create table test.tbl1\n" +
-                        "(k1 date, k2 int)\n" +
-                        "partition by range(k1)\n" +
-                        "(\n" +
-                        "    partition p1 values less than(\"2021-07-01\"),\n" +
-                        "    partition p2 values less than(\"2021-08-01\")\n" +
-                        ")\n" +
-                        "distributed by hash(k2) buckets 10\n" +
-                        "properties(\"replication_num\" = \"1\");");
+        createTable("create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + "    partition p1 values less than(\"2021-07-01\"),\n"
+                + "    partition p2 values less than(\"2021-08-01\")\n"
+                + ")\n" + "distributed by hash(k2) buckets 10\n"
+                + "properties(\"replication_num\" = \"1\");");
     }
 
     @Test

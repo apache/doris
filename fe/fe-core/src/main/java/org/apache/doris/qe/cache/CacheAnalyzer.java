@@ -221,9 +221,10 @@ public class CacheAnalyzer {
         if (now == 0) {
             now = nowtime();
         }
-        if (enableSqlCache() &&
-                (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000) {
-            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime, Config.cache_last_version_interval_second*1000);
+        if (enableSqlCache()
+                && (now - latestTable.latestTime) >= Config.cache_last_version_interval_second * 1000L) {
+            LOG.debug("TIME:{},{},{}", now, latestTable.latestTime,
+                    Config.cache_last_version_interval_second * 1000);
             cache = new SqlCache(this.queryId, this.selectStmt);
             ((SqlCache) cache).setCacheInfo(this.latestTable, allViewExpandStmtListStr);
             MetricRepo.COUNTER_CACHE_MODE_SQL.increase(1L);
@@ -339,14 +340,14 @@ public class CacheAnalyzer {
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate cp = (CompoundPredicate) expr;
             if (cp.getOp() == CompoundPredicate.Operator.AND) {
-                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate &&
-                        cp.getChild(1) instanceof BinaryPredicate) {
+                if (cp.getChildren().size() == 2 && cp.getChild(0) instanceof BinaryPredicate
+                        && cp.getChild(1) instanceof BinaryPredicate) {
                     BinaryPredicate leftPre = (BinaryPredicate) cp.getChild(0);
                     BinaryPredicate rightPre = (BinaryPredicate) cp.getChild(1);
                     String leftColumn = getColumnName(leftPre);
                     String rightColumn = getColumnName(rightPre);
-                    if (leftColumn.equalsIgnoreCase(partColumn.getName()) &&
-                            rightColumn.equalsIgnoreCase(partColumn.getName())) {
+                    if (leftColumn.equalsIgnoreCase(partColumn.getName())
+                            && rightColumn.equalsIgnoreCase(partColumn.getName())) {
                         compoundPredicates.add(cp);
                     }
                 }

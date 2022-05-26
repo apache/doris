@@ -126,7 +126,7 @@ public class BrokerUtil {
             boolean failed = true;
             try {
                 TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                        TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
                 TBrokerListResponse tBrokerListResponse = null;
                 try {
                     tBrokerListResponse = client.listPath(request);
@@ -457,8 +457,8 @@ public class BrokerUtil {
                     remotePath, brokerDesc.getProperties());
             TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
             if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address +
-                        ", msg=" + rep.getOpStatus().getMessage());
+                throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address
+                        + ", msg=" + rep.getOpStatus().getMessage());
             }
             failed = false;
             return rep.isPathExist;
@@ -480,15 +480,15 @@ public class BrokerUtil {
                     destFilePath, brokerDesc.getProperties());
             TBrokerOperationStatus rep = client.renamePath(req);
             if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath +
-                        ", msg: " + rep.getMessage() + ", broker: " + address);
+                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath
+                        + ", msg: " + rep.getMessage() + ", broker: " + address);
             }
             failed = false;
         } catch (TException e) {
             LOG.warn("Broker rename file failed, origin path={}, dest path={}, address={}, exception={}",
                     origFilePath, destFilePath, address, e);
-            throw new UserException("Broker rename file exception. origin path=" + origFilePath +
-                    ", dest path=" + destFilePath + ", broker=" + address);
+            throw new UserException("Broker rename file exception. origin path=" + origFilePath
+                    + ", dest path=" + destFilePath + ", broker=" + address);
         } finally {
             returnClient(client, address, failed);
         }

@@ -51,8 +51,8 @@ public class KafkaProducerTest {
             ProducerRecord<Long, String> record = new ProducerRecord<>("miaoling", value);
             try {
                 RecordMetadata metadata = kafkaProducer.send(record).get();
-                System.out.println("Record send with value " + value + " to partition " +
-                                           metadata.partition() + " with offset " + metadata.offset());
+                System.out.println("Record send with value " + value + " to partition "
+                        + metadata.partition() + " with offset " + metadata.offset());
             } catch (ExecutionException e) {
                 System.out.println("Error in sending record " + value);
                 System.out.println(e);

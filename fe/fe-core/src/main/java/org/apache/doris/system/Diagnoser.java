@@ -139,9 +139,9 @@ public class Diagnoser {
             } while (false);
             // version
             if (replica.getVersion() != partition.getVisibleVersion()) {
-                versionErr.append("Replica on backend " + replica.getBackendId() + "'s version (" +
-                        replica.getVersion() + ") does not equal" +
-                        " to partition visible version (" + partition.getVisibleVersion() + ")");
+                versionErr.append("Replica on backend " + replica.getBackendId() + "'s version ("
+                        + replica.getVersion() + ") does not equal"
+                        + " to partition visible version (" + partition.getVisibleVersion() + ")");
             }
             // status
             if (!replica.isAlive()) {

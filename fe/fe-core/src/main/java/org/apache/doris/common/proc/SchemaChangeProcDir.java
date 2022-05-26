@@ -105,14 +105,14 @@ public class SchemaChangeProcDir implements ProcDirInterface {
 
         //where
         List<List<Comparable>> jobInfos;
-        if (filter == null || filter.size() == 0){
+        if (filter == null || filter.size() == 0) {
             jobInfos = schemaChangeJobInfos;
         } else {
             jobInfos = Lists.newArrayList();
             for (List<Comparable> infoStr : schemaChangeJobInfos) {
                 if (infoStr.size() != TITLE_NAMES.size()) {
                     LOG.warn("SchemaChangeJobInfos.size() " + schemaChangeJobInfos.size()
-                        + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                            + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
                     continue;
                 }
                 boolean isNeed = true;
@@ -143,7 +143,7 @@ public class SchemaChangeProcDir implements ProcDirInterface {
             if (endIndex > jobInfos.size()) {
                 endIndex = jobInfos.size();
             }
-            jobInfos = jobInfos.subList(beginIndex,endIndex);
+            jobInfos = jobInfos.subList(beginIndex, endIndex);
         }
 
         BaseProcResult result = new BaseProcResult();

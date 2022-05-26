@@ -167,7 +167,10 @@ public class TupleDescriptor {
         return isMaterialized;
     }
 
-    public boolean isMaterialized() { return isMaterialized; }
+    public boolean isMaterialized() {
+        return isMaterialized;
+    }
+
     public void setIsMaterialized(boolean value) {
         isMaterialized = value;
     }
@@ -180,8 +183,15 @@ public class TupleDescriptor {
         this.aliases = aliases;
         this.hasExplicitAlias = hasExplicitAlias;
     }
-    public boolean hasExplicitAlias() { return hasExplicitAlias; }
-    public String getAlias() { return (aliases != null) ? aliases[0] : null; }
+
+    public boolean hasExplicitAlias() {
+        return hasExplicitAlias;
+    }
+
+    public String getAlias() {
+        return (aliases != null) ? aliases[0] : null;
+    }
+
     public TableName getAliasAsName() {
         return (aliases != null) ? new TableName(null, aliases[0]) : null;
     }
@@ -220,7 +230,7 @@ public class TupleDescriptor {
      * In order to ensure that even if it is wrongly called a second time, no error will occur,
      * so it will be initialized again at the beginning of the function.
      *
-     * In the future this function will be changed to a private function.
+     * @deprecated In the future this function will be changed to a private function.
      */
     @Deprecated
     public void computeStat() {
@@ -230,7 +240,7 @@ public class TupleDescriptor {
         // compute stat
         for (SlotDescriptor d : slots) {
             if (!d.isMaterialized()) {
-               continue;
+                continue;
             }
             ColumnStats stats = d.getStats();
             if (stats.hasAvgSerializedSize()) {
@@ -243,7 +253,7 @@ public class TupleDescriptor {
     }
 
     /**
-     * In the future this function will be changed to a private function.
+     * @deprecated In the future this function will be changed to a private function.
      */
     @Deprecated
     public void computeMemLayout() {
@@ -256,7 +266,6 @@ public class TupleDescriptor {
         // populate slotsBySize; also compute avgSerializedSize
         numNullableSlots = 0;
         for (SlotDescriptor d : slots) {
-            ColumnStats stats = d.getStats();
             if (d.isMaterialized()) {
                 slotsBySize.get(d.getType().getSlotSize()).add(d);
                 if (d.getIsNullable()) {
@@ -330,7 +339,7 @@ public class TupleDescriptor {
      * Materialize all slots.
      */
     public void materializeSlots() {
-        for (SlotDescriptor slot: slots) {
+        for (SlotDescriptor slot : slots) {
             slot.setIsMaterialized(true);
         }
     }

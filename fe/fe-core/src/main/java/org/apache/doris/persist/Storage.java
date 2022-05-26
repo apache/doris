@@ -124,7 +124,7 @@ public class Storage {
             String name = child.getName();
             try {
                 if (!name.equals(EDITS) && !name.equals(IMAGE_NEW)
-                    && !name.endsWith(".part") && name.contains(".")) {
+                        && !name.endsWith(".part") && name.contains(".")) {
                     if (name.startsWith(IMAGE)) {
                         long fileSeq = Long.parseLong(name.substring(name.lastIndexOf('.') + 1));
                         if (latestImageSeq < fileSeq) {

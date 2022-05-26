@@ -36,9 +36,9 @@ public final class ConstructorReflection {
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof Error) {
-                throw (Error)cause;
+                throw (Error) cause;
             } else if (cause instanceof RuntimeException) {
-                throw (RuntimeException)cause;
+                throw (RuntimeException) cause;
             } else {
                 throw new IllegalStateException("Should never get here", cause);
             }
@@ -62,7 +62,7 @@ public final class ConstructorReflection {
      * invoke the constructor with no parameters of {@aClass Class<T>}.
      */
     private static <T> T newInstance(Class<T> aClass) {
-        return (T) newInstance((Class)aClass, ParameterReflection.NO_PARAMETERS);
+        return (T) newInstance((Class) aClass, ParameterReflection.NO_PARAMETERS);
     }
 
     /**
@@ -124,12 +124,12 @@ public final class ConstructorReflection {
         Constructor<?>[] declaredConstructors = theClass.getDeclaredConstructors();
         Constructor[] declaredConstructorsArray = declaredConstructors;
 
-        for(Constructor<?> declaredConstructor : declaredConstructorsArray) {
+        for (Constructor<?> declaredConstructor : declaredConstructorsArray) {
             Class<?>[] declaredParamTypes = declaredConstructor.getParameterTypes();
             int gap = declaredParamTypes.length - argTypes.length;
-            if (gap == 0 && (ParameterReflection.matchesParameterTypes(declaredParamTypes, argTypes) ||
-                    ParameterReflection.acceptsArgumentTypes(declaredParamTypes, argTypes) ) &&
-                    (found == null || ParameterReflection.hasMoreSpecificTypes(declaredParamTypes, foundParameters))) {
+            if (gap == 0 && (ParameterReflection.matchesParameterTypes(declaredParamTypes, argTypes)
+                    || ParameterReflection.acceptsArgumentTypes(declaredParamTypes, argTypes))
+                    && (found == null || ParameterReflection.hasMoreSpecificTypes(declaredParamTypes, foundParameters))) {
                 found = (Constructor<T>) declaredConstructor;
                 foundParameters = declaredParamTypes;
             }

@@ -276,7 +276,6 @@ public class MaterializedViewHandlerTest {
                                            @Injectable OlapTable olapTable) throws DdlException {
         final String mvName = "mv1";
         final String columnName1 = "k1";
-        Column baseColumn1 = new Column(columnName1, Type.VARCHAR, true, null, "", "");
         MVColumnItem mvColumnItem = new MVColumnItem(columnName1, Type.VARCHAR);
         mvColumnItem.setIsKey(false);
         mvColumnItem.setAggregationType(AggregateType.SUM, false);

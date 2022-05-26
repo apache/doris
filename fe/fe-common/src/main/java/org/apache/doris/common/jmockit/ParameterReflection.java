@@ -26,7 +26,7 @@ public final class ParameterReflection {
         if (declaredTypes == null || specifiedTypes == null) {
             throw new IllegalArgumentException();
         }
-        for(int i = 0; i < declaredTypes.length; ++i) {
+        for (int i = 0; i < declaredTypes.length; ++i) {
             Class<?> declaredType = declaredTypes[i];
             Class<?> specifiedType = specifiedTypes[i];
             if (!isSameType(declaredType, specifiedType)) {
@@ -44,7 +44,7 @@ public final class ParameterReflection {
         if (paramTypes == null || argTypes == null) {
             throw new IllegalArgumentException();
         }
-        for(int i = 0; i < paramTypes.length; ++i) {
+        for (int i = 0; i < paramTypes.length; ++i) {
             Class<?> parType = paramTypes[i];
             Class<?> argType = argTypes[i];
             if (!isSameType(parType, argType) && !parType.isAssignableFrom(argType)) {
@@ -67,7 +67,7 @@ public final class ParameterReflection {
         } else {
             Class<?>[] argTypes = new Class[args.length];
 
-            for(int i = 0; i < args.length; ++i) {
+            for (int i = 0; i < args.length; ++i) {
                 argTypes[i] = getArgumentTypeFromArgumentValue(i, args);
             }
 
@@ -102,7 +102,7 @@ public final class ParameterReflection {
         if (currentTypes == null || previousTypes == null) {
             throw new IllegalArgumentException();
         }
-        for(int i = 0; i < currentTypes.length; ++i) {
+        for (int i = 0; i < currentTypes.length; ++i) {
             Class<?> current = wrappedIfPrimitive(currentTypes[i]);
             Class<?> previous = wrappedIfPrimitive(previousTypes[i]);
             if (current != previous && previous.isAssignableFrom(current)) {
@@ -160,9 +160,9 @@ public final class ParameterReflection {
 
     // return true if the two types are same type.
     private static boolean isSameType(Class<?> firstType, Class<?> secondType) {
-        return firstType == secondType ||
-                firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType) ||
-                secondType.isPrimitive() && secondType == AutoType.getPrimitiveType(firstType);
+        return firstType == secondType
+                || firstType.isPrimitive() && firstType == AutoType.getPrimitiveType(secondType)
+                || secondType.isPrimitive() && secondType == AutoType.getPrimitiveType(firstType);
     }
 }
 

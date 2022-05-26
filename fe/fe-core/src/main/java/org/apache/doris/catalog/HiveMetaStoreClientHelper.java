@@ -550,7 +550,7 @@ public class HiveMetaStoreClientHelper {
             if (stack.size() != 1) {
                 throw new DdlException("Build Hive expression Failed: " + stack.size());
             }
-            return (ExprNodeGenericFuncDesc)stack.pop();
+            return (ExprNodeGenericFuncDesc) stack.pop();
         }
 
         public ExprBuilder pred(String name, int args) throws DdlException {

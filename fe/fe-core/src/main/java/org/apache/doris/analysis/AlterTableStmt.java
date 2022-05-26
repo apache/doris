@@ -152,17 +152,17 @@ public class AlterTableStmt extends DdlStmt {
     public void checkExternalTableOperationAllow(Table table) throws UserException {
         List<AlterClause> clauses = new ArrayList<>();
         for (AlterClause alterClause : ops) {
-            if (alterClause instanceof TableRenameClause ||
-                    alterClause instanceof AddColumnClause ||
-                    alterClause instanceof AddColumnsClause ||
-                    alterClause instanceof DropColumnClause ||
-                    alterClause instanceof ModifyColumnClause ||
-                    alterClause instanceof ReorderColumnsClause ||
-                    alterClause instanceof ModifyEngineClause) {
+            if (alterClause instanceof TableRenameClause
+                    || alterClause instanceof AddColumnClause
+                    || alterClause instanceof AddColumnsClause
+                    || alterClause instanceof DropColumnClause
+                    || alterClause instanceof ModifyColumnClause
+                    || alterClause instanceof ReorderColumnsClause
+                    || alterClause instanceof ModifyEngineClause) {
                 clauses.add(alterClause);
             } else {
-                throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] " +
-                        "do not support " + alterClause.getOpType().toString() + " clause now");
+                throw new AnalysisException(table.getType().toString() + " [" + table.getName() + "] "
+                        + "do not support " + alterClause.getOpType().toString() + " clause now");
             }
         }
         ops = clauses;

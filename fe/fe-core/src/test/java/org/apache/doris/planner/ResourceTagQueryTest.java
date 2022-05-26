@@ -181,15 +181,15 @@ public class ResourceTagQueryTest {
     public void test() throws Exception {
 
         // create table with default tag
-        String createStr = "create table test.tbl1\n" +
-                "(k1 date, k2 int)\n" +
-                "partition by range(k1)\n" +
-                "(\n" +
-                " partition p1 values less than(\"2021-06-01\"),\n" +
-                " partition p2 values less than(\"2021-07-01\"),\n" +
-                " partition p3 values less than(\"2021-08-01\")\n" +
-                ")\n" +
-                "distributed by hash(k2) buckets 10;";
+        String createStr = "create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + " partition p1 values less than(\"2021-06-01\"),\n"
+                + " partition p2 values less than(\"2021-07-01\"),\n"
+                + " partition p3 values less than(\"2021-08-01\")\n"
+                + ")\n"
+                + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
         Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");

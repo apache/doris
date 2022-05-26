@@ -451,6 +451,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setBlockEncryptionMode(String blockEncryptionMode) {
         this.blockEncryptionMode = blockEncryptionMode;
     }
+
     public long getMaxExecMemByte() {
         return maxExecMemByte;
     }
@@ -479,7 +480,9 @@ public class SessionVariable implements Serializable, Writable {
         this.sqlMode = sqlMode;
     }
 
-    public boolean isEnableJoinReorderBasedCost() { return enableJoinReorderBasedCost; }
+    public boolean isEnableJoinReorderBasedCost() {
+        return enableJoinReorderBasedCost;
+    }
 
     public boolean isAutoCommit() {
         return autoCommit;
@@ -596,6 +599,7 @@ public class SessionVariable implements Serializable, Writable {
     public void setSqlQuoteShowCreate(boolean sqlQuoteShowCreate) {
         this.sqlQuoteShowCreate = sqlQuoteShowCreate;
     }
+
     public void setLoadMemLimit(long loadMemLimit) {
         this.loadMemLimit = loadMemLimit;
     }
@@ -632,9 +636,13 @@ public class SessionVariable implements Serializable, Writable {
         this.preferJoinMethod = preferJoinMethod;
     }
 
-    public boolean isEnableFoldConstantByBe() { return enableFoldConstantByBe; }
+    public boolean isEnableFoldConstantByBe() {
+        return enableFoldConstantByBe;
+    }
 
-    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {this.enableFoldConstantByBe = foldConstantByBe; }
+    public void setEnableFoldConstantByBe(boolean foldConstantByBe) {
+        this.enableFoldConstantByBe = foldConstantByBe;
+    }
 
     public int getParallelExecInstanceNum() {
         return parallelExecInstanceNum;
@@ -894,7 +902,9 @@ public class SessionVariable implements Serializable, Writable {
         return enableInferPredicate;
     }
 
-    public void setEnableInferPredicate(boolean enableInferPredicate) { this.enableInferPredicate = enableInferPredicate; }
+    public void setEnableInferPredicate(boolean enableInferPredicate) {
+        this.enableInferPredicate = enableInferPredicate;
+    }
 
     public boolean isEnableProjection() {
         return enableProjection;

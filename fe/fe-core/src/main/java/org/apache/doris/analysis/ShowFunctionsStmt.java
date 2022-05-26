@@ -59,7 +59,9 @@ public class ShowFunctionsStmt extends ShowStmt {
         this.expr = expr;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     public boolean getIsBuiltin() {
         return isBuiltin;
@@ -97,7 +99,7 @@ public class ShowFunctionsStmt extends ShowStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
 
         if (expr != null) {

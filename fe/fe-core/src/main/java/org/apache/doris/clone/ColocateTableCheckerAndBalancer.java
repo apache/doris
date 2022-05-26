@@ -449,8 +449,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             if (!isThisRoundChanged) {
                 // if all backends are checked but this round is not changed,
                 // we should end the loop
-                LOG.info("all backends are checked but this round is not changed, " +
-                        "end outer loop in colocate group {}", groupId);
+                LOG.info("all backends are checked but this round is not changed, "
+                        + "end outer loop in colocate group {}", groupId);
                 break;
             }
             // end inner loop

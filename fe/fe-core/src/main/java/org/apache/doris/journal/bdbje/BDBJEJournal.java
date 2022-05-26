@@ -170,8 +170,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 LOG.warn("master can not achieve quorum. write timestamp fail. but will not exit.");
                 return;
             }
-            String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: " +
-                    currentJournalDB.getDatabaseName();
+            String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: "
+                    + currentJournalDB.getDatabaseName();
             LOG.error(msg);
             Util.stdoutWithTime(msg);
             System.exit(-1);

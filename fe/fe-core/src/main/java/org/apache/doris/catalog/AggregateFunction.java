@@ -405,31 +405,89 @@ public class AggregateFunction extends Function {
         }
     }
 
-    public String getUpdateFnSymbol() { return updateFnSymbol; }
-    public String getInitFnSymbol() { return initFnSymbol; }
-    public String getSerializeFnSymbol() { return serializeFnSymbol; }
-    public String getMergeFnSymbol() { return mergeFnSymbol; }
-    public String getGetValueFnSymbol() { return getValueFnSymbol; }
-    public String getRemoveFnSymbol() { return removeFnSymbol; }
-    public String getFinalizeFnSymbol() { return finalizeFnSymbol; }
-    public boolean ignoresDistinct() { return ignoresDistinct; }
-    public boolean isAnalyticFn() { return isAnalyticFn; }
-    public boolean isAggregateFn() { return isAggregateFn; }
-    public boolean returnsNonNullOnEmpty() { return returnsNonNullOnEmpty; }
+    public String getUpdateFnSymbol() {
+        return updateFnSymbol;
+    }
+
+    public String getInitFnSymbol() {
+        return initFnSymbol;
+    }
+
+    public String getSerializeFnSymbol() {
+        return serializeFnSymbol;
+    }
+
+    public String getMergeFnSymbol() {
+        return mergeFnSymbol;
+    }
+
+    public String getGetValueFnSymbol() {
+        return getValueFnSymbol;
+    }
+
+    public String getRemoveFnSymbol() {
+        return removeFnSymbol;
+    }
+
+    public String getFinalizeFnSymbol() {
+        return finalizeFnSymbol;
+    }
+
+    public boolean ignoresDistinct() {
+        return ignoresDistinct;
+    }
+
+    public boolean isAnalyticFn() {
+        return isAnalyticFn;
+    }
+
+    public boolean isAggregateFn() {
+        return isAggregateFn;
+    }
+
+    public boolean returnsNonNullOnEmpty() {
+        return returnsNonNullOnEmpty;
+    }
 
     /**
      * Returns the intermediate type of this aggregate function or null
      * if it is identical to the return type.
      */
-    public Type getIntermediateType() { return intermediateType; }
-    public void setUpdateFnSymbol(String fn) { updateFnSymbol = fn; }
-    public void setInitFnSymbol(String fn) { initFnSymbol = fn; }
-    public void setSerializeFnSymbol(String fn) { serializeFnSymbol = fn; }
-    public void setMergeFnSymbol(String fn) { mergeFnSymbol = fn; }
-    public void setGetValueFnSymbol(String fn) { getValueFnSymbol = fn; }
-    public void setRemoveFnSymbol(String fn) { removeFnSymbol = fn; }
-    public void setFinalizeFnSymbol(String fn) { finalizeFnSymbol = fn; }
-    public void setIntermediateType(Type t) { intermediateType = t; }
+    public Type getIntermediateType() {
+        return intermediateType;
+    }
+
+    public void setUpdateFnSymbol(String fn) {
+        updateFnSymbol = fn;
+    }
+
+    public void setInitFnSymbol(String fn) {
+        initFnSymbol = fn;
+    }
+
+    public void setSerializeFnSymbol(String fn) {
+        serializeFnSymbol = fn;
+    }
+
+    public void setMergeFnSymbol(String fn) {
+        mergeFnSymbol = fn;
+    }
+
+    public void setGetValueFnSymbol(String fn) {
+        getValueFnSymbol = fn;
+    }
+
+    public void setRemoveFnSymbol(String fn) {
+        removeFnSymbol = fn;
+    }
+
+    public void setFinalizeFnSymbol(String fn) {
+        finalizeFnSymbol = fn;
+    }
+
+    public void setIntermediateType(Type t) {
+        intermediateType = t;
+    }
 
     @Override
     public String toSql(boolean ifNotExists) {

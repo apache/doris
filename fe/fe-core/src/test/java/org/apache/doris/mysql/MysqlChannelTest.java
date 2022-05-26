@@ -209,7 +209,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
     }
 
     @Test(expected = IOException.class)
@@ -225,7 +225,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
         Assert.fail("No Exception throws.");
     }
 

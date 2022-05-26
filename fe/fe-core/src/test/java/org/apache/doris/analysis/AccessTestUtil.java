@@ -321,11 +321,11 @@ public class AccessTestUtil {
             {
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = withCluster? prefix + "testDb" : "testDb";
+                result = withCluster ? prefix + "testDb" : "testDb";
 
                 analyzer.getQualifiedUser();
-                minTimes = 0 ;
-                result = withCluster? prefix + "testUser" : "testUser";
+                minTimes = 0;
+                result = withCluster ? prefix + "testUser" : "testUser";
 
                 analyzer.getClusterName();
                 minTimes = 0;

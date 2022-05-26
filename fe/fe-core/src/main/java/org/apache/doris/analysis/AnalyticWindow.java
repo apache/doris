@@ -206,7 +206,7 @@ public class AnalyticWindow {
                 return false;
             }
 
-            Boundary o = (Boundary)obj;
+            Boundary o = (Boundary) obj;
             boolean exprEqual = (expr == null) == (o.expr == null);
 
             if (exprEqual && expr != null) {
@@ -360,9 +360,8 @@ public class AnalyticWindow {
             return false;
         }
 
-        AnalyticWindow o = (AnalyticWindow)obj;
-        boolean rightBoundaryEqual =
-            (rightBoundary == null) == (o.rightBoundary == null);
+        AnalyticWindow o = (AnalyticWindow) obj;
+        boolean rightBoundaryEqual = (rightBoundary == null) == (o.rightBoundary == null);
 
         if (rightBoundaryEqual && rightBoundary != null) {
             rightBoundaryEqual = rightBoundary.equals(o.rightBoundary);
@@ -382,7 +381,7 @@ public class AnalyticWindow {
      * Semantic analysis for expr of a PRECEDING/FOLLOWING clause.
      */
     private void checkOffsetExpr(Analyzer analyzer, Boundary boundary)
-    throws AnalysisException {
+            throws AnalysisException {
         Preconditions.checkState(boundary.getType().isOffset());
         Expr e = boundary.getExpr();
         Preconditions.checkNotNull(e);
@@ -392,9 +391,6 @@ public class AnalyticWindow {
         if (e.isConstant() && e.getType().isNumericType()) {
             try {
                 val = Expr.getConstFromExpr(e);
-//                val = TColumnValueUtil.getNumericVal(
-//                        FeSupport.EvalConstExpr(e, analyzer.getQueryGlobals()));
-
                 if (val <= 0) {
                     isPos = false;
                 }
@@ -428,7 +424,7 @@ public class AnalyticWindow {
      * Check that b1 <= b2.
      */
     private void checkOffsetBoundaries(Analyzer analyzer, Boundary b1, Boundary b2)
-    throws AnalysisException {
+            throws AnalysisException {
         Preconditions.checkState(b1.getType().isOffset());
         Preconditions.checkState(b2.getType().isOffset());
         Expr e1 = b1.getExpr();
@@ -439,8 +435,6 @@ public class AnalyticWindow {
                 e2 != null && e2.isConstant() && e2.getType().isNumericType());
 
         try {
-//            TColumnValue val1 = FeSupport.EvalConstExpr(e1, analyzer.getQueryGlobals());
-//            TColumnValue val2 = FeSupport.EvalConstExpr(e2, analyzer.getQueryGlobals());
             double left = Expr.getConstFromExpr(e1);
             double right = Expr.getConstFromExpr(e2);
 

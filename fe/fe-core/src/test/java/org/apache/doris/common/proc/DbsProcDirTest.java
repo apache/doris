@@ -123,18 +123,17 @@ public class DbsProcDirTest {
     @Test
     public void testLookupInvalid() {
         DbsProcDir dir;
-        ProcNodeInterface node;
 
         dir = new DbsProcDir(catalog);
         try {
-            node = dir.lookup(null);
+            dir.lookup(null);
         } catch (AnalysisException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
 
         try {
-            node = dir.lookup("");
+            dir.lookup("");
         } catch (AnalysisException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();

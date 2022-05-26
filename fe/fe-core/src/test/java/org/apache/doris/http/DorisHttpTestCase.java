@@ -306,6 +306,7 @@ abstract public class DorisHttpTestCase {
                 try {
                     socket.close();
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
         }

@@ -55,7 +55,7 @@ public class ShowTabletStmt extends ShowStmt {
     private boolean isShowSingleTablet;
 
     public ShowTabletStmt(TableName dbTableName, long tabletId) {
-        this(dbTableName, tabletId, null, null, null,null);
+        this(dbTableName, tabletId, null, null, null, null);
     }
 
     public ShowTabletStmt(TableName dbTableName, long tabletId, PartitionNames partitionNames,
@@ -100,27 +100,49 @@ public class ShowTabletStmt extends ShowStmt {
         return isShowSingleTablet;
     }
 
-    public boolean hasOffset() { return limitElement != null && limitElement.hasOffset(); }
+    public boolean hasOffset() {
+        return limitElement != null && limitElement.hasOffset();
+    }
 
-    public long getOffset() { return limitElement.getOffset(); }
+    public long getOffset() {
+        return limitElement.getOffset();
+    }
 
-    public boolean hasPartition() { return partitionNames != null; }
+    public boolean hasPartition() {
+        return partitionNames != null;
+    }
 
-    public PartitionNames getPartitionNames() { return partitionNames; }
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
+    }
 
-    public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
+    public boolean hasLimit() {
+        return limitElement != null && limitElement.hasLimit();
+    }
 
-    public long getLimit() { return  limitElement.getLimit(); }
+    public long getLimit() {
+        return limitElement.getLimit();
+    }
 
-    public long getVersion() { return version; }
+    public long getVersion() {
+        return version;
+    }
 
-    public long getBackendId() { return backendId; }
+    public long getBackendId() {
+        return backendId;
+    }
 
-    public String getIndexName() { return indexName; }
+    public String getIndexName() {
+        return indexName;
+    }
 
-    public List<OrderByPair> getOrderByPairs() { return orderByPairs; }
+    public List<OrderByPair> getOrderByPairs() {
+        return orderByPairs;
+    }
 
-    public Replica.ReplicaState getReplicaState() { return  replicaState; }
+    public Replica.ReplicaState getReplicaState() {
+        return replicaState;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -209,11 +231,11 @@ public class ShowTabletStmt extends ShowStmt {
             }
             String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
             if (leftKey.equalsIgnoreCase("version")) {
-                 if (!(subExpr.getChild(1) instanceof IntLiteral) || version > -1) {
-                     valid = false;
-                     break;
-                 }
-                 version = ((IntLiteral) subExpr.getChild(1)).getValue();
+                if (!(subExpr.getChild(1) instanceof IntLiteral) || version > -1) {
+                    valid = false;
+                    break;
+                }
+                version = ((IntLiteral) subExpr.getChild(1)).getValue();
             } else if (leftKey.equalsIgnoreCase("backendid")) {
                 if (!(subExpr.getChild(1) instanceof IntLiteral) || backendId > -1) {
                     valid = false;
@@ -243,7 +265,7 @@ public class ShowTabletStmt extends ShowStmt {
                 valid = false;
                 break;
             }
-        } while(false);
+        } while (false);
 
         if (!valid) {
             throw new AnalysisException("Where clause should looks like: Version = \"version\","
@@ -264,7 +286,7 @@ public class ShowTabletStmt extends ShowStmt {
         if (limitElement != null) {
             if (limitElement.hasOffset() && limitElement.hasLimit()) {
                 sb.append(" ").append(limitElement.getOffset()).append(",").append(limitElement.getLimit());
-            } else if (limitElement.hasLimit()){
+            } else if (limitElement.hasLimit()) {
                 sb.append(" ").append(limitElement.getLimit());
             }
         }

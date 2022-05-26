@@ -138,8 +138,8 @@ public class ExchangeNode extends PlanNode {
         }
         if (mergeInfo != null) {
             TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(mergeInfo.getOrderingExprs()), mergeInfo.getIsAscOrder(),
-                mergeInfo.getNullsFirst());
+                    Expr.treesToThrift(mergeInfo.getOrderingExprs()),
+                    mergeInfo.getIsAscOrder(), mergeInfo.getNullsFirst());
             msg.exchange_node.setSortInfo(sortInfo);
             msg.exchange_node.setOffset(offset);
         }

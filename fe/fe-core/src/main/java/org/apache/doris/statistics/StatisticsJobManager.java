@@ -135,8 +135,8 @@ public class StatisticsJobManager {
 
         // check the number of unfinished tasks
         if (unfinishedJobs > Config.cbo_max_statistics_job_num) {
-            throw new AnalysisException("The unfinished statistics job could not more than cbo_max_statistics_job_num: " +
-                    Config.cbo_max_statistics_job_num);
+            throw new AnalysisException("The unfinished statistics job could not more than cbo_max_statistics_job_num: "
+                    + Config.cbo_max_statistics_job_num);
         }
     }
 }

@@ -73,7 +73,6 @@ public class SparkLoadPendingTaskTest {
                                 @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
                                 @Injectable OlapTable table) throws UserException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // columns
@@ -150,7 +149,6 @@ public class SparkLoadPendingTaskTest {
                                                    @Mocked Catalog catalog,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // c1 is partition column, c2 is distribution column

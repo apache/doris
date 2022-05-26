@@ -174,7 +174,7 @@ public class ProfileManager {
             while (reverse.hasNext()) {
                 String  queryId = (String) reverse.next();
                 ProfileElement profileElement = queryIdToProfileMap.get(queryId);
-                if (profileElement == null){
+                if (profileElement == null) {
                     continue;
                 }
                 Map<String, String> infoStrings = profileElement.infoStrings;
@@ -267,11 +267,12 @@ public class ProfileManager {
         return builder.getSubTaskInfo();
     }
 
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentsAndInstances(String queryId) throws AnalysisException{
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentsAndInstances(String queryId)
+            throws AnalysisException {
         return getMultiProfileTreeBuilder(queryId).getFragmentInstances(queryId);
     }
 
-    private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException{
+    private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException {
         readLock.lock();
         try {
             ProfileElement element = queryIdToProfileMap.get(jobId);

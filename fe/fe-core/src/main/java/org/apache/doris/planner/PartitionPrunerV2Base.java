@@ -95,7 +95,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
      * unify the logic like pruning multiple list columns partition for multiple range ones.
      */
     abstract Collection<Long> pruneMultipleColumnPartition(
-        Map<Column, FinalFilters> columnToFilters) throws AnalysisException;
+            Map<Column, FinalFilters> columnToFilters) throws AnalysisException;
 
     /**
      * Now we could unify the logic of pruning single column partition for both list and range
@@ -129,8 +129,8 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
             partitionKey -> ColumnBound.of(partitionKey.getKeys().get(columnIdx)));
     }
 
-    protected <TO extends Comparable, FROM extends Comparable>
-    Range<TO> mapRange(Range<FROM> range, Function<FROM, TO> mapper) {
+    protected <TO extends Comparable, FROM extends Comparable> Range<TO> mapRange(
+            Range<FROM> range, Function<FROM, TO> mapper) {
         TO lower = range.hasLowerBound() ? mapper.apply(range.lowerEndpoint()) : null;
         TO upper = range.hasUpperBound() ? mapper.apply(range.upperEndpoint()) : null;
         if (range.hasUpperBound()) {
@@ -182,8 +182,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
 
         private static final FinalFilters NO_FILTERS = new FinalFilters(Type.NO_FILTERS, null);
 
-        private static final FinalFilters CONSTANT_FALSE_FILTERS =
-            new FinalFilters(Type.CONSTANT_FALSE_FILTERS, null);
+        private static final FinalFilters CONSTANT_FALSE_FILTERS = new FinalFilters(Type.CONSTANT_FALSE_FILTERS, null);
 
         public static FinalFilters noFilters() {
             return NO_FILTERS;

@@ -275,7 +275,7 @@ public class DeployManager extends MasterDaemon {
         // 2. get electable fe host from remote
         boolean ok = true;
         List<Pair<String, Integer>> feHostPorts = null;
-        while(true) {
+        while (true) {
             try {
                 feHostPorts = getElectableGroupHostPorts();
                 if (feHostPorts == null) {
