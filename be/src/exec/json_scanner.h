@@ -64,6 +64,10 @@ public:
     // Get next tuple
     Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
 
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
+
     // Close this scanner
     void close() override;
 
