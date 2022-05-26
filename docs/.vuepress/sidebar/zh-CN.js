@@ -180,7 +180,8 @@ module.exports = [
         children: [
           "bucket-shuffle-join",
           "colocation-join",
-          "runtime-filter"
+          "runtime-filter",
+          "doris-join-optimization"
         ],
       },
       {
@@ -705,6 +706,7 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
+                  "SELECT"
                 ],
               },
               "OUTFILE"             
