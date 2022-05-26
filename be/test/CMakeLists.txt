@@ -281,7 +281,6 @@ set(UTIL_TEST_FILES
     util/string_util_test.cpp
     util/string_parser_test.cpp
     util/core_local_test.cpp
-    util/json_util_test.cpp
     util/byte_buffer2_test.cpp
     util/uid_util_test.cpp
     util/encryption_util_test.cpp
