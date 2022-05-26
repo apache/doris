@@ -56,7 +56,8 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.junit.Assert;
 import org.junit.Before;
@@ -67,8 +68,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import mockit.Injectable;
-import mockit.Mocked;
 
 
 public class GlobalTransactionMgrTest {
