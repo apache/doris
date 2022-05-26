@@ -76,6 +76,9 @@ public class ColumnDef {
             this.isCurrentTimestamp = true;
         }
 
+        // default "CURRENT_TIMESTAMP", only for DATETIME type
+        public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
+        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, true);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
@@ -85,10 +88,6 @@ public class ColumnDef {
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap
         public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
-
-        // default "CURRENT_TIMESTAMP", only for DATETIME type
-        public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
-        public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP,true);
     }
 
     // parameter initialized in constructor
@@ -305,7 +304,7 @@ public class ColumnDef {
                 DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
                 break;
             case DATETIME:
-                if(!isCurrentTimestamp) {
+                if (!isCurrentTimestamp) {
                     DateLiteral datetimeLiteral = new DateLiteral(defaultValue, type);
                 }
                 break;

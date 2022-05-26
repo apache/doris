@@ -290,7 +290,7 @@ public class Column implements Writable {
         if (getDataType() == PrimitiveType.VARCHAR) {
             return defaultValueLiteral;
         }
-        if(getType().isDatetime() && isCurrentTimestamp()) {
+        if (getType().isDatetime() && isCurrentTimestamp()) {
             return FEFunctions.now();
         }
         Expr result = defaultValueLiteral.castTo(getType());
