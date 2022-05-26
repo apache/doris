@@ -300,7 +300,7 @@ public class AggregationNode extends PlanNode {
     }
 
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
         // compute group by slot
         ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();

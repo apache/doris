@@ -55,7 +55,7 @@ public class ProjectPlanner {
         }
         Set<SlotId> inputSlotIds = null;
         try {
-            inputSlotIds = planNode.computeInputSlotIds();
+            inputSlotIds = planNode.computeInputSlotIds(analyzer);
         } catch (NotImplementedException e) {
             LOG.debug(e);
         }

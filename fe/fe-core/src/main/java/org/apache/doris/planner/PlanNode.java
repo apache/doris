@@ -987,7 +987,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      *         agg node
      *    (required slots: a.k1)
      */
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         throw new NotImplementedException("The `computeInputSlotIds` hasn't been implemented in " + planNodeName);
     }
 

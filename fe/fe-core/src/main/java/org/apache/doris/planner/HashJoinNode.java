@@ -29,10 +29,12 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CheckedMath;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
@@ -83,6 +85,8 @@ public class HashJoinNode extends PlanNode {
     private boolean isBucketShuffle = false; // the flag for bucket shuffle join
 
     private List<SlotId> hashOutputSlotIds;
+    private TupleDescriptor vOutputTupleDesc;
+    private ExprSubstitutionMap vSrcToOutputSMap;
 
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, TableRef innerRef,
                         List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts) {
@@ -187,38 +191,73 @@ public class HashJoinNode extends PlanNode {
      * eq conjuncts: a.k1=b.k1
      * @param slotIdList
      */
-    private void initHashOutputSlotIds(List<SlotId> slotIdList) {
-        hashOutputSlotIds = new ArrayList<>(slotIdList);
+    private void initHashOutputSlotIds(List<SlotId> slotIdList, Analyzer analyzer) {
+        Set<SlotId> hashOutputSlotIdSet = Sets.newHashSet();
+        // step1: change output slot id to src slot id
+        if (vSrcToOutputSMap != null) {
+            for (SlotId slotId : slotIdList) {
+                SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
+                Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+                if (srcExpr == null) {
+                    hashOutputSlotIdSet.add(slotId);
+                } else {
+                    List<SlotRef> srcSlotRefList = Lists.newArrayList();
+                    srcExpr.collect(SlotRef.class, srcSlotRefList);
+                    hashOutputSlotIdSet
+                            .addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
+                }
+            }
+        }
+
+        // step2: add conjuncts required slots
         List<SlotId> otherAndConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(otherJoinConjuncts, null, otherAndConjunctSlotIds);
         Expr.getIds(conjuncts, null, otherAndConjunctSlotIds);
-        for (SlotId slotId : otherAndConjunctSlotIds) {
-            if (!hashOutputSlotIds.contains(slotId)) {
-                hashOutputSlotIds.add(slotId);
-            }
-        }
+        hashOutputSlotIdSet.addAll(otherAndConjunctSlotIds);
+        hashOutputSlotIds = new ArrayList<>(hashOutputSlotIdSet);
     }
 
     @Override
     public void initOutputSlotIds(Set<SlotId> requiredSlotIdSet, Analyzer analyzer) {
         outputSlotIds = Lists.newArrayList();
-        for (TupleId tupleId : tupleIds) {
-            for (SlotDescriptor slotDescriptor : analyzer.getTupleDesc(tupleId).getSlots()) {
+        List<TupleDescriptor> outputTupleDescList = Lists.newArrayList();
+        if (vOutputTupleDesc != null) {
+            outputTupleDescList.add(vOutputTupleDesc);
+        } else {
+            for (TupleId tupleId : tupleIds) {
+                outputTupleDescList.add(analyzer.getTupleDesc(tupleId));
+            }
+        }
+        for (TupleDescriptor tupleDescriptor : outputTupleDescList) {
+            for (SlotDescriptor slotDescriptor : tupleDescriptor.getSlots()) {
                 if (slotDescriptor.isMaterialized()
                         && (requiredSlotIdSet == null || requiredSlotIdSet.contains(slotDescriptor.getId()))) {
                     outputSlotIds.add(slotDescriptor.getId());
                 }
             }
         }
-        initHashOutputSlotIds(outputSlotIds);
+        initHashOutputSlotIds(outputSlotIds, analyzer);
     }
 
     // output slots + predicate slots = input slots
     @Override
-    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
-        Preconditions.checkState(outputSlotIds != null);
+    public Set<SlotId> computeInputSlotIds(Analyzer analyzer) throws NotImplementedException {
         Set<SlotId> result = Sets.newHashSet();
-        result.addAll(outputSlotIds);
+        Preconditions.checkState(outputSlotIds != null);
+        // step1: change output slot id to src slot id
+        if (vSrcToOutputSMap != null) {
+            for (SlotId slotId : outputSlotIds) {
+                SlotRef slotRef = new SlotRef(analyzer.getDescTbl().getSlotDesc(slotId));
+                Expr srcExpr = vSrcToOutputSMap.mappingForRhsExpr(slotRef);
+                if (srcExpr == null) {
+                    result.add(slotId);
+                } else {
+                    List<SlotRef> srcSlotRefList = Lists.newArrayList();
+                    srcExpr.collect(SlotRef.class, srcSlotRefList);
+                    result.addAll(srcSlotRefList.stream().map(e -> e.getSlotId()).collect(Collectors.toList()));
+                }
+            }
+        }
         // eq conjunct
         List<SlotId> eqConjunctSlotIds = Lists.newArrayList();
         Expr.getIds(eqJoinConjuncts, null, eqConjunctSlotIds);
@@ -244,13 +283,99 @@ public class HashJoinNode extends PlanNode {
         computeStats(analyzer);
 
         ExprSubstitutionMap combinedChildSmap = getCombinedChildWithoutTupleIsNullSmap();
-        List<Expr> newEqJoinConjuncts =
-                Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
-        eqJoinConjuncts = newEqJoinConjuncts.stream()
-                .map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
+        List<Expr> newEqJoinConjuncts = Expr.substituteList(eqJoinConjuncts, combinedChildSmap, analyzer, false);
+        eqJoinConjuncts =
+                newEqJoinConjuncts.stream().map(entity -> (BinaryPredicate) entity).collect(Collectors.toList());
         assignedConjuncts = analyzer.getAssignedConjuncts();
-        otherJoinConjuncts =
-                Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
+        otherJoinConjuncts = Expr.substituteList(otherJoinConjuncts, combinedChildSmap, analyzer, false);
+
+        // Only for Vec: create new tuple for join result
+        if (VectorizedUtil.isVectorized()) {
+            computeOutputTuple(analyzer);
+        }
+    }
+
+    private void computeOutputTuple(Analyzer analyzer) throws AnalysisException {
+        // 1. create new tuple
+        vOutputTupleDesc = analyzer.getDescTbl().createTupleDescriptor();
+        boolean copyLeft = false;
+        boolean copyRight = false;
+        boolean leftNullable = false;
+        boolean rightNullable = false;
+        switch (joinOp) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+                copyLeft = true;
+                copyRight = true;
+                break;
+            case LEFT_OUTER_JOIN:
+                copyLeft = true;
+                copyRight = true;
+                rightNullable = true;
+                break;
+            case RIGHT_OUTER_JOIN:
+                copyLeft = true;
+                copyRight = true;
+                leftNullable = true;
+                break;
+            case FULL_OUTER_JOIN:
+                copyLeft = true;
+                copyRight = true;
+                leftNullable = true;
+                rightNullable = true;
+                break;
+            case LEFT_ANTI_JOIN:
+            case LEFT_SEMI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                copyLeft = true;
+                break;
+            case RIGHT_ANTI_JOIN:
+            case RIGHT_SEMI_JOIN:
+                copyRight = true;
+                break;
+            default:
+                break;
+        }
+        ExprSubstitutionMap srcTblRefToOutputTupleSmap = new ExprSubstitutionMap();
+        if (copyLeft) {
+            for (TupleDescriptor leftTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(0).getTblRefIds())) {
+                for (SlotDescriptor leftSlotDesc : leftTupleDesc.getSlots()) {
+                    SlotDescriptor outputSlotDesc =
+                            analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, leftSlotDesc);
+                    if (leftNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
+                    srcTblRefToOutputTupleSmap.put(new SlotRef(leftSlotDesc), new SlotRef(outputSlotDesc));
+                }
+            }
+        }
+        if (copyRight) {
+            for (TupleDescriptor rightTupleDesc : analyzer.getDescTbl().getTupleDesc(getChild(1).getTblRefIds())) {
+                for (SlotDescriptor rightSlotDesc : rightTupleDesc.getSlots()) {
+                    SlotDescriptor outputSlotDesc =
+                            analyzer.getDescTbl().copySlotDescriptor(vOutputTupleDesc, rightSlotDesc);
+                    if (rightNullable) {
+                        outputSlotDesc.setIsNullable(true);
+                    }
+                    srcTblRefToOutputTupleSmap.put(new SlotRef(rightSlotDesc), new SlotRef(outputSlotDesc));
+                }
+            }
+        }
+        // 2. compute srcToOutputMap
+        vSrcToOutputSMap = ExprSubstitutionMap.subtraction(outputSmap, srcTblRefToOutputTupleSmap);
+        for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+            Preconditions.checkState(vSrcToOutputSMap.getRhs().get(i) instanceof SlotRef);
+            SlotRef rSlotRef = (SlotRef) vSrcToOutputSMap.getRhs().get(i);
+            if (vSrcToOutputSMap.getLhs().get(i) instanceof SlotRef) {
+                SlotRef lSlotRef = (SlotRef) vSrcToOutputSMap.getLhs().get(i);
+                rSlotRef.getDesc().setIsMaterialized(lSlotRef.getDesc().isMaterialized());
+            } else {
+                rSlotRef.getDesc().setIsMaterialized(true);
+            }
+        }
+        vOutputTupleDesc.computeStatAndMemLayout();
+        // 3. change the outputSmap
+        outputSmap = ExprSubstitutionMap.combineAndReplace(outputSmap, srcTblRefToOutputTupleSmap);
     }
 
     private void replaceOutputSmapForOuterJoin() {
@@ -689,6 +814,12 @@ public class HashJoinNode extends PlanNode {
                 msg.hash_join_node.addToHashOutputSlotIds(slotId.asInt());
             }
         }
+        if (vSrcToOutputSMap != null) {
+            for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
+                msg.hash_join_node.putToSrcToOutputMap(vSrcToOutputSMap.getLhs().get(i).treeToThrift(),
+                        vSrcToOutputSMap.getRhs().get(i).treeToThrift());
+            }
+        }
     }
 
     @Override
@@ -718,9 +849,11 @@ public class HashJoinNode extends PlanNode {
             output.append(detailPrefix).append("runtime filters: ");
             output.append(getRuntimeFilterExplainString(true));
         }
-        output.append(detailPrefix).append(String.format(
-                "cardinality=%s", cardinality)).append("\n");
+        output.append(detailPrefix).append(String.format("cardinality=%s", cardinality)).append("\n");
         // todo unify in plan node
+        if (vOutputTupleDesc != null) {
+            output.append(detailPrefix).append("vec output tuple id: ").append(vOutputTupleDesc.getId());
+        }
         if (outputSlotIds != null) {
             output.append(detailPrefix).append("output slot ids: ");
             for (SlotId slotId : outputSlotIds) {
