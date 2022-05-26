@@ -30,6 +30,7 @@
 #include "olap/delete_handler.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/rowid_conversion.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"

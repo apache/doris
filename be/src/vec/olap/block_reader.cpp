@@ -171,6 +171,12 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
         return res;
     }
     *eof = res.precise_code() == OLAP_ERR_DATA_EOF;
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        res = _vcollect_iter.current_block_row_locations(&_block_row_locations);
+        if (UNLIKELY(!res.ok() && res != Status::OLAPInternalError(OLAP_ERR_DATA_EOF))) {
+            return res;
+        }
+    }
     return Status::OK();
 }
 
@@ -238,9 +244,15 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
 
     auto target_block_row = 0;
     auto target_columns = block->mutate_columns();
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        _block_row_locations.resize(_batch_size);
+    }
 
     do {
         _insert_data_normal(target_columns);
+        if (UNLIKELY(_reader_context.record_rowids)) {
+            _block_row_locations[target_block_row] = _vcollect_iter.current_row_location();
+        }
         target_block_row++;
 
         // the version is in reverse order, the first row is the highest version,
@@ -257,6 +269,10 @@ Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, Obje
             return res;
         }
     } while (target_block_row < _batch_size);
+
+    if (UNLIKELY(_reader_context.record_rowids)) {
+        _block_row_locations.resize(block->rows());
+    }
 
     return Status::OK();
 }
