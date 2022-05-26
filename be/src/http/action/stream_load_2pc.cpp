@@ -42,7 +42,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
 
     if (config::disable_stream_load_2pc) {
         status = Status::InternalError("Two phase commit (2PC) for stream load was disabled");
-        status_result = to_json(status);
+        status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
     }
@@ -56,14 +56,14 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         ctx->txn_id = std::stoull(req_txn_id);
     } catch (const std::exception& e) {
         status = Status::InternalError("convert txn_id [" + req_txn_id + "] failed");
-        status_result = to_json(status);
+        status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
     }
     ctx->txn_operation = req->header(HTTP_TXN_OPERATION_KEY);
     if (ctx->txn_operation.compare("commit") != 0 && ctx->txn_operation.compare("abort") != 0) {
         status = Status::InternalError("transaction operation should be \'commit\' or \'abort\'");
-        status_result = to_json(status);
+        status_result = status.to_json();
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         return;
     }
@@ -76,7 +76,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx);
 
     if (!status.ok()) {
-        status_result = to_json(status);
+        status_result = status.to_json();
     } else {
         status_result = get_success_info(req_txn_id, ctx->txn_operation);
     }
