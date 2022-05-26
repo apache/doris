@@ -78,4 +78,12 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
 void VOlapScanner::set_tablet_reader() {
     _tablet_reader = std::make_unique<BlockReader>();
 }
+
+Status VOlapScanner::close(RuntimeState* state) {
+    if (_is_closed) {
+        return Status::OK();
+    }
+    if (_vconjunct_ctx) _vconjunct_ctx->close(state);
+    return OlapScanner::close(state);
+}
 } // namespace doris::vectorized

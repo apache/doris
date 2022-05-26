@@ -65,6 +65,10 @@ public:
         return _last_result_column_id;
     }
 
+    FunctionContext::FunctionStateScope get_function_state_scope() const {
+        return _is_clone ? FunctionContext::THREAD_LOCAL : FunctionContext::FRAGMENT_LOCAL;
+    }
+
 private:
     friend class VExpr;
 

@@ -91,6 +91,7 @@ public:
 
 protected:
     std::string _peel_pushed_vconjunct(
+            RuntimeState* state,
             const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
 
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
