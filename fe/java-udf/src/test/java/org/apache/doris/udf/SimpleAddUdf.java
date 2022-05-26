@@ -19,6 +19,6 @@ package org.apache.doris.udf;
 
 public class SimpleAddUdf {
     public Integer evaluate(Integer a, int b) {
-        return a == null? null: a + b;
+        return a == null ? null : a + b;
     }
 }

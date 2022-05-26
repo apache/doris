@@ -40,7 +40,7 @@ public class CountFieldToSumTest {
     public void testCountDistinct(@Injectable Analyzer analyzer,
                                   @Injectable FunctionCallExpr functionCallExpr) {
         TableName tableName = new TableName("db1", "table1");
-        SlotRef slotRef = new SlotRef(tableName,"c1");
+        SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr>  params = Lists.newArrayList();
         params.add(slotRef);
 

@@ -49,14 +49,14 @@ public class JvmInfo {
             pid = -1;
         }
 
-        long heapInit = memoryMXBean.getHeapMemoryUsage().getInit() < 0 ?
-                0 : memoryMXBean.getHeapMemoryUsage().getInit();
-        long heapMax = memoryMXBean.getHeapMemoryUsage().getMax() < 0 ?
-                0 : memoryMXBean.getHeapMemoryUsage().getMax();
-        long nonHeapInit = memoryMXBean.getNonHeapMemoryUsage().getInit() < 0 ?
-                0 : memoryMXBean.getNonHeapMemoryUsage().getInit();
-        long nonHeapMax = memoryMXBean.getNonHeapMemoryUsage().getMax() < 0 ?
-                0 : memoryMXBean.getNonHeapMemoryUsage().getMax();
+        long heapInit = memoryMXBean.getHeapMemoryUsage().getInit() < 0
+                ? 0 : memoryMXBean.getHeapMemoryUsage().getInit();
+        long heapMax = memoryMXBean.getHeapMemoryUsage().getMax() < 0
+                ? 0 : memoryMXBean.getHeapMemoryUsage().getMax();
+        long nonHeapInit = memoryMXBean.getNonHeapMemoryUsage().getInit() < 0
+                ? 0 : memoryMXBean.getNonHeapMemoryUsage().getInit();
+        long nonHeapMax = memoryMXBean.getNonHeapMemoryUsage().getMax() < 0
+                ? 0 : memoryMXBean.getNonHeapMemoryUsage().getMax();
         long directMemoryMax = 0;
         try {
             Class<?> vmClass = Class.forName("sun.misc.VM");
@@ -116,12 +116,14 @@ public class JvmInfo {
                 Object onErrorObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean, "OnError");
                 onError = (String) valueMethod.invoke(onErrorObject);
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
                 Object onOutOfMemoryErrorObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean, "OnOutOfMemoryError");
                 onOutOfMemoryError = (String) valueMethod.invoke(onOutOfMemoryErrorObject);
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
@@ -129,12 +131,14 @@ public class JvmInfo {
                         "UseCompressedOops");
                 useCompressedOops = (String) valueMethod.invoke(useCompressedOopsVmOptionObject);
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
                 Object useG1GCVmOptionObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean, "UseG1GC");
                 useG1GC = (String) valueMethod.invoke(useG1GCVmOptionObject);
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
@@ -142,22 +146,25 @@ public class JvmInfo {
                         "InitialHeapSize");
                 configuredInitialHeapSize = Long.parseLong((String) valueMethod.invoke(initialHeapSizeVmOptionObject));
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
                 Object maxHeapSizeVmOptionObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean, "MaxHeapSize");
                 configuredMaxHeapSize = Long.parseLong((String) valueMethod.invoke(maxHeapSizeVmOptionObject));
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
             try {
                 Object useSerialGCVmOptionObject = vmOptionMethod.invoke(hotSpotDiagnosticMXBean, "UseSerialGC");
                 useSerialGC = (String) valueMethod.invoke(useSerialGCVmOptionObject);
             } catch (Exception ignored) {
+                // CHECKSTYLE IGNORE THIS LINE
             }
 
         } catch (Exception ignored) {
-
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         INSTANCE = new JvmInfo(pid, System.getProperty("java.version"), runtimeMXBean.getVmName(),

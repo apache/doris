@@ -116,62 +116,47 @@ public class OlapScanNodeTest {
 
     @Test
     public void testHashForIntLiteral() {
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(1), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 1);
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(2), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 0);
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(3), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 0);
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(4), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 1);
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(5), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 2);
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             PartitionKey hashKey = new PartitionKey();
             hashKey.pushColumn(new IntLiteral(6), PrimitiveType.BIGINT);
             long hashValue = hashKey.getHashValue();
             long mod = (int) ((hashValue & 0xffffffff) % 3);
             Assert.assertEquals(mod, 2);
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
-
-//    @Test
-//    public void testConstructInputPartitionByDistributionInfo(@Injectable OlapTable olapTable,
-//                                                              @Injectable TupleDescriptor tupleDescriptor) {
-//        PlanNodeId planNodeId = new PlanNodeId(1);
-//        OlapScanNode olapScanNode = new OlapScanNode(planNodeId, tupleDescriptor, "scan node");
-//        Deencapsulation.setField(olapScanNode, "olapTable", olapTable);
-//        new Expectations() {
-//            {
-//                olapTable.getDefaultDistributionInfo();
-//                result =
-//            }
-//        };
-//        olapScanNode.constructInputPartitionByDistributionInfo();
-//    }
 }

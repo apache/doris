@@ -322,11 +322,11 @@ public class PartitionRebalancer extends Rebalancer {
 
         @Override
         public String toString() {
-            return "ReplicaMove{" +
-                    "tabletId=" + tabletId +
-                    ", fromBe=" + fromBe +
-                    ", toBe=" + toBe +
-                    '}';
+            return "ReplicaMove{"
+                    + "tabletId=" + tabletId
+                    + ", fromBe=" + fromBe
+                    + ", toBe=" + toBe
+                    + '}';
         }
     }
 

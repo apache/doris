@@ -67,8 +67,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * This class is deprecated.
- * If you want to start a FE server in unit test, please let your test
+ * @deprecated If you want to start a FE server in unit test, please let your test
  * class extend {@link TestWithFeService}.
  */
 @Deprecated
@@ -241,6 +240,7 @@ public class UtFrameUtils {
         try {
             FileUtils.deleteDirectory(new File(baseDir));
         } catch (IOException e) {
+            // ignore
         }
     }
 

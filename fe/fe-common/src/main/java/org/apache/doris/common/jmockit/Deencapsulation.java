@@ -21,11 +21,11 @@ public final class Deencapsulation {
     }
 
     public static <T> T getField(Class<?> classWithStaticField, String fieldName) {
-        return FieldReflection.getField(classWithStaticField, fieldName, (Object)null);
+        return FieldReflection.getField(classWithStaticField, fieldName, null);
     }
 
     public static <T> T getField(Class<?> classWithStaticField, Class<T> fieldType) {
-        return FieldReflection.getField(classWithStaticField, fieldType, (Object)null);
+        return FieldReflection.getField(classWithStaticField, fieldType, null);
     }
 
     public static void setField(Object objectWithField, String fieldName, Object fieldValue) {
@@ -33,15 +33,15 @@ public final class Deencapsulation {
     }
 
     public static void setField(Object objectWithField, Object fieldValue) {
-        FieldReflection.setField(objectWithField.getClass(), objectWithField, (String)null, fieldValue);
+        FieldReflection.setField(objectWithField.getClass(), objectWithField, null, fieldValue);
     }
 
     public static void setField(Class<?> classWithStaticField, String fieldName, Object fieldValue) {
-        FieldReflection.setField(classWithStaticField, (Object)null, fieldName, fieldValue);
+        FieldReflection.setField(classWithStaticField, null, fieldName, fieldValue);
     }
 
     public static void setField(Class<?> classWithStaticField, Object fieldValue) {
-        FieldReflection.setField(classWithStaticField, (Object)null, (String)null, fieldValue);
+        FieldReflection.setField(classWithStaticField, null, null, fieldValue);
     }
 
     public static <T> T invoke(Object objectWithMethod, String methodName, Object... nonNullArgs) {
@@ -50,7 +50,7 @@ public final class Deencapsulation {
     }
 
     public static <T> T invoke(Class<?> classWithStaticMethod, String methodName, Object... nonNullArgs) {
-        return MethodReflection.invoke(classWithStaticMethod, (Object)null, methodName, nonNullArgs);
+        return MethodReflection.invoke(classWithStaticMethod, null, methodName, nonNullArgs);
     }
 
     public static <T> T newInstance(Class<? extends T> classToInstantiate, Object... nonNullArgs) {

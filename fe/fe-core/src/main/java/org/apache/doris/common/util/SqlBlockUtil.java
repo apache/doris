@@ -32,7 +32,7 @@ public class SqlBlockUtil {
     public static final Long LONG_MINUS_ONE = -1L;
 
 
-    public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException{
+    public static void checkSqlAndSqlHashSetBoth(String sql, String sqlHash) throws AnalysisException {
         if (!STRING_DEFAULT.equals(sql) && !STRING_DEFAULT.equals(sqlHash)) {
             throw new AnalysisException("Only sql or sqlHash can be configured");
         }
@@ -75,10 +75,13 @@ public class SqlBlockUtil {
     // alter operation not allowed to change other properties that not set
     public static void checkAlterValidate(SqlBlockRule sqlBlockRule) throws AnalysisException {
         if (!STRING_DEFAULT.equals(sqlBlockRule.getSql())) {
-            if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash()) && StringUtils.isNotEmpty(sqlBlockRule.getSqlHash())) {
+            if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())
+                    && StringUtils.isNotEmpty(sqlBlockRule.getSqlHash())) {
                 throw new AnalysisException("Only sql or sqlHash can be configured");
-            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
-                    &&!isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(), sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
+            } else if (!isSqlBlockLimitationsDefault(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())
+                    && !isSqlBlockLimitationsNull(sqlBlockRule.getPartitionNum(),
+                    sqlBlockRule.getTabletNum(), sqlBlockRule.getCardinality())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERROR_SQL_AND_LIMITATIONS_SET_IN_ONE_RULE);
             }
         } else if (!STRING_DEFAULT.equals(sqlBlockRule.getSqlHash())) {

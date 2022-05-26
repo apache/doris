@@ -17,15 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 public class SyncStmt extends DdlStmt {
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-//         if (analyzer.getCatalog().isMaster()) {
-//             throw new AnalysisException("No need to Sync, for you are master");
-//         }
+    public void analyze(Analyzer analyzer) throws UserException {
+
     }
 
     @Override

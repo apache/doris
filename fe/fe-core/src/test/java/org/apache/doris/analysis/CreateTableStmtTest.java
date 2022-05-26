@@ -267,12 +267,12 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
         stmt.analyze(analyzer);
 
-        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n" +
-                "\n" +
-                ") ENGINE = iceberg\n" +
-                "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n" +
-                "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n" +
-                "\"iceberg.table\"  =  \"test\")", stmt.toString());
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = iceberg\n"
+                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
+                + "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"iceberg.table\"  =  \"test\")", stmt.toString());
     }
 
     @Test

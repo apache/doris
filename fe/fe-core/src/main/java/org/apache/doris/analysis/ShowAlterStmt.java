@@ -65,11 +65,25 @@ public class ShowAlterStmt extends ShowStmt {
 
     private ProcNodeInterface node;
 
-    public AlterType getType() { return type; }
-    public String getDbName() { return dbName; }
-    public HashMap<String, Expr> getFilterMap() { return filterMap; }
-    public LimitElement getLimitElement(){ return limitElement; }
-    public ArrayList<OrderByPair> getOrderPairs(){ return orderByPairs; }
+    public AlterType getType() {
+        return type;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public HashMap<String, Expr> getFilterMap() {
+        return filterMap;
+    }
+
+    public LimitElement getLimitElement() {
+        return limitElement;
+    }
+
+    public ArrayList<OrderByPair> getOrderPairs() {
+        return orderByPairs;
+    }
 
     public ProcNodeInterface getNode() {
         return this.node;
@@ -95,8 +109,8 @@ public class ShowAlterStmt extends ShowStmt {
         }
         String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName().toLowerCase();
         if (leftKey.equals("tablename") || leftKey.equals("state")) {
-            if (!(subExpr.getChild(1) instanceof StringLiteral) ||
-                    binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
+            if (!(subExpr.getChild(1) instanceof StringLiteral)
+                    || binaryPredicate.getOp() != BinaryPredicate.Operator.EQ) {
                 throw new AnalysisException("Where clause : TableName = \"table1\" or "
                     + "State = \"FINISHED|CANCELLED|RUNNING|PENDING|WAITING_TXN\"");
             }
@@ -105,7 +119,7 @@ public class ShowAlterStmt extends ShowStmt {
                 throw new AnalysisException("Where clause : CreateTime/FinishTime =|>=|<=|>|<|!= "
                     + "\"2019-12-02|2019-12-02 14:54:00\"");
             }
-            subExpr.setChild(1,((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
+            subExpr.setChild(1, ((StringLiteral) subExpr.getChild(1)).castTo(Type.DATETIME));
         } else {
             throw new AnalysisException("The columns of TableName/CreateTime/FinishTime/State are supported.");
         }

@@ -157,10 +157,17 @@ public final class ExprSubstitutionMap {
         lhs = Expr.substituteList(lhs, lhsSmap, analyzer, false);
     }
 
-    public List<Expr> getLhs() { return lhs; }
-    public List<Expr> getRhs() { return rhs; }
+    public List<Expr> getLhs() {
+        return lhs;
+    }
 
-    public int size() { return lhs.size(); }
+    public List<Expr> getRhs() {
+        return rhs;
+    }
+
+    public int size() {
+        return lhs.size();
+    }
 
     public String debugString() {
         Preconditions.checkState(lhs.size() == rhs.size());

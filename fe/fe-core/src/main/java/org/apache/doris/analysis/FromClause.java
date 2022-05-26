@@ -22,7 +22,6 @@ package org.apache.doris.analysis;
 
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -59,8 +58,14 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         }
     }
 
-    public FromClause() { tablerefs = Lists.newArrayList(); }
-    public List<TableRef> getTableRefs() { return tablerefs; }
+    public FromClause() {
+        tablerefs = Lists.newArrayList();
+    }
+
+    public List<TableRef> getTableRefs() {
+        return tablerefs;
+    }
+
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
     }
@@ -84,7 +89,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
             Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
             String tblName = tableName.getTbl();
-            Table table = db.getTableOrAnalysisException(tblName);
+            db.getTableOrAnalysisException(tblName);
         }
     }
 
@@ -158,7 +163,7 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tablerefs) {
+        for (TableRef tblRef : tablerefs) {
             clone.add(tblRef.clone());
         }
         return new FromClause(clone);
@@ -166,20 +171,6 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     public void reset() {
         for (int i = 0; i < size(); ++i) {
-            TableRef origTblRef = get(i);
-            // TODO(zc):
-            // if (origTblRef.isResolved() && !(origTblRef instanceof InlineViewRef)) {
-            //     // Replace resolved table refs with unresolved ones.
-            //     TableRef newTblRef = new TableRef(origTblRef);
-            //     // Use the fully qualified raw path to preserve the original resolution.
-            //     // Otherwise, non-fully qualified paths might incorrectly match a local view.
-            //     // TODO for 2.3: This full qualification preserves analysis state which is
-            //     // contrary to the intended semantics of reset(). We could address this issue by
-            //     // changing the WITH-clause analysis to register local views that have
-            //     // fully-qualified table refs, and then remove the full qualification here.
-            //     newTblRef.rawPath_ = origTblRef.getResolvedPath().getFullyQualifiedRawPath();
-            //     set(i, newTblRef);
-            // }
             get(i).reset();
         }
         this.analyzed = false;
@@ -208,14 +199,36 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         return builder.toString();
     }
 
-    public boolean isEmpty() { return tablerefs.isEmpty(); }
+    public boolean isEmpty() {
+        return tablerefs.isEmpty();
+    }
 
     @Override
-    public Iterator<TableRef> iterator() { return tablerefs.iterator(); }
-    public int size() { return tablerefs.size(); }
-    public TableRef get(int i) { return tablerefs.get(i); }
-    public void set(int i, TableRef tableRef) { tablerefs.set(i, tableRef); }
-    public void add(TableRef t) { tablerefs.add(t); }
-    public void addAll(List<TableRef> t) { tablerefs.addAll(t); }
-    public void clear() { tablerefs.clear(); }
+    public Iterator<TableRef> iterator() {
+        return tablerefs.iterator();
+    }
+
+    public int size() {
+        return tablerefs.size();
+    }
+
+    public TableRef get(int i) {
+        return tablerefs.get(i);
+    }
+
+    public void set(int i, TableRef tableRef) {
+        tablerefs.set(i, tableRef);
+    }
+
+    public void add(TableRef t) {
+        tablerefs.add(t);
+    }
+
+    public void addAll(List<TableRef> t) {
+        tablerefs.addAll(t);
+    }
+
+    public void clear() {
+        tablerefs.clear();
+    }
 }

@@ -187,7 +187,7 @@ public class AgentTaskTest {
 
         // storageMediaMigrationTask
         TAgentTaskRequest request7 =
-            (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
         Assert.assertEquals(TTaskType.STORAGE_MEDIUM_MIGRATE, request7.getTaskType());
         Assert.assertEquals(storageMediaMigrationTask.getSignature(), request7.getSignature());
         Assert.assertNotNull(request7.getStorageMediumMigrateReq());

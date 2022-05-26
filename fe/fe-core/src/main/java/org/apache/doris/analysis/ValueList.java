@@ -36,9 +36,17 @@ public class ValueList {
         this.rows = rows;
     }
 
-    public List<ArrayList<Expr>> getRows() { return rows; }
-    public void addRow(ArrayList<Expr> row) { rows.add(row); }
-    public ArrayList<Expr> getFirstRow() { return rows.get(0); }
+    public List<ArrayList<Expr>> getRows() {
+        return rows;
+    }
+
+    public void addRow(ArrayList<Expr> row) {
+        rows.add(row);
+    }
+
+    public ArrayList<Expr> getFirstRow() {
+        return rows.get(0);
+    }
 
     public void analyzeForSelect(Analyzer analyzer) throws AnalysisException {
         if (rows.isEmpty()) {

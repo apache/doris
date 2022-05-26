@@ -55,6 +55,7 @@ public class ComparisonPredicateTest {
             binaryPredicate.analyzeImpl(analyzer);
             Assert.fail();
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 
@@ -102,12 +103,14 @@ public class ComparisonPredicateTest {
             predicate1.analyzeImpl(analyzer);
             Assert.fail();
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
 
         try {
             predicate2.analyzeImpl(analyzer);
             Assert.fail();
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 

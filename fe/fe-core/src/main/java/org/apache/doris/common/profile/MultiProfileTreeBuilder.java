@@ -112,7 +112,7 @@ public class MultiProfileTreeBuilder {
     }
 
     public List<Triple<String, String, Long>> getInstanceList(String executionId, String fragmentId)
-         throws AnalysisException {
+            throws AnalysisException {
         ProfileTreeBuilder singleBuilder = getExecutionProfileTreeBuilder(executionId);
         return singleBuilder.getInstanceList(fragmentId);
     }
@@ -128,7 +128,8 @@ public class MultiProfileTreeBuilder {
         return singleBuilder.getFragmentTreeRoot();
     }
 
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId) throws AnalysisException{
+    public List<ProfileTreeBuilder.FragmentInstances> getFragmentInstances(String executionId)
+            throws AnalysisException {
         return getExecutionProfileTreeBuilder(executionId).getFragmentsInstances();
     }
 

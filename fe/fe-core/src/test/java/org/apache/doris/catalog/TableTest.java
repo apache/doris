@@ -131,7 +131,8 @@ public class TableTest {
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
                                                   new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
-        table1.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table1.setIndexMeta(1000, "group1", columns, 1, 1,
+                shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
         List<Column> column = Lists.newArrayList();
         column.add(column2);
 

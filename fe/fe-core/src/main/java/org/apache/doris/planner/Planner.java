@@ -75,7 +75,9 @@ public class Planner {
         return fragments;
     }
 
-    public PlannerContext getPlannerContext() { return plannerContext;}
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
 
     public List<ScanNode> getScanNodes() {
         if (singleNodePlanner == null) {
@@ -99,11 +101,11 @@ public class Planner {
                     expr.getIds(null, slotList);
                     if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
                         int outputScale = slotDesc.getColumn().getScale();

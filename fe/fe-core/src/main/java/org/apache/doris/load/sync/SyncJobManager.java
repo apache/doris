@@ -258,7 +258,7 @@ public class SyncJobManager implements Writable {
             Map<String, List<SyncJob>> jobNameToSyncJobs = dbIdToJobNameToSyncJobs.get(db.getId());
             if (jobNameToSyncJobs != null && jobNameToSyncJobs.containsKey(jobName)) {
                 List<SyncJob> matchJobs = jobNameToSyncJobs.get(jobName);
-                for(SyncJob syncJob : matchJobs) {
+                for (SyncJob syncJob : matchJobs) {
                     if (!syncJob.isCancelled()) {
                         result = true;
                     }

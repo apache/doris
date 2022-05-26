@@ -74,10 +74,10 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                 return false;
             }
             PartitionMove that = (PartitionMove) o;
-            return Objects.equal(partitionId, that.partitionId) &&
-                    Objects.equal(indexId, that.indexId) &&
-                    Objects.equal(fromBe, that.fromBe) &&
-                    Objects.equal(toBe, that.toBe);
+            return Objects.equal(partitionId, that.partitionId)
+                    && Objects.equal(indexId, that.indexId)
+                    && Objects.equal(fromBe, that.fromBe)
+                    && Objects.equal(toBe, that.toBe);
         }
 
         @Override
@@ -87,11 +87,11 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public String toString() {
-            return "ReplicaMove{" +
-                    "pid=" + partitionId + "-" + indexId +
-                    ", from=" + fromBe +
-                    ", to=" + toBe +
-                    '}';
+            return "ReplicaMove{"
+                    + "pid=" + partitionId + "-" + indexId
+                    + ", from=" + fromBe
+                    + ", to=" + toBe
+                    + '}';
         }
     }
 
@@ -189,8 +189,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         // improves cluster skew.
         NavigableSet<PartitionBalanceInfo> maxSet = skewMap.get(maxPartitionSkew);
         for (PartitionBalanceInfo pbi : maxSet) {
-            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of " +
-                    "partition " + pbi.partitionId + "-" + pbi.indexId);
+            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of "
+                    + "partition " + pbi.partitionId + "-" + pbi.indexId);
 
             Long minReplicaCount = pbi.beByReplicaCount.keySet().first();
             Long maxReplicaCount = pbi.beByReplicaCount.keySet().last();
@@ -216,7 +216,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                 continue;
             }
 
-            Long minLoadedBe, maxLoadedBe;
+            Long minLoadedBe;
+            Long maxLoadedBe;
             if (equalSkewOption == EqualSkewOption.PICK_FIRST) {
                 // beWithExtremumCount lists & intersection lists are natural ordering
                 minLoadedBe = minLoaded.intersection.isEmpty() ? minLoaded.beWithExtremumCount.get(0) : minLoaded.intersection.get(0);

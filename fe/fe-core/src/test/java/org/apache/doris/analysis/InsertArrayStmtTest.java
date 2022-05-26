@@ -71,14 +71,13 @@ public class InsertArrayStmtTest {
         Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
         insertStmt.analyze(analyzer);
         return insertStmt;
-    };
+    }
 
     @Test
     public void testInsertArrayStmt() throws Exception {
-        ExceptionChecker.expectThrowsNoException(() -> {
-            createTable("create table test.table1 (k1 INT, v1 Array<int>) duplicate key (k1) " +
-                    " distributed by hash (k1) buckets 1 properties ('replication_num' = '1');");
-        });
+        ExceptionChecker.expectThrowsNoException(
+                () -> createTable("create table test.table1 (k1 INT, v1 Array<int>) duplicate key (k1) "
+                + " distributed by hash (k1) buckets 1 properties ('replication_num' = '1');"));
 
         connectContext.setQueryId(new TUniqueId(1, 0));
         InsertStmt insertStmt = parseAndAnalyze("insert into test.table1 values (1, [1, 2, 3]);");
@@ -107,8 +106,7 @@ public class InsertArrayStmtTest {
         Assert.assertSame(PrimitiveType.INT, ((ArrayType) arrayLiteral.getType()).getItemType().getPrimitiveType());
 
         connectContext.setQueryId(new TUniqueId(3, 0));
-        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match", ()-> {
-            parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);");
-        });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "type not match",
+                () -> parseAndAnalyze("insert into test.table1 values (1, [[1, 2], [3, 4]]);"));
     }
 }

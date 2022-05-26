@@ -116,23 +116,41 @@ public class SparkLoadAppHandle implements Writable {
         }
     }
 
-    public State getState() { return this.state; }
+    public State getState() {
+        return this.state;
+    }
 
-    public String getAppId() { return this.appId; }
+    public String getAppId() {
+        return this.appId;
+    }
 
-    public String getQueue() { return this.queue; }
+    public String getQueue() {
+        return this.queue;
+    }
 
-    public Process getProcess() { return this.process; }
+    public Process getProcess() {
+        return this.process;
+    }
 
-    public long getStartTime() { return this.startTime; }
+    public long getStartTime() {
+        return this.startTime;
+    }
 
-    public FinalApplicationStatus getFinalStatus() { return this.finalStatus; }
+    public FinalApplicationStatus getFinalStatus() {
+        return this.finalStatus;
+    }
 
-    public String getUrl() { return this.trackingUrl; }
+    public String getUrl() {
+        return this.trackingUrl;
+    }
 
-    public String getUser() { return this.user; }
+    public String getUser() {
+        return this.user;
+    }
 
-    public String getLogPath() { return this.logPath; }
+    public String getLogPath() {
+        return this.logPath;
+    }
 
     public void setProcess(Process process) {
         this.process = process;
@@ -183,7 +201,7 @@ public class SparkLoadAppHandle implements Writable {
             Iterator iterator = this.listeners.iterator();
 
             while (iterator.hasNext()) {
-                Listener l = (Listener)iterator.next();
+                Listener l = (Listener) iterator.next();
                 if (isInfoChanged) {
                     l.infoChanged(this);
                 } else {

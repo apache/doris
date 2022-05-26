@@ -84,13 +84,13 @@ public class EsShardRouting {
 
     @Override
     public String toString() {
-        return "EsShardRouting{" +
-                "indexName='" + indexName + '\'' +
-                ", shardId=" + shardId +
-                ", isPrimary=" + isPrimary +
-                ", address=" + address +
-                ", httpAddress=" + httpAddress +
-                ", nodeId='" + nodeId + '\'' +
-                '}';
+        return "EsShardRouting{"
+                + "indexName='" + indexName + '\''
+                + ", shardId=" + shardId
+                + ", isPrimary=" + isPrimary
+                + ", address=" + address
+                + ", httpAddress=" + httpAddress
+                + ", nodeId='" + nodeId + '\''
+                + '}';
     }
 }

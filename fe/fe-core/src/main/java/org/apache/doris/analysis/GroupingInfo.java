@@ -179,7 +179,7 @@ public class GroupingInfo {
     public void substituteGroupingFn(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr instanceof GroupingFunctionCallExpr) {
             // TODO(yangzhengguo) support expression in grouping functions
-            for (Expr child: expr.getChildren()) {
+            for (Expr child : expr.getChildren()) {
                 if (!(child instanceof SlotRef)) {
                     throw new AnalysisException("grouping functions only support column in current version.");
                     // expr from inline view

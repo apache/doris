@@ -240,8 +240,8 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                     if (!type.equals("int64")) {
-                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, " +
-                                "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is BIGINT/DATE/DATETIME, should use int64, "
+                                + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case FLOAT:
@@ -261,16 +261,16 @@ public class OutFileClause {
                 case STRING:
                 case DECIMALV2:
                     if (!type.equals("byte_array")) {
-                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, " +
-                                "but the definition type of column " + i + " is " + type);
+                        throw new AnalysisException("project field type is CHAR/VARCHAR/STRING/DECIMAL, should use byte_array, "
+                                + "but the definition type of column " + i + " is " + type);
                     }
                     break;
                 case HLL:
                 case BITMAP:
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isReturnObjectDataAsBinary()) {
                         if (!type.equals("byte_array")) {
-                            throw new AnalysisException("project field type is HLL/BITMAP, should use byte_array, " +
-                                    "but the definition type of column " + i + " is " + type);
+                            throw new AnalysisException("project field type is HLL/BITMAP, should use byte_array, "
+                                    + "but the definition type of column " + i + " is " + type);
                         }
                     } else {
                         throw new AnalysisException("Parquet format does not support column type: " + resultType.getPrimitiveType());
@@ -490,7 +490,7 @@ public class OutFileClause {
                 throw new AnalysisException("currently only support required type");
             }
             if (!PARQUET_DATA_TYPES.contains(properties[1])) {
-                throw new AnalysisException("data type is not supported:"+properties[1]);
+                throw new AnalysisException("data type is not supported:" + properties[1]);
             }
             List<String> column = new ArrayList<>();
             column.addAll(Arrays.asList(properties));

@@ -120,7 +120,6 @@ public class JMXJsonUtil {
             ObjectName oname = it.next();
             MBeanInfo minfo;
             String code = "";
-            Object attributeinfo = null;
             try {
                 minfo = mBeanServer.getMBeanInfo(oname);
                 code = minfo.getClassName();

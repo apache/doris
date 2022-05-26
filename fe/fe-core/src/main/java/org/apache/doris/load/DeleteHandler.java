@@ -160,8 +160,8 @@ public class DeleteHandler implements Writable {
                 }
 
                 if (noPartitionSpecified) {
-                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE ||
-                            olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
+                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE
+                            || olapTable.getPartitionInfo().getType() == PartitionType.LIST) {
                         if (!ConnectContext.get().getSessionVariable().isDeleteWithoutPartition()) {
                             throw new DdlException("This is a range or list partitioned table."
                                     + " You should specify partition in delete stmt, or set delete_without_partition to true");
@@ -317,8 +317,8 @@ public class DeleteHandler implements Writable {
                     case UN_QUORUM:
                         LOG.warn("delete job timeout: transactionId {}, timeout {}, {}", transactionId, timeoutMs, errMsg);
                         cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
-                        throw new DdlException("failed to execute delete. transaction id " + transactionId +
-                                ", timeout(ms) " + timeoutMs + ", " + errMsg);
+                        throw new DdlException("failed to execute delete. transaction id " + transactionId
+                                + ", timeout(ms) " + timeoutMs + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
                         try {
@@ -531,8 +531,8 @@ public class DeleteHandler implements Writable {
             // And we don't allow doing delete operation when a condition column is under schema change.
             String shadowColName = Column.getShadowName(columnName);
             if (nameToColumn.containsKey(shadowColName)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Column " + columnName + " is under" +
-                        " schema change operation. Do not allow delete operation");
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Column " + columnName + " is under"
+                        + " schema change operation. Do not allow delete operation");
             }
 
             Column column = nameToColumn.get(columnName);
@@ -542,8 +542,8 @@ public class DeleteHandler implements Writable {
             if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
                     || column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column or storage model " +
-                        "is not duplicate or column type is float or double.");
+                throw new DdlException("Column[" + columnName + "] is not key column or storage model "
+                        + "is not duplicate or column type is float or double.");
             }
 
             if (condition instanceof BinaryPredicate) {
@@ -615,7 +615,8 @@ public class DeleteHandler implements Writable {
                 String columnName = slotRef.getColumnName();
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, "index[" + indexName +"]");
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR,
+                            columnName, "index[" + indexName + "]");
                 }
                 MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
                 if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {

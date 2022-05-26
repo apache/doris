@@ -65,8 +65,8 @@ public class ResultFileSink extends DataSink {
 
     public ResultFileSink(PlanNodeId exchNodeId, OutFileClause outFileClause, ArrayList<String> labels) {
         this(exchNodeId, outFileClause);
-        if (outFileClause.getHeaderType().equals(FeConstants.csv_with_names) ||
-                outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
+        if (outFileClause.getHeaderType().equals(FeConstants.csv_with_names)
+                || outFileClause.getHeaderType().equals(FeConstants.csv_with_names_and_types)) {
             header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
         }
         headerType = outFileClause.getHeaderType();

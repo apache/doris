@@ -83,14 +83,14 @@ public class WithClause implements ParseNode {
         if (analyzer.isExplain()) {
             withClauseAnalyzer.setIsExplain();
         }
-        for (View view: views) {
+        for (View view : views) {
             Analyzer viewAnalyzer = new Analyzer(withClauseAnalyzer);
             view.getQueryStmt().analyze(viewAnalyzer);
             // Register this view so that the next view can reference it.
             withClauseAnalyzer.registerLocalView(view);
         }
         // Register all local views with the analyzer.
-        for (View localView: withClauseAnalyzer.getLocalViews().values()) {
+        for (View localView : withClauseAnalyzer.getLocalViews().values()) {
             analyzer.registerLocalView(localView);
         }
     }
@@ -101,14 +101,14 @@ public class WithClause implements ParseNode {
     private WithClause(WithClause other) {
         Preconditions.checkNotNull(other);
         views = Lists.newArrayList();
-        for (View view: other.views) {
+        for (View view : other.views) {
             views.add(new View(view.getName(), view.getQueryStmt().clone(),
                     view.getOriginalColLabels()));
         }
     }
 
     public void reset() {
-        for (View view: views) {
+        for (View view : views) {
             view.getQueryStmt().reset();
         }
     }
@@ -130,12 +130,14 @@ public class WithClause implements ParseNode {
     }
 
     @Override
-    public WithClause clone() { return new WithClause(this); }
+    public WithClause clone() {
+        return new WithClause(this);
+    }
 
     @Override
     public String toSql() {
         List<String> viewStrings = Lists.newArrayList();
-        for (View view: views) {
+        for (View view : views) {
             // Enclose the view alias and explicit labels in quotes if Hive cannot parse it
             // without quotes. This is needed for view compatibility between Impala and Hive.
             String aliasSql = ToSqlUtils.getIdentSql(view.getName());
@@ -163,5 +165,7 @@ public class WithClause implements ParseNode {
         return "WITH " + Joiner.on(",").join(viewStrings);
     }
 
-    public List<View> getViews() { return views; }
+    public List<View> getViews() {
+        return views;
+    }
 }

@@ -190,15 +190,15 @@ public class PropertyAnalyzer {
 
         // check remote_storage_resource and remote_storage_cooldown_time
         if ((!hasRemoteCooldown && hasRemoteStorageResource) || (hasRemoteCooldown && !hasRemoteStorageResource)) {
-            throw new AnalysisException("Invalid data property, " +
-                    "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
+            throw new AnalysisException("Invalid data property, "
+                    + "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
         }
         if (hasRemoteStorageResource && hasRemoteCooldown) {
             // check remote resource
             Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName);
             if (resource == null) {
-                throw new AnalysisException("Invalid data property, " +
-                        "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
+                throw new AnalysisException("Invalid data property, "
+                        + "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
             }
             // check remote storage cool down timestamp
             if (remoteCooldownTimeStamp <= currentTimeMs) {
@@ -370,9 +370,9 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of" +
-                                " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table." +
-                                " invalid column: " + bfColumn);
+                            throw new AnalysisException("Bloom filter index only used in columns of"
+                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                                    + " invalid column: " + bfColumn);
                         }
                     }
                 }
@@ -492,7 +492,7 @@ public class PropertyAnalyzer {
         return type;
     }
 
-    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws  AnalysisException{
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws AnalysisException {
         String typeStr = null;
         String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
         if (properties != null && properties.containsKey(propertyName)) {

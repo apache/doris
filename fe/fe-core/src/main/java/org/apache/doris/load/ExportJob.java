@@ -169,7 +169,7 @@ public class ExportJob implements Writable {
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     private List<String> exportColumns = Lists.newArrayList();
-    private String columns ;
+    private String columns;
 
 
     public ExportJob() {
@@ -364,7 +364,7 @@ public class ExportJob implements Writable {
 
         // add conjunct
         if (whereExpr != null) {
-            for (ScanNode scanNode: scanNodes) {
+            for (ScanNode scanNode : scanNodes) {
                 scanNode.addConjuncts(whereExpr.getConjuncts());
             }
         }

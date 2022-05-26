@@ -173,8 +173,8 @@ public class TabletHealthProcDir implements ProcDirInterface {
             this.cloningNum = cloningTabletIds.size();
             db.getTables().stream().filter(t -> t != null && t.getType() == Table.TableType.OLAP).forEach(t -> {
                 OlapTable olapTable = (OlapTable) t;
-                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId()) ?
-                        colocateTableIndex.getGroup(olapTable.getId()) : null;
+                ColocateTableIndex.GroupId groupId = colocateTableIndex.isColocateTable(olapTable.getId())
+                        ? colocateTableIndex.getGroup(olapTable.getId()) : null;
                 olapTable.readLock();
                 try {
                     for (Partition partition : olapTable.getAllPartitions()) {

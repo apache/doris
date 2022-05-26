@@ -234,13 +234,13 @@ public class GsonUtils {
             Type typeOfR;
             Type typeOfC;
             Type typeOfV;
-            {
+            { // CHECKSTYLE IGNORE THIS LINE
                 ParameterizedType parameterizedType = (ParameterizedType) typeOfT;
                 Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
                 typeOfR = actualTypeArguments[0];
                 typeOfC = actualTypeArguments[1];
                 typeOfV = actualTypeArguments[2];
-            }
+            } // CHECKSTYLE IGNORE THIS LINE
             JsonObject tableJsonObject = json.getAsJsonObject();
             String tableClazz = tableJsonObject.get("clazz").getAsString();
             JsonArray rowKeysJsonArray = tableJsonObject.getAsJsonArray("rowKeys");
@@ -372,14 +372,13 @@ public class GsonUtils {
         }
     }
 
-    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?,?>> {
+    public final static class ImmutableMapDeserializer implements JsonDeserializer<ImmutableMap<?, ?>> {
         @Override
-        public ImmutableMap<?,?> deserialize(final JsonElement json, final Type type,
-                                             final JsonDeserializationContext context) throws JsonParseException
-        {
+        public ImmutableMap<?, ?> deserialize(final JsonElement json, final Type type,
+                                             final JsonDeserializationContext context) throws JsonParseException {
             final Type type2 =
                     TypeUtils.parameterize(Map.class, ((ParameterizedType) type).getActualTypeArguments());
-            final Map<?,?> map = context.deserialize(json, type2);
+            final Map<?, ?> map = context.deserialize(json, type2);
             return ImmutableMap.copyOf(map);
         }
     }

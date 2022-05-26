@@ -63,6 +63,7 @@ public class LoadJobTest {
             loadJob.setJobProperties(jobProperties);
             Assert.fail();
         } catch (DdlException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 
