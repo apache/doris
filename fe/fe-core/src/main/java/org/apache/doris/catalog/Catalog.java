@@ -1702,7 +1702,7 @@ public class Catalog {
         LOG.info("finished replay masterInfo from image");
         return newChecksum;
     }
-
+    
     public long loadFrontends(DataInputStream dis, long checksum) throws IOException {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
