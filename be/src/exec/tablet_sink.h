@@ -304,6 +304,8 @@ protected:
     std::mutex _closed_lock;
     bool _is_closed = false;
 
+    RuntimeState* _state;
+
 private:
     // buffer for saving serialized row batch data.
     // In the non-attachment approach, we need to use two PRowBatch structures alternately
@@ -528,9 +530,6 @@ protected:
     int32_t _send_batch_parallelism = 1;
     // Save the status of close() method
     Status _close_status;
-
-    // TODO(cmy): this should be removed after we switch to rpc attachment by default.
-    bool _transfer_data_by_brpc_attachment = false;
 
     // FIND_TABLET_EVERY_ROW is used for both hash and random distribution info, which indicates that we
     // should compute tablet index for every row

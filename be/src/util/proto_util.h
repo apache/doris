@@ -17,10 +17,17 @@
 
 #pragma once
 
-#include "util/stack_util.h"
-
 namespace doris {
 
+// When the tuple/block data is greater than 2G * 0.9, embed the tuple/block data
+// and the request serialization string in the attachment, and use "http" brpc.
+// "http"brpc requires that only one of request and attachment be non-null.
+//
+// 2G: In the default "baidu_std" brpcd, upper limit of the request and attachment length is 2G.
+// 0.9: Reserve a buffer of 0.1 for embedding request serialization strings, etc.
+constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31) * 0.9;
+
+// TODO(zxy) delete in 1.2 version
 // Transfer RowBatch in ProtoBuf Request to Controller Attachment.
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
@@ -35,6 +42,7 @@ inline void request_row_batch_transfer_attachment(Params* brpc_request,
     closure->cntl.request_attachment().swap(attachment);
 }
 
+// TODO(zxy) delete in 1.2 version
 // Transfer Block in ProtoBuf Request to Controller Attachment.
 // This can avoid reaching the upper limit of the ProtoBuf Request length (2G),
 // and it is expected that performance can be improved.
@@ -49,6 +57,7 @@ inline void request_block_transfer_attachment(Params* brpc_request,
     closure->cntl.request_attachment().swap(attachment);
 }
 
+// TODO(zxy) delete in 1.2 version
 // Controller Attachment transferred to RowBatch in ProtoBuf Request.
 template <typename Params>
 inline void attachment_transfer_request_row_batch(const Params* brpc_request,
@@ -62,6 +71,7 @@ inline void attachment_transfer_request_row_batch(const Params* brpc_request,
     }
 }
 
+// TODO(zxy) delete in 1.2 version
 // Controller Attachment transferred to Block in ProtoBuf Request.
 template <typename Params>
 inline void attachment_transfer_request_block(const Params* brpc_request, brpc::Controller* cntl) {
@@ -72,6 +82,90 @@ inline void attachment_transfer_request_block(const Params* brpc_request, brpc::
         CHECK(io_buf.size() > 0) << io_buf.size();
         io_buf.copy_to(block->mutable_column_values(), io_buf.size(), 0);
     }
+}
+
+// Embed tuple_data and brpc request serialization string in controller attachment.
+template <typename Params, typename Closure>
+inline void request_embed_attachment_contain_tuple(Params* brpc_request,
+                                                   const std::string& tuple_data,
+                                                   Closure* closure) {
+    auto row_batch = brpc_request->mutable_row_batch();
+    row_batch->set_tuple_data("");
+    request_embed_attachment(brpc_request, tuple_data, closure);
+}
+
+// Embed column_values and brpc request serialization string in controller attachment.
+template <typename Params, typename Closure>
+inline void request_embed_attachment_contain_block(Params* brpc_request,
+                                                   const std::string& column_values,
+                                                   Closure* closure) {
+    auto block = brpc_request->mutable_block();
+    block->set_column_values("");
+    request_embed_attachment(brpc_request, column_values, closure);
+}
+
+template <typename Params, typename Closure>
+inline void request_embed_attachment(Params* brpc_request, const std::string& data,
+                                     Closure* closure) {
+    LOG(WARNING) << "http_brpc, request_embed_attachment start, data.size: " << data.size()
+                 << std::endl;
+    butil::IOBuf attachment;
+
+    // step1: serialize brpc_request to string, and append to attachment.
+    std::string req_str;
+    brpc_request->SerializeToString(&req_str);
+    int64_t req_str_size = req_str.size();
+    attachment.append(&req_str_size, sizeof(req_str_size));
+    attachment.append(req_str);
+
+    // step2: append data to attachment and put it in the closure.
+    int64_t data_size = data.size();
+    attachment.append(&data_size, sizeof(data_size));
+    attachment.append(data);
+
+    // step3: attachment add to closure.
+    closure->cntl.request_attachment().swap(attachment);
+}
+
+// Extract the brpc request and tuple data from the controller attachment,
+// and put the tuple data into the request.
+template <typename Params>
+inline void attachment_extract_request_contain_tuple(const Params* brpc_request,
+                                                     brpc::Controller* cntl) {
+    Params* req = const_cast<Params*>(brpc_request);
+    auto rb = req->mutable_row_batch();
+    attachment_extract_request(req, cntl, rb->mutable_tuple_data());
+}
+
+// Extract the brpc request and block from the controller attachment,
+// and put the block into the request.
+template <typename Params>
+inline void attachment_extract_request_contain_block(const Params* brpc_request,
+                                                     brpc::Controller* cntl) {
+    Params* req = const_cast<Params*>(brpc_request);
+    auto block = req->mutable_block();
+    attachment_extract_request(req, cntl, block->mutable_column_values());
+}
+
+template <typename Params>
+inline void attachment_extract_request(const Params* brpc_request, brpc::Controller* cntl,
+                                       std::string* data) {
+    const butil::IOBuf& io_buf = cntl->request_attachment();
+    LOG(WARNING) << "http_brpc, attachment_extract_request start, io_buf.size: " << io_buf.size()
+                 << std::endl;
+
+    // step1: deserialize request string to brpc_request from attachment.
+    int64_t req_str_size;
+    io_buf.copy_to(&req_str_size, sizeof(req_str_size), 0);
+    std::string req_str;
+    io_buf.copy_to(&req_str, req_str_size, sizeof(req_str_size));
+    Params* req = const_cast<Params*>(brpc_request);
+    req->ParseFromString(req_str);
+
+    // step2: extract data from attachment.
+    int64_t data_size;
+    io_buf.copy_to(&data_size, sizeof(data_size), sizeof(req_str_size) + req_str_size);
+    io_buf.copy_to(data, data_size, sizeof(data_size) + sizeof(req_str_size) + req_str_size);
 }
 
 } // namespace doris

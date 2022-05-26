@@ -68,6 +68,7 @@ private:
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
     std::string _column_values_buffer;
+    std::string* _column_values_buffer_ptr = nullptr;
 };
 
 class OlapTableSink;

@@ -51,6 +51,11 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
     _finst_id.set_hi(_fragment_instance_id.hi);
     _finst_id.set_lo(_fragment_instance_id.lo);
     _brpc_request.set_allocated_finst_id(&_finst_id);
+
+    _query_id.set_hi(state->query_id().hi);
+    _query_id.set_lo(state->query_id().lo);
+    _brpc_request.set_allocated_query_id(&_query_id);
+
     _brpc_request.set_node_id(_dest_node_id);
     _brpc_request.set_sender_id(_parent->_sender_id);
     _brpc_request.set_be_number(_be_number);
@@ -68,6 +73,7 @@ Status VDataStreamSender::Channel::init(RuntimeState* state) {
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
     _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    _state = state;
     return Status::OK();
 }
 
@@ -138,13 +144,27 @@ Status VDataStreamSender::Channel::send_block(PBlock* block, bool eos) {
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
 
-    if (_brpc_request.has_block()) {
-        request_block_transfer_attachment<PTransmitDataParams,
-                                          RefCountClosure<PTransmitDataResult>>(
+    if (_parent->_column_values_buffer_ptr != nullptr && _brpc_request.has_block() &&
+        !_brpc_request.block().has_column_values()) {
+        DCHECK(_parent->_column_values_buffer.size() != 0);
+        request_embed_attachment_contain_block<PTransmitDataParams,
+                                               RefCountClosure<PTransmitDataResult>>(
                 &_brpc_request, _parent->_column_values_buffer, _closure);
+        std::string brpc_url;
+        brpc_url =
+                "http://" + _brpc_dest_addr.hostname + ":" + std::to_string(_brpc_dest_addr.port);
+        std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
+                                                                                          "http");
+        _closure->cntl.http_request().uri() =
+                brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
+        _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
+        _closure->cntl.http_request().set_content_type("application/json");
+        _brpc_http_stub->transmit_block_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+    } else {
+        _closure->cntl.http_request().Clear();
+        _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     }
-
-    _brpc_stub->transmit_block(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     if (block != nullptr) {
         _brpc_request.release_block();
     }
@@ -286,6 +306,9 @@ VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowD
             _channel_shared_ptrs.emplace_back(
                     _channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
         }
+    }
+    if (config::brpc_request_embed_attachment_send_by_http) {
+        _column_values_buffer_ptr = &_column_values_buffer;
     }
     _name = "VDataStreamSender";
 }
@@ -567,7 +590,7 @@ Status VDataStreamSender::serialize_block(Block* src, PBlock* dest, int num_rece
         dest->Clear();
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
-                                       &_column_values_buffer));
+                                       _column_values_buffer_ptr, MIN_HTTP_BRPC_SIZE));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
     }

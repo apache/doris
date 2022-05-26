@@ -192,11 +192,11 @@ This configuration is mainly used to modify the parameter `socket_max_unwritten_
 
 Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
 
-### `transfer_data_by_brpc_attachment`
+### `brpc_request_embed_attachment_send_by_http`
 
 * Type: bool
-* Description: This configuration is used to control whether to transfer the RowBatch in the ProtoBuf Request to the Controller Attachment and then send it through brpc. When the length of ProtoBuf Request exceeds 2G, an error will be reported: Bad request, error_text=[E1003]Fail to compress request, Putting RowBatch in Controller Attachment will be faster and avoid this error.
-* Default value: false
+* Description: This configuration is used to control whether to serialize the protoBuf request and embed the Tuple/Block data into the controller attachment and send it through http brpc when the length of the Tuple/Block data is greater than 1.8G. To avoid errors when the length of the protoBuf request exceeds 2G: Bad request, error_text=[E1003]Fail to compress request. In the past version, after putting Tuple/Block data in the attachment, it was sent through the default baidu_std brpc, but when the attachment exceeds 2G, it will be truncated. There is no 2G limit for sending through http brpc.
+* Default value: true
 
 ### `brpc_num_threads`
 

@@ -199,8 +199,9 @@ protected:
 
         TNetworkAddress _brpc_dest_addr;
 
-        // TODO(zc): initused for brpc
+        // TODO(zc): init used for brpc
         PUniqueId _finst_id;
+        PUniqueId _query_id;
 
         // serialized batches for broadcasting; we need two so we can write
         // one while the other one is still being sent.
@@ -213,6 +214,7 @@ protected:
         PTransmitDataParams _brpc_request;
         std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
         RefCountClosure<PTransmitDataResult>* _closure = nullptr;
+        RuntimeState* _state;
         int32_t _brpc_timeout_ms = 500;
         // whether the dest can be treated as query statistics transfer chain.
         bool _is_transfer_chain;
@@ -260,10 +262,11 @@ private:
     PRowBatch _pb_batch2;
 
     // This buffer is used to store the serialized rowbatch data.
-    // Only works when `config::transfer_data_by_brpc_attachment` is true.
+    // Only works when `config::brpc_request_embed_attachment_send_by_http` is true.
     // The data in the buffer is copied to the attachment of the brpc when it is sent,
     // to avoid an extra pb serialization in the brpc.
-    // _tuple_data_buffer_ptr will point to _tuple_data_buffer if `config::transfer_data_by_brpc_attachment` is true.
+    // _tuple_data_buffer_ptr will point to _tuple_data_buffer if
+    // `config::brpc_request_embed_attachment_send_by_http` is true.
     std::string _tuple_data_buffer;
     std::string* _tuple_data_buffer_ptr = nullptr;
 
@@ -280,8 +283,6 @@ private:
 
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
-
-    bool _transfer_data_by_brpc_attachment = false;
 };
 
 } // namespace doris

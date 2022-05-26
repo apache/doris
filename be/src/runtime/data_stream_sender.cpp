@@ -84,6 +84,7 @@ DataStreamSender::Channel::~Channel() {
     }
     // release this before request desctruct
     _brpc_request.release_finst_id();
+    _brpc_request.release_query_id();
 }
 
 Status DataStreamSender::Channel::init(RuntimeState* state) {
@@ -103,6 +104,11 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
     _finst_id.set_hi(_fragment_instance_id.hi);
     _finst_id.set_lo(_fragment_instance_id.lo);
     _brpc_request.set_allocated_finst_id(&_finst_id);
+
+    _query_id.set_hi(state->query_id().hi);
+    _query_id.set_lo(state->query_id().lo);
+    _brpc_request.set_allocated_query_id(&_query_id);
+
     _brpc_request.set_node_id(_dest_node_id);
     _brpc_request.set_sender_id(_parent->_sender_id);
     _brpc_request.set_be_number(_be_number);
@@ -122,6 +128,7 @@ Status DataStreamSender::Channel::init(RuntimeState* state) {
             return Status::InternalError(msg);
         }
     }
+    _state = state;
     return Status::OK();
 }
 
@@ -148,13 +155,27 @@ Status DataStreamSender::Channel::send_batch(PRowBatch* batch, bool eos) {
 
     _closure->ref();
     _closure->cntl.set_timeout_ms(_brpc_timeout_ms);
-
-    if (_parent->_transfer_data_by_brpc_attachment && _brpc_request.has_row_batch()) {
-        request_row_batch_transfer_attachment<PTransmitDataParams,
-                                              RefCountClosure<PTransmitDataResult>>(
+    if (_parent->_tuple_data_buffer_ptr != nullptr && _parent->_tuple_data_buffer.size() != 0 &&
+        _brpc_request.has_row_batch()) {
+        request_embed_attachment_contain_tuple<PTransmitDataParams,
+                                               RefCountClosure<PTransmitDataResult>>(
                 &_brpc_request, _parent->_tuple_data_buffer, _closure);
+        std::string brpc_url;
+        brpc_url =
+                "http://" + _brpc_dest_addr.hostname + ":" + std::to_string(_brpc_dest_addr.port);
+        std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
+                _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
+                                                                                          "http");
+        _closure->cntl.http_request().uri() =
+                brpc_url + "/PInternalServiceImpl/transmit_data_by_http";
+        _closure->cntl.http_request().set_method(brpc::HTTP_METHOD_POST);
+        _closure->cntl.http_request().set_content_type("application/json");
+        _brpc_http_stub->transmit_data_by_http(&_closure->cntl, NULL, &_closure->result, _closure);
+    } else {
+        _closure->cntl.http_request().Clear();
+        _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
     }
-    _brpc_stub->transmit_data(&_closure->cntl, &_brpc_request, &_closure->result, _closure);
+
     if (batch != nullptr) {
         _brpc_request.release_row_batch();
     }
@@ -274,12 +295,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _sender_id(sender_id),
           _serialize_batch_timer(nullptr),
           _bytes_sent_counter(nullptr),
-          _local_bytes_send_counter(nullptr),
-          _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-    if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer;
-    }
-}
+          _local_bytes_send_counter(nullptr) {}
 
 DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
                                    const TDataStreamSink& sink,
@@ -297,12 +313,7 @@ DataStreamSender::DataStreamSender(ObjectPool* pool, int sender_id, const RowDes
           _current_channel_idx(0),
           _part_type(sink.output_partition.type),
           _ignore_not_found(sink.__isset.ignore_not_found ? sink.ignore_not_found : true),
-          _dest_node_id(sink.dest_node_id),
-          _transfer_data_by_brpc_attachment(config::transfer_data_by_brpc_attachment) {
-    if (_transfer_data_by_brpc_attachment) {
-        _tuple_data_buffer_ptr = &_tuple_data_buffer;
-    }
-
+          _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
     DCHECK(sink.output_partition.type == TPartitionType::UNPARTITIONED ||
            sink.output_partition.type == TPartitionType::HASH_PARTITIONED ||
@@ -671,6 +682,12 @@ Status DataStreamSender::serialize_batch(RowBatch* src, PRowBatch* dest, int num
     {
         SCOPED_TIMER(_serialize_batch_timer);
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
+        if (config::brpc_request_embed_attachment_send_by_http &&
+            src->total_byte_size() > MIN_HTTP_BRPC_SIZE) {
+            _tuple_data_buffer_ptr = &_tuple_data_buffer;
+        } else {
+            _tuple_data_buffer_ptr = nullptr;
+        }
         RETURN_IF_ERROR(src->serialize(dest, &uncompressed_bytes, &compressed_bytes,
                                        _tuple_data_buffer_ptr));
         COUNTER_UPDATE(_bytes_sent_counter, compressed_bytes * num_receivers);
