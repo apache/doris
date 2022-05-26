@@ -76,45 +76,51 @@ sh gen-ssb-data.sh -s 100 -c 100
 |supplier|20万（200000） |17M |1|
 |date| 2556|228K |1|
 
-3. 建表
-
-    复制 [create-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/create-tables.sql) 中的建表语句，在 Doris 中执行。
-
-4. 导入数据
+### 3. 建表
 
     0. 准备 'doris-cluster.conf' 文件。
     
         在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
         
-        文件位置和 `load-dimension-data.sh` 平级。
+        文件位置和 `load-ssb-dimension-data.sh` 平级。
       
         文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
       
         ```
         export FE_HOST="xxx"
         export FE_HTTP_PORT="8030"
+        export FE_QUERY_PORT="9030"
         export USER="root"
         export PASSWORD='xxx'
         export DB="ssb"
         ```
 
+    1. 执行以下脚本生成创建 SSB 表：
+
+    ```
+    sh create-ssb-tables.sh
+    ```
+    或者复制 [create-ssb-tables.sql](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ddl/create-ssb-tables.sql) 中的建表语句，在 Doris 中执行。
+
+### 4. 导入数据
+
     1. 导入 4 张维度表数据（customer, part, supplier and date）
     
         因为这4张维表数据量较小，导入较简单，我们使用以下命令先导入这4表的数据：
         
-        `sh load-dimension-data.sh`
+        `sh load-ssb-dimension-data.sh`
         
     2. 导入事实表 lineorder。
 
         通过以下命令导入 lineorder 表数据：
         
-        `sh load-fact-data.sh -c 5`
+        `sh load-ssb-fact-data.sh -c 5`
         
-        `-c 5` 表示启动 5 个并发线程导入（默认为3）。在单 BE 节点情况下，由 `sh gen-ssb-data.sh -s 100 -c 100` 生成的 lineorder 数据，使用 `sh load-fact-data.sh -c 3` 的导入时间约为 10min。内存开销约为 5-6GB。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
+        `-c 5` 表示启动 5 个并发线程导入（默认为3）。在单 BE 节点情况下，由 `sh gen-ssb-data.sh -s 100 -c 100` 生成的 lineorder 数据，使用 `sh load-ssb-fact-data.sh -c 3` 的导入时间约为 10min。内存开销约为 5-6GB。如果开启更多线程，可以加快导入速度，但会增加额外的内存开销。
 
     > 注：为获得更快的导入速度，你可以在 be.conf 中添加 `flush_thread_num_per_store=5` 后重启BE。该配置表示每个数据目录的写盘线程数，默认为2。较大的数据可以提升写数据吞吐，但可能会增加 IO Util。（参考值：1块机械磁盘，在默认为2的情况下，导入过程中的 IO Util 约为12%，设置为5时，IO Util 约为26%。如果是 SSD 盘，则几乎为 0）。
 
-5. 检查导入数据
+### 5. 检查导入数据
 
     ```
     select count(*) from part;
@@ -125,10 +131,22 @@ sh gen-ssb-data.sh -s 100 -c 100
     ```
     
     数据量应和生成数据的行数一致。
+
+### 6. 执行查询
+
+执行以下脚本跑 SSB 的查询：
+
+```
+sh run-ssb-queries.sh
+```
+
+> 注1：可修改脚本中的设置的session变量来查看变化。
+>
+> 注2：脚本中对于每个query连续跑三次，取平均时间为每个query的耗时。
     
 ## 查询测试
 
-SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/queries) 目录下。 
+SSB 测试集共 4 组 14 个 SQL。查询语句在 [queries/](https://github.com/apache/incubator-doris/tree/master/tools/ssb-tools/ssb-queries) 目录下。 
 
 ## 测试报告
 

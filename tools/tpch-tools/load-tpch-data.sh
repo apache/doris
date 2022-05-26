@@ -48,7 +48,7 @@ Usage: $0 <options>
 OPTS=$(getopt \
     -n $0 \
     -o '' \
-    -o 'c:' \
+    -o 'hc:' \
     -- "$@")
 
 eval set -- "$OPTS"
