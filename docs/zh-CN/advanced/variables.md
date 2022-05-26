@@ -345,7 +345,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `sql_mode`
 
-  用于指定 SQL 模式，以适应某些 SQL 方言。
+  用于指定 SQL 模式，以适应某些 SQL 方言，关于 SQL 模式，可参阅[这里](./sql-mode.md)。
 
 - `sql_safe_updates`
 
