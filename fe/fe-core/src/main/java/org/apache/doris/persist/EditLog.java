@@ -64,6 +64,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.TablePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -1424,8 +1425,12 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
     }
 
-    public void logCreatePolicy(TablePolicy policy) {
-        logEdit(OperationType.OP_CREATE_TABLE_POLICY, policy);
+    public void logCreatePolicy(Policy policy) {
+        if (policy instanceof TablePolicy) {
+            logEdit(OperationType.OP_CREATE_TABLE_POLICY, policy);
+        } else {
+            LOG.error("invalid policy: " + policy.getType().name());
+        }
     }
 
     public void logDropPolicy(DropPolicyLog log) {

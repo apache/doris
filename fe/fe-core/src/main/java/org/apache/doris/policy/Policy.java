@@ -71,6 +71,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "originStmt")
     protected String originStmt;
 
+    public Policy() {
+        user = null;
+    }
+
     public Policy(final PolicyTypeEnum type, final String policyName, long dbId,
                   UserIdentity user, String originStmt) {
         this.type = type;
@@ -127,6 +131,8 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     public boolean matchPolicy(DropPolicyLog dropPolicyLog) {
         return dropPolicyLog.getType().equals(type)
             && StringUtils.equals(dropPolicyLog.getPolicyName(), policyName);
-
     }
+
+    public abstract boolean isInvalid();
+
 }

@@ -121,4 +121,9 @@ public class TablePolicy extends Policy {
             && (dropPolicyLog.getUser() == null || user == null
             || StringUtils.equals(dropPolicyLog.getUser().getQualifiedUser(), user.getQualifiedUser()));
     }
+
+    @Override
+    public boolean isInvalid() {
+        return (wherePredicate == null);
+    }
 }
