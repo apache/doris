@@ -102,10 +102,9 @@ Status DeltaWriter::init() {
     if (_tablet->version_count() > config::max_tablet_version_num) {
         //trigger samll compaction
         StorageEngine::instance()->submit_samll_compaction_task(_tablet);
-        LOG(WARNING) << "failed to init delta writer. version count: "
-                        << _tablet->version_count()
-                        << ", exceed limit: " << config::max_tablet_version_num
-                        << ". tablet: " << _tablet->full_name();
+        LOG(WARNING) << "failed to init delta writer. version count: " << _tablet->version_count()
+                     << ", exceed limit: " << config::max_tablet_version_num
+                     << ". tablet: " << _tablet->full_name();
         return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
 
