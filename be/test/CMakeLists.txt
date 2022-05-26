@@ -281,7 +281,6 @@ set(UTIL_TEST_FILES
     util/string_util_test.cpp
     util/string_parser_test.cpp
     util/core_local_test.cpp
-    util/json_util_test.cpp
     util/byte_buffer2_test.cpp
     util/uid_util_test.cpp
     util/encryption_util_test.cpp
@@ -358,6 +357,7 @@ set(VEC_TEST_FILES
     vec/function/table_function_test.cpp
     vec/runtime/vdata_stream_test.cpp
     vec/utils/arrow_column_to_doris_column_test.cpp
+    vec/olap/char_type_padding_test.cpp
 )
 
 add_executable(doris_be_test

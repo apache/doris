@@ -548,6 +548,16 @@ module.exports = [
               "WINDOW-FUNCTION-ROW-NUMBER",
             ],
           },
+          {
+            title: "Array函数",
+            directoryPath: "array-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "array_contains",
+              "array_position",
+              "element_at",
+            ],
+          },
           "cast",
           "digital-masking",
         ],
@@ -814,6 +824,7 @@ module.exports = [
               "STRING",
               "TINYINT",
               "VARCHAR",
+              "ARRAY",
             ],
           },
           {

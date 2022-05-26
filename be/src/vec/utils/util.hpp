@@ -64,18 +64,20 @@ public:
         return data_types;
     }
 
-    static VExpr* dfs_peel_conjunct(VExpr* expr, int& leaf_index,
-                                    std::function<bool(int)> checker) {
+    static VExpr* dfs_peel_conjunct(RuntimeState* state, VExprContext* context, VExpr* expr,
+                                    int& leaf_index, std::function<bool(int)> checker) {
         static constexpr auto is_leaf = [](VExpr* expr) { return !expr->is_and_expr(); };
 
         if (is_leaf(expr)) {
             return checker(leaf_index++) ? nullptr : expr;
         } else {
-            VExpr* left_child = dfs_peel_conjunct(expr->children()[0], leaf_index, checker);
-            VExpr* right_child = dfs_peel_conjunct(expr->children()[1], leaf_index, checker);
+            VExpr* left_child =
+                    dfs_peel_conjunct(state, context, expr->children()[0], leaf_index, checker);
+            VExpr* right_child =
+                    dfs_peel_conjunct(state, context, expr->children()[1], leaf_index, checker);
 
             if (left_child != nullptr && right_child != nullptr) {
-                expr->set_children({left_child, right_child});
+                expr->set_children(state, context, {left_child, right_child});
                 return expr;
             }
             // here do not close Expr* now

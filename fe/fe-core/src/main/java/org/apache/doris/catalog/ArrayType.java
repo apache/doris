@@ -107,6 +107,9 @@ public class ArrayType extends Type {
     }
 
     public static boolean canCastTo(ArrayType type, ArrayType targetType) {
+        if (targetType.getItemType().isStringType() && type.getItemType().isStringType()) {
+            return true;
+        }
         return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 

@@ -49,7 +49,8 @@ Status ScanNode::prepare(RuntimeState* state) {
 // It relies on the logic of function convertConjunctsToAndCompoundPredicate() of FE splicing expr.
 // It requires FE to satisfy each splicing with 'and' expr, and spliced from left to right, in order.
 // Expr tree specific forms do not require requirements.
-std::string ScanNode::_peel_pushed_vconjunct(const std::function<bool(int)>& checker) {
+std::string ScanNode::_peel_pushed_vconjunct(RuntimeState* state,
+                                             const std::function<bool(int)>& checker) {
     if (_vconjunct_ctx_ptr.get() == nullptr) {
         return "null";
     }
@@ -59,7 +60,7 @@ std::string ScanNode::_peel_pushed_vconjunct(const std::function<bool(int)>& che
 
     if (conjunct_expr_root != nullptr) {
         vectorized::VExpr* new_conjunct_expr_root = vectorized::VectorizedUtils::dfs_peel_conjunct(
-                conjunct_expr_root, leaf_index, checker);
+                state, *_vconjunct_ctx_ptr.get(), conjunct_expr_root, leaf_index, checker);
         if (new_conjunct_expr_root == nullptr) {
             _vconjunct_ctx_ptr = nullptr;
         } else {

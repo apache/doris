@@ -118,4 +118,58 @@ TEST(ArrayParserTest, TestNestedArray) {
                       {array_data, num_arrays, true, array_null_signs});
 }
 
+TEST(ArrayParserTest, TestLargeIntArray) {
+    auto column_pb = create_column_pb("ARRAY", "LARGEINT");
+    test_array_parser(column_pb, "[]", CollectionValue(0));
+
+    __int128_t data[] = {(1L << 31) - 1, (1LU << 63) - 1, (1LU << 63) | ((1LU << 63) - 1)};
+    int num_items = sizeof(data) / sizeof(data[0]);
+    CollectionValue value(data, num_items, false, nullptr);
+    test_array_parser(column_pb, "[2147483647, 9223372036854775807, 18446744073709551615]", value);
+
+    bool null_signs[] = {false, true, false};
+    value.set_has_null(true);
+    value.set_null_signs(null_signs);
+    test_array_parser(column_pb, "[2147483647, null, 18446744073709551615]", value);
+
+    data[1] = static_cast<__int128_t>(1) << 66;
+    null_signs[1] = false;
+    test_array_parser(column_pb,
+                      "[\"2147483647\", \"73786976294838206464\", \"18446744073709551615\"]",
+                      value);
+}
+
+TEST(ArrayParserTest, TestDecimalArray) {
+    auto column_pb = create_column_pb("ARRAY", "DECIMAL");
+    test_array_parser(column_pb, "[]", CollectionValue(0));
+
+    std::string literals[] = {"2147483647", "9223372036854775807"};
+    uint32_t num_items = sizeof(literals) / sizeof(literals[0]);
+    decimal12_t data[num_items];
+    for (int i = 0; i < num_items; ++i) {
+        auto decimal_value = DecimalV2Value(literals[i]);
+        data[i].integer = decimal_value.int_value();
+        data[i].fraction = decimal_value.frac_value();
+    }
+    CollectionValue value(data, num_items, false, nullptr);
+    test_array_parser(column_pb, "[2147483647, 9223372036854775807]", value);
+
+    bool null_signs[] = {false, true};
+    value.set_has_null(true);
+    value.set_null_signs(null_signs);
+    test_array_parser(column_pb, "[2147483647, null]", value);
+
+    null_signs[1] = false;
+    test_array_parser(column_pb, "[\"2147483647\", \"9223372036854775807\"]", value);
+
+    literals[0] = "2147483647.5";
+    literals[1] = "34359738368.5";
+    for (int i = 0; i < num_items; ++i) {
+        auto decimal_value = DecimalV2Value(literals[i]);
+        data[i].integer = decimal_value.int_value();
+        data[i].fraction = decimal_value.frac_value();
+    }
+    value = {data, num_items, false, nullptr};
+    test_array_parser(column_pb, "[2147483647.5, \"34359738368.5\"]", value);
+}
 } // namespace doris
