@@ -28,7 +28,7 @@ feHttpAddress = "127.0.0.1:8030"
 feHttpUser = "root"
 feHttpPassword = ""
 
-beHttpAddress = "127.0.0.1:8040"
+beHttpAddress = "192.168.120.12:8140"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
