@@ -691,11 +691,13 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
         VLOG_NOTICE << "get publish version task, signature:" << agent_task_req.signature;
 
         std::vector<TTabletId> error_tablet_ids;
+        std::vector<TTabletId> succ_tablet_ids;
         uint32_t retry_time = 0;
         Status res = Status::OK();
         while (retry_time < PUBLISH_VERSION_MAX_RETRY) {
             error_tablet_ids.clear();
-            EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids);
+            EnginePublishVersionTask engine_task(publish_version_req, &error_tablet_ids,
+                                                 &succ_tablet_ids);
             res = _env->storage_engine()->execute_task(&engine_task);
             if (res.ok()) {
                 break;
@@ -717,7 +719,18 @@ void TaskWorkerPool::_publish_version_worker_thread_callback() {
                          << ", error_code=" << res;
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
-            LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature;
+            for (int i = 0; i < succ_tablet_ids.size(); i++) {
+                TabletSharedPtr tablet =
+                        StorageEngine::instance()->tablet_manager()->get_tablet(succ_tablet_ids[i]);
+                if (tablet != nullptr) {
+                    StorageEngine::instance()->submit_samll_compaction_task(tablet);
+                    LOG(INFO) << "tirgger samll compaction succ" << succ_tablet_ids[i];
+                } else {
+                    LOG(WARNING) << "tirgger samll compaction failed" << succ_tablet_ids[i];
+                }
+            }
+            LOG(INFO) << "publish_version success. signature:" << agent_task_req.signature
+                      << ", size:" << succ_tablet_ids.size();
         }
 
         res.to_thrift(&finish_task_request.task_status);

@@ -870,8 +870,51 @@ void Tablet::calculate_cumulative_point() {
     if (ret_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
         return;
     }
-
     set_cumulative_layer_point(ret_cumulative_point);
+}
+
+//1.小版本rowset
+//2.不改变cp，cp值的更新有cc任务来执行
+//3.找到最大的，连续小版本rowset
+Status Tablet::pick_samll_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets) {
+    int max_series_num = 1000;
+    int max_rows = config::small_version_max_rows;
+    if (max_rows <= 0) return Status::OK();
+    std::vector<std::vector<RowsetSharedPtr>> samll_version_rowsets(max_series_num);
+    int idx = 0;
+    bool is_bad = false;
+    if (tablet_state() == TABLET_RUNNING) {
+        for (auto& rs : _rs_version_map) {
+            bool is_delete = version_for_delete_predicate(rs.first);
+            if (rs.first.first > cumulative_layer_point()) {
+                // find samll rowset
+                if (!is_delete && rs.first.first > 0) {
+                    if (rs.second->num_rows() < max_rows) {
+                        samll_version_rowsets[idx].push_back(rs.second);
+                    } else {
+                        idx++;
+                        if (idx > max_series_num) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        int max_idx = samll_version_rowsets.size() > 0 ? 0 : -1;
+        std::vector<RowsetSharedPtr> result;
+        if (is_bad) Status::OK();
+        for (int i = 0; i < samll_version_rowsets.size(); i++) {
+            if (samll_version_rowsets[i].size() > samll_version_rowsets[max_idx].size()) {
+                max_idx = i;
+            }
+            result = samll_version_rowsets[max_idx];
+        }
+        for (int i = 0; i < result.size(); i++) {
+            input_rowsets->push_back(result[i]);
+        }
+        std::sort(input_rowsets->begin(), input_rowsets->end(), Rowset::comparator);
+    }
+    return Status::OK();
 }
 
 Status Tablet::split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,

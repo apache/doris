@@ -24,7 +24,7 @@ namespace doris {
 #define APPLY_FOR_ERROR_CODES(M)                                         \
     M(OLAP_SUCCESS, 0, "", false)                                        \
     M(OLAP_ERR_OTHER_ERROR, -1, "", true)                                \
-    M(OLAP_REQUEST_FAILED, -2, "", true)                                 \
+    M(OLAP_REQUEST_FAILED, -2, "", false)                                \
     M(OLAP_ERR_OS_ERROR, -100, "", true)                                 \
     M(OLAP_ERR_DIR_NOT_EXIST, -101, "", true)                            \
     M(OLAP_ERR_FILE_NOT_EXIST, -102, "", true)                           \
@@ -176,8 +176,8 @@ namespace doris {
     M(OLAP_ERR_HEADER_LOAD_JSON_HEADER, -1410, "", true)                 \
     M(OLAP_ERR_HEADER_INIT_FAILED, -1411, "", true)                      \
     M(OLAP_ERR_HEADER_PB_PARSE_FAILED, -1412, "", true)                  \
-    M(OLAP_ERR_HEADER_HAS_PENDING_DATA, -1413, "", true)                 \
-    M(OLAP_ERR_SCHEMA_SCHEMA_INVALID, -1500, "", true)                   \
+    M(OLAP_ERR_HEADER_HAS_PENDING_DATA, -1413, "", false)                \
+    M(OLAP_ERR_SCHEMA_SCHEMA_INVALID, -1500, "", false)                  \
     M(OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID, -1501, "", true)             \
     M(OLAP_ERR_ALTER_MULTI_TABLE_ERR, -1600, "", true)                   \
     M(OLAP_ERR_ALTER_DELTA_DOES_NOT_EXISTS, -1601, "", true)             \

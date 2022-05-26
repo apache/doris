@@ -226,9 +226,6 @@ CONF_Int64(index_stream_cache_capacity, "10737418240");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
-// Shard size for page cache, the value must be power of two.
-// It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
-CONF_Int32(storage_page_cache_shard_size, "16");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 CONF_Int32(index_page_cache_percentage, "10");
@@ -294,11 +291,15 @@ CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 // This config can be set to limit thread number in compaction thread pool.
 CONF_mInt32(max_compaction_threads, "10");
 
+
 // This config can be set to limit thread number in convert rowset thread pool.
 CONF_mInt32(convert_rowset_thread_num, "0");
 
 // initial sleep interval in seconds of scan alpha rowset
 CONF_mInt32(scan_alpha_rowset_min_interval_sec, "3");
+
+// This config can be set to limit thread number in  smallcompaction thread pool.
+CONF_mInt32(small_compaction_max_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -740,6 +741,13 @@ CONF_Int32(parquet_reader_max_buffer_size, "50");
 // When the rows number reached this limit, will check the filter rate the of bloomfilter
 // if it is lower than a specific threshold, the predicate will be disabled.
 CONF_mInt32(bloom_filter_predicate_check_row_num, "1000");
+
+// For continuous versions that rows less than small_compaction_max_rows will  trigger compaction quickly
+// if set to 0 means turn off this feature
+CONF_Int32(small_compaction_max_rows, "1000");
+
+// min compaction versions
+CONF_Int32(small_compaction_batch_size, "20");
 
 } // namespace config
 

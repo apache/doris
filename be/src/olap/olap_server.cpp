@@ -88,6 +88,11 @@ Status StorageEngine::start_bg_threads() {
         LOG(INFO) << "alpha rowset scan thread started";
     }
 
+    ThreadPoolBuilder("CompactionTaskThreadPool")
+            .set_min_threads(max_thread_num)
+            .set_max_threads(max_thread_num)
+            .build(&_samll_compaction_thread_pool);
+
     // compaction tasks producer thread
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
@@ -659,6 +664,18 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet,
         tablet->set_cumulative_compaction_policy(_cumulative_compaction_policy);
     }
     return _submit_compaction_task(tablet, compaction_type);
+}
+
+Status StorageEngine::_handle_samll_compaction(TabletSharedPtr tablet) {
+    CumulativeCompaction compact(tablet);
+    compact.samll_rowsets_compact();
+    return Status::OK();
+}
+
+Status StorageEngine::submit_samll_compaction_task(TabletSharedPtr tablet) {
+    _samll_compaction_thread_pool->submit_func(
+            std::bind<void>(&StorageEngine::_handle_samll_compaction, this, tablet));
+    return Status::OK();
 }
 
 } // namespace doris

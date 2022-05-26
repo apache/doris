@@ -72,6 +72,7 @@ public:
     // Used in clone task, to update local meta when finishing a clone job
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
+    Status pick_samll_verson_rowsets(std::vector<RowsetSharedPtr>* input_rowsets);
 
     const int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -187,6 +188,10 @@ public:
     int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
     void set_last_cumu_compaction_success_time(int64_t millis) {
         _last_cumu_compaction_success_millis = millis;
+    }
+
+    void set_last_small_compaction_success_time(int64_t millis) {
+        _last_small_compaction_success_time_millis = millis;
     }
 
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
@@ -335,7 +340,7 @@ private:
     std::atomic<int64_t> _last_cumu_compaction_success_millis;
     // timestamp of last base compaction success
     std::atomic<int64_t> _last_base_compaction_success_millis;
-
+    std::atomic<int64_t> _last_small_compaction_success_time_millis;
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
     std::atomic<int64_t> _last_checkpoint_time;
