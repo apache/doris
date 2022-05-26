@@ -52,7 +52,7 @@ illustrate:
 
 1. If db_name is not specified, the current default db is used
 
-2. Only one of db_name and ALL can be selected. When ALL is used (currently supported by root user), the import tasks of all dbs in the cluster will be queried
+2. Only one of db_name and ALL can be selected. When ALL is used (currently supported by root/admin user), the import tasks of all dbs in the cluster will be queried
 
 3. If LABEL LIKE is used, it will match import tasks whose label contains label_matcher
 
@@ -80,7 +80,7 @@ illustrate:
    SHOW LOAD;
    ````
    
-2. Show all import tasks of all db (executed by root user)
+2. Show all import tasks of all db (executed by root/admin user)
 
     ```sql
     SHOW LOAD ALL;

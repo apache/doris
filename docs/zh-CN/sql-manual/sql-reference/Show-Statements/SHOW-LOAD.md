@@ -52,7 +52,7 @@ SHOW LOAD
 
 1) 如果不指定 db_name，使用当前默认db
 
-2) db_name 和 ALL 只能选择一个，当使用 ALL 时(目前支持root用户使用)，将查询集群所有db的导入任务
+2) db_name 和 ALL 只能选择一个，当使用 ALL 时(目前支持root/admin用户使用)，将查询集群所有db的导入任务
     
 3)  如果使用 LABEL LIKE，则会匹配导入任务的 label 包含 label_matcher 的导入任务
     
@@ -80,7 +80,7 @@ SHOW LOAD
     SHOW LOAD;
     ```
 
-2. 展示所有db的所有导入任务(root 用户执行)
+2. 展示所有db的所有导入任务(root/admin 用户执行)
     
    ```sql
     SHOW LOAD ALL;
