@@ -26,23 +26,27 @@ public:
     virtual const UInt8* get_nullmap() const = 0;
     virtual const void* get_data() const = 0;
     virtual const void* get_data_at(size_t offset) const = 0;
-    virtual ~IOlapColumnDataAccessor() {}
+    virtual ~IOlapColumnDataAccessor() = default;
 };
-using IOlapColumnDataAccessorSPtr = std::shared_ptr<IOlapColumnDataAccessor>;
 
 class OlapBlockDataConvertor {
 public:
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     void clear_source_content();
-    std::pair<Status, IOlapColumnDataAccessorSPtr> convert_column_data(size_t cid);
+    std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
 
 private:
+    class OlapColumnDataConvertorBase;
+    using OlapColumnDataConvertorBaseUPtr = std::unique_ptr<OlapColumnDataConvertorBase>;
+    using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
+
+    OlapColumnDataConvertorBaseUPtr create_olap_column_data_convertor(const TabletColumn& column);
+
     // accessors for different data types;
     class OlapColumnDataConvertorBase : public IOlapColumnDataAccessor {
     public:
         OlapColumnDataConvertorBase() = default;
-        virtual ~OlapColumnDataConvertorBase() = default;
         OlapColumnDataConvertorBase(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase& operator=(const OlapColumnDataConvertorBase&) = delete;
         OlapColumnDataConvertorBase(OlapColumnDataConvertorBase&&) = delete;
@@ -60,13 +64,9 @@ private:
         size_t _num_rows = 0;
         const UInt8* _nullmap = nullptr;
     };
-    using OlapColumnDataConvertorBaseSPtr = std::shared_ptr<OlapColumnDataConvertorBase>;
 
     class OlapColumnDataConvertorObject : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorObject() = default;
-        ~OlapColumnDataConvertorObject() override = default;
-
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
                                size_t num_rows) override;
         const void* get_data() const override;
@@ -119,49 +119,42 @@ private:
         PaddedPODArray<Slice> _slice;
     };
 
-    class OlapColumnDataConvertorDate : public OlapColumnDataConvertorBase {
+    template <typename T>
+    class OlapColumnDataConvertorPaddedPODArray : public OlapColumnDataConvertorBase {
     public:
-        OlapColumnDataConvertorDate() = default;
-        ~OlapColumnDataConvertorDate() override = default;
-
         void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
-        const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
-        Status convert_to_olap() override;
+                               size_t num_rows) override {
+            OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos, num_rows);
+            _values.resize(num_rows);
+        }
+        const void* get_data() const override { return _values.data(); }
+        const void* get_data_at(size_t offset) const override {
+            assert(offset < _num_rows && _num_rows == _values.size());
+            UInt8 null_flag = 0;
+            if (_nullmap) {
+                null_flag = _nullmap[offset];
+            }
+            return null_flag ? nullptr : _values.data() + offset;
+        }
 
-    private:
-        PaddedPODArray<uint24_t> _values;
+    protected:
+        PaddedPODArray<T> _values;
     };
 
-    class OlapColumnDataConvertorDateTime : public OlapColumnDataConvertorBase {
+    class OlapColumnDataConvertorDate : public OlapColumnDataConvertorPaddedPODArray<uint24_t> {
     public:
-        OlapColumnDataConvertorDateTime() = default;
-        ~OlapColumnDataConvertorDateTime() override = default;
-
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
-        const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
-
-    private:
-        PaddedPODArray<uint64_t> _values;
     };
 
-    class OlapColumnDataConvertorDecimal : public OlapColumnDataConvertorBase {
+    class OlapColumnDataConvertorDateTime : public OlapColumnDataConvertorPaddedPODArray<uint64_t> {
     public:
-        OlapColumnDataConvertorDecimal() = default;
-        ~OlapColumnDataConvertorDecimal() override = default;
-
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
-        const void* get_data() const override;
-        const void* get_data_at(size_t offset) const override;
         Status convert_to_olap() override;
+    };
 
-    private:
-        PaddedPODArray<decimal12_t> _values;
+    class OlapColumnDataConvertorDecimal
+            : public OlapColumnDataConvertorPaddedPODArray<decimal12_t> {
+    public:
+        Status convert_to_olap() override;
     };
 
     // class OlapColumnDataConvertorSimple for simple types, which don't need to do any convert, like int, float, double, etc...
@@ -203,8 +196,20 @@ private:
         const T* _values = nullptr;
     };
 
+    class OlapColumnDataConvertorArray
+            : public OlapColumnDataConvertorPaddedPODArray<CollectionValue> {
+    public:
+        OlapColumnDataConvertorArray(OlapColumnDataConvertorBaseUPtr item_convertor)
+                : _item_convertor(std::move(item_convertor)) {}
+
+        Status convert_to_olap() override;
+
+    private:
+        OlapColumnDataConvertorBaseUPtr _item_convertor;
+    };
+
 private:
-    std::vector<OlapColumnDataConvertorBaseSPtr> _convertors;
+    std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;
 };
 
 } // namespace doris::vectorized
