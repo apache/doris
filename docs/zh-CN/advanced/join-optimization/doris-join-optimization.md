@@ -41,7 +41,7 @@ Doris 支持两种物理算子，一类是 **Hash Join**，另一类是 **Nest L
 
 Doris 支持 4 种 Shuffle 方式
 
-1. BroadCast Join
+1. Broadcast Join
 
    它要求把右表全量的数据都发送到左表上，即每一个参与 Join 的节点，它都拥有右表全量的数据，也就是 T(R)。
 
