@@ -178,8 +178,8 @@ public class View extends Table {
         }
         // Make sure the view definition parses to a query statement.
         if (!(node instanceof QueryStmt)) {
-            throw new UserException(String.format("View definition of %s " +
-                    "is not a query statement", name));
+            throw new UserException(String.format("View definition of %s "
+                    + "is not a query statement", name));
         }
         queryStmtRef = new SoftReference<QueryStmt>((QueryStmt) node);
         return (QueryStmt) node;
@@ -188,7 +188,9 @@ public class View extends Table {
     /**
      * Returns the column labels the user specified in the WITH-clause.
      */
-    public List<String> getOriginalColLabels() { return colLabels; }
+    public List<String> getOriginalColLabels() {
+        return colLabels;
+    }
 
     /**
      * Returns the explicit column labels for this view, or null if they need to be derived
@@ -240,7 +242,7 @@ public class View extends Table {
         return copied;
     }
 
-    public void resetIdsForRestore(Catalog catalog){
+    public void resetIdsForRestore(Catalog catalog) {
         id = catalog.getNextId();
     }
 

@@ -99,6 +99,7 @@ import java.util.stream.Collectors;
 public class RestoreJob extends AbstractJob {
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
 
+    // CHECKSTYLE OFF
     public enum RestoreJobState {
         PENDING, // Job is newly created. Check and prepare meta in catalog. Create replica if necessary.
                  // Waiting for replica creation finished synchronously, then sending snapshot tasks.
@@ -112,6 +113,7 @@ public class RestoreJob extends AbstractJob {
         FINISHED,
         CANCELLED
     }
+    // CHECKSTYLE ON
 
     private String backupTimestamp;
 
@@ -1438,7 +1440,7 @@ public class RestoreJob extends AbstractJob {
                     for (MaterializedIndex idx : part.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         for (Tablet tablet : idx.getTablets()) {
                             for (Replica replica : tablet.getReplicas()) {
-                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(),false)) {
+                                if (!replica.checkVersionCatchUp(part.getVisibleVersion(), false)) {
                                     replica.updateVersionInfo(part.getVisibleVersion(),
                                             replica.getDataSize(), replica.getRowCount());
                                 }
@@ -1759,7 +1761,7 @@ public class RestoreJob extends AbstractJob {
         }
 
         out.writeInt(restoredResources.size());
-        for (Resource resource: restoredResources) {
+        for (Resource resource : restoredResources) {
             resource.write(out);
         }
 
@@ -1818,7 +1820,7 @@ public class RestoreJob extends AbstractJob {
                 long partId = in.readLong();
                 long version = in.readLong();
                 // Useless but read it to compatible with meta
-                long versionHash = in.readLong();
+                long versionHash = in.readLong(); // CHECKSTYLE IGNORE THIS LINE
                 restoredVersionInfo.put(tblId, partId, version);
             }
         }

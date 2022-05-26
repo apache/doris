@@ -89,8 +89,8 @@ public class LoadStmt extends DdlStmt {
 
     // mini load params
     public static final String KEY_IN_PARAM_COLUMNS = "columns";
-    public static final String KEY_IN_PARAM_SET= "set";
-    public static final String KEY_IN_PARAM_HLL= "hll";
+    public static final String KEY_IN_PARAM_SET = "set";
+    public static final String KEY_IN_PARAM_HLL = "hll";
     public static final String KEY_IN_PARAM_COLUMN_SEPARATOR = "column_separator";
     public static final String KEY_IN_PARAM_LINE_DELIMITER = "line_delimiter";
     public static final String KEY_IN_PARAM_PARTITIONS = "partitions";
@@ -346,9 +346,9 @@ public class LoadStmt extends DdlStmt {
             if (brokerDesc != null && !brokerDesc.isMultiLoadBroker()) {
                 for (int i = 0; i < dataDescription.getFilePaths().size(); i++) {
                     dataDescription.getFilePaths().set(i,
-                        brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
+                            brokerDesc.convertPathToS3(dataDescription.getFilePaths().get(i)));
                     dataDescription.getFilePaths().set(i,
-                        ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
+                            ExportStmt.checkPath(dataDescription.getFilePaths().get(i), brokerDesc.getStorageType()));
                 }
             }
         }

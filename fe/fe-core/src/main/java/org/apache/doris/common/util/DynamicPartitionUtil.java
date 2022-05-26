@@ -312,15 +312,17 @@ public class DynamicPartitionUtil {
                     String formattedLowerBound = sdf.format(sdf.parse(range.lowerEndpoint().toString()));
                     String formattedUpperBound = sdf.format(sdf.parse(range.upperEndpoint().toString()));
                     if (!range.lowerEndpoint().toString().equals(formattedLowerBound) || !range.upperEndpoint().toString().equals(formattedUpperBound)) {
-                        throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS +
-                                " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH " +
-                                "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
+                        throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS
+                                + " value. It must be correct DATE value \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\""
+                                + " while time_unit is DAY/WEEK/MONTH or"
+                                + " \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
                     }
                 }
             } catch (ParseException e) {
-                throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS +
-                        " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\" while time_unit is DAY/WEEK/MONTH " +
-                        "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
+                throw new DdlException("Invalid " + DynamicPartitionProperty.RESERVED_HISTORY_PERIODS
+                        + " value. It must be like \"[yyyy-MM-dd,yyyy-MM-dd],[...,...]\""
+                        + " while time_unit is DAY/WEEK/MONTH "
+                        + "or \"[yyyy-MM-dd HH:mm:ss,yyyy-MM-dd HH:mm:ss],[...,...]\" while time_unit is HOUR.");
             }
         }
     }
@@ -366,16 +368,16 @@ public class DynamicPartitionUtil {
         String historyPartitionNum = properties.get(DynamicPartitionProperty.HISTORY_PARTITION_NUM);
         String reservedHistoryPeriods = properties.get(DynamicPartitionProperty.RESERVED_HISTORY_PERIODS);
 
-        if (!(Strings.isNullOrEmpty(enable) &&
-                Strings.isNullOrEmpty(timeUnit) &&
-                Strings.isNullOrEmpty(timeZone) &&
-                Strings.isNullOrEmpty(prefix) &&
-                Strings.isNullOrEmpty(start) &&
-                Strings.isNullOrEmpty(end) &&
-                Strings.isNullOrEmpty(buckets) &&
-                Strings.isNullOrEmpty(createHistoryPartition) &&
-                Strings.isNullOrEmpty(historyPartitionNum) &&
-                Strings.isNullOrEmpty(reservedHistoryPeriods))) {
+        if (!(Strings.isNullOrEmpty(enable)
+                && Strings.isNullOrEmpty(timeUnit)
+                && Strings.isNullOrEmpty(timeZone)
+                && Strings.isNullOrEmpty(prefix)
+                && Strings.isNullOrEmpty(start)
+                && Strings.isNullOrEmpty(end)
+                && Strings.isNullOrEmpty(buckets)
+                && Strings.isNullOrEmpty(createHistoryPartition)
+                && Strings.isNullOrEmpty(historyPartitionNum)
+                && Strings.isNullOrEmpty(reservedHistoryPeriods))) {
             if (Strings.isNullOrEmpty(enable)) {
                 properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
@@ -571,17 +573,17 @@ public class DynamicPartitionUtil {
 
     public static void checkAlterAllowed(OlapTable olapTable) throws DdlException {
         TableProperty tableProperty = olapTable.getTableProperty();
-        if (tableProperty != null && tableProperty.getDynamicPartitionProperty() != null &&
-                tableProperty.getDynamicPartitionProperty().isExist() &&
-                tableProperty.getDynamicPartitionProperty().getEnable()) {
-            throw new DdlException("Cannot add/drop partition on a Dynamic Partition Table, " +
-                    "Use command `ALTER TABLE tbl_name SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
+        if (tableProperty != null && tableProperty.getDynamicPartitionProperty() != null
+                && tableProperty.getDynamicPartitionProperty().isExist()
+                && tableProperty.getDynamicPartitionProperty().getEnable()) {
+            throw new DdlException("Cannot add/drop partition on a Dynamic Partition Table, "
+                    + "Use command `ALTER TABLE tbl_name SET (\"dynamic_partition.enable\" = \"false\")` firstly.");
         }
     }
 
     public static boolean isDynamicPartitionTable(Table table) {
-        if (!(table instanceof OlapTable) ||
-                !(((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.RANGE))) {
+        if (!(table instanceof OlapTable)
+                || !(((OlapTable) table).getPartitionInfo().getType().equals(PartitionType.RANGE))) {
             return false;
         }
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) ((OlapTable) table).getPartitionInfo();

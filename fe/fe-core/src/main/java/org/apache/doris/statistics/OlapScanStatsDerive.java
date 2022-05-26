@@ -45,7 +45,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
     public void init(PlanNode node) throws UserException {
         Preconditions.checkState(node instanceof OlapScanNode);
         super.init(node);
-        buildStructure((OlapScanNode)node);
+        buildStructure((OlapScanNode) node);
     }
 
     @Override
@@ -72,7 +72,7 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
         slotIdToDataSize = new HashMap<>();
         slotIdToNdv = new HashMap<>();
         if (node.getTupleDesc() != null
-            && node.getTupleDesc().getTable() != null) {
+                && node.getTupleDesc().getTable() != null) {
             long tableId = node.getTupleDesc().getTable().getId();
             inputRowCount = Catalog.getCurrentCatalog().getStatisticsManager()
                     .getStatistics().getTableStats(tableId).getRowCount();

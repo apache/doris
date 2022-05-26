@@ -82,7 +82,7 @@ public class DescriptorTable {
         tupleDescs.put(d.getId(), d);
         // create copies of slots
         TupleDescriptor src = tupleDescs.get(srcId);
-        for (SlotDescriptor slot: src.getSlots()) {
+        for (SlotDescriptor slot : src.getSlots()) {
             copySlotDescriptor(d, slot);
         }
         d.computeStatAndMemLayout();
@@ -119,7 +119,7 @@ public class DescriptorTable {
      * Marks all slots in list as materialized.
      */
     public void markSlotsMaterialized(List<SlotId> ids) {
-        for (SlotId id: ids) {
+        for (SlotId id : ids) {
             getSlotDesc(id).setIsMaterialized(true);
         }
     }

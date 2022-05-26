@@ -33,7 +33,7 @@ public class BdbjeDatabaseProcDir implements ProcDirInterface  {
 
     private String dbName;
 
-    public BdbjeDatabaseProcDir(String dbName){
+    public BdbjeDatabaseProcDir(String dbName) {
         this.dbName = dbName;
     }
 

@@ -144,7 +144,7 @@ public class OdbcCatalogResource extends Resource {
             adler32.update(type.name().getBytes(charsetName));
             LOG.debug("signature. view type: {}", type.name());
             // configs
-            for (Map.Entry<String, String> config: configs.entrySet()) {
+            for (Map.Entry<String, String> config : configs.entrySet()) {
                 adler32.update(config.getKey().getBytes(charsetName));
                 adler32.update(config.getValue().getBytes(charsetName));
                 LOG.debug("signature. view config: {}", config);

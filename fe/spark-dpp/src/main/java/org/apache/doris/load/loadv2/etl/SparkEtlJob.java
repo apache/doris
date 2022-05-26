@@ -121,9 +121,9 @@ public class SparkEtlJob {
                     if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
                         throw new SparkDppException("spark load not support bitmap_hash now");
                     }
-                    if(funcName.equalsIgnoreCase(BINARY_BITMAP)){
+                    if (funcName.equalsIgnoreCase(BINARY_BITMAP)) {
                         binaryBitmapColumns.add(columnName.toLowerCase());
-                    }else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
+                    } else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
                         bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
@@ -138,7 +138,7 @@ public class SparkEtlJob {
             if (!bitmapDictColumns.isEmpty()) {
                 tableToBitmapDictColumns.put(entry.getKey(), bitmapDictColumns);
             }
-            if(!binaryBitmapColumns.isEmpty()){
+            if (!binaryBitmapColumns.isEmpty()) {
                 tableToBinaryBitmapColumns.put(entry.getKey(), binaryBitmapColumns);
             }
         }
@@ -192,7 +192,7 @@ public class SparkEtlJob {
         LOG.info("global dict builder args, dictColumnMap: " + dictColumnMap
                          + ", dorisOlapTableColumnList: " + dorisOlapTableColumnList
                          + ", sourceHiveDBTableName: " + sourceHiveDBTableName
-                         + ", sourceHiveFilter: "+ sourceHiveFilter
+                         + ", sourceHiveFilter: " + sourceHiveFilter
                          + ", distinctKeyTableName: " + distinctKeyTableName
                          + ", globalDictTableName: " + globalDictTableName
                          + ", dorisIntermediateHiveTable: " + dorisIntermediateHiveTable);

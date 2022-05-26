@@ -31,7 +31,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.Optional;
 
-@SuppressWarnings({"unchecked","rawtypes"})
+@SuppressWarnings({"unchecked", "rawtypes"})
 public abstract class PropertySchema<T> {
     private final String name;
     private final boolean required;
@@ -190,8 +190,8 @@ public abstract class PropertySchema<T> {
 
         @Override
         public Boolean read(String rawVal) {
-            if (rawVal == null ||
-                    (!rawVal.equalsIgnoreCase("true") && !rawVal.equalsIgnoreCase("false"))) {
+            if (rawVal == null || (!rawVal.equalsIgnoreCase("true")
+                    && !rawVal.equalsIgnoreCase("false"))) {
                 throw new IllegalArgumentException(String.format("Invalid boolean : %s, use true or false", rawVal));
             }
 

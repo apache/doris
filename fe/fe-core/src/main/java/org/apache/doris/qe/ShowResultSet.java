@@ -41,7 +41,7 @@ public class ShowResultSet extends AbstractResultSet {
 
     public ShowResultSet(TShowResultSet resultSet) {
         List<Column> columns = Lists.newArrayList();
-        for (int i = 0; i < resultSet.getMetaData().getColumnsSize(); i ++) {
+        for (int i = 0; i < resultSet.getMetaData().getColumnsSize(); i++) {
             TColumnDefinition definition = (TColumnDefinition) resultSet.getMetaData().getColumns().get(i);
             columns.add(new Column(
                             definition.getColumnName(),
@@ -56,7 +56,7 @@ public class ShowResultSet extends AbstractResultSet {
     public TShowResultSet tothrift() {
         TShowResultSet set = new TShowResultSet();
         set.metaData = new TShowResultSetMetaData();
-        for (int i = 0; i < metaData.getColumnCount(); i ++) {
+        for (int i = 0; i < metaData.getColumnCount(); i++) {
             Column definition = metaData.getColumn(i);
             set.metaData.addToColumns(new TColumnDefinition(
                     definition.getName(), definition.getOriginType().toColumnTypeThrift())
@@ -64,9 +64,9 @@ public class ShowResultSet extends AbstractResultSet {
         }
 
         set.resultRows = Lists.newArrayList();
-        for (int i = 0; i < resultRows.size(); i ++) {
+        for (int i = 0; i < resultRows.size(); i++) {
             ArrayList<String> list = Lists.newArrayList();
-            for (int j = 0; j < resultRows.get(i).size(); j ++) {
+            for (int j = 0; j < resultRows.get(i).size(); j++) {
                 list.add(resultRows.get(i).get(j) == null ? FeConstants.null_string : resultRows.get(i).get(j));
             }
             set.resultRows.add(list);

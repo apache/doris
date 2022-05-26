@@ -42,7 +42,9 @@ public class AddColumnClause extends AlterTableClause {
     // set in analyze
     private Column column;
 
-    public Column getColumn() { return column; }
+    public Column getColumn() {
+        return column;
+    }
 
     public ColumnPosition getColPos() {
         return colPos;

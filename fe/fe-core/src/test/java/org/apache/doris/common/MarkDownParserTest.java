@@ -166,7 +166,7 @@ public class MarkDownParserTest {
         lines.add("### url");
         lines.add("http://www.baidu.com");
         MarkDownParser parser = new MarkDownParser(lines);
-        Map<String, Map<String, String>> map = parser.parse();
+        parser.parse();
     }
 
     // no valid topic

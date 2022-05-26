@@ -54,9 +54,13 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         return dbName;
     }
 
-    public FunctionName getFunctionName() { return functionName; }
+    public FunctionName getFunctionName() {
+        return functionName;
+    }
 
-    public FunctionSearchDesc getFunction() { return function; }
+    public FunctionSearchDesc getFunction() {
+        return function;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {

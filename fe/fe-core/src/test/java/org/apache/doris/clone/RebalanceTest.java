@@ -185,14 +185,14 @@ public class RebalanceTest {
     public void testPrioBackends() {
         Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
         // add
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             List<Backend> backends = Lists.newArrayList();
             for (int i = 0; i < 3; i++) {
                 backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
             }
             rebalancer.addPrioBackends(backends, 1000);
             Assert.assertTrue(rebalancer.hasPrioBackends());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // remove
         for (int i = 0; i < 3; i++) {
@@ -258,12 +258,6 @@ public class RebalanceTest {
         List<Long> needCheckTablets = tasks.stream().map(AgentTask::getTabletId).collect(Collectors.toList());
         LOG.info("created tasks for tablet: {}", needCheckTablets);
         needCheckTablets.forEach(t -> Assert.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
-
-//        // If clone task execution is too slow, tabletChecker may want to delete the CLONE replica.
-//        tabletChecker.runAfterCatalogReady();
-//        Assert.assertTrue(tabletScheduler.containsTablet(50000));
-//        // tabletScheduler handle redundant
-//        tabletScheduler.runAfterCatalogReady();
 
         for (Long tabletId : needCheckTablets) {
             TabletSchedCtx tabletSchedCtx = alternativeTablets.stream()

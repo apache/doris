@@ -132,7 +132,7 @@ public class ArrayLiteral extends LiteralExpr {
         ArrayLiteral literal = new ArrayLiteral(this);
         for (int i = 0; i < children.size(); ++ i) {
             Expr child = children.get(i);
-            literal.children.set(i, child.uncheckedCastTo(((ArrayType)targetType).getItemType()));
+            literal.children.set(i, child.uncheckedCastTo(((ArrayType) targetType).getItemType()));
         }
         literal.setType(targetType);
         return literal;

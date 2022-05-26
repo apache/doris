@@ -37,6 +37,8 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eof);
 
+    Status close(RuntimeState* state) override;
+
     Status get_batch(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
         return Status::NotSupported("Not Implemented VOlapScanNode Node::get_next scalar");
     }

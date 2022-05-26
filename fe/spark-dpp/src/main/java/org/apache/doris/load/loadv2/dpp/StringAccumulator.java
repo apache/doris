@@ -54,7 +54,7 @@ public class StringAccumulator extends AccumulatorV2<String, String> {
 
     @Override
     public void merge(AccumulatorV2<String, String> other) {
-        StringAccumulator o = (StringAccumulator)other;
+        StringAccumulator o = (StringAccumulator) other;
         strs.addAll(o.strs);
     }
 

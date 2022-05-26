@@ -28,7 +28,7 @@ import org.apache.doris.common.AnalysisException;
 /**
  * rewrite alias function to real function
  */
-public class RewriteAliasFunctionRule implements ExprRewriteRule{
+public class RewriteAliasFunctionRule implements ExprRewriteRule {
     public static RewriteAliasFunctionRule INSTANCE = new RewriteAliasFunctionRule();
 
     @Override

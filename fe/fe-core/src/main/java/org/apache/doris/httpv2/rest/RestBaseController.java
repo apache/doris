@@ -83,11 +83,10 @@ public class RestBaseController extends BaseController {
             //I don't know why the format username@default_cluster is used in parseAuthInfo.
             //It is estimated that it is compatible with the standard format of username:password.
             //So here we feel that we can assemble it completely by hand.
-            String clusterName = ConnectContext.get() == null ?
-                SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
-            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName) +
-                "@" + clusterName  +
-                ":" + authInfo.password;
+            String clusterName = ConnectContext.get() == null
+                    ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
+                    + "@" + clusterName  + ":" + authInfo.password;
         }
         try {
             urlObj = new URI(urlStr);

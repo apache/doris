@@ -81,8 +81,9 @@ public class AlterTableStmtTest {
         ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n" +
-                        " `index2` (`col2`, `col3`) FROM `testTbl`",
+        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl`"
+                        + " ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n"
+                        + " `index2` (`col2`, `col3`) FROM `testTbl`",
                 stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());

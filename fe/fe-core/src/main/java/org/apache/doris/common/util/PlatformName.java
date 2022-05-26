@@ -19,9 +19,9 @@ package org.apache.doris.common.util;
 
 public class PlatformName {
 
-    private static final String platformName = System.getProperty("os.name") + "-" +
-            System.getProperty("os.arch") + "-" +
-            System.getProperty("sun.arch.data.model");
+    private static final String platformName = System.getProperty("os.name") + "-"
+            + System.getProperty("os.arch") + "-"
+            + System.getProperty("sun.arch.data.model");
 
     public static String getPlatformName() {
         return platformName;

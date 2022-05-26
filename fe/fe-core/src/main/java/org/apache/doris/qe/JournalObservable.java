@@ -89,7 +89,7 @@ public class JournalObservable {
         int pos = upperBound(arrLocal, size, journalId);
         LOG.debug("notify observers: journal: {}, pos: {}, size: {}, obs: {}", journalId, pos, size, obs);
 
-        for (int i = 0; i < pos; i ++) {
+        for (int i = 0; i < pos; i++) {
             JournalObserver observer = ((JournalObserver) arrLocal[i]);
             observer.update();
         }

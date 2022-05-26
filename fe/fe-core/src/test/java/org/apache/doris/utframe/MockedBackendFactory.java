@@ -327,11 +327,12 @@ public class MockedBackendFactory {
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-       @Override
-        public void transmitData(InternalService.PTransmitDataParams request, StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-           responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                   .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
-           responseObserver.onCompleted();
+        @Override
+        public void transmitData(InternalService.PTransmitDataParams request,
+                StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
+            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
         }
 
         @Override

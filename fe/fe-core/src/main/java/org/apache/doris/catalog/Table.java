@@ -180,7 +180,7 @@ public class Table extends MetaObject implements Writable {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-           return this.rwLock.writeLock().tryLock(timeout, unit);
+            return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;

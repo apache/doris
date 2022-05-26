@@ -80,11 +80,15 @@ public class SparkRepositoryTest {
 
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return true; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return true;
+            }
+
             @Mock
             void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-                    throws UserException { fileStatuses.addAll(files); }
+                    throws UserException {
+                fileStatuses.addAll(files);
+            }
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
@@ -131,14 +135,19 @@ public class SparkRepositoryTest {
     public void testArchiveNotExists() {
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return false; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return false;
+            }
+
             @Mock
-            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
         };
 
         BrokerDesc brokerDesc = new BrokerDesc("broker", Maps.newHashMap());
@@ -188,20 +197,30 @@ public class SparkRepositoryTest {
     public void testLibraryMd5MissMatch() {
         new MockUp<BrokerUtil>() {
             @Mock
-            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc)
-                    throws UserException { return true; }
+            boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
+                return true;
+            }
+
             @Mock
             void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
-                    throws UserException { fileStatuses.addAll(files); }
+                    throws UserException {
+                fileStatuses.addAll(files);
+            }
+
             @Mock
-            void deletePath(String path, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void deletePath(String path, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void writeFile(String srcFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
+
             @Mock
-            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc)
-                    throws UserException { return; }
+            void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
+                return;
+            }
         };
 
         // new md5dum of local library

@@ -336,7 +336,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         for (Long dropPartitionId : isContaineds.keySet()) {
             // Do not drop the partition "by force", or the partition will be dropped directly instread of being in
             // catalog recycle bin. This is for safe reason.
-            if(!isContaineds.get(dropPartitionId)) {
+            if (!isContaineds.get(dropPartitionId)) {
                 String dropPartitionName = olapTable.getPartition(dropPartitionId).getName();
                 dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false, false));
             }

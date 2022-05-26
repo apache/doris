@@ -92,7 +92,7 @@ public class PartitionInfo implements Writable {
         return type;
     }
 
-    public List<Column> getPartitionColumns(){
+    public List<Column> getPartitionColumns() {
         return partitionColumns;
     }
 

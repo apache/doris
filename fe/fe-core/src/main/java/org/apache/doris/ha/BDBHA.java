@@ -214,7 +214,7 @@ public class BDBHA implements HAProtocol {
     public void addHelperSocket(String ip, Integer port) {
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         Set<InetSocketAddress> helperSockets = Sets.newHashSet(replicationGroupAdmin.getHelperSockets());
-        InetSocketAddress newHelperSocket =  new InetSocketAddress(ip,port);
+        InetSocketAddress newHelperSocket =  new InetSocketAddress(ip, port);
         if (!helperSockets.contains(newHelperSocket)) {
             helperSockets.add(newHelperSocket);
             environment.setNewReplicationGroupAdmin(helperSockets);

@@ -223,8 +223,8 @@ public class StmtExecutor implements ProfileWriter {
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
             summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, queryType);
             summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
-                            "RUNNING" : context.getState().toString());
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
+                            ? "RUNNING" : context.getState().toString());
             summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
             summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
             summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
@@ -239,8 +239,8 @@ public class StmtExecutor implements ProfileWriter {
                     waiteBeReport ? TimeUtils.longToTimeString(currentTimestamp) : "N/A");
             summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
             summaryProfile.addInfoString(ProfileManager.QUERY_STATE,
-                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK) ?
-                            "RUNNING" : context.getState().toString());
+                    !waiteBeReport && context.getState().getStateType().equals(MysqlStateType.OK)
+                            ? "RUNNING" : context.getState().toString());
         }
         plannerProfile.initRuntimeProfile(plannerRuntimeProfile);
 
@@ -338,8 +338,8 @@ public class StmtExecutor implements ProfileWriter {
                         // If goes here, which means we can't find a valid Master FE(some error happens).
                         // To avoid endless forward, throw exception here.
                         throw new UserException("The statement has been forwarded to master FE("
-                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute" +
-                                " because Master FE is not ready. You may need to check FE's status");
+                                + Catalog.getCurrentCatalog().getSelfNode().first + ") and failed to execute"
+                                + " because Master FE is not ready. You may need to check FE's status");
                     }
                     forwardToMaster();
                     if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
@@ -1144,8 +1144,8 @@ public class StmtExecutor implements ProfileWriter {
         if (context.isTxnIniting()) { // first time, begin txn
             beginTxn(insertStmt.getDb(), insertStmt.getTbl());
         }
-        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb()) ||
-                !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
+        if (!context.getTxnEntry().getTxnConf().getDb().equals(insertStmt.getDb())
+                || !context.getTxnEntry().getTxnConf().getTbl().equals(insertStmt.getTbl())) {
             throw new TException("Only one table can be inserted in one transaction.");
         }
 
@@ -1315,18 +1315,17 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.debug("delta files is {}", coord.getDeltaUrls());
 
                 if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
-                    loadedRows = Long.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+                    loadedRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
                 }
                 if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
-                    filteredRows = Integer.valueOf(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
+                    filteredRows = Integer.parseInt(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
                 }
 
                 // if in strict mode, insert will fail if there are filtered rows
                 if (context.getSessionVariable().getEnableInsertStrict()) {
                     if (filteredRows > 0) {
-                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT, "Insert has filtered data in strict mode, " +
-                                "tracking_url="
-                                + coord.getTrackingUrl());
+                        context.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
+                                "Insert has filtered data in strict mode, tracking_url=" + coord.getTrackingUrl());
                         return;
                     }
                 }

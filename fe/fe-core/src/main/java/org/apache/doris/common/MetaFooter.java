@@ -56,7 +56,7 @@ public class MetaFooter {
     public List<MetaIndex> metaIndices;
 
     public static MetaFooter read(File imageFile) throws IOException {
-        try(RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
+        try (RandomAccessFile raf = new RandomAccessFile(imageFile, "r")) {
             long fileLength = raf.length();
             long footerLengthIndex = fileLength - FOOTER_LENGTH_SIZE - MetaMagicNumber.MAGIC_STR.length();
             raf.seek(footerLengthIndex);
@@ -86,7 +86,7 @@ public class MetaFooter {
     }
 
     public static void write(File imageFile, List<MetaIndex> metaIndices, long checksum) throws IOException {
-        try(RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
+        try (RandomAccessFile raf = new RandomAccessFile(imageFile, "rw")) {
             long startIndex = raf.length();
             raf.seek(startIndex);
             raf.writeLong(checksum);

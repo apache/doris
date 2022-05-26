@@ -25,7 +25,6 @@
 
 #include <string>
 
-#include "common/status.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -62,5 +61,4 @@ typename boost::enable_if_c<boost::is_arithmetic<T>::value, void>::type ToJsonVa
     }
 }
 
-std::string to_json(const Status& status);
 } // namespace doris

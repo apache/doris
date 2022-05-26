@@ -76,7 +76,6 @@ public class TablePropertyInfo implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        long dbId = -1;
         tableId = in.readLong();
         if (in.readBoolean()) {
             groupId = GroupId.read(in);

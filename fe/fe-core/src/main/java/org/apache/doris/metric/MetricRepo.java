@@ -344,8 +344,8 @@ public final class MetricRepo {
         HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
         METRIC_REGISTER.register(MetricRegistry.name("palo", "fe", "query", "max_instances_num_per_user"), (Gauge<Integer>) () -> {
-            try{
-                return ((QeProcessorImpl)QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
+            try {
+                return ((QeProcessorImpl) QeProcessorImpl.INSTANCE).getInstancesNumPerUser().values().stream()
                         .reduce(-1, BinaryOperator.maxBy(Integer::compareTo));
             } catch (Throwable ex) {
                 LOG.warn("Get max_instances_num_per_user error", ex);
