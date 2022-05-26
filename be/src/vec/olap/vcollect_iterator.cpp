@@ -414,11 +414,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         ++target_block_row;
         auto res = _merge_next(&cur_row);
         if (UNLIKELY(res.precise_code() == OLAP_ERR_DATA_EOF)) {
-            if (target_block_row > 0) {
-                return Status::OK();
-            } else {
-                return res;
-            }
+            return res;
         }
 
         if (UNLIKELY(!res.ok())) {
