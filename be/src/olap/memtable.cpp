@@ -282,7 +282,7 @@ void MemTable::_collect_vskiplist_results() {
             _input_mutable_block.swap(_output_mutable_block);
             //TODO(weixang):opt here.
             std::unique_ptr<vectorized::Block> empty_input_block =
-                    std::move(in_block.create_same_struct_block(0));
+                    in_block.create_same_struct_block(0);
             _output_mutable_block =
                     vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
             _output_mutable_block.clear_column_data();
