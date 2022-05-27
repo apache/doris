@@ -67,6 +67,35 @@ enum TTabletType {
     TABLET_TYPE_MEMORY = 1
 }
 
+struct TS3StorageParam {
+    1: optional string s3_endpoint
+    2: optional string s3_region
+    3: optional string s3_ak
+    4: optional string s3_sk
+    5: optional i32 s3_max_conn = 50
+    6: optional i32 s3_request_timeout_ms = 3000
+    7: optional i32 s3_conn_timeout_ms = 1000
+    8: optional string root_path
+}
+
+struct TStorageParam {
+    1: required Types.TStorageMedium storage_medium = TStorageMedium.HDD
+    2: required string storage_name = "";
+    3: optional TS3StorageParam s3_storage_param
+}
+
+enum TCompressionType {
+    UNKNOWN_COMPRESSION = 0,
+    DEFAULT_COMPRESSION = 1,
+    NO_COMPRESSION = 2,
+    SNAPPY = 3,
+    LZ4 = 4,
+    LZ4F = 5,
+    ZLIB = 6,
+    ZSTD = 7
+}
+
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -87,6 +116,8 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
+    15: optional TStorageParam storage_param
+    16: optional TCompressionType compression_type = TCompressionType.LZ4F
 }
 
 struct TDropTabletReq {

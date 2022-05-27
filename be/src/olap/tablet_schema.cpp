@@ -426,6 +426,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
+    _compression_type = schema.compression_type();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -446,6 +447,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_meta_pb->set_sort_type(_sort_type);
     tablet_meta_pb->set_sort_col_num(_sort_col_num);
+    tablet_meta_pb->set_compression_type(_compression_type);
 }
 
 uint32_t TabletSchema::mem_size() const {
