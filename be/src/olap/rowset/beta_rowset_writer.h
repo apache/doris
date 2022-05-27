@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
-#define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
+#pragma once
 
 #include "olap/rowset/rowset_writer.h"
 #include "vector"
@@ -63,7 +62,7 @@ public:
 
     Version version() override { return _context.version; }
 
-    int64_t num_rows() override { return _num_rows_written; }
+    int64_t num_rows() const override { return _num_rows_written; }
 
     RowsetId rowset_id() override { return _context.rowset_id; }
 
@@ -103,5 +102,3 @@ private:
 };
 
 } // namespace doris
-
-#endif //DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H

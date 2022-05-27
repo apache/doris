@@ -63,8 +63,8 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory);
 void register_function_timestamp(SimpleFunctionFactory& factory);
 void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
-void register_function_function_hash(SimpleFunctionFactory& factory);
-void register_function_function_ifnull(SimpleFunctionFactory& factory);
+void register_function_hash(SimpleFunctionFactory& factory);
+void register_function_ifnull(SimpleFunctionFactory& factory);
 void register_function_like(SimpleFunctionFactory& factory);
 void register_function_regexp(SimpleFunctionFactory& factory);
 void register_function_random(SimpleFunctionFactory& factory);
@@ -75,7 +75,7 @@ void register_function_convert_tz(SimpleFunctionFactory& factory);
 void register_function_least_greast(SimpleFunctionFactory& factory);
 void register_function_fake(SimpleFunctionFactory& factory);
 void register_function_array(SimpleFunctionFactory& factory);
-void register_geo_functions(SimpleFunctionFactory& factory);
+void register_function_geo(SimpleFunctionFactory& factory);
 
 void register_function_encryption(SimpleFunctionFactory& factory);
 void register_function_regexp_extract(SimpleFunctionFactory& factory);
@@ -194,8 +194,8 @@ public:
             register_function_date_time_to_string(instance);
             register_function_date_time_string_to_string(instance);
             register_function_json(instance);
-            register_function_function_hash(instance);
-            register_function_function_ifnull(instance);
+            register_function_hash(instance);
+            register_function_ifnull(instance);
             register_function_comparison_eq_for_null(instance);
             register_function_like(instance);
             register_function_regexp(instance);
@@ -210,7 +210,7 @@ public:
             register_function_regexp_extract(instance);
             register_function_hex_variadic(instance);
             register_function_array(instance);
-            register_geo_functions(instance);
+            register_function_geo(instance);
         });
         return instance;
     }

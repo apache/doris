@@ -525,6 +525,15 @@ vectorized::Block TabletSchema::create_block(
     return block;
 }
 
+vectorized::Block TabletSchema::create_block() const {
+    vectorized::Block block;
+    for (const auto& col : _cols) {
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col);
+        block.insert({data_type->create_column(), data_type, col.name()});
+    }
+    return block;
+}
+
 bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._unique_id != b._unique_id) return false;
     if (a._col_name != b._col_name) return false;

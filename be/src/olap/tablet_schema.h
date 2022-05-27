@@ -23,6 +23,8 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/olap_define.h"
 #include "olap/types.h"
+#include "vec/aggregate_functions/aggregate_function_reader.h"
+#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 
 namespace doris {
 namespace vectorized {
@@ -62,9 +64,18 @@ public:
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
+    vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
+                                                            std::string suffix) const {
+        std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
+        std::transform(agg_name.begin(), agg_name.end(), agg_name.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+
+        return vectorized::AggregateFunctionSimpleFactory::instance().get(
+                agg_name, argument_types, {}, argument_types.back()->is_nullable());
+    }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
-    bool visible() { return _visible; }
+    bool visible() const { return _visible; }
     // Add a sub column.
     void add_sub_column(TabletColumn& sub_column);
 
@@ -151,6 +162,7 @@ public:
     vectorized::Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
+    vectorized::Block create_block() const;
 
 private:
     // Only for unit test.

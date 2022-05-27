@@ -20,31 +20,25 @@
 
 #pragma once
 
-#include <boost/smart_ptr/intrusive_ptr.hpp>
-#include <boost/smart_ptr/intrusive_ref_counter.hpp>
+#include <atomic>
 #include <initializer_list>
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
   *
   * Usage:
-
     class Column : public COW<Column>
     {
     private:
         friend class COW<Column>;
-
         /// Leave all constructors in private section. They will be avaliable through 'create' method.
         Column();
-
         /// Provide 'clone' method. It can be virtual if you want polymorphic behaviour.
         virtual Column * clone() const;
     public:
         /// Correctly use const qualifiers in your interface.
-
         virtual ~Column() {}
     };
-
   * It will provide 'create' and 'mutate' methods.
   * And 'Ptr' and 'MutablePtr' types.
   * Ptr is refcounted pointer to immutable object.
@@ -63,9 +57,7 @@
     Column::Ptr x = Column::create(1);
     /// Sharing single immutable object in two ptrs.
     Column::Ptr y = x;
-
     /// Now x and y are shared.
-
     /// Change value of x.
     {
         /// Creating mutable ptr. It can clone an object under the hood if it was shared.
@@ -75,9 +67,7 @@
         /// Assigning pointer 'x' to mutated object.
         x = std::move(mutate_x);
     }
-
     /// Now x and y are unshared and have different values.
-
   * Note. You may have heard that COW is bad practice.
   * Actually it is, if your values are small or if copying is done implicitly.
   * This is the case for string implementations.
@@ -120,20 +110,28 @@ protected:
         intrusive_ptr() : t(nullptr) {}
 
         intrusive_ptr(T* t, bool add_ref = true) : t(t) {
-            if (t && add_ref) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t && add_ref) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         template <typename U>
         intrusive_ptr(intrusive_ptr<U> const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         intrusive_ptr(intrusive_ptr const& rhs) : t(rhs.get()) {
-            if (t) ((std::remove_const_t<T>*)t)->add_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->add_ref();
+            }
         }
 
         ~intrusive_ptr() {
-            if (t) ((std::remove_const_t<T>*)t)->release_ref();
+            if (t) {
+                ((std::remove_const_t<T>*)t)->release_ref();
+            }
         }
 
         template <typename U>
@@ -148,7 +146,9 @@ protected:
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #endif
-        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) { rhs.t = nullptr; }
+        intrusive_ptr(intrusive_ptr&& rhs) : t(rhs.t) {
+            rhs.t = nullptr;
+        }
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #elif defined(__GNUC__) || defined(__GNUG__)
@@ -183,13 +183,21 @@ protected:
             return *this;
         }
 
-        void reset() { intrusive_ptr().swap(*this); }
+        void reset() {
+            intrusive_ptr().swap(*this);
+        }
 
-        void reset(T* rhs) { intrusive_ptr(rhs).swap(*this); }
+        void reset(T* rhs) {
+            intrusive_ptr(rhs).swap(*this);
+        }
 
-        void reset(T* rhs, bool add_ref) { intrusive_ptr(rhs, add_ref).swap(*this); }
+        void reset(T* rhs, bool add_ref) {
+            intrusive_ptr(rhs, add_ref).swap(*this);
+        }
 
-        T* get() const { return t; }
+        T* get() const {
+            return t;
+        }
 
         T* detach() {
             T* ret = t;
@@ -197,21 +205,31 @@ protected:
             return ret;
         }
 
-        void swap(intrusive_ptr& rhs) {
+        void swap(const intrusive_ptr& rhs) {
             T* tmp = t;
             t = rhs.t;
-            rhs.t = tmp;
+            const_cast<intrusive_ptr&>(rhs).t = tmp;
         }
 
-        T& operator*() const& { return *t; }
+        T& operator*() const& {
+            return *t;
+        }
 
-        T&& operator*() const&& { return const_cast<std::remove_const_t<T>&&>(*t); }
+        T&& operator*() const&& {
+            return const_cast<std::remove_const_t<T>&&>(*t);
+        }
 
-        T* operator->() const { return t; }
+        T* operator->() const {
+            return t;
+        }
 
-        operator bool() const { return t != nullptr; }
+        operator bool() const {
+            return t != nullptr;
+        }
 
-        operator T*() const { return t; }
+        operator T*() const {
+            return t;
+        }
 
     private:
         T* t;
@@ -250,7 +268,9 @@ protected:
 public:
     using MutablePtr = mutable_ptr<Derived>;
 
-    unsigned int use_count() const { return ref_counter.load(); }
+    unsigned int use_count() const {
+        return ref_counter.load();
+    }
 
 protected:
     template <typename T>
@@ -308,23 +328,34 @@ public:
     }
 
 public:
-    Ptr get_ptr() const { return Ptr(derived()); }
-    MutablePtr get_ptr() { return MutablePtr(derived()); }
+    Ptr get_ptr() const {
+        return Ptr(derived());
+    }
+    MutablePtr get_ptr() {
+        return MutablePtr(derived());
+    }
 
 protected:
     MutablePtr shallow_mutate() const {
-        if (this->use_count() > 1)
+        if (this->use_count() > 1) {
             return derived()->clone();
-        else
+        } else {
             return assume_mutable();
+        }
     }
 
 public:
-    MutablePtr mutate() const&& { return shallow_mutate(); }
+    MutablePtr mutate() const&& {
+        return shallow_mutate();
+    }
 
-    MutablePtr assume_mutable() const { return const_cast<COW*>(this)->get_ptr(); }
+    MutablePtr assume_mutable() const {
+        return const_cast<COW*>(this)->get_ptr();
+    }
 
-    Derived& assume_mutable_ref() const { return const_cast<Derived&>(*derived()); }
+    Derived& assume_mutable_ref() const {
+        return const_cast<Derived&>(*derived());
+    }
 
 protected:
     /// It works as immutable_ptr if it is const and as mutable_ptr if it is non const.
