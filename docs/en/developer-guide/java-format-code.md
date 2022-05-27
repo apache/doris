@@ -54,7 +54,7 @@ Setting the `checkstyle.xml` file in `Tools->Checkstyle`.
 
 Click the plus sign under Configuration File, select `Use a local Checkstyle file`, and select the `fe/check/checkstyle/checkstyle.xml` file.
 
-**NOTE:** Make sure that the version of `Checkstyle` is 9.3 or newer (the latest version is recommanded).
+**NOTE:** Make sure that the version of `Checkstyle` is 9.3 or newer (the latest version is recommended).
 
 ![](/images/idea-checkstyle-version.png)
 
