@@ -291,24 +291,57 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(LessEqualPredicate, <=)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterPredicate, >)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
 
-#define COMPARISON_PRED_COLUMN_EVALUATE_OR(CLASS, OP)                                       \
+#define COMPARISON_PRED_COLUMN_EVALUATE_OR(CLASS, OP, IS_RANGE)                             \
     template <class T>                                                                      \
     void CLASS<T>::evaluate_or(vectorized::IColumn& column, uint16_t* sel, uint16_t size,   \
                                bool* flags) const {                                         \
         if (column.is_nullable()) {                                                         \
             auto* nullable_column =                                                         \
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);   \
-            auto& data_array = reinterpret_cast<const vectorized::PredicateColumnType<T>&>( \
-                                       nullable_column->get_nested_column())                \
-                                       .get_data();                                         \
+            auto& nested_col = nullable_column->get_nested_column();                        \
             auto& null_bitmap = reinterpret_cast<const vectorized::ColumnVector<uint8_t>&>( \
                                         *(nullable_column->get_null_map_column_ptr()))      \
                                         .get_data();                                        \
-            for (uint16_t i = 0; i < size; i++) {                                           \
-                if (flags[i]) continue;                                                     \
-                uint16_t idx = sel[i];                                                      \
-                bool ret = !null_bitmap[idx] && (data_array[idx] OP _value);                \
-                flags[i] |= _opposite ? !ret : ret;                                         \
+            if (nested_col.is_column_dictionary()) {                                        \
+                if constexpr (std::is_same_v<T, StringValue>) {                             \
+                    auto* nested_col_ptr = vectorized::check_and_get_column<                \
+                            vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);   \
+                    auto& data_array = nested_col_ptr->get_data();                          \
+                    auto dict_code =                                                        \
+                            IS_RANGE ? nested_col_ptr->find_code_by_bound(_value, 1 OP 0, 1 OP 1)  \
+                                     : nested_col_ptr->find_code(_value);                   \
+                    for (uint16_t i = 0; i < size; i++) {                                   \
+                        if (flags[i]) continue;                                             \
+                        uint16_t idx = sel[i];                                              \
+                        bool ret = !null_bitmap[idx] && (data_array[idx] OP dict_code);     \
+                        flags[i] |= _opposite ? !ret : ret;                                 \
+                    }                                                                       \
+                }                                                                           \
+            } else {                                                                        \
+                auto& data_array =                                                          \
+                     reinterpret_cast<const vectorized::PredicateColumnType<T>&>            \
+                                   (nested_col).get_data();                                 \
+                for (uint16_t i = 0; i < size; i++) {                                       \
+                    if (flags[i]) continue;                                                 \
+                    uint16_t idx = sel[i];                                                  \
+                    bool ret = !null_bitmap[idx] && (data_array[idx] OP _value);            \
+                    flags[i] |= _opposite ? !ret : ret;                                     \
+                }                                                                           \
+            }                                                                               \
+        } else if (column.is_column_dictionary()) {                                         \
+            if constexpr (std::is_same_v<T, StringValue>) {                                 \
+                auto& dict_col =                                                            \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>  \
+                                         (column);                                          \
+                auto& data_array = dict_col.get_data();                                     \
+                auto dict_code = IS_RANGE ? dict_col.find_code_by_bound(_value, 1 OP 0, 1 OP 1)\
+                                          : dict_col.find_code(_value);                     \
+                for (uint16_t i = 0; i < size; i++) {                                       \
+                    if (flags[i]) continue;                                                 \
+                    uint16_t idx = sel[i];                                                  \
+                    bool ret = data_array[idx] OP dict_code;                                \
+                    flags[i] |= _opposite ? !ret : ret;                                     \
+                }                                                                           \
             }                                                                               \
         } else {                                                                            \
             auto& predicate_column =                                                        \
@@ -323,12 +356,12 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_OR(GreaterEqualPredicate, >=)
         }                                                                                   \
     }
 
-COMPARISON_PRED_COLUMN_EVALUATE_OR(EqualPredicate, ==)
-COMPARISON_PRED_COLUMN_EVALUATE_OR(NotEqualPredicate, !=)
-COMPARISON_PRED_COLUMN_EVALUATE_OR(LessPredicate, <)
-COMPARISON_PRED_COLUMN_EVALUATE_OR(LessEqualPredicate, <=)
-COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterPredicate, >)
-COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterEqualPredicate, >=)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(EqualPredicate, ==, false)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(NotEqualPredicate, !=, false)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(LessPredicate, <, true)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(LessEqualPredicate, <=, true)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterPredicate, >, true)
+COMPARISON_PRED_COLUMN_EVALUATE_OR(GreaterEqualPredicate, >=, true)
 
 #define COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                   \
     template <class T>                                                                         \
