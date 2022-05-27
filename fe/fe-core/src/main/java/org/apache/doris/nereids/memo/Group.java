@@ -28,6 +28,7 @@ import org.springframework.util.CollectionUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -75,6 +76,16 @@ public class Group {
             physicalExpressions.add(groupExpression);
         }
         groupExpression.setParent(this);
+        return groupExpression;
+    }
+
+    public GroupExpression removeGroupExpression(GroupExpression groupExpression) {
+        if (groupExpression.getOperator() instanceof LogicalOperator) {
+            logicalExpressions.remove(groupExpression);
+        } else {
+            physicalExpressions.remove(groupExpression);
+        }
+        groupExpression.setParent(null);
         return groupExpression;
     }
 
@@ -146,5 +157,22 @@ public class Group {
             return Optional.empty();
         }
         return Optional.ofNullable(lowestCostPlans.get(physicalProperties));
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Group group = (Group) o;
+        return groupId.equals(group.groupId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(groupId);
     }
 }

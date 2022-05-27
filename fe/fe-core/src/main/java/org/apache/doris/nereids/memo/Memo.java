@@ -30,6 +30,8 @@ import java.util.Map;
 
 /**
  * Representation for memo in cascades optimizer.
+ *
+ * @param <NODE_TYPE> should be {@link Plan} or {@link Expression}
  */
 public class Memo<NODE_TYPE extends TreeNode> {
     private final List<Group> groups = Lists.newArrayList();
@@ -54,6 +56,7 @@ public class Memo<NODE_TYPE extends TreeNode> {
      * @return Reference of node in Memo
      */
     public GroupExpression copyIn(NODE_TYPE node, Group target, boolean rewrite) {
+        Preconditions.checkArgument(!rewrite || target != null);
         List<Group> childrenGroups = Lists.newArrayList();
         for (Object object : node.children()) {
             NODE_TYPE child = (NODE_TYPE) object;
@@ -65,15 +68,26 @@ public class Memo<NODE_TYPE extends TreeNode> {
         GroupExpression newGroupExpression = new GroupExpression(node.getOperator());
         newGroupExpression.setChildren(childrenGroups);
         return insertOrRewriteGroupExpression(newGroupExpression, target, rewrite);
-        // TODO: need to derive logical property if generate new group. current we ont copy logical plan into
+        // TODO: need to derive logical property if generate new group. currently we not copy logical plan into
     }
 
+    /**
+     * Insert or rewrite groupExpression to target group.
+     * If group expression is already in memo and target group is not null, we merge two groups.
+     * If target is null, generate new group.
+     * If rewrite is true, rewrite the groupExpression to target group.
+     *
+     * @param groupExpression groupExpression to insert
+     * @param target target group to insert or rewrite groupExpression
+     * @param rewrite whether to rewrite the groupExpression to target group
+     * @return existing groupExpression in memo or newly generated groupExpression
+     */
     private GroupExpression insertOrRewriteGroupExpression(
             GroupExpression groupExpression, Group target, boolean rewrite) {
         GroupExpression existedGroupExpression = groupExpressions.get(groupExpression);
         if (existedGroupExpression != null) {
             if (target != null && !target.getGroupId().equals(existedGroupExpression.getParent().getGroupId())) {
-                // TODO: merge group
+                mergeGroup(target, existedGroupExpression.getParent());
             }
             return existedGroupExpression;
         }
@@ -93,4 +107,52 @@ public class Memo<NODE_TYPE extends TreeNode> {
         return groupExpression;
     }
 
+    /**
+     * Merge two groups.
+     * 1. find all group expression which has source as child
+     * 2. replace its child with destination
+     * 3. remove redundant group expression after replace child
+     * 4. move all group expression in source to destination
+     *
+     * @param source source group
+     * @param destination destination group
+     */
+    private void mergeGroup(Group source, Group destination) {
+        if (source.equals(destination)) {
+            return;
+        }
+        List<GroupExpression> needReplaceChild = Lists.newArrayList();
+        for (GroupExpression groupExpression : groupExpressions.values()) {
+            if (groupExpression.children().contains(source)) {
+                if (groupExpression.getParent().equals(destination)) {
+                    // cycle, we should not merge
+                    return;
+                }
+                needReplaceChild.add(groupExpression);
+            }
+        }
+        for (GroupExpression groupExpression : needReplaceChild) {
+            groupExpressions.remove(groupExpression);
+            List<Group> children = groupExpression.children();
+            for (int i = 0; i < children.size(); i++) {
+                if (children.get(i).equals(source)) {
+                    children.set(i, destination);
+                }
+            }
+            if (groupExpressions.containsKey(groupExpression)) {
+                groupExpression.getParent().removeGroupExpression(groupExpression);
+            } else {
+                groupExpressions.put(groupExpression, groupExpression);
+            }
+        }
+        for (GroupExpression groupExpression : source.getLogicalExpressions()) {
+            source.removeGroupExpression(groupExpression);
+            destination.addGroupExpression(groupExpression);
+        }
+        for (GroupExpression groupExpression : source.getPhysicalExpressions()) {
+            source.removeGroupExpression(groupExpression);
+            destination.addGroupExpression(groupExpression);
+        }
+        groups.remove(source);
+    }
 }
