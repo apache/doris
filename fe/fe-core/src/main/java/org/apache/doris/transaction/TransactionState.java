@@ -120,7 +120,7 @@ public class TransactionState implements Writable {
                 case NO_PARTITIONS:
                     return "all partitions have no load data";
                 default:
-                    return this.name();
+                    return name();
             }
         }
     }
@@ -230,24 +230,24 @@ public class TransactionState implements Writable {
     private String errMsg = "";
 
     public TransactionState() {
-        this.dbId = -1;
-        this.tableIdList = Lists.newArrayList();
-        this.transactionId = -1;
-        this.label = "";
-        this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
-        this.transactionStatus = TransactionStatus.PREPARE;
-        this.sourceType = LoadJobSourceType.FRONTEND;
-        this.prepareTime = -1;
-        this.preCommitTime = -1;
-        this.commitTime = -1;
-        this.finishTime = -1;
-        this.reason = "";
-        this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
-        this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
-        this.authCode = UUID.randomUUID().toString();
+        dbId = -1;
+        tableIdList = Lists.newArrayList();
+        transactionId = -1;
+        label = "";
+        idToTableCommitInfos = Maps.newHashMap();
+        txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
+        transactionStatus = TransactionStatus.PREPARE;
+        sourceType = LoadJobSourceType.FRONTEND;
+        prepareTime = -1;
+        preCommitTime = -1;
+        commitTime = -1;
+        finishTime = -1;
+        reason = "";
+        errorReplicas = Sets.newHashSet();
+        publishVersionTasks = Maps.newHashMap();
+        hasSendTask = false;
+        latch = new CountDownLatch(1);
+        authCode = UUID.randomUUID().toString();
     }
 
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requestId,
@@ -257,22 +257,22 @@ public class TransactionState implements Writable {
         this.transactionId = transactionId;
         this.label = label;
         this.requestId = requestId;
-        this.idToTableCommitInfos = Maps.newHashMap();
+        idToTableCommitInfos = Maps.newHashMap();
         this.txnCoordinator = txnCoordinator;
-        this.transactionStatus = TransactionStatus.PREPARE;
+        transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
-        this.prepareTime = -1;
-        this.preCommitTime = -1;
-        this.commitTime = -1;
-        this.finishTime = -1;
-        this.reason = "";
-        this.errorReplicas = Sets.newHashSet();
-        this.publishVersionTasks = Maps.newHashMap();
-        this.hasSendTask = false;
-        this.latch = new CountDownLatch(1);
+        prepareTime = -1;
+        preCommitTime = -1;
+        commitTime = -1;
+        finishTime = -1;
+        reason = "";
+        errorReplicas = Sets.newHashSet();
+        publishVersionTasks = Maps.newHashMap();
+        hasSendTask = false;
+        latch = new CountDownLatch(1);
         this.callbackId = callbackId;
         this.timeoutMs = timeoutMs;
-        this.authCode = UUID.randomUUID().toString();
+        authCode = UUID.randomUUID().toString();
     }
 
     public void setAuthCode(String authCode) {
@@ -284,7 +284,7 @@ public class TransactionState implements Writable {
     }
 
     public void setErrorReplicas(Set<Long> newErrorReplicas) {
-        this.errorReplicas = newErrorReplicas;
+        errorReplicas = newErrorReplicas;
     }
 
     public boolean isRunning() {
@@ -293,24 +293,24 @@ public class TransactionState implements Writable {
     }
 
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
-        this.publishVersionTasks.put(backendId, task);
+        publishVersionTasks.put(backendId, task);
     }
 
     public void setHasSendTask(boolean hasSendTask) {
         this.hasSendTask = hasSendTask;
-        this.publishVersionTime = System.currentTimeMillis();
+        publishVersionTime = System.currentTimeMillis();
     }
 
     public void updateSendTaskTime() {
-        this.publishVersionTime = System.currentTimeMillis();
+        publishVersionTime = System.currentTimeMillis();
     }
 
     public long getPublishVersionTime() {
-        return this.publishVersionTime;
+        return publishVersionTime;
     }
 
     public boolean hasSendTask() {
-        return this.hasSendTask;
+        return hasSendTask;
     }
 
     public TUniqueId getRequestId() {
@@ -322,7 +322,7 @@ public class TransactionState implements Writable {
     }
 
     public String getLabel() {
-        return this.label;
+        return label;
     }
 
     public TxnCoordinator getCoordinator() {
@@ -354,7 +354,7 @@ public class TransactionState implements Writable {
     }
 
     public TransactionStatus getPreStatus() {
-        return this.preStatus;
+        return preStatus;
     }
 
     public TxnCommitAttachment getTxnCommitAttachment() {
@@ -379,12 +379,12 @@ public class TransactionState implements Writable {
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
         // status changed
-        this.preStatus = this.transactionStatus;
+        preStatus = this.transactionStatus;
         this.transactionStatus = transactionStatus;
 
         // after status changed
         if (transactionStatus == TransactionStatus.VISIBLE) {
-            this.latch.countDown();
+            latch.countDown();
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             }
@@ -463,7 +463,7 @@ public class TransactionState implements Writable {
     }
 
     public void waitTransactionVisible(long timeoutMillis) throws InterruptedException {
-        this.latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
+        latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
     }
 
     public void setPrepareTime(long prepareTime) {
@@ -487,7 +487,7 @@ public class TransactionState implements Writable {
     }
 
     public Set<Long> getErrorReplicas() {
-        return this.errorReplicas;
+        return errorReplicas;
     }
 
     public long getDbId() {
@@ -507,11 +507,11 @@ public class TransactionState implements Writable {
     }
 
     public TableCommitInfo getTableCommitInfo(long tableId) {
-        return this.idToTableCommitInfos.get(tableId);
+        return idToTableCommitInfos.get(tableId);
     }
 
     public void removeTable(long tableId) {
-        this.idToTableCommitInfos.remove(tableId);
+        idToTableCommitInfos.remove(tableId);
     }
 
     public void setTxnCommitAttachment(TxnCommitAttachment txnCommitAttachment) {
@@ -602,7 +602,7 @@ public class TransactionState implements Writable {
     }
 
     public void prolongPublishTimeout() {
-        this.prolongPublishTimeout = true;
+        prolongPublishTimeout = true;
         LOG.info("prolong the timeout of publish version task for transaction: {}", transactionId);
     }
 
@@ -685,10 +685,10 @@ public class TransactionState implements Writable {
     }
 
     public void clearErrorMsg() {
-        this.errMsg = "";
+        errMsg = "";
     }
 
     public String getErrMsg() {
-        return this.errMsg;
+        return errMsg;
     }
 }

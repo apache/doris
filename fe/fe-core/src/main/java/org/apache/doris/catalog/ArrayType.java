@@ -38,7 +38,7 @@ public class ArrayType extends Type {
     private Type itemType;
 
     public ArrayType() {
-        this.itemType = NULL;
+        itemType = NULL;
     }
 
     public ArrayType(Type itemType) {

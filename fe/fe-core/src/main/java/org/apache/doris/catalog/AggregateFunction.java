@@ -287,7 +287,7 @@ public class AggregateFunction extends Function {
                              String serializeFnSymbol, String finalizeFnSymbol,
                              String getValueFnSymbol, String removeFnSymbol) {
         super(fnName, Arrays.asList(argTypes), retType, hasVarArgs);
-        this.setLocation(location);
+        setLocation(location);
         this.intermediateType = (intermediateType.equals(retType)) ? null : intermediateType;
         this.updateFnSymbol = updateFnSymbol;
         this.initFnSymbol = initFnSymbol;
@@ -357,37 +357,37 @@ public class AggregateFunction extends Function {
         }
 
         public AggregateFunctionBuilder initFnSymbol(String symbol) {
-            this.initFnSymbol = symbol;
+            initFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder updateFnSymbol(String symbol) {
-            this.updateFnSymbol = symbol;
+            updateFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder mergeFnSymbol(String symbol) {
-            this.mergeFnSymbol = symbol;
+            mergeFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder serializeFnSymbol(String symbol) {
-            this.serializeFnSymbol = symbol;
+            serializeFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder finalizeFnSymbol(String symbol) {
-            this.finalizeFnSymbol = symbol;
+            finalizeFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder getValueFnSymbol(String symbol) {
-            this.getValueFnSymbol = symbol;
+            getValueFnSymbol = symbol;
             return this;
         }
 
         public AggregateFunctionBuilder removeFnSymbol(String symbol) {
-            this.removeFnSymbol = symbol;
+            removeFnSymbol = symbol;
             return this;
         }
         public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {

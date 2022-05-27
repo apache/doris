@@ -78,7 +78,7 @@ public class ColumnStats implements Writable {
     }
 
     public void setAvgSerializedSize(float avgSize) {
-        this.avgSerializedSize = avgSize;
+        avgSerializedSize = avgSize;
     }
 
     public long getMaxSize() {

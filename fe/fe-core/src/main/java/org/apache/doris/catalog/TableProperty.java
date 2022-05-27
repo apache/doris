@@ -185,7 +185,7 @@ public class TableProperty implements Writable {
     }
 
     public void setRemoteStorageResource(String resourceName) {
-        this.remoteStorageResource = resourceName;
+        remoteStorageResource = resourceName;
         properties.put(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE,
                 resourceName);
     }
@@ -245,11 +245,11 @@ public class TableProperty implements Writable {
             // Must copy the properties because "analyzeReplicaAllocation" with remove the property
             // from the properties.
             Map<String, String> copiedProperties = Maps.newHashMap(properties);
-            this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
+            replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "default");
         } catch (AnalysisException e) {
             // should not happen
             LOG.error("should not happen when build replica allocation", e);
-            this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+            replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
     }
 

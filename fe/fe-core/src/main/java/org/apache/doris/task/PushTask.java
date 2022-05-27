@@ -84,14 +84,14 @@ public class PushTask extends AgentTask {
         this.loadJobId = loadJobId;
         this.pushType = pushType;
         this.conditions = conditions;
-        this.latch = null;
+        latch = null;
         this.needDecompress = needDecompress;
         this.priority = priority;
-        this.isSyncDelete = true;
-        this.asyncDeleteJobId = -1;
+        isSyncDelete = true;
+        asyncDeleteJobId = -1;
         this.transactionId = transactionId;
-        this.tBrokerScanRange = null;
-        this.tDescriptorTable = null;
+        tBrokerScanRange = null;
+        tDescriptorTable = null;
     }
 
     public PushTask(TResourceInfo resourceInfo, long backendId, long dbId, long tableId, long partitionId,
@@ -191,7 +191,7 @@ public class PushTask extends AgentTask {
     }
 
     public void countDownLatch(long backendId, long tabletId) {
-        if (this.latch != null) {
+        if (latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
                 LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}",
                          latch.getCount(), backendId, tabletId);
@@ -232,7 +232,7 @@ public class PushTask extends AgentTask {
     }
 
     public void setAsyncDeleteJobId(long jobId) {
-        this.asyncDeleteJobId = jobId;
+        asyncDeleteJobId = jobId;
     }
 
     public long getAsyncDeleteJobId() {

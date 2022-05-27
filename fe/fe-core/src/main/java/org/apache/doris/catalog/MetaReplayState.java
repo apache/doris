@@ -52,7 +52,7 @@ public class MetaReplayState {
     }
 
     public synchronized void setOutOfDate(long currentTime, long synchronizedTime) {
-        this.delayTime = currentTime - synchronizedTime;
+        delayTime = currentTime - synchronizedTime;
         state = MetaState.OUT_OF_DATE;
     }
 

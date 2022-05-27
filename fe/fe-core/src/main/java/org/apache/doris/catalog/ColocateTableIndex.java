@@ -138,19 +138,19 @@ public class ColocateTableIndex implements Writable {
     }
 
     private void readLock() {
-        this.lock.readLock().lock();
+        lock.readLock().lock();
     }
 
     private void readUnlock() {
-        this.lock.readLock().unlock();
+        lock.readLock().unlock();
     }
 
     private void writeLock() {
-        this.lock.writeLock().lock();
+        lock.writeLock().lock();
     }
 
     private void writeUnlock() {
-        this.lock.writeLock().unlock();
+        lock.writeLock().unlock();
     }
 
     // NOTICE: call 'addTableToGroup()' will not modify 'group2BackendsPerBucketSeq'

@@ -65,7 +65,7 @@ public class ReplicaAllocation implements Writable {
     }
 
     public void put(Tag tag, Short num) {
-        this.allocMap.put(tag, num);
+        allocMap.put(tag, num);
     }
 
     public Map<Tag, Short> getAllocMap() {
@@ -106,7 +106,7 @@ public class ReplicaAllocation implements Writable {
             return false;
         }
         ReplicaAllocation that = (ReplicaAllocation) o;
-        return that.allocMap.equals(this.allocMap);
+        return that.allocMap.equals(allocMap);
     }
 
     @Override

@@ -33,7 +33,7 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     public RangePartitionItem(Range<PartitionKey> range) {
-        this.partitionKeyRange = range;
+        partitionKeyRange = range;
     }
 
     public Range<PartitionKey> getItems() {

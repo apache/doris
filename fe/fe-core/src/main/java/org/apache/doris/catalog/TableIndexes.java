@@ -42,13 +42,13 @@ public class TableIndexes implements Writable {
     private Map<String, String> properties;
 
     public TableIndexes() {
-        this.indexes = Lists.newArrayList();
-        this.properties = Maps.newHashMap();
+        indexes = Lists.newArrayList();
+        properties = Maps.newHashMap();
     }
 
     public TableIndexes(List<Index> indexes) {
         this.indexes = indexes;
-        this.properties = Maps.newHashMap();
+        properties = Maps.newHashMap();
     }
 
     public TableIndexes(List<Index> indexes, Map<String, String> properties) {

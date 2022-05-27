@@ -41,9 +41,9 @@ public class StructType extends Type {
     public StructType(ArrayList<StructField> fields) {
         Preconditions.checkNotNull(fields);
         this.fields = fields;
-        for (int i = 0; i < this.fields.size(); ++i) {
+        for (int i = 0; i < fields.size(); ++i) {
             this.fields.get(i).setPosition(i);
-            fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
+            fieldMap.put(fields.get(i).getName().toLowerCase(), fields.get(i));
         }
     }
 

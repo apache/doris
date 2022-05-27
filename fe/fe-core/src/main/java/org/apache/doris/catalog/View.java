@@ -104,7 +104,7 @@ public class View extends Table {
      */
     public View(String alias, QueryStmt queryStmt, List<String> colLabels) {
         super(-1, alias, TableType.VIEW, null);
-        this.isLocalView = true;
+        isLocalView = true;
         this.queryStmt = queryStmt;
         this.colLabels = colLabels;
     }
@@ -238,7 +238,7 @@ public class View extends Table {
             LOG.warn("failed to copy view: " + getName());
             return null;
         }
-        copied.setSqlMode(this.sqlMode);
+        copied.setSqlMode(sqlMode);
         return copied;
     }
 

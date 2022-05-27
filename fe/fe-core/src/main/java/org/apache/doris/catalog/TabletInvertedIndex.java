@@ -97,19 +97,19 @@ public class TabletInvertedIndex {
     }
 
     private void readLock() {
-        this.lock.readLock().lock();
+        lock.readLock().lock();
     }
 
     private void readUnlock() {
-        this.lock.readLock().unlock();
+        lock.readLock().unlock();
     }
 
     private void writeLock() {
-        this.lock.writeLock().lock();
+        lock.writeLock().lock();
     }
 
     private void writeUnlock() {
-        this.lock.writeLock().unlock();
+        lock.writeLock().unlock();
     }
 
     public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
@@ -630,9 +630,9 @@ public class TabletInvertedIndex {
         }
 
         public PartitionBalanceInfo(PartitionBalanceInfo info) {
-            this.partitionId = info.partitionId;
-            this.indexId = info.indexId;
-            this.beByReplicaCount = TreeMultimap.create(info.beByReplicaCount);
+            partitionId = info.partitionId;
+            indexId = info.indexId;
+            beByReplicaCount = TreeMultimap.create(info.beByReplicaCount);
         }
     }
 
