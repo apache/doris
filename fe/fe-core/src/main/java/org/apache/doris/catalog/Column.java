@@ -166,7 +166,7 @@ public class Column implements Writable {
     public void createChildrenColumn(Type type, Column column) {
         if (type.isArrayType()) {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
-            c.setIsAllowNull(((ArrayType)type).getContainsNull());
+            c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
         }
     }
