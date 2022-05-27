@@ -52,6 +52,10 @@ standard java package
 
 在 `Tools->Checkstyle` 的 `Configuration File` 里点击 `Use a local Checkstyle file`，选择项目的 `fe/check/checkstyle/checkstyle.xml` 文件。
 
+**注意：** 保证`Checkstyle`的版本在9.3及以上（推荐使用最新版本）。
+
+![](/images/idea-checkstyle-version.png)
+
 ### VS Code
 
 如果使用 VS Code 进行 Java 开发，请安装 `Checkstyle for Java` 插件，按照[文档](https://code.visualstudio.com/docs/java/java-linting)里的说明和动图进行配置。
