@@ -1189,7 +1189,7 @@ public class StmtRewriter {
             Database db = currentCatalog.getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            TablePolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchRowPolicy(dbId, tableId, user);
+            TablePolicy matchPolicy = currentCatalog.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
             if (matchPolicy == null) {
                 continue;
             }

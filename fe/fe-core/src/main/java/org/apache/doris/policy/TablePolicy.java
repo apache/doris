@@ -26,7 +26,9 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -35,6 +37,7 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -53,21 +56,23 @@ public class TablePolicy extends Policy {
      * Policy bind user.
      **/
     @SerializedName(value = "user")
-    private UserIdentity user;
+    private UserIdentity user = null;
 
     @SerializedName(value = "dbId")
-    protected long dbId;
+    protected long dbId = -1;
 
     @SerializedName(value = "tableId")
-    private long tableId;
+    private long tableId = -1;
 
     /**
      * PERMISSIVE | RESTRICTIVE, If multiple types exist, the last type prevails.
      **/
     @SerializedName(value = "filterType")
-    private final FilterType filterType;
+    private FilterType filterType = null;
 
-    private Expr wherePredicate;
+    private Expr wherePredicate = null;
+
+    public TablePolicy() {}
 
     public TablePolicy(final PolicyTypeEnum type, final String policyName, long dbId,
                   UserIdentity user, String originStmt, final long tableId,
@@ -88,6 +93,14 @@ public class TablePolicy extends Policy {
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
                 this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
+    }
+
+    /**
+     * Read Table Policy from file.
+     **/
+    public static TablePolicy read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, TablePolicy.class);
     }
 
     @Override
@@ -111,27 +124,28 @@ public class TablePolicy extends Policy {
                                this.filterType, this.wherePredicate);
     }
 
+    private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
+        return super.checkMatched(type, policyName)
+                && (dbId == -1 || dbId == this.dbId)
+                && (tableId == -1 || tableId == this.tableId)
+                && (user == null || this.user == null
+                        || StringUtils.equals(user.getQualifiedUser(), this.user.getQualifiedUser()));
+    }
+
     @Override
     public boolean matchPolicy(Policy policy) {
         if (!(policy instanceof TablePolicy)) {
             return false;
         }
         TablePolicy tablePolicy = (TablePolicy) policy;
-        return tablePolicy.getDbId() == dbId
-                && tablePolicy.getTableId() == tableId
-                && tablePolicy.getType().equals(type)
-                && StringUtils.equals(tablePolicy.getPolicyName(), policyName)
-                && (tablePolicy.getUser() == null || user == null
-                        || StringUtils.equals(tablePolicy.getUser().getQualifiedUser(), user.getQualifiedUser()));
+        return checkMatched(tablePolicy.getDbId(), tablePolicy.getTableId(), tablePolicy.getType(),
+                            tablePolicy.getPolicyName(), tablePolicy.getUser());
     }
 
     @Override
     public boolean matchPolicy(DropPolicyLog dropPolicyLog) {
-        return dropPolicyLog.getTableId() == tableId
-            && dropPolicyLog.getType().equals(type)
-            && StringUtils.equals(dropPolicyLog.getPolicyName(), policyName)
-            && (dropPolicyLog.getUser() == null || user == null
-            || StringUtils.equals(dropPolicyLog.getUser().getQualifiedUser(), user.getQualifiedUser()));
+        return checkMatched(dropPolicyLog.getDbId(), dropPolicyLog.getTableId(), dropPolicyLog.getType(),
+                            dropPolicyLog.getPolicyName(), dropPolicyLog.getUser());
     }
 
     @Override

@@ -127,33 +127,30 @@ public class PolicyMgr implements Writable {
         }
     }
 
+    /**
+     * Check whether this user has policy
+     * @param user
+     * @return
+     */
     public boolean existPolicy(String user) {
         return userPolicySet.contains(user);
     }
 
     private boolean existPolicy(Policy checkedPolicy) {
-        List<Policy> policies = getDbPolicies(checkedPolicy.getDbId());
+        List<Policy> policies = getPoliciesByType(checkedPolicy.getType());
         return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedPolicy));
     }
 
     private boolean existPolicy(DropPolicyLog checkedDropPolicy) {
-        List<Policy> policies = getDbPolicies(checkedDropPolicy.getDbId());
+        List<Policy> policies = getPoliciesByType(checkedDropPolicy.getType());
         return policies.stream().anyMatch(policy -> policy.matchPolicy(checkedDropPolicy));
     }
 
-    private List<Policy> getDbPolicies(long dbId) {
-        if (dbIdToPolicyMap == null) {
+    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+        if (typeToPolicyMap == null) {
             return new ArrayList<>();
         }
-        return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>());
-    }
-
-    private List<Policy> getDbUserPolicies(long dbId, String user) {
-        if (dbIdToPolicyMap == null) {
-            return new ArrayList<>();
-        }
-        return dbIdToPolicyMap.getOrDefault(dbId, new ArrayList<>()).stream()
-                .filter(p -> p.getUser().getQualifiedUser().equals(user)).collect(Collectors.toList());
+        return typeToPolicyMap.getOrDefault(policyType, new ArrayList<>());
     }
 
     public void replayCreate(Policy policy) {
@@ -165,12 +162,10 @@ public class PolicyMgr implements Writable {
         if (policy == null) {
             return;
         }
-        long dbId = policy.getDbId();
-        List<Policy> dbPolicies = getDbPolicies(dbId);
+        List<Policy> dbPolicies = getPoliciesByType(policy.getType());
         dbPolicies.add(policy);
-        dbIdToPolicyMap.put(dbId, dbPolicies);
-        updateMergePolicyMap(dbId);
-        userPolicySet.add(policy.getUser().getQualifiedUser());
+        typeToPolicyMap.put(policy.getType(), dbPolicies);
+        updateMergeTablePolicyMap();
     }
 
     public void replayDrop(DropPolicyLog log) {
@@ -180,24 +175,16 @@ public class PolicyMgr implements Writable {
 
     private void unprotectedDrop(DropPolicyLog log) {
         long dbId = log.getDbId();
-        List<Policy> policies = getDbPolicies(dbId);
+        List<Policy> policies = getPoliciesByType(log.getType());
         policies.removeIf(policy -> policy.matchPolicy(log));
-        dbIdToPolicyMap.put(dbId, policies);
-        updateMergePolicyMap(dbId);
-        if (log.getUser() == null) {
-            updateAllUserPolicySet();
-        } else {
-            String user = log.getUser().getQualifiedUser();
-            if (!existUserPolicy(user)) {
-                userPolicySet.remove(user);
-            }
-        }
+        typeToPolicyMap.put(log.getType(), policies);
+        updateMergeTablePolicyMap();
     }
 
     /**
      * Match row policy and return it.
      **/
-    public TablePolicy getMatchRowPolicy(long dbId, long tableId, String user) {
+    public TablePolicy getMatchTablePolicy(long dbId, long tableId, String user) {
         readLock();
         try {
             if (!dbIdToMergeTablePolicyMap.containsKey(dbId)) {
@@ -218,14 +205,23 @@ public class PolicyMgr implements Writable {
      **/
     public ShowResultSet showPolicy(ShowPolicyStmt showStmt) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
-        List<Policy> policies;
         long currentDbId = ConnectContext.get().getCurrentDbId();
-        if (showStmt.getUser() == null) {
-            policies = Catalog.getCurrentCatalog().getPolicyMgr().getDbPolicies(currentDbId);
-        } else {
-            policies = Catalog.getCurrentCatalog().getPolicyMgr()
-                    .getDbUserPolicies(currentDbId, showStmt.getUser().getQualifiedUser());
+        Policy checkedPolicy = null;
+        switch (showStmt.getType()) {
+            case ROW:
+            default:
+                TablePolicy tablePolicy = new TablePolicy();
+                if (showStmt.getUser() != null) {
+                    tablePolicy.setUser(showStmt.getUser());
+                }
+                if (currentDbId != -1) {
+                    tablePolicy.setDbId(currentDbId);
+                }
+                checkedPolicy = tablePolicy;
         }
+        final Policy finalCheckedPolicy = checkedPolicy;
+        List<Policy> policies = typeToPolicyMap.getOrDefault(showStmt.getType(), new ArrayList<>()).stream()
+                .filter(p -> p.matchPolicy(finalCheckedPolicy)).collect(Collectors.toList());
         for (Policy policy : policies) {
             if (policy.isInvalid()) {
                 continue;
@@ -235,99 +231,87 @@ public class PolicyMgr implements Writable {
         return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void updateAllMergePolicyMap() {
-        dbIdToPolicyMap.forEach((dbId, policies) -> updateMergePolicyMap(dbId));
-    }
-
-    private void updateAllUserPolicySet() {
-        userPolicySet.clear();
-        dbIdToPolicyMap.forEach((dbId, policies) ->
-                policies.forEach(policy -> userPolicySet.add(policy.getUser().getQualifiedUser())));
-    }
-
-
-    private boolean existUserPolicy(String user) {
-        readLock();
-        try {
-            for (Map.Entry<Long, List<Policy>> entry : dbIdToPolicyMap.entrySet()) {
-                for (Policy policy : entry.getValue()) {
-                    if (policy.getUser().getQualifiedUser().equals(user)) {
-                        return true;
-                    }
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
-
-    }
-
     /**
      * The merge policy cache needs to be regenerated after the update.
      **/
-    private void updateMergePolicyMap(long dbId) {
+    private void updateMergeTablePolicyMap() {
         readLock();
         try {
-            if (!dbIdToPolicyMap.containsKey(dbId)) {
+            if (!typeToPolicyMap.containsKey(PolicyTypeEnum.ROW)) {
                 return;
             }
-            List<Policy> policies = dbIdToPolicyMap.get(dbId);
-            Map<String, TablePolicy> andMap = new HashMap<>();
-            Map<String, TablePolicy> orMap = new HashMap<>();
-            for (Policy policy : policies) {
+            List<Policy> allPolicies = typeToPolicyMap.get(PolicyTypeEnum.ROW);
+            Map<Long, List<TablePolicy>> policyMap = new HashMap<>();
+            dbIdToMergeTablePolicyMap.clear();
+            userPolicySet.clear();
+            for (Policy policy : allPolicies) {
                 if (!(policy instanceof TablePolicy)) {
                     continue;
                 }
                 TablePolicy tablePolicy = (TablePolicy) policy;
-                // read from json, need set isAnalyzed
-                policy.getUser().setIsAnalyzed();
-                String key =
-                        Joiner.on("-").join(tablePolicy.getTableId(), tablePolicy.getType(),
-                                tablePolicy.getUser().getQualifiedUser());
-                // merge wherePredicate
-                if (CompoundPredicate.Operator.AND.equals(tablePolicy.getFilterType().getOp())) {
-                    TablePolicy frontPolicy = andMap.get(key);
-                    if (frontPolicy == null) {
-                        andMap.put(key, tablePolicy.clone());
-                    } else {
-                        frontPolicy.setWherePredicate(
-                                new CompoundPredicate(CompoundPredicate.Operator.AND, frontPolicy.getWherePredicate(),
-                                        tablePolicy.getWherePredicate()));
-                        andMap.put(key, frontPolicy.clone());
-                    }
-                } else {
-                    TablePolicy frontPolicy = orMap.get(key);
-                    if (frontPolicy == null) {
-                        orMap.put(key, tablePolicy.clone());
-                    } else {
-                        frontPolicy.setWherePredicate(
-                                new CompoundPredicate(CompoundPredicate.Operator.OR, frontPolicy.getWherePredicate(),
-                                        tablePolicy.getWherePredicate()));
-                        orMap.put(key, frontPolicy.clone());
-                    }
+                if (!policyMap.containsKey(tablePolicy.getDbId())) {
+                    policyMap.put(tablePolicy.getDbId(), new ArrayList<>());
+                }
+                policyMap.get(tablePolicy.getDbId()).add(tablePolicy);
+                if (tablePolicy.getUser() != null) {
+                    userPolicySet.add(tablePolicy.getUser().getQualifiedUser());
                 }
             }
-            Map<String, TablePolicy> mergeMap = new HashMap<>();
-            Set<String> policyKeys = new HashSet<>();
-            policyKeys.addAll(andMap.keySet());
-            policyKeys.addAll(orMap.keySet());
-            policyKeys.forEach(key -> {
-                if (andMap.containsKey(key) && orMap.containsKey(key)) {
-                    TablePolicy mergePolicy = andMap.get(key).clone();
-                    mergePolicy.setWherePredicate(
+            for (Map.Entry<Long, List<TablePolicy>> entry : policyMap.entrySet()) {
+                long dbId = entry.getKey();
+                List<TablePolicy> policies = entry.getValue();
+                Map<String, TablePolicy> andMap = new HashMap<>();
+                Map<String, TablePolicy> orMap = new HashMap<>();
+                for (TablePolicy tablePolicy : policies) {
+                    // read from json, need set isAnalyzed
+                    tablePolicy.getUser().setIsAnalyzed();
+                    String key =
+                        Joiner.on("-").join(tablePolicy.getTableId(), tablePolicy.getType(),
+                            tablePolicy.getUser().getQualifiedUser());
+                    // merge wherePredicate
+                    if (CompoundPredicate.Operator.AND.equals(tablePolicy.getFilterType().getOp())) {
+                        TablePolicy frontPolicy = andMap.get(key);
+                        if (frontPolicy == null) {
+                            andMap.put(key, tablePolicy.clone());
+                        } else {
+                            frontPolicy.setWherePredicate(
+                                new CompoundPredicate(CompoundPredicate.Operator.AND, frontPolicy.getWherePredicate(),
+                                    tablePolicy.getWherePredicate()));
+                            andMap.put(key, frontPolicy.clone());
+                        }
+                    } else {
+                        TablePolicy frontPolicy = orMap.get(key);
+                        if (frontPolicy == null) {
+                            orMap.put(key, tablePolicy.clone());
+                        } else {
+                            frontPolicy.setWherePredicate(
+                                new CompoundPredicate(CompoundPredicate.Operator.OR, frontPolicy.getWherePredicate(),
+                                    tablePolicy.getWherePredicate()));
+                            orMap.put(key, frontPolicy.clone());
+                        }
+                    }
+                }
+                Map<String, TablePolicy> mergeMap = new HashMap<>();
+                Set<String> policyKeys = new HashSet<>();
+                policyKeys.addAll(andMap.keySet());
+                policyKeys.addAll(orMap.keySet());
+                policyKeys.forEach(key -> {
+                    if (andMap.containsKey(key) && orMap.containsKey(key)) {
+                        TablePolicy mergePolicy = andMap.get(key).clone();
+                        mergePolicy.setWherePredicate(
                             new CompoundPredicate(CompoundPredicate.Operator.AND, mergePolicy.getWherePredicate(),
-                                    orMap.get(key).getWherePredicate()));
-                    mergeMap.put(key, mergePolicy);
-                }
-                if (!andMap.containsKey(key)) {
-                    mergeMap.put(key, orMap.get(key));
-                }
-                if (!orMap.containsKey(key)) {
-                    mergeMap.put(key, andMap.get(key));
-                }
-            });
-            dbIdToMergeTablePolicyMap.put(dbId, mergeMap);
+                                orMap.get(key).getWherePredicate()));
+                        mergeMap.put(key, mergePolicy);
+                    }
+                    if (!andMap.containsKey(key)) {
+                        mergeMap.put(key, orMap.get(key));
+                    }
+                    if (!orMap.containsKey(key)) {
+                        mergeMap.put(key, andMap.get(key));
+                    }
+                });
+                dbIdToMergeTablePolicyMap.put(dbId, mergeMap);
+            }
         } finally {
             readUnlock();
         }
@@ -344,10 +328,8 @@ public class PolicyMgr implements Writable {
     public static PolicyMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
         PolicyMgr policyMgr = GsonUtils.GSON.fromJson(json, PolicyMgr.class);
-        // update merge policy cache
-        policyMgr.updateAllMergePolicyMap();
-        // update user policy cache
-        policyMgr.updateAllUserPolicySet();
+        // update merge policy cache and userPolicySet
+        policyMgr.updateMergeTablePolicyMap();
         return policyMgr;
     }
 }

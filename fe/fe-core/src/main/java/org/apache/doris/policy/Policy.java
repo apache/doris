@@ -51,10 +51,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Policy.class);
 
     @SerializedName(value = "type")
-    protected PolicyTypeEnum type;
+    protected PolicyTypeEnum type = null;
 
     @SerializedName(value = "policyName")
-    protected String policyName;
+    protected String policyName = null;
 
     /**
      * Use for Serialization/deserialization.
@@ -100,23 +100,17 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    /**
-     * Read policy from file.
-     **/
-    public static Policy read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, Policy.class);
+    protected boolean checkMatched(PolicyTypeEnum type, String policyName) {
+        return (type == null || type.equals(this.type))
+            && (policyName == null || StringUtils.equals(policyName, this.policyName));
     }
-
     // it is used to check whether this policy is in PolicyMgr
     public boolean matchPolicy(Policy policy) {
-       return policy.getType().equals(type)
-            && StringUtils.equals(policy.getPolicyName(), policyName);
+        return checkMatched(policy.getType(), policy.getPolicyName());
     }
 
     public boolean matchPolicy(DropPolicyLog dropPolicyLog) {
-        return dropPolicyLog.getType().equals(type)
-            && StringUtils.equals(dropPolicyLog.getPolicyName(), policyName);
+        return checkMatched(dropPolicyLog.getType(), dropPolicyLog.getPolicyName());
     }
 
     public abstract boolean isInvalid();
