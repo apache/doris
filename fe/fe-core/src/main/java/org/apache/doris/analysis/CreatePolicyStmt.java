@@ -33,7 +33,7 @@ import lombok.Getter;
  * syntax:
  * CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
  */
-public class CreateTablePolicyStmt extends DdlStmt {
+public class CreatePolicyStmt extends DdlStmt {
 
     @Getter
     private final PolicyTypeEnum type;
@@ -59,8 +59,8 @@ public class CreateTablePolicyStmt extends DdlStmt {
     /**
      * Use for cup.
      **/
-    public CreateTablePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName, String filterType,
-                                 UserIdentity user, Expr wherePredicate) {
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName,
+                            String filterType, UserIdentity user, Expr wherePredicate) {
         this.type = type;
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;

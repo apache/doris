@@ -18,7 +18,7 @@
 package org.apache.doris.policy;
 
 import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.CreateTablePolicyStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.ShowPolicyStmt;
 import org.apache.doris.catalog.Catalog;
@@ -36,7 +36,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,7 +89,7 @@ public class PolicyMgr implements Writable {
     /**
      * Create policy through stmt.
      **/
-    public void createPolicy(CreateTablePolicyStmt stmt) throws UserException {
+    public void createPolicy(CreatePolicyStmt stmt) throws UserException {
         Policy policy = Policy.fromCreateStmt(stmt);
         writeLock();
         try {
@@ -128,9 +127,10 @@ public class PolicyMgr implements Writable {
     }
 
     /**
-     * Check whether this user has policy
-     * @param user
-     * @return
+     * Check whether this user has policy.
+     *
+     * @param user user who has policy
+     * @return exist or not
      */
     public boolean existPolicy(String user) {
         return userPolicySet.contains(user);
@@ -258,7 +258,6 @@ public class PolicyMgr implements Writable {
                 }
             }
             for (Map.Entry<Long, List<TablePolicy>> entry : policyMap.entrySet()) {
-                long dbId = entry.getKey();
                 List<TablePolicy> policies = entry.getValue();
                 Map<String, TablePolicy> andMap = new HashMap<>();
                 Map<String, TablePolicy> orMap = new HashMap<>();
@@ -266,8 +265,8 @@ public class PolicyMgr implements Writable {
                     // read from json, need set isAnalyzed
                     tablePolicy.getUser().setIsAnalyzed();
                     String key =
-                        Joiner.on("-").join(tablePolicy.getTableId(), tablePolicy.getType(),
-                            tablePolicy.getUser().getQualifiedUser());
+                            Joiner.on("-").join(tablePolicy.getTableId(), tablePolicy.getType(),
+                                    tablePolicy.getUser().getQualifiedUser());
                     // merge wherePredicate
                     if (CompoundPredicate.Operator.AND.equals(tablePolicy.getFilterType().getOp())) {
                         TablePolicy frontPolicy = andMap.get(key);
@@ -310,6 +309,7 @@ public class PolicyMgr implements Writable {
                         mergeMap.put(key, andMap.get(key));
                     }
                 });
+                long dbId = entry.getKey();
                 dbIdToMergeTablePolicyMap.put(dbId, mergeMap);
             }
         } finally {

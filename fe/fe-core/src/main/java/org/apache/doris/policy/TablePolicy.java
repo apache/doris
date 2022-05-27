@@ -17,7 +17,7 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.CreateTablePolicyStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -32,7 +32,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-
+import lombok.Data;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,8 +41,6 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
-
-import lombok.Data;
 
 /**
  * Save policy for filtering data.
@@ -59,7 +57,7 @@ public class TablePolicy extends Policy {
     private UserIdentity user = null;
 
     @SerializedName(value = "dbId")
-    protected long dbId = -1;
+    private long dbId = -1;
 
     @SerializedName(value = "tableId")
     private long tableId = -1;
@@ -74,6 +72,18 @@ public class TablePolicy extends Policy {
 
     public TablePolicy() {}
 
+    /**
+     * Policy for Table. Policy of ROW or others.
+     *
+     * @param type PolicyType
+     * @param policyName policy name
+     * @param dbId database i
+     * @param user username
+     * @param originStmt origin stmt
+     * @param tableId table id
+     * @param filterType filter type
+     * @param wherePredicate where predicate
+     */
     public TablePolicy(final PolicyTypeEnum type, final String policyName, long dbId,
                   UserIdentity user, String originStmt, final long tableId,
                   final FilterType filterType, final Expr wherePredicate) {
@@ -111,7 +121,7 @@ public class TablePolicy extends Policy {
         try {
             SqlScanner input = new SqlScanner(new StringReader(originStmt), 0L);
             SqlParser parser = new SqlParser(input);
-            CreateTablePolicyStmt stmt = (CreateTablePolicyStmt) SqlParserUtils.getFirstStmt(parser);
+            CreatePolicyStmt stmt = (CreatePolicyStmt) SqlParserUtils.getFirstStmt(parser);
             wherePredicate = stmt.getWherePredicate();
         } catch (Exception e) {
             throw new IOException("table policy parse originStmt error", e);
@@ -124,7 +134,8 @@ public class TablePolicy extends Policy {
                                this.filterType, this.wherePredicate);
     }
 
-    private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type, String policyName, UserIdentity user) {
+    private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
+                                 String policyName, UserIdentity user) {
         return super.checkMatched(type, policyName)
                 && (dbId == -1 || dbId == this.dbId)
                 && (tableId == -1 || tableId == this.tableId)

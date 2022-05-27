@@ -19,7 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateTablePolicyStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
@@ -378,8 +378,8 @@ public abstract class TestWithFeService {
     }
 
     protected void createPolicy(String sql) throws Exception {
-        CreateTablePolicyStmt createTablePolicyStmt = (CreateTablePolicyStmt) parseAndAnalyzeStmt(sql);
-        Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(createTablePolicyStmt);
+        CreatePolicyStmt createPolicyStmt = (CreatePolicyStmt) parseAndAnalyzeStmt(sql);
+        Catalog.getCurrentCatalog().getPolicyMgr().createPolicy(createPolicyStmt);
     }
 
     protected void dropPolicy(String sql) throws Exception {

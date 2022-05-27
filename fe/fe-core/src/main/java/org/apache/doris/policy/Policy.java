@@ -17,7 +17,7 @@
 
 package org.apache.doris.policy;
 
-import org.apache.doris.analysis.CreateTablePolicyStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -30,17 +30,14 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
-
+import lombok.Data;
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-
-import lombok.Data;
 
 /**
  * Save policy for filtering data.
@@ -64,15 +61,23 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     public Policy() {}
 
+    /**
+     * Base class for Policy.
+     *
+     * @param type policy type
+     * @param policyName policy name
+     * @param originStmt origin stmt sql
+     */
     public Policy(final PolicyTypeEnum type, final String policyName, String originStmt) {
         this.type = type;
         this.policyName = policyName;
         this.originStmt = originStmt;
     }
+
     /**
      * Trans stmt to Policy.
      **/
-    public static Policy fromCreateStmt(CreateTablePolicyStmt stmt) throws AnalysisException {
+    public static Policy fromCreateStmt(CreatePolicyStmt stmt) throws AnalysisException {
         String curDb = stmt.getTableName().getDb();
         if (curDb == null) {
             curDb = ConnectContext.get().getDatabase();
@@ -104,6 +109,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
         return (type == null || type.equals(this.type))
             && (policyName == null || StringUtils.equals(policyName, this.policyName));
     }
+
     // it is used to check whether this policy is in PolicyMgr
     public boolean matchPolicy(Policy policy) {
         return checkMatched(policy.getType(), policy.getPolicyName());

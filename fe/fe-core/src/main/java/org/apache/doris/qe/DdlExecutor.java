@@ -51,7 +51,7 @@ import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateTablePolicyStmt;
+import org.apache.doris.analysis.CreatePolicyStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
@@ -296,8 +296,8 @@ public class DdlExecutor {
             catalog.getStatisticsJobManager().createStatisticsJob((AnalyzeStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterResourceStmt) {
             catalog.getResourceMgr().alterResource((AlterResourceStmt) ddlStmt);
-        } else if (ddlStmt instanceof CreateTablePolicyStmt) {
-            catalog.getPolicyMgr().createPolicy((CreateTablePolicyStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreatePolicyStmt) {
+            catalog.getPolicyMgr().createPolicy((CreatePolicyStmt) ddlStmt);
         } else if (ddlStmt instanceof DropPolicyStmt) {
             catalog.getPolicyMgr().dropPolicy((DropPolicyStmt) ddlStmt);
         } else {
