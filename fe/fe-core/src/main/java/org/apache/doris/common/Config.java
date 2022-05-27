@@ -1623,4 +1623,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean skip_compaction_slower_replica = true;
+
+    @ConfField(mutable = false, masterOnly = true)
+    public static int backend_rpc_timeout_ms = 60000; // 1 min
 }

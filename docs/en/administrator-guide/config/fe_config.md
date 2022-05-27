@@ -2181,3 +2181,13 @@ Default: 10
 Is it possible to dynamically configure: false
 
 Is it a configuration item unique to the Master FE node: false
+
+### backend_rpc_timeout_ms
+
+ Timeout millisecond for Fe sending rpc request to BE
+
+Default: 60000
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
