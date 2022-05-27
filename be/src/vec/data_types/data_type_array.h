@@ -78,6 +78,10 @@ public:
     const char* deserialize(const char* buf, IColumn* column) const override;
 
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
+
+    std::string to_string(const IColumn& column, size_t row_num) const override;
+    void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    Status from_string(ReadBuffer& rb, IColumn* column) const override; 
 };
 
 } // namespace doris::vectorized

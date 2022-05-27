@@ -82,6 +82,10 @@ std::string IDataType::to_string(const IColumn& column, size_t row_num) const {
     LOG(FATAL) << fmt::format("Data type {} to_string not implement.", get_name());
     return "";
 }
+Status IDataType::from_string(ReadBuffer& rb, IColumn* column) const {
+    LOG(FATAL) << fmt::format("Data type {} from_string not implement.", get_name());
+    return Status::OK();
+} 
 
 void IDataType::insert_default_into(IColumn& column) const {
     column.insert_default();

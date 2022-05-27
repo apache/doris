@@ -267,6 +267,7 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         nested = std::make_shared<vectorized::DataTypeUInt8>();
         break;
     case ::arrow::Type::INT8:
+        LOG(INFO) << "INT8";
         nested = std::make_shared<vectorized::DataTypeInt8>();
         break;
     case ::arrow::Type::UINT8:
@@ -285,6 +286,7 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         nested = std::make_shared<vectorized::DataTypeUInt32>();
         break;
     case ::arrow::Type::INT64:
+        LOG(INFO) << "INT64";
         nested = std::make_shared<vectorized::DataTypeInt64>();
         break;
     case ::arrow::Type::UINT64:
@@ -311,6 +313,12 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         break;
     case ::arrow::Type::DECIMAL:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>();
+        break;
+    case ::arrow::Type::LIST:
+        DCHECK(type->num_fields() == 1);
+        LOG(INFO) << "LIST";
+        nested =
+                std::make_shared<vectorized::DataTypeArray>(create_data_type(type->field(0)->type().get(), true));
         break;
     default:
         DCHECK(false) << "invalid arrow type:" << (int)(type->id());

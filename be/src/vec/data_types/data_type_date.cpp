@@ -24,6 +24,7 @@
 #include "util/binary_cast.hpp"
 #include "vec/columns/columns_number.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/io/io_helper.h"
 namespace doris::vectorized {
 bool DataTypeDate::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
@@ -57,6 +58,16 @@ void DataTypeDate::to_string(const IColumn& column, size_t row_num, BufferWritab
     char* pos = value.to_string(buf);
     // DateTime to_string the end is /0
     ostr.write(buf, pos - buf - 1);
+}
+
+Status DataTypeDate::from_string(ReadBuffer& rb, IColumn* column) const { 
+    auto* column_data = static_cast<ColumnInt64*>(column);
+    Int64 val = 0;
+    if (!read_date_text_impl<Int64>(val, rb)) {
+        return Status::InvalidArgument(fmt::format("parse date fail, string: '{}'", std::string(rb.position(), rb.count()).c_str()));
+    }
+    column_data->insert_value(val);
+    return Status::OK();
 }
 
 void DataTypeDate::cast_to_date(Int64& x) {

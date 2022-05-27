@@ -57,6 +57,8 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
 
 Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column_id) {
     DCHECK_GE(_column_id, 0);
+    LOG(INFO) << "VSlotRef::execute _column_id:" << _column_id << " block size:" << block->columns();
+    LOG(INFO) << "VSlotRef::execute block dump_structure:" <<  block->dump_structure();
     *result_column_id = _column_id;
     return Status::OK();
 }

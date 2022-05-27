@@ -28,6 +28,7 @@
 #include "arrow/type_fwd.h"
 #include "arrow/type_traits.h"
 #include "gutil/casts.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -236,19 +237,61 @@ static Status convert_column_with_decimal_data(const arrow::Array* array, size_t
     return Status::OK();
 }
 
+static Status convert_offset_from_list_column(const arrow::Array* array, size_t array_idx,
+                                                 MutableColumnPtr& data_column, size_t num_elements,
+                                                 size_t* start_idx_for_data, size_t* num_for_data) {
+    auto& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
+    auto concrete_array = down_cast<const arrow::ListArray*>(array);
+    auto arrow_offsets_array = concrete_array->offsets();
+    auto arrow_offsets = down_cast<arrow::Int32Array* >(arrow_offsets_array.get());
+    //if (array_idx == 0) {
+    //    // init the first offset
+    //    offsets_data.emplace_back(0);
+    //}
+    //auto start = offsets_data.back();
+    for (int64_t i = array_idx + 1; i < array_idx + num_elements + 1; ++i) {
+        //LOG(INFO) << "convert_offset_from_list_column offset - 1:" << arrow_offsets.Value(i - 1);
+        //LOG(INFO) << "convert_offset_from_list_column offset:" << arrow_offsets->Value(i);
+        offsets_data.emplace_back(arrow_offsets->Value(i));
+    }
+    *start_idx_for_data =  arrow_offsets->Value(array_idx);
+    //*num_for_data =  arrow_offsets->Value(array_idx + num_elements - 1) - arrow_offsets->Value(array_idx) + 1;
+    *num_for_data =  offsets_data.back() - *start_idx_for_data;
+    LOG(INFO) << "convert_offset_from_list_column start_idx_for_data:" << *start_idx_for_data << " num_for_data:" << *num_for_data;
+
+    return Status::OK();
+}
+
+static Status convert_column_with_list_data(const arrow::Array* array, size_t array_idx,
+                                                 MutableColumnPtr& data_column, size_t num_elements,
+                                   const std::string& timezone) {
+    size_t start_idx_for_data = 0;
+    size_t num_for_data = 0;
+    // get start idx and num of values from arrow offsets
+    RETURN_IF_ERROR(convert_offset_from_list_column(array, array_idx, data_column,
+                                            num_elements, &start_idx_for_data, &num_for_data));
+    auto& data_column_ptr = static_cast<ColumnArray&>(*data_column).get_data_ptr();
+    auto concrete_array = down_cast<const arrow::ListArray*>(array);
+    std::shared_ptr<arrow::Array> arrow_data = concrete_array->values();
+    
+    return arrow_column_to_doris_column(arrow_data.get(), start_idx_for_data, data_column_ptr,
+                                            num_for_data, timezone);
+}
+
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,
-                                    ColumnWithTypeAndName& doirs_column, size_t num_elements,
+                                    ColumnPtr& doirs_column, size_t num_elements,
                                     const std::string& timezone) {
     // src column always be nullable for simpify converting
-    assert(doirs_column.column->is_nullable());
+    assert(doirs_column->is_nullable());
     MutableColumnPtr data_column = nullptr;
-    if (doirs_column.column->is_nullable()) {
+    if (doirs_column->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
-                (*std::move(doirs_column.column)).mutate().get());
+                (*std::move(doirs_column)).mutate().get());
         fill_nullable_column(arrow_column, arrow_batch_cur_idx, nullable_column, num_elements);
+        LOG(INFO) << "fill_nullable_column arrow_batch_cur_idx:" << arrow_batch_cur_idx << " num_elements:" << num_elements;
         data_column = nullable_column->get_nested_column_ptr();
     } else {
-        data_column = (*std::move(doirs_column.column)).mutate();
+        data_column = (*std::move(doirs_column)).mutate();
     }
     // process data
     switch (arrow_column->type()->id()) {
@@ -280,6 +323,9 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
     case arrow::Type::DECIMAL:
         return convert_column_with_decimal_data(arrow_column, arrow_batch_cur_idx, data_column,
                                                 num_elements);
+    case arrow::Type::LIST:
+        return convert_column_with_list_data(
+                arrow_column, arrow_batch_cur_idx, data_column, num_elements, timezone);
     default:
         break;
     }

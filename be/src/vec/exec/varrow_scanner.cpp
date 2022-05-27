@@ -184,6 +184,7 @@ Status VArrowScanner::_init_src_block() {
         auto is_nullable = true;
         DataTypePtr data_type =
                 DataTypeFactory::instance().create_data_type(array->type().get(), is_nullable);
+        LOG(INFO) << "array name:" << array->type()->name();
         if (data_type == nullptr) {
             return Status::NotSupported(
                     fmt::format("Not support arrow type:{}", array->type()->name()));
@@ -291,7 +292,7 @@ Status VArrowScanner::_append_batch_to_src_block(Block* block) {
         auto* array = _batch->column(column_pos++).get();
         auto& column_with_type_and_name = block->get_by_name(slot_desc->col_name());
         RETURN_IF_ERROR(arrow_column_to_doris_column(array, _arrow_batch_cur_idx,
-                                                     column_with_type_and_name, num_elements,
+                                                     column_with_type_and_name.column, num_elements,
                                                      _state->timezone()));
     }
 

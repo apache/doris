@@ -49,30 +49,64 @@ public:
         static std::once_flag oc;
         static DataTypeFactory instance;
         std::call_once(oc, []() {
-            instance.register_data_type("UInt8", std::make_shared<DataTypeUInt8>());
-            instance.register_data_type("UInt16", std::make_shared<DataTypeUInt16>());
-            instance.register_data_type("UInt32", std::make_shared<DataTypeUInt32>());
-            instance.register_data_type("UInt64", std::make_shared<DataTypeUInt64>());
-            instance.register_data_type("Int8", std::make_shared<DataTypeInt8>());
-            instance.register_data_type("Int16", std::make_shared<DataTypeInt16>());
-            instance.register_data_type("Int32", std::make_shared<DataTypeInt32>());
-            instance.register_data_type("Int64", std::make_shared<DataTypeInt64>());
-            instance.register_data_type("Int128", std::make_shared<DataTypeInt128>());
-            instance.register_data_type("Float32", std::make_shared<DataTypeFloat32>());
-            instance.register_data_type("Float64", std::make_shared<DataTypeFloat64>());
-            instance.register_data_type("Date", std::make_shared<DataTypeDate>());
-            instance.register_data_type("DateTime", std::make_shared<DataTypeDateTime>());
-            instance.register_data_type("String", std::make_shared<DataTypeString>());
-            instance.register_data_type("Decimal",
-                                        std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
+            std::unordered_map<std::string, DataTypePtr> base_type_map {
+            {"UInt8", std::make_shared<DataTypeUInt8>()},
+            {"UInt16", std::make_shared<DataTypeUInt16>()},
+            {"UInt32", std::make_shared<DataTypeUInt32>()},
+            {"UInt64", std::make_shared<DataTypeUInt64>()},
+            {"Int8", std::make_shared<DataTypeInt8>()},
+            {"Int16", std::make_shared<DataTypeInt16>()},
+            {"Int32", std::make_shared<DataTypeInt32>()},
+            {"Int64", std::make_shared<DataTypeInt64>()},
+            {"Int128", std::make_shared<DataTypeInt128>()},
+            {"Float32", std::make_shared<DataTypeFloat32>()},
+            {"Float64", std::make_shared<DataTypeFloat64>()},
+            {"Date", std::make_shared<DataTypeDate>()},
+            {"DateTime", std::make_shared<DataTypeDateTime>()},
+            {"String", std::make_shared<DataTypeString>()},
+            {"Decimal",
+             std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)},
+
+            };
+            for (auto const& [key, val] : base_type_map) {
+                instance.register_data_type(key, val);
+                instance.register_data_type("Array("+key+")", std::make_shared<vectorized::DataTypeArray>(val));
+                instance.register_data_type("Array(Nullable("+key+"))", std::make_shared<vectorized::DataTypeArray>(std::make_shared<vectorized::DataTypeNullable>(val)));
+            }
+            //instance.register_data_type("UInt8", std::make_shared<DataTypeUInt8>());
+            //instance.register_data_type("UInt16", std::make_shared<DataTypeUInt16>());
+            //instance.register_data_type("UInt32", std::make_shared<DataTypeUInt32>());
+            //instance.register_data_type("UInt64", std::make_shared<DataTypeUInt64>());
+            //instance.register_data_type("Int8", std::make_shared<DataTypeInt8>());
+            //instance.register_data_type("Int16", std::make_shared<DataTypeInt16>());
+            //instance.register_data_type("Int32", std::make_shared<DataTypeInt32>());
+            //instance.register_data_type("Int64", std::make_shared<DataTypeInt64>());
+            //instance.register_data_type("Int128", std::make_shared<DataTypeInt128>());
+            //instance.register_data_type("Float32", std::make_shared<DataTypeFloat32>());
+            //instance.register_data_type("Float64", std::make_shared<DataTypeFloat64>());
+            //instance.register_data_type("Date", std::make_shared<DataTypeDate>());
+            //instance.register_data_type("DateTime", std::make_shared<DataTypeDateTime>());
+            //instance.register_data_type("String", std::make_shared<DataTypeString>());
+            //instance.register_data_type("Decimal",
+            //                            std::make_shared<DataTypeDecimal<Decimal128>>(27, 9));
         });
         return instance;
     }
-    DataTypePtr get(const std::string& name) { return _data_type_map[name]; }
+    DataTypePtr get(const std::string& name) {
+        LOG(INFO) << "get name:" << name;
+        return _data_type_map[name];
+    }
     const std::string& get(const DataTypePtr& data_type) const {
+        LOG(INFO) << "get string:" << data_type;
         auto type_ptr = data_type->is_nullable()
                                 ? ((DataTypeNullable*)(data_type.get()))->get_nested_type()
                                 : data_type;
+        //if (is_array(type_ptr)) {
+        //    auto type_name = get(((DataTypeArray*)(data_type.get()))->get_nested_type());
+        //    std::stringstream ss;
+        //    ss << "Array(" << type_name << ")";
+        //    return ss.str();
+        //}
         for (const auto& entity : _invert_data_type_map) {
             if (entity.first->equals(*type_ptr)) {
                 return entity.second;
