@@ -77,7 +77,7 @@ copy logstash-output-doris-{version}.gem 到 logstash 安装目录下
 
 配置 | 说明
 --- | ---
-`http_hosts` | FE的HTTP交互地址 eg | ["http://fe1:8030", "http://fe2:8030"]
+`http_hosts` | FE的HTTP交互地址。 例如：  ["http://fe1:8030", "http://fe2:8030"]
 `user` | 用户名，该用户需要有doris对应库表的导入权限
 `password` | 密码
 `db` | 数据库名
