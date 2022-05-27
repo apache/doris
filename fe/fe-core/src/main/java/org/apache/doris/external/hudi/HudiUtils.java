@@ -166,9 +166,11 @@ public class HudiUtils {
         }
 
         List<Column> newSchema = HiveUtil.transformHiveSchema(remoteHiveTable.getSd().getCols());
-        table.setNewFullSchema(newSchema);
-        return table;
-
+        HudiTable tableWithSchema =  new HudiTable(table.getId(),
+            table.getName(),
+            newSchema,
+            table.getTableProperties());
+        return tableWithSchema;
     }
 
 
