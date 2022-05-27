@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/string-functions.cpp
+// and modified by Doris
 
 #include "exprs/string_functions.h"
 
@@ -22,11 +25,10 @@
 #include <algorithm>
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr.h"
 #include "fmt/format.h"
 #include "math_functions.h"
 #include "runtime/string_value.hpp"
-#include "runtime/tuple_row.h"
+#include "util/simd/vstring_function.h"
 #include "util/url_parser.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
@@ -34,23 +36,6 @@ namespace doris {
 
 void StringFunctions::init() {}
 
-size_t get_utf8_byte_length(unsigned char byte) {
-    size_t char_size = 0;
-    if (byte >= 0xFC) {
-        char_size = 6;
-    } else if (byte >= 0xF8) {
-        char_size = 5;
-    } else if (byte >= 0xF0) {
-        char_size = 4;
-    } else if (byte >= 0xE0) {
-        char_size = 3;
-    } else if (byte >= 0xC0) {
-        char_size = 2;
-    } else {
-        char_size = 1;
-    }
-    return char_size;
-}
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
@@ -118,6 +103,7 @@ StringVal StringFunctions::substring(FunctionContext* context, const StringVal& 
 //    string left(string input, int len)
 // This behaves identically to the mysql implementation.
 StringVal StringFunctions::left(FunctionContext* context, const StringVal& str, const IntVal& len) {
+    if (len.val >= str.len) return str;
     return substring(context, str, 1, len);
 }
 
@@ -215,7 +201,7 @@ StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -266,7 +252,7 @@ StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, 
             return StringVal::null();
         }
         if (len.val == str_index.size()) {
-            return StringVal(str.ptr, len.val);
+            return StringVal(str.ptr, str.len);
         }
         return StringVal(str.ptr, str_index[len.val]);
     }
@@ -317,8 +303,8 @@ StringVal StringFunctions::append_trailing_char_if_absent(
 
 // Implementation of LENGTH
 //   int length(string input)
-// Returns the length in bytes of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length in bytes of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();
@@ -328,8 +314,8 @@ IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
 
 // Implementation of CHAR_LENGTH
 //   int char_utf8_length(string input)
-// Returns the length of characters of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length of characters of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();
@@ -346,15 +332,11 @@ StringVal StringFunctions::lower(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, str.len);
     StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    for (int i = 0; i < str.len; ++i) {
-        result.ptr[i] = ::tolower(str.ptr[i]);
-    }
+    simd::VStringFunctions::to_lower(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -362,15 +344,11 @@ StringVal StringFunctions::upper(FunctionContext* context, const StringVal& str)
     if (str.is_null) {
         return StringVal::null();
     }
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, str.len);
     StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    for (int i = 0; i < str.len; ++i) {
-        result.ptr[i] = ::toupper(str.ptr[i]);
-    }
+    simd::VStringFunctions::to_upper(str.ptr, str.len, result.ptr);
     return result;
 }
 
@@ -384,57 +362,20 @@ StringVal StringFunctions::reverse(FunctionContext* context, const StringVal& st
         return result;
     }
 
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        std::copy(str.ptr + i, str.ptr + i + char_size, result.ptr + result.len - i - char_size);
-    }
-
+    simd::VStringFunctions::reverse(str, result);
     return result;
 }
 
 StringVal StringFunctions::trim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    // Find new starting position.
-    int32_t begin = 0;
-    while (begin < str.len && str.ptr[begin] == ' ') {
-        ++begin;
-    }
-    // Find new ending position.
-    int32_t end = str.len - 1;
-    while (end > begin && str.ptr[end] == ' ') {
-        --end;
-    }
-    return StringVal(str.ptr + begin, end - begin + 1);
+    return simd::VStringFunctions::trim(str);
 }
 
 StringVal StringFunctions::ltrim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    // Find new starting position.
-    int32_t begin = 0;
-    while (begin < str.len && str.ptr[begin] == ' ') {
-        ++begin;
-    }
-    return StringVal(str.ptr + begin, str.len - begin);
+    return simd::VStringFunctions::ltrim(str);
 }
 
 StringVal StringFunctions::rtrim(FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return StringVal::null();
-    }
-    if (str.len == 0) {
-        return str;
-    }
-    // Find new ending position.
-    int32_t end = str.len - 1;
-    while (end > 0 && str.ptr[end] == ' ') {
-        --end;
-    }
-    DCHECK_GE(end, 0);
-    return StringVal(str.ptr, (str.ptr[end] == ' ') ? end : end + 1);
+    return simd::VStringFunctions::rtrim(str);
 }
 
 IntVal StringFunctions::ascii(FunctionContext* context, const StringVal& str) {
@@ -549,19 +490,20 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
     return true;
 }
 
-// The caller owns the returned regex. Returns NULL if the pattern could not be compiled.
-static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
-                               const StringVal& match_parameter) {
+// The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
+re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
+                                         const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
     options.set_log_errors(false);
+    // ATTN(cmy): no set it, or the lazy mode of regex won't work. See Doris #6587
     // Return the leftmost longest match (rather than the first match).
-    options.set_longest_match(true);
+    // options.set_longest_match(true);
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
-        return NULL;
+        return nullptr;
     }
     re2::RE2* re = new re2::RE2(pattern_sp, options);
     if (!re->ok()) {
@@ -570,7 +512,7 @@ static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
            << "Error: " << re->error();
         *error_str = ss.str();
         delete re;
-        return NULL;
+        return nullptr;
     }
     return re;
 }
@@ -590,7 +532,7 @@ void StringFunctions::regexp_prepare(FunctionContext* context,
     }
     std::string error_str;
     re2::RE2* re = compile_regex(*pattern, &error_str, StringVal::null());
-    if (re == NULL) {
+    if (re == nullptr) {
         context->set_error(error_str.c_str());
         return;
     }
@@ -618,11 +560,11 @@ StringVal StringFunctions::regexp_extract(FunctionContext* context, const String
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     std::unique_ptr<re2::RE2> scoped_re; // destroys re if we have to locally compile it
-    if (re == NULL) {
+    if (re == nullptr) {
         DCHECK(!context->is_arg_constant(1));
         std::string error_str;
         re = compile_regex(pattern, &error_str, StringVal::null());
-        if (re == NULL) {
+        if (re == nullptr) {
             context->add_warning(error_str.c_str());
             return StringVal::null();
         }
@@ -654,12 +596,12 @@ StringVal StringFunctions::regexp_replace(FunctionContext* context, const String
 
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is NULL
-    if (re == NULL) {
+    std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is nullptr
+    if (re == nullptr) {
         DCHECK(!context->is_arg_constant(1));
         std::string error_str;
         re = compile_regex(pattern, &error_str, StringVal::null());
-        if (re == NULL) {
+        if (re == nullptr) {
             context->add_warning(error_str.c_str());
             return StringVal::null();
         }
@@ -811,7 +753,7 @@ StringVal StringFunctions::parse_url(FunctionContext* ctx, const StringVal& url,
     StringVal newPart = AnyValUtil::from_string_temp(ctx, part_str);
     void* state = ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     UrlParser::UrlPart url_part;
-    if (state != NULL) {
+    if (state != nullptr) {
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
@@ -854,7 +796,7 @@ StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& 
     }
     void* state = ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL);
     UrlParser::UrlPart url_part;
-    if (state != NULL) {
+    if (state != nullptr) {
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
@@ -885,9 +827,8 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
     if (v.is_null) {
         return StringVal::null();
     }
-
-    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false) * 100;
-    return do_money_format(context, std::to_string(v_cent));
+    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
+    return do_money_format(context, fmt::format("{:.2f}", v_cent));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
@@ -897,25 +838,22 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV
 
     DecimalV2Value rounded(0);
     DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    DecimalV2Value tmp(std::string_view("100"));
-    DecimalV2Value result = rounded * tmp;
-    return do_money_format(context, result.to_string());
+    return do_money_format<int64_t, 26>(context, rounded.int_value(),
+                                        abs(rounded.frac_value() / 10000000));
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    return do_money_format<int64_t, 26>(context, v.val);
 }
 
 StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
-
-    return do_money_format(context, fmt::format("{}00", v.val, "00"));
+    return do_money_format<__int128_t, 52>(context, v.val);
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,
@@ -982,14 +920,19 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
     if (origStr.is_null || oldStr.is_null || newStr.is_null) {
         return StringVal::null();
     }
+    // Empty string is a substring of all strings.
+    // If old str is an empty string, the std::string.find(oldStr) is always return 0.
+    // With an empty old str, there is no need to do replace.
+    if (oldStr.len == 0) {
+        return origStr;
+    }
     std::string orig_str = std::string(reinterpret_cast<const char*>(origStr.ptr), origStr.len);
     std::string old_str = std::string(reinterpret_cast<const char*>(oldStr.ptr), oldStr.len);
     std::string new_str = std::string(reinterpret_cast<const char*>(newStr.ptr), newStr.len);
     std::string::size_type pos = 0;
     std::string::size_type oldLen = old_str.size();
     std::string::size_type newLen = new_str.size();
-    while ((pos = orig_str.find(old_str, pos))) {
-        if (pos == std::string::npos) break;
+    while ((pos = orig_str.find(old_str, pos)) != std::string::npos) {
         orig_str.replace(pos, oldLen, new_str);
         pos += newLen;
     }
@@ -997,8 +940,8 @@ StringVal StringFunctions::replace(FunctionContext* context, const StringVal& or
 }
 // Implementation of BIT_LENGTH
 //   int bit_length(string input)
-// Returns the length in bits of input. If input == NULL, returns
-// NULL per MySQL
+// Returns the length in bits of input. If input == nullptr, returns
+// nullptr per MySQL
 IntVal StringFunctions::bit_length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();

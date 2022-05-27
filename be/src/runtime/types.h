@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/types.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TYPES_H
-#define DORIS_BE_RUNTIME_TYPES_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -28,6 +30,13 @@
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris {
 
@@ -38,7 +47,7 @@ struct TypeDescriptor {
     PrimitiveType type;
     /// Only set if type == TYPE_CHAR or type == TYPE_VARCHAR
     int len;
-    static const int MAX_VARCHAR_LENGTH = 65355;
+    static const int MAX_VARCHAR_LENGTH = OLAP_VARCHAR_MAX_LENGTH;
     static const int MAX_CHAR_LENGTH = 255;
     static const int MAX_CHAR_INLINE_LENGTH = 128;
 
@@ -65,13 +74,10 @@ struct TypeDescriptor {
 
     // explicit TypeDescriptor(PrimitiveType type) :
     TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
-#if 0
-        DCHECK_NE(type, TYPE_CHAR);
-        DCHECK_NE(type, TYPE_VARCHAR);
-        DCHECK_NE(type, TYPE_STRUCT);
-        DCHECK_NE(type, TYPE_ARRAY);
-        DCHECK_NE(type, TYPE_MAP);
-#endif
+        if (type == TYPE_DECIMALV2) {
+            precision = 27;
+            scale = 9;
+        }
     }
 
     static TypeDescriptor create_char_type(int len) {
@@ -89,6 +95,13 @@ struct TypeDescriptor {
         TypeDescriptor ret;
         ret.type = TYPE_VARCHAR;
         ret.len = len;
+        return ret;
+    }
+
+    static TypeDescriptor create_string_type() {
+        TypeDescriptor ret;
+        ret.type = TYPE_STRING;
+        ret.len = config::string_type_length_soft_limit_bytes;
         return ret;
     }
 
@@ -151,32 +164,38 @@ struct TypeDescriptor {
 
     void to_protobuf(PTypeDesc* ptype) const;
 
-    inline bool is_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT;
+    bool is_string_type() const {
+        return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL ||
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
+    bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
+    bool is_decimal_type() const { return (type == TYPE_DECIMALV2); }
 
-    inline bool is_var_len_string_type() const {
-        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
+    bool is_datetime_type() const { return type == TYPE_DATETIME; }
+
+    bool is_var_len_string_type() const {
+        return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR ||
+               type == TYPE_OBJECT || type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
     }
 
-    inline bool is_complex_type() const {
+    bool is_complex_type() const {
         return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
-    inline bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
+    bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
     /// Returns the byte size of this type.  Returns 0 for variable length types.
-    inline int get_byte_size() const {
+    int get_byte_size() const {
         switch (type) {
         case TYPE_ARRAY:
         case TYPE_MAP:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
+        case TYPE_STRING:
             return 0;
 
         case TYPE_NULL:
@@ -209,12 +228,14 @@ struct TypeDescriptor {
     }
 
     /// Returns the size of a slot for this type.
-    inline int get_slot_size() const {
+    int get_slot_size() const {
         switch (type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
+        case TYPE_STRING:
             return sizeof(StringValue);
 
         case TYPE_NULL:
@@ -286,5 +307,3 @@ private:
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
 } // namespace doris
-
-#endif

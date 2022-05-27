@@ -22,7 +22,7 @@
 #include "geo/wkt_parse_type.h"
 #include "geo/geo_types.h"
 
-class WktParseContext;
+struct WktParseContext;
 void wkt_error(WktParseContext* ctx, const char* msg) {
 }
 /* forward declare this class for wkt_parse declaration in yacc.y.cpp */

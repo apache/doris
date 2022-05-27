@@ -102,7 +102,9 @@ BfdParser* BfdParser::create() {
     }
 
     char prog_name[1024];
-    fscanf(file, "%s ", prog_name);
+    // Ignore unused return value
+    if (fscanf(file, "%1023s ", prog_name))
+        ;
     fclose(file);
     std::unique_ptr<BfdParser> parser(new BfdParser(prog_name));
     if (parser->parse()) {
@@ -261,17 +263,6 @@ int BfdParser::decode_address(const char* str, const char** end, std::string* fi
     }
     *lineno = ctx.lineno;
     return 0;
-#if 0
-    bool inline_found = true;
-    while (inline_found) {
-        printf("%s\t%s:%u\n", ctx.func_name, ctx.file_name, ctx.lineno);
-        inline_found = bfd_find_inliner_info(_abfd, &ctx.file_name, &ctx.func_name, &ctx.lineno);
-        printf("inline found = %d\n", inline_found);
-        if (inline_found) {
-            printf("inline file_name=%s func_name=%s\n", ctx.file_name, ctx.func_name);
-        }
-    }
-#endif
 }
 
 } // namespace doris

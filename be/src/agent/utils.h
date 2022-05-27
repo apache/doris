@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_UTILS_H
-#define DORIS_BE_SRC_AGENT_UTILS_H
+#pragma once
 
-#include "agent/status.h"
+#include "common/status.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -29,7 +28,7 @@ namespace doris {
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient(){};
+    virtual ~MasterServerClient() {};
 
     // Report finished task to the master server
     //
@@ -38,7 +37,7 @@ public:
     //
     // Output parameters:
     // * result: The result of report task
-    virtual AgentStatus finish_task(const TFinishTaskRequest& request, TMasterResult* result);
+    virtual Status finish_task(const TFinishTaskRequest& request, TMasterResult* result);
 
     // Report tasks/olap tablet/disk state to the master server
     //
@@ -47,7 +46,7 @@ public:
     //
     // Output parameters:
     // * result: The result of report task
-    virtual AgentStatus report(const TReportRequest& request, TMasterResult* result);
+    virtual Status report(const TReportRequest& request, TMasterResult* result);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
@@ -59,27 +58,8 @@ private:
 
 class AgentUtils {
 public:
-    AgentUtils(){};
-    virtual ~AgentUtils(){};
-
-    // Use rsync synchronize folder from remote agent to local folder
-    //
-    // Input parameters:
-    // * remote_host: the host of remote server
-    // * remote_file_path: remote file folder path
-    // * local_file_path: local file folder path
-    // * exclude_file_patterns: the patterns of the exclude file
-    // * transport_speed_limit_kbps: speed limit of transport(kb/s)
-    // * timeout_second: timeout of synchronize
-    virtual AgentStatus rsync_from_remote(const std::string& remote_host,
-                                          const std::string& remote_file_path,
-                                          const std::string& local_file_path,
-                                          const std::vector<std::string>& exclude_file_patterns,
-                                          const uint32_t transport_speed_limit_kbps,
-                                          const uint32_t timeout_second);
-
-    // Print AgentStatus as string
-    virtual std::string print_agent_status(AgentStatus status);
+    AgentUtils() {};
+    virtual ~AgentUtils() {};
 
     // Execute shell cmd
     virtual bool exec_cmd(const std::string& command, std::string* errmsg,
@@ -94,4 +74,3 @@ private:
 }; // class AgentUtils
 
 } // namespace doris
-#endif // DORIS_BE_SRC_AGENT_UTILS_H

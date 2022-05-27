@@ -17,12 +17,13 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.analysis.ShowRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+
+import com.google.common.base.Preconditions;
 
 import java.util.List;
 

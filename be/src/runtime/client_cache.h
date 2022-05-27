@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_CLIENT_CACHE_H
-#define DORIS_BE_RUNTIME_CLIENT_CACHE_H
+#pragma once
 
 #include <list>
 #include <mutex>
@@ -103,6 +102,9 @@ private:
     // map from (host, port) to list of client keys for that address
     using ClientCacheMap = std::unordered_map<TNetworkAddress, std::list<void*>>;
     ClientCacheMap _client_cache;
+
+    // if cache not found, set client_key as nullptr
+    void _get_client_from_cache(const TNetworkAddress& hostport, void** client_key);
 
     // Map from client key back to its associated ThriftClientImpl transport
     using ClientMap = std::unordered_map<void*, ThriftClientImpl*>;
@@ -287,10 +289,5 @@ using FrontendServiceConnection = ClientConnection<FrontendServiceClient>;
 class TPaloBrokerServiceClient;
 using BrokerServiceClientCache = ClientCache<TPaloBrokerServiceClient>;
 using BrokerServiceConnection = ClientConnection<TPaloBrokerServiceClient>;
-class TExtDataSourceServiceClient;
-using ExtDataSourceServiceClientCache = ClientCache<TExtDataSourceServiceClient>;
-using ExtDataSourceServiceConnection = ClientConnection<TExtDataSourceServiceClient>;
 
 } // namespace doris
-
-#endif

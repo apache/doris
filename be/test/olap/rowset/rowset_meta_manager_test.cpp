@@ -17,8 +17,9 @@
 
 #include "olap/rowset/rowset_meta_manager.h"
 
-#include <fstream>
+#include <boost/algorithm/string.hpp>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -39,13 +40,12 @@ using std::string;
 
 namespace doris {
 
-static StorageEngine* k_engine = nullptr;
-
 const std::string rowset_meta_path = "./be/test/olap/test_data/rowset_meta.json";
 
 class RowsetMetaManagerTest : public testing::Test {
 public:
     virtual void SetUp() {
+        LOG(INFO) << "SetUp";
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
@@ -57,12 +57,12 @@ public:
         }
 
         std::string meta_path = "./meta";
-        ASSERT_TRUE(std::filesystem::create_directory(meta_path));
+        EXPECT_TRUE(std::filesystem::create_directory(meta_path));
         _meta = new (std::nothrow) OlapMeta(meta_path);
-        ASSERT_NE(nullptr, _meta);
-        OLAPStatus st = _meta->init();
-        ASSERT_TRUE(st == OLAP_SUCCESS);
-        ASSERT_TRUE(std::filesystem::exists("./meta"));
+        EXPECT_NE(nullptr, _meta);
+        Status st = _meta->init();
+        EXPECT_TRUE(st == Status::OK());
+        EXPECT_TRUE(std::filesystem::exists("./meta"));
 
         std::ifstream infile(rowset_meta_path);
         char buffer[1024];
@@ -72,18 +72,22 @@ public:
         }
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
         _json_rowset_meta = _json_rowset_meta.substr(0, _json_rowset_meta.size() - 1);
+        boost::replace_all(_json_rowset_meta, "\r", "");
         _tablet_uid = TabletUid(10, 10);
     }
 
     virtual void TearDown() {
-        delete _meta;
-        ASSERT_TRUE(std::filesystem::remove_all("./meta"));
+        SAFE_DELETE(_meta);
+        SAFE_DELETE(k_engine);
+        EXPECT_TRUE(std::filesystem::remove_all("./meta"));
+        LOG(INFO) << "TearDown";
     }
+    StorageEngine* k_engine = nullptr;
 
 private:
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TabletUid _tablet_uid{0, 0};
+    TabletUid _tablet_uid {0, 0};
 };
 
 TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
@@ -91,41 +95,36 @@ TEST_F(RowsetMetaManagerTest, TestSaveAndGetAndRemove) {
     rowset_id.init(10000);
     RowsetMeta rowset_meta;
     rowset_meta.init_from_json(_json_rowset_meta);
-    ASSERT_EQ(rowset_meta.rowset_id(), rowset_id);
+    EXPECT_EQ(rowset_meta.rowset_id(), rowset_id);
     RowsetMetaPB rowset_meta_pb;
     rowset_meta.to_rowset_pb(&rowset_meta_pb);
-    OLAPStatus status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
-    ASSERT_TRUE(status == OLAP_SUCCESS);
-    ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
+    Status status = RowsetMetaManager::save(_meta, _tablet_uid, rowset_id, rowset_meta_pb);
+    EXPECT_TRUE(status == Status::OK());
+    EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
     status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id,
                                                      &json_rowset_meta_read);
-    ASSERT_TRUE(status == OLAP_SUCCESS);
-    ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
+    EXPECT_TRUE(status == Status::OK());
+    EXPECT_EQ(_json_rowset_meta, json_rowset_meta_read);
     status = RowsetMetaManager::remove(_meta, _tablet_uid, rowset_id);
-    ASSERT_TRUE(status == OLAP_SUCCESS);
-    ASSERT_FALSE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
+    EXPECT_TRUE(status == Status::OK());
+    EXPECT_FALSE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     RowsetMetaSharedPtr rowset_meta_read(new RowsetMeta());
     status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, rowset_id, rowset_meta_read);
-    ASSERT_TRUE(status != OLAP_SUCCESS);
+    EXPECT_TRUE(status != Status::OK());
 }
 
 TEST_F(RowsetMetaManagerTest, TestLoad) {
     RowsetId rowset_id;
     rowset_id.init(10000);
-    OLAPStatus status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
-    ASSERT_TRUE(status == OLAP_SUCCESS);
-    ASSERT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
+    Status status = RowsetMetaManager::load_json_rowset_meta(_meta, rowset_meta_path);
+    EXPECT_TRUE(status == Status::OK());
+    EXPECT_TRUE(RowsetMetaManager::check_rowset_meta(_meta, _tablet_uid, rowset_id));
     std::string json_rowset_meta_read;
     status = RowsetMetaManager::get_json_rowset_meta(_meta, _tablet_uid, rowset_id,
                                                      &json_rowset_meta_read);
-    ASSERT_TRUE(status == OLAP_SUCCESS);
-    ASSERT_EQ(_json_rowset_meta, json_rowset_meta_read);
+    EXPECT_TRUE(status == Status::OK());
+    EXPECT_EQ(_json_rowset_meta, json_rowset_meta_read);
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

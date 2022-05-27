@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/CastExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -25,6 +28,8 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
@@ -32,21 +37,57 @@ import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
 
 public class CastExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(CastExpr.class);
 
     // Only set for explicit casts. Null for implicit casts.
-    private final TypeDef targetTypeDef;
+    private TypeDef targetTypeDef;
 
     // True if this is a "pre-analyzed" implicit cast.
     private boolean isImplicit;
 
     // True if this cast does not change the type.
     private boolean noOp = false;
+
+    private static final Map<Pair<Type, Type>, Function.NullableMode> TYPE_NULLABLE_MODE;
+
+    static {
+        TYPE_NULLABLE_MODE = Maps.newHashMap();
+        for (ScalarType fromType : Type.getSupportedTypes()) {
+            if (fromType.isNull()) {
+                continue;
+            }
+            for (ScalarType toType : Type.getSupportedTypes()) {
+                if (fromType.isNull()) {
+                    continue;
+                }
+                if (fromType.isStringType() && !toType.isStringType()) {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                } else if (!fromType.isDateType() && toType.isDateType()) {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.ALWAYS_NULLABLE);
+                } else {
+                    TYPE_NULLABLE_MODE.put(new Pair<>(fromType, toType), Function.NullableMode.DEPEND_ON_ARGUMENT);
+                }
+            }
+        }
+    }
+
+    // only used restore from readFields.
+    public CastExpr() {
+
+    }
 
     public CastExpr(Type targetType, Expr e) {
         super();
@@ -91,23 +132,32 @@ public class CastExpr extends Expr {
         return "castTo" + targetType.getPrimitiveType().toString();
     }
 
+    public TypeDef getTargetTypeDef() {
+        return targetTypeDef;
+    }
+
+    private static boolean disableRegisterCastingFunction(Type fromType, Type toType) {
+        // Disable casting from boolean to decimal or datetime or date
+        if (fromType.isBoolean()
+                && (toType.equals(Type.DECIMALV2) || toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
+            return true;
+        }
+
+        // Disable casting operation of hll/bitmap/quantile_state
+        if (fromType.isObjectStored() || toType.isObjectStored()) {
+            return true;
+        }
+        // Disable no-op casting
+        return fromType.equals(toType);
+    }
+
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type fromType : Type.getSupportedTypes()) {
             if (fromType.isNull()) {
                 continue;
             }
             for (Type toType : Type.getSupportedTypes()) {
-                if (toType.isNull()) {
-                    continue;
-                }
-                // Disable casting from boolean to decimal or datetime or date
-                if (fromType.isBoolean() &&
-                        (toType.equals(Type.DECIMALV2) ||
-                                toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
-                    continue;
-                }
-                // Disable no-op casts
-                if (fromType.equals(toType)) {
+                if (toType.isNull() || disableRegisterCastingFunction(fromType, toType)) {
                     continue;
                 }
                 String beClass = toType.isDecimalV2() || fromType.isDecimalV2() ? "DecimalV2Operators" : "CastFunctions";
@@ -120,8 +170,10 @@ public class CastExpr extends Expr {
                 }
                 String beSymbol = "doris::" + beClass + "::cast_to_"
                         + typeName;
-                functionSet.addBuiltin(ScalarFunction.createBuiltin(getFnName(toType),
-                        Lists.newArrayList(fromType), false, toType, beSymbol, null, null, true));
+                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(getFnName(toType),
+                        toType, TYPE_NULLABLE_MODE.get(new Pair<>(fromType, toType)),
+                        Lists.newArrayList(fromType), false,
+                        beSymbol, null, null, true));
             }
         }
     }
@@ -133,7 +185,12 @@ public class CastExpr extends Expr {
 
     @Override
     public String toSqlImpl() {
-        if (isImplicit) {
+        boolean isVerbose = ConnectContext.get() != null
+                && ConnectContext.get().getExecutor() != null
+                && ConnectContext.get().getExecutor().getParsedStmt() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
@@ -144,6 +201,27 @@ public class CastExpr extends Expr {
             }
         } else {
             return "CAST(" + getChild(0).toSql() + " AS " + targetTypeDef.toSql() + ")";
+        }
+    }
+
+    @Override
+    public String toDigestImpl() {
+        boolean isVerbose = ConnectContext.get() != null
+                && ConnectContext.get().getExecutor() != null
+                && ConnectContext.get().getExecutor().getParsedStmt() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
+                && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
+        if (isImplicit && !isVerbose) {
+            return getChild(0).toDigest();
+        }
+        if (isAnalyzed) {
+            if (type.isStringType()) {
+                return "CAST(" + getChild(0).toDigest() + " AS " + "CHARACTER" + ")";
+            } else {
+                return "CAST(" + getChild(0).toDigest() + " AS " + type.toString() + ")";
+            }
+        } else {
+            return "CAST(" + getChild(0).toDigest() + " AS " + targetTypeDef.toString() + ")";
         }
     }
 
@@ -175,6 +253,10 @@ public class CastExpr extends Expr {
     }
 
     public void analyze() throws AnalysisException {
+        // do not analyze ALL cast
+        if (type == Type.ALL) {
+            return;
+        }
         // cast was asked for in the query, check for validity of cast
         Type childType = getChild(0).getType();
 
@@ -186,13 +268,20 @@ public class CastExpr extends Expr {
 
         this.opcode = TExprOpcode.CAST;
         FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, collectChildReturnTypes(), Type.INVALID, false);
-        if (isImplicit) {
-            fn = Catalog.getCurrentCatalog().getFunction(
-                    searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-        } else {
-            fn = Catalog.getCurrentCatalog().getFunction(
-                    searchDesc, Function.CompareMode.IS_IDENTICAL);
+        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
+        if (type.isScalarType()) {
+            if (isImplicit) {
+                fn = Catalog.getCurrentCatalog().getFunction(
+                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            } else {
+                fn = Catalog.getCurrentCatalog().getFunction(
+                        searchDesc, Function.CompareMode.IS_IDENTICAL);
+            }
+        } else if (type.isArrayType()) {
+            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
+                    type, Function.NullableMode.ALWAYS_NULLABLE,
+                    Lists.newArrayList(Type.VARCHAR), false,
+                    "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
 
         if (fn == null) {
@@ -212,7 +301,7 @@ public class CastExpr extends Expr {
         // of cast is decided by child.
         if (targetTypeDef.getType().isScalarType()) {
             final ScalarType targetType = (ScalarType) targetTypeDef.getType();
-            if (!(targetType.getPrimitiveType().isStringType() 
+            if (!(targetType.getPrimitiveType().isStringType()
                     && !targetType.isAssignedStrLenInColDefinition())) {
                 targetTypeDef.analyze(analyzer);
             }
@@ -221,6 +310,11 @@ public class CastExpr extends Expr {
         }
         type = targetTypeDef.getType();
         analyze();
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 
     @Override
@@ -239,8 +333,8 @@ public class CastExpr extends Expr {
     public Expr ignoreImplicitCast() {
         if (isImplicit) {
             // we don't expect to see to consecutive implicit casts
-            Preconditions.checkState(
-              !(getChild(0) instanceof CastExpr) || !((CastExpr) getChild(0)).isImplicit());
+            Preconditions.checkState(!(getChild(0) instanceof CastExpr)
+                    || !((CastExpr) getChild(0)).isImplicit());
             return getChild(0);
         } else {
             return this;
@@ -266,7 +360,7 @@ public class CastExpr extends Expr {
         }
         Expr targetExpr;
         try {
-            targetExpr = castTo((LiteralExpr)value);
+            targetExpr = castTo((LiteralExpr) value);
         } catch (AnalysisException ae) {
             targetExpr = this;
         } catch (NumberFormatException nfe) {
@@ -295,5 +389,119 @@ public class CastExpr extends Expr {
             return new BoolLiteral(value.getStringValue());
         }
         return this;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeBoolean(isImplicit);
+        if (targetTypeDef.getType() instanceof ScalarType) {
+            ScalarType scalarType = (ScalarType) targetTypeDef.getType();
+            scalarType.write(out);
+        } else {
+            throw new IOException("Can not write type " + targetTypeDef.getType());
+        }
+        out.writeInt(children.size());
+        for (Expr expr : children) {
+            Expr.writeTo(expr, out);
+        }
+    }
+
+    public static CastExpr read(DataInput input) throws IOException {
+        CastExpr castExpr = new CastExpr();
+        castExpr.readFields(input);
+        return castExpr;
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        isImplicit = in.readBoolean();
+        ScalarType scalarType = ScalarType.read(in);
+        targetTypeDef = new TypeDef(scalarType);
+        int counter = in.readInt();
+        for (int i = 0; i < counter; i++) {
+            children.add(Expr.readIn(in));
+        }
+    }
+
+    public CastExpr rewriteExpr(List<String> parameters, List<Expr> inputParamsExprs) throws AnalysisException {
+        // child
+        Expr child = this.getChild(0);
+        Expr newChild = null;
+        if (child instanceof SlotRef) {
+            String columnName = ((SlotRef) child).getColumnName();
+            int index = parameters.indexOf(columnName);
+            if (index != -1) {
+                newChild = inputParamsExprs.get(index);
+            }
+        }
+        // rewrite cast expr in children
+        if (child instanceof CastExpr) {
+            newChild = ((CastExpr) child).rewriteExpr(parameters, inputParamsExprs);
+        }
+
+        // type def
+        ScalarType targetType = (ScalarType) targetTypeDef.getType();
+        PrimitiveType primitiveType = targetType.getPrimitiveType();
+        ScalarType newTargetType = null;
+        switch (primitiveType) {
+            case DECIMALV2:
+                // normal decimal
+                if (targetType.getPrecision() != 0) {
+                    newTargetType = targetType;
+                    break;
+                }
+                int precision = getDigital(targetType.getScalarPrecisionStr(), parameters, inputParamsExprs);
+                int scale = getDigital(targetType.getScalarScaleStr(), parameters, inputParamsExprs);
+                if (precision != -1 && scale != -1) {
+                    newTargetType = ScalarType.createType(primitiveType, 0, precision, scale);
+                } else if (precision != -1 && scale == -1) {
+                    newTargetType = ScalarType.createType(primitiveType, 0, precision, ScalarType.DEFAULT_SCALE);
+                }
+                break;
+            case CHAR:
+            case VARCHAR:
+                // normal char/varchar
+                if (targetType.getLength() != -1) {
+                    newTargetType = targetType;
+                    break;
+                }
+                int len = getDigital(targetType.getLenStr(), parameters, inputParamsExprs);
+                if (len != -1) {
+                    newTargetType = ScalarType.createType(primitiveType, len, 0, 0);
+                }
+                // default char/varchar, which len is -1
+                if (len == -1 && targetType.getLength() == -1) {
+                    newTargetType = targetType;
+                }
+                break;
+            default:
+                newTargetType = targetType;
+                break;
+        }
+
+        if (newTargetType != null && newChild != null) {
+            TypeDef typeDef = new TypeDef(newTargetType);
+            return new CastExpr(typeDef, newChild);
+        }
+
+        return this;
+    }
+
+    private int getDigital(String desc, List<String> parameters, List<Expr> inputParamsExprs) {
+        int index = parameters.indexOf(desc);
+        if (index != -1) {
+            Expr expr = inputParamsExprs.get(index);
+            if (expr.getType().isIntegerType()) {
+                return ((Long) ((IntLiteral) expr).getRealValue()).intValue();
+            }
+        }
+        return -1;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return children.get(0).isNullable()
+                || (children.get(0).getType().isStringType() && !getType().isStringType())
+                || (!children.get(0).getType().isDateType() && getType().isDateType());
     }
 }

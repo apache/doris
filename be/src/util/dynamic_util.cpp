@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/dynamic-util.cc
+// and modified by Doris
 
 #include "util/dynamic_util.h"
 
@@ -27,7 +30,7 @@ Status dynamic_lookup(void* handle, const char* symbol, void** fn_ptr) {
     *(void**)(fn_ptr) = dlsym(handle, symbol);
     char* error = dlerror();
 
-    if (error != NULL) {
+    if (error != nullptr) {
         std::stringstream ss;
         ss << "Unable to find " << symbol << "\ndlerror: " << error;
         return Status::InternalError(ss.str());
@@ -41,7 +44,7 @@ Status dynamic_open(const char* library, void** handle) {
 
     *handle = dlopen(library, flags);
 
-    if (*handle == NULL) {
+    if (*handle == nullptr) {
         std::stringstream ss;
         ss << "Unable to load " << library << "\ndlerror: " << dlerror();
         return Status::InternalError(ss.str());

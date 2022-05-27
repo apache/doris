@@ -45,7 +45,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -67,6 +67,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.thrift.TAgentResult;
@@ -83,7 +84,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -115,8 +115,8 @@ public class ExportJob implements Writable {
     }
 
     private long id;
+    private String label;
     private long dbId;
-    private String clusterName;
     private long tableId;
     private BrokerDesc brokerDesc;
     private Expr whereExpr;
@@ -169,7 +169,7 @@ public class ExportJob implements Writable {
     protected Map<String, String> sessionVariables = Maps.newHashMap();
 
     private List<String> exportColumns = Lists.newArrayList();
-    private String columns ;
+    private String columns;
 
 
     public ExportJob() {
@@ -197,17 +197,14 @@ public class ExportJob implements Writable {
 
     public void setJob(ExportStmt stmt) throws UserException {
         String dbName = stmt.getTblName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
 
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
+        this.label = this.properties.get(ExportStmt.LABEL);
 
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
@@ -216,7 +213,7 @@ public class ExportJob implements Writable {
 
         this.partitions = stmt.getPartitions();
 
-        this.exportTable = db.getTable(stmt.getTblName().getTbl());
+        this.exportTable = db.getTableOrDdlException(stmt.getTblName().getTbl());
         this.columns = stmt.getColumns();
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -225,9 +222,6 @@ public class ExportJob implements Writable {
         exportTable.readLock();
         try {
             this.dbId = db.getId();
-            if (exportTable == null) {
-                throw new DdlException("Table " + stmt.getTblName().getTbl() + " does not exist");
-            }
             this.tableId = exportTable.getId();
             this.tableName = stmt.getTblName();
             genExecFragment();
@@ -258,16 +252,54 @@ public class ExportJob implements Writable {
         } catch (URISyntaxException e) {
             throw new DdlException("Invalid export path: " + getExportPath());
         }
-        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc);
+        String headerStr = genHeader(this.properties);
+        exportSink = new ExportSink(tmpExportPathStr, getColumnSeparator(), getLineDelimiter(), brokerDesc, headerStr);
         plan();
     }
 
-    private void registerToDesc() {
+
+    private String genNames() {
+        String names = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            names = names + slot.getColumn().getName() + getColumnSeparator();
+        }
+        names = names.substring(0, names.length() - getColumnSeparator().length());
+        names = names + getLineDelimiter();
+        return names;
+    }
+
+    private String genTypes() {
+        String types = "";
+        for (SlotDescriptor slot : exportTupleDesc.getSlots()) {
+            types = types + slot.getColumn().getType().toString() + getColumnSeparator();
+        }
+        types = types.substring(0, types.length() - getColumnSeparator().length());
+        types = types + getLineDelimiter();
+        return types;
+    }
+
+    private String genHeader(Map<String, String> properties) {
+        String header = "";
+        if (properties.containsKey("format")) {
+            String headerType = properties.get("format");
+            if (headerType.equals(FeConstants.csv_with_names)) {
+                header = genNames();
+            } else if (headerType.equals(FeConstants.csv_with_names_and_types)) {
+                header = genNames();
+                header += genTypes();
+            }
+        }
+        return header;
+    }
+
+    private void registerToDesc() throws UserException {
         TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
+        analyzer.registerTableRef(tableRef);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
         exportTupleDesc.setRef(tableRef);
+        exportTupleDesc.setAliases(tableRef.getAliases(), tableRef.hasExplicitAlias());
         if (exportColumns.isEmpty()) {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
@@ -332,7 +364,7 @@ public class ExportJob implements Writable {
 
         // add conjunct
         if (whereExpr != null) {
-            for (ScanNode scanNode: scanNodes) {
+            for (ScanNode scanNode : scanNodes) {
                 scanNode.addConjuncts(whereExpr.getConjuncts());
             }
         }
@@ -344,7 +376,7 @@ public class ExportJob implements Writable {
         if (whereExpr == null) {
             return;
         }
-        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer);
+        whereExpr = analyzer.getExprRewriter().rewrite(whereExpr, analyzer, ExprRewriter.ClauseType.WHERE_CLAUSE);
 
         // analyze where slot ref
         Map<String, SlotDescriptor> dstDescMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -376,9 +408,7 @@ public class ExportJob implements Writable {
         switch (exportTable.getType()) {
             case OLAP:
                 scanNode = new OlapScanNode(new PlanNodeId(0), exportTupleDesc, "OlapScanNodeForExport");
-                ((OlapScanNode) scanNode).setColumnFilters(Maps.newHashMap());
-                ((OlapScanNode) scanNode).setIsPreAggregation(false, "This an export operation");
-                ((OlapScanNode) scanNode).setCanTurnOnPreAggr(false);
+                ((OlapScanNode) scanNode).closePreAggregation("This an export operation");
                 ((OlapScanNode) scanNode).selectBestRollupByRollupSelector(analyzer);
                 break;
             case ODBC:
@@ -416,9 +446,6 @@ public class ExportJob implements Writable {
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.RANDOM);
                 break;
             case ODBC:
-                fragment = new PlanFragment(
-                        new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
-                break;
             case MYSQL:
                 fragment = new PlanFragment(
                         new PlanFragmentId(nextId.getAndIncrement()), scanNode, DataPartition.UNPARTITIONED);
@@ -431,7 +458,7 @@ public class ExportJob implements Writable {
         scanNode.setFragmentId(fragment.getFragmentId());
         fragment.setSink(exportSink);
         try {
-            fragment.finalize(analyzer, false);
+            fragment.finalize(null);
         } catch (Exception e) {
             LOG.info("Fragment finalize failed. e= {}", e);
             throw new UserException("Fragment finalize failed");
@@ -461,8 +488,8 @@ public class ExportJob implements Writable {
             ScanNode scanNode = nodes.get(i);
             TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits() + i, uuid.getLeastSignificantBits());
             Coordinator coord = new Coordinator(
-                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode), clusterName,
-                    TimeUtils.DEFAULT_TIME_ZONE);
+                    id, queryId, desc, Lists.newArrayList(fragment), Lists.newArrayList(scanNode),
+                    TimeUtils.DEFAULT_TIME_ZONE, true);
             coord.setExecMemoryLimit(getExecMemLimit());
             this.coordList.add(coord);
         }
@@ -666,7 +693,7 @@ public class ExportJob implements Writable {
                 continue;
             }
             long backendId = backend.getId();
-            if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+            if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                 continue;
             }
 
@@ -680,9 +707,19 @@ public class ExportJob implements Writable {
         return Status.OK;
     }
 
+    public boolean isExpired(long curTime) {
+        return (curTime - createTimeMs) / 1000 > Config.history_job_keep_max_second
+                && (state == ExportJob.JobState.CANCELLED || state == ExportJob.JobState.FINISHED);
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
     @Override
     public String toString() {
         return "ExportJob [jobId=" + id
+                + ", label=" + label
                 + ", dbId=" + dbId
                 + ", tableId=" + tableId
                 + ", state=" + state
@@ -695,6 +732,12 @@ public class ExportJob implements Writable {
                 + ", failMsg=" + failMsg
                 + ", files=(" + StringUtils.join(exportedFiles, ",") + ")"
                 + "]";
+    }
+
+    public static ExportJob read(DataInput in) throws IOException {
+        ExportJob job = new ExportJob();
+        job.readFields(in);
+        return job;
     }
 
     @Override
@@ -749,7 +792,7 @@ public class ExportJob implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         isReplayed = true;
         id = in.readLong();
         dbId = in.readLong();
@@ -758,14 +801,18 @@ public class ExportJob implements Writable {
         columnSeparator = Text.readString(in);
         lineDelimiter = Text.readString(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_53) {
-            int count = in.readInt();
-            for (int i = 0; i < count; i++) {
-                String propertyKey = Text.readString(in);
-                String propertyValue = Text.readString(in);
-                this.properties.put(propertyKey, propertyValue);
-            }
+        int count = in.readInt();
+        for (int i = 0; i < count; i++) {
+            String propertyKey = Text.readString(in);
+            String propertyValue = Text.readString(in);
+            this.properties.put(propertyKey, propertyValue);
         }
+        // Because before 0.15, export does not contain label information.
+        // So for compatibility, a label will be added for historical jobs.
+        // This label must be guaranteed to be a certain value to prevent
+        // the label from being different each time.
+        properties.putIfAbsent(ExportStmt.LABEL, "export_" + id);
+        this.label = properties.get(ExportStmt.LABEL);
         this.columns = this.properties.get(LoadStmt.KEY_IN_PARAM_COLUMNS);
         if (!Strings.isNullOrEmpty(this.columns)) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
@@ -792,19 +839,8 @@ public class ExportJob implements Writable {
             brokerDesc = BrokerDesc.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
-            tableName = new TableName();
-            tableName.readFields(in);
-        } else {
-            tableName = new TableName("DUMMY", "DUMMY");
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_97) {
-            origStmt = new OriginStatement("", 0);
-            // old version of export does not have sqlmode, set it to default
-            sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
-            return;
-        }
+        tableName = new TableName();
+        tableName.readFields(in);
         origStmt = OriginStatement.read(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

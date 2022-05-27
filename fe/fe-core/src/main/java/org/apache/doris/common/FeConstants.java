@@ -30,7 +30,6 @@ public class FeConstants {
      */
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
-    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
@@ -51,6 +50,16 @@ public class FeConstants {
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;
 
+    // Current meta format. Use this format to read and write image.
+    public static FeMetaFormat meta_format = FeMetaFormat.COR1;
+
     // use \N to indicate NULL
     public static String null_string = "\\N";
+
+    public static long tablet_checker_interval_ms = 20 * 1000L;
+    public static String csv = "csv";
+    public static String csv_with_names = "csv_with_names";
+    public static String csv_with_names_and_types = "csv_with_names_and_types";
+
+    public static String text = "text";
 }

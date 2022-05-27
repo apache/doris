@@ -30,16 +30,16 @@ public class ShowRepositoriesStmt extends ShowStmt {
             .build();
 
     public ShowRepositoriesStmt() {
-        
+
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : TITLE_NAMES) {
-           builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
-       }
-       return builder.build();
+            builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
     }
 
 }

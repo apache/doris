@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_DUMMY_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_DUMMY_SCANNER_H
+#pragma once
 
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
@@ -27,7 +26,7 @@ class SchemaDummyScanner : public SchemaScanner {
 public:
     SchemaDummyScanner();
     virtual ~SchemaDummyScanner();
-    virtual Status start();
+    virtual Status start(RuntimeState* state = nullptr);
     virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:
@@ -35,5 +34,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

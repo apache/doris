@@ -80,4 +80,8 @@ public class ShowDeleteStmt extends ShowStmt {
         return toSql();
     }
 
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        return RedirectStatus.FORWARD_NO_SYNC;
+    }
 }

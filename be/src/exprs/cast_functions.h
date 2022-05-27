@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/cast-functions.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_CAST_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_CAST_FUNCTIONS_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -116,9 +118,6 @@ public:
     static StringVal cast_to_string_val(FunctionContext* context, const DoubleVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const DateTimeVal& val);
     static StringVal cast_to_string_val(FunctionContext* context, const StringVal& val);
-#if 0
-    static StringVal CastToChar(FunctionContext* context, const StringVal& val);
-#endif
 
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const TinyIntVal& val);
     static DateTimeVal cast_to_datetime_val(FunctionContext* context, const SmallIntVal& val);
@@ -139,8 +138,8 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DoubleVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const DateTimeVal& val);
     static DateTimeVal cast_to_date_val(FunctionContext* context, const StringVal& val);
+
+    static CollectionVal cast_to_array_val(FunctionContext* context, const StringVal& val);
 };
 
 } // namespace doris
-
-#endif

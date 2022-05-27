@@ -26,7 +26,7 @@ include "Partitions.thrift"
 enum TPlanNodeType {
   OLAP_SCAN_NODE,
   MYSQL_SCAN_NODE,
-  CSV_SCAN_NODE,
+  CSV_SCAN_NODE, // deprecated
   SCHEMA_SCAN_NODE,
   HASH_JOIN_NODE,
   MERGE_JOIN_NODE,
@@ -39,7 +39,7 @@ enum TPlanNodeType {
   CROSS_JOIN_NODE,
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
-  OLAP_REWRITE_NODE,
+  OLAP_REWRITE_NODE, // deprecated
   KUDU_SCAN_NODE, // Deprecated
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 
@@ -50,7 +50,8 @@ enum TPlanNodeType {
   ASSERT_NUM_ROWS_NODE,
   INTERSECT_NODE,
   EXCEPT_NODE,
-  ODBC_SCAN_NODE
+  ODBC_SCAN_NODE,
+  TABLE_FUNCTION_NODE,
 }
 
 // phases of an execution node
@@ -151,11 +152,15 @@ struct TBrokerRangeDesc {
     15: optional bool fuzzy_parse;
     16: optional THdfsParams hdfs_params
     17: optional bool read_json_by_line;
+    // Whether read line by column defination, only for Hive
+    18: optional bool read_by_column_def;
+    // csv with header type
+    19: optional string header_type;
 }
 
 struct TBrokerScanRangeParams {
-    1: required byte column_separator;
-    2: required byte line_delimiter;
+    1: required i8 column_separator;
+    2: required i8 line_delimiter;
 
     // We construct one line in file to a tuple. And each field of line 
     // correspond to a slot in this tuple. 
@@ -247,7 +252,7 @@ struct TBrokerScanNode {
     // Partition info used to process partition select in broker load
     2: optional list<Exprs.TExpr> partition_exprs
     3: optional list<Partitions.TRangePartition> partition_infos
-	4: optional list<Exprs.TExpr> pre_filter_exprs
+    4: optional list<Exprs.TExpr> pre_filter_exprs
 }
 
 struct TEsScanNode {
@@ -342,6 +347,7 @@ struct TOlapScanNode {
   4: required bool is_preaggregation
   5: optional string sort_column
   6: optional Types.TKeysType keyType
+  7: optional string table_name
 }
 
 struct TEqJoinCondition {
@@ -386,6 +392,13 @@ struct THashJoinNode {
   // If true, this join node can (but may choose not to) generate slot filters
   // after constructing the build side that can be applied to the probe side.
   4: optional bool add_probe_filters
+
+  // anything from the ON or USING clauses (but *not* the WHERE clause) that's not an
+  // equi-join predicate, only use in vec exec engine
+  5: optional Exprs.TExpr vother_join_conjunct
+
+  // hash output column
+  6: optional list<Types.TSlotId> hash_output_slot_ids
 }
 
 struct TMergeJoinNode {
@@ -652,6 +665,11 @@ struct TOlapRewriteNode {
     3: required Types.TTupleId output_tuple_id
 }
 
+struct TTableFunctionNode {
+    1: optional list<Exprs.TExpr> fnCallExprList
+    2: optional list<Types.TSlotId> outputSlotIds
+}
+
 // This contains all of the information computed by the plan as part of the resource
 // profile that is needed by the backend to execute.
 struct TBackendResourceProfile {
@@ -668,7 +686,8 @@ struct TBackendResourceProfile {
 
 // The buffer size in bytes that is large enough to fit the largest row to be processed.
 // Set if the node allocates buffers for rows from the buffer pool.
-4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+// Deprecated after support string type
+4: optional i64 max_row_buffer_size = 4294967296  // 4G
 }
 
 enum TAssertion {
@@ -690,6 +709,7 @@ enum TRuntimeFilterType {
   IN = 1
   BLOOM = 2
   MIN_MAX = 4
+  IN_OR_BLOOM = 8
 }
 
 // Specification of a runtime filter.
@@ -769,6 +789,14 @@ struct TPlanNode {
   35: optional TOdbcScanNode odbc_scan_node
   // Runtime filters assigned to this plan node, exist in HashJoinNode and ScanNode
   36: optional list<TRuntimeFilterDesc> runtime_filters
+
+  // Use in vec exec engine
+  40: optional Exprs.TExpr vconjunct
+
+  41: optional TTableFunctionNode table_function_node
+
+  // output column
+  42: optional list<Types.TSlotId> output_slot_ids
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

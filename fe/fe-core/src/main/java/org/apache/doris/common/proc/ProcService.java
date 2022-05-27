@@ -19,9 +19,10 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,18 +39,22 @@ public final class ProcService {
         root.register("backends", new BackendsProcDir(Catalog.getCurrentSystemInfo()));
         root.register("dbs", new DbsProcDir(Catalog.getCurrentCatalog()));
         root.register("jobs", new JobsDbProcDir(Catalog.getCurrentCatalog()));
-        root.register("statistic", new StatisticProcDir(Catalog.getCurrentCatalog()));
+        root.register("statistic", new StatisticProcNode(Catalog.getCurrentCatalog()));
         root.register("tasks", new TasksProcDir());
         root.register("frontends", new FrontendsProcNode(Catalog.getCurrentCatalog()));
         root.register("brokers", Catalog.getCurrentCatalog().getBrokerMgr().getProcNode());
         root.register("resources", Catalog.getCurrentCatalog().getResourceMgr().getProcNode());
         root.register("load_error_hub", new LoadErrorHubProcNode(Catalog.getCurrentCatalog()));
         root.register("transactions", new TransDbProcDir());
+        root.register("trash", new TrashProcDir());
         root.register("monitor", new MonitorProcDir());
         root.register("current_queries", new CurrentQueryStatisticsProcDir());
+        root.register("current_query_stmts", new CurrentQueryStatementsProcNode());
         root.register("current_backend_instances", new CurrentQueryBackendInstanceProcDir());
         root.register("cluster_balance", new ClusterBalanceProcDir());
+        root.register("cluster_health", new ClusterHealthProcDir());
         root.register("routine_loads", new RoutineLoadsProcDir());
+        root.register("stream_loads", new StreamLoadProcNode());
         root.register("colocation_group", new ColocationGroupProcDir());
         root.register("bdbje", new BDBJEProcDir());
     }
@@ -118,7 +123,7 @@ public final class ProcService {
         // the last character of path is '/', the current is must a directory
         if (pos == last) {
             // now pos == path.length()
-            if (curNode == null || !(curNode instanceof ProcDirInterface)) {
+            if (!(curNode instanceof ProcDirInterface)) {
                 String errMsg = path + " is not a directory";
                 LOG.warn(errMsg);
                 throw new AnalysisException(errMsg);
@@ -135,7 +140,7 @@ public final class ProcService {
         // 这里使用pos，因为有可能path后面会有space字段被提前截断
         curNode = ((ProcDirInterface) curNode).lookup(path.substring(last, pos));
         if (curNode == null) {
-            throw new AnalysisException("Cannot find path: " + path);
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_PROC_PATH, path);
         }
         return curNode;
     }
@@ -143,7 +148,7 @@ public final class ProcService {
     // 将node注册到根节点下的name下
     public synchronized boolean register(String name, ProcNodeInterface node) {
         if (Strings.isNullOrEmpty(name) || node == null) {
-            LOG.warn("register porc service invalid input.");
+            LOG.warn("register proc service invalid input.");
             return false;
         }
         if (root.lookup(name) != null) {

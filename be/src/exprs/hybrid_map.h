@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H
+#pragma once
 
 #include <unordered_map>
 
 #include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
@@ -40,7 +40,7 @@ public:
         typename std::unordered_map<uint64_t, HybridSetBase*>::const_iterator it = _map.find(dst);
 
         if (it == _map.end()) {
-            _set_ptr = _pool.add(HybridSetBase::create_set(_type));
+            _set_ptr = _pool.add(create_set(_type));
             std::pair<uint64_t, HybridSetBase*> insert_pair(dst, _set_ptr);
             _map.insert(insert_pair);
             *is_add_buckets = true;
@@ -58,5 +58,3 @@ private:
     ObjectPool _pool;
 };
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_MAP_H

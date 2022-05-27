@@ -17,19 +17,19 @@
 
 package org.apache.doris.journal;
 
-import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeySearchDesc;
+import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
@@ -46,11 +46,12 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
-import org.apache.doris.master.Checkpoint;
+import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
+import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
@@ -65,10 +66,14 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
+import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
+import org.apache.doris.persist.LdapInfo;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableDefaultDistributionBucketNumOperationLog;
+import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -85,13 +90,13 @@ import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -101,7 +106,7 @@ import java.io.IOException;
 
 // this is the value written to bdb or local edit files. key is an auto-increasing long.
 public class JournalEntity implements Writable {
-    public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
+    public static final Logger LOG = LogManager.getLogger(JournalEntity.class);
 
     private short opCode;
     private Writable data;
@@ -152,8 +157,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_DB: {
-                data = new Database();
-                ((Database) data).readFields(in);
+                data = Database.read(in);
                 isRead = true;
                 break;
             }
@@ -198,8 +202,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_MODIFY_PARTITION: {
-                data = new ModifyPartitionInfo();
-                ((ModifyPartitionInfo) data).readFields(in);
+                data = ModifyPartitionInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -221,20 +224,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RECOVER_PARTITION: {
                 data = new RecoverInfo();
                 ((RecoverInfo) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_START_ROLLUP:
-            case OperationType.OP_FINISHING_ROLLUP:
-            case OperationType.OP_FINISHING_SCHEMA_CHANGE:
-            case OperationType.OP_FINISH_ROLLUP:
-            case OperationType.OP_CANCEL_ROLLUP:
-            case OperationType.OP_START_SCHEMA_CHANGE:
-            case OperationType.OP_FINISH_SCHEMA_CHANGE:
-            case OperationType.OP_CANCEL_SCHEMA_CHANGE:
-            case OperationType.OP_START_DECOMMISSION_BACKEND:
-            case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
-                data = AlterJob.read(in);
                 isRead = true;
                 break;
             }
@@ -290,8 +279,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_EXPORT_CREATE:
-                data = new ExportJob();
-                ((ExportJob) data).readFields(in);
+                data = ExportJob.read(in);
                 isRead = true;
                 break;
             case OperationType.OP_EXPORT_UPDATE_STATE:
@@ -314,6 +302,7 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ADD_BACKEND:
             case OperationType.OP_DROP_BACKEND:
+            case OperationType.OP_MODIFY_BACKEND:
             case OperationType.OP_BACKEND_STATE_CHANGE: {
                 data = Backend.read(in);
                 isRead = true;
@@ -348,6 +337,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_SET_LDAP_PASSWORD: {
+                data = LdapInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_UPDATE_USER_PROPERTY: {
                 data = UserPropertyInfo.read(in);
                 isRead = true;
@@ -368,12 +362,6 @@ public class JournalEntity implements Writable {
             case OperationType.OP_META_VERSION: {
                 data = new Text();
                 ((Text) data).readFields(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_GLOBAL_VARIABLE: {
-                data = new SessionVariable();
-                ((SessionVariable) data).readFields(in);
                 isRead = true;
                 break;
             }
@@ -460,8 +448,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
             case OperationType.OP_COLOCATE_MARK_UNSTABLE:
             case OperationType.OP_COLOCATE_MARK_STABLE: {
-                data = new ColocatePersistInfo();
-                ((ColocatePersistInfo) data).readFields(in);
+                data = ColocatePersistInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -501,6 +488,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                data = BackendReplicasInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                 data = RoutineLoadJob.read(in);
                 isRead = true;
@@ -527,12 +519,23 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_SYNC_JOB: {
+                data = SyncJob.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
+                data = SyncJob.SyncJobUpdateStateInfo.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                 data = FetchStreamLoadRecord.read(in);
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_RESOURCE: {
+            case OperationType.OP_CREATE_RESOURCE:
+            case OperationType.OP_ALTER_RESOURCE: {
                 data = Resource.read(in);
                 isRead = true;
                 break;
@@ -594,9 +597,14 @@ public class JournalEntity implements Writable {
                 data = PluginInfo.read(in);
                 isRead = true;
                 break;
-            }              
+            }
             case OperationType.OP_REMOVE_ALTER_JOB_V2: {
                 data = RemoveAlterJobV2OperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_COMMENT: {
+                data = ModifyCommentOperationLog.read(in);
                 isRead = true;
                 break;
             }
@@ -615,6 +623,36 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
+                data = SqlBlockRule.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
+                data = SqlBlockRule.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_SQL_BLOCK_RULE: {
+                data = DropSqlBlockRuleOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                data = ModifyTableEngineOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_POLICY: {
+                data = Policy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_POLICY: {
+                data = DropPolicyLog.read(in);
+                isRead = true;
+                break;
+            }
             default: {
                 IOException e = new IOException();
                 LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -624,4 +662,3 @@ public class JournalEntity implements Writable {
         Preconditions.checkState(isRead);
     }
 }
-

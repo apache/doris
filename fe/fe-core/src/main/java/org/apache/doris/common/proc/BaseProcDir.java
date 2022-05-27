@@ -19,10 +19,12 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 
-import java.util.Map;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 
 // 通用PROC DIR类，可以进行注册，返回底层节点内容。
@@ -49,7 +51,9 @@ public class BaseProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(Lists.newArrayList("name"));
-        for (String name : nodeMap.keySet()) {
+        List<String> nameList = Lists.newArrayList(nodeMap.keySet());
+        Collections.sort(nameList);
+        for (String name : nameList) {
             result.addRow(Lists.newArrayList(name));
         }
         return result;

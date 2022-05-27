@@ -29,7 +29,7 @@ import java.io.IOException;
 
 /*
  * This class represents an origin statement
- * in multiple statements. 
+ * in multiple statements.
  */
 public class OriginStatement implements Writable {
     // the origin stmt from client. this may includes more than one statement.

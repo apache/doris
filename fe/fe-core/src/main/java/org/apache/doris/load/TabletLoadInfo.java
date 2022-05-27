@@ -17,8 +17,6 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -32,7 +30,7 @@ public class TabletLoadInfo implements Writable {
     private String filePath;
     private long fileSize;
     private Set<Long> sentReplicas;
-    
+
     public TabletLoadInfo() {
         this("", -1);
     }
@@ -55,11 +53,11 @@ public class TabletLoadInfo implements Writable {
         sentReplicas.add(replicaId);
         return true;
     }
-    
+
     public boolean isReplicaSent(long replicaId) {
         return sentReplicas.contains(replicaId);
     }
-    
+
     public void write(DataOutput out) throws IOException {
         if (filePath == null) {
             out.writeBoolean(false);
@@ -73,26 +71,24 @@ public class TabletLoadInfo implements Writable {
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             filePath = Text.readString(in).intern();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_8) {
-                fileSize = in.readLong();
-            }
+            fileSize = in.readLong();
         } else {
             filePath = null;
             fileSize = -1;
         }
     }
-    
+
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof TabletLoadInfo)) {
             return false;
         }
-        
+
         TabletLoadInfo info = (TabletLoadInfo) obj;
-        
+
         if (sentReplicas != info.sentReplicas) {
             if (sentReplicas == null || info.sentReplicas == null) {
                 return false;
@@ -106,16 +102,16 @@ public class TabletLoadInfo implements Writable {
                 }
             }
         }
-        
+
         if (filePath != info.filePath) {
             if (filePath == null || info.filePath == null) {
                 return false;
             }
         }
-        
+
         return filePath.equals(info.filePath);
     }
-    
+
     public int hashCode() {
         int ret = filePath.length();
         return ret;

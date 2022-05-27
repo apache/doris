@@ -14,11 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/exec/merge-node.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MERGE_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_MERGE_NODE_H
-
-#include <boost/scoped_ptr.hpp>
+#pragma once
 
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
@@ -70,7 +70,7 @@ private:
 
     // Current row batch of current child. We reset the pointer to a new RowBatch
     // when switching to a different child.
-    boost::scoped_ptr<RowBatch> _child_row_batch;
+    std::unique_ptr<RowBatch> _child_row_batch;
 
     // Saved from the last to get_next() on the current child.
     bool _child_eos;
@@ -91,5 +91,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

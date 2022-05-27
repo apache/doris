@@ -18,19 +18,15 @@
 #include "util/thrift_util.h"
 
 #include <thrift/Thrift.h>
-#include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/concurrency/ThreadManager.h>
 #include <thrift/server/TNonblockingServer.h>
 #include <thrift/transport/TServerSocket.h>
 #include <thrift/transport/TSocket.h>
 
-#include <boost/shared_ptr.hpp>
-#include <boost/thread.hpp>
-
 #include "gen_cpp/Data_types.h"
 #include "gen_cpp/Types_types.h"
 #include "util/hash_util.hpp"
-#include "util/monotime.h"
 #include "util/thrift_server.h"
 
 // TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
@@ -58,8 +54,8 @@ ThriftSerializer::ThriftSerializer(bool compact, int initial_buffer_size)
     }
 }
 
-boost::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
-        boost::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact) {
+std::shared_ptr<apache::thrift::protocol::TProtocol> create_deserialize_protocol(
+        std::shared_ptr<apache::thrift::transport::TMemoryBuffer> mem, bool compact) {
     if (compact) {
         apache::thrift::protocol::TCompactProtocolFactoryT<apache::thrift::transport::TMemoryBuffer>
                 tproto_factory;
@@ -114,7 +110,7 @@ Status wait_for_server(const std::string& host, int port, int num_retries, int r
         VLOG_QUERY << "Waiting " << retry_interval_ms << "ms for Thrift server at " << host << ":"
                    << port << " to come up, failed attempt " << retry_count << " of "
                    << num_retries;
-        SleepFor(MonoDelta::FromMilliseconds(retry_interval_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_interval_ms));
     }
 
     return Status::InternalError("Server did not come up");

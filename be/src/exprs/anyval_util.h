@@ -14,14 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/anyval-util.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
-#define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
+#include "runtime/type_limit.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -168,6 +171,46 @@ public:
         return HashUtil::murmur_hash64A(&v.val, 8, seed);
     }
 
+    template <typename Val>
+    static Val min_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            return StringVal();
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::min().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::min().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::min());
+        }
+    }
+
+    template <typename Val>
+    static Val max_val(FunctionContext* ctx) {
+        if constexpr (std::is_same_v<Val, StringVal>) {
+            StringValue sv = type_limit<StringValue>::max();
+            StringVal max_val;
+            max_val.ptr = ctx->allocate(sv.len);
+            memcpy(max_val.ptr, sv.ptr, sv.len);
+            max_val.len = sv.len;
+
+            return max_val;
+        } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
+            DateTimeVal val;
+            type_limit<DateTimeValue>::max().to_datetime_val(&val);
+            return val;
+        } else if constexpr (std::is_same_v<Val, DecimalV2Val>) {
+            DecimalV2Val val;
+            type_limit<DecimalV2Value>::max().to_decimal_val(&val);
+            return val;
+        } else {
+            return Val(type_limit<decltype(std::declval<Val>().val)>::max());
+        }
+    }
+
     // Returns the byte size of *Val for type t.
     static int any_val_size(const TypeDescriptor& t) {
         switch (t.type) {
@@ -196,9 +239,11 @@ public:
             return sizeof(doris_udf::DoubleVal);
 
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_CHAR:
         case TYPE_VARCHAR:
+        case TYPE_STRING:
             return sizeof(doris_udf::StringVal);
 
         case TYPE_DATE:
@@ -237,9 +282,11 @@ public:
         case TYPE_DOUBLE:
             return alignof(DoubleVal);
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
         case TYPE_HLL:
         case TYPE_VARCHAR:
         case TYPE_CHAR:
+        case TYPE_STRING:
             return alignof(StringVal);
         case TYPE_DATETIME:
         case TYPE_DATE:
@@ -270,7 +317,7 @@ public:
         }
     }
 
-    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;
@@ -281,7 +328,7 @@ public:
         return val;
     }
 
-    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int len) {
+    static StringVal from_buffer_temp(FunctionContext* ctx, const char* ptr, int64_t len) {
         StringVal result = StringVal::create_temp_string_val(ctx, len);
         memcpy(result.ptr, ptr, len);
         return result;
@@ -291,7 +338,7 @@ public:
 
     // Utility to put val into an AnyVal struct
     static void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst) {
-        if (slot == NULL) {
+        if (slot == nullptr) {
             dst->is_null = true;
             return;
         }
@@ -336,6 +383,8 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_OBJECT:
+        case TYPE_QUANTILE_STATE:
+        case TYPE_STRING:
             reinterpret_cast<const StringValue*>(slot)->to_string_val(
                     reinterpret_cast<doris_udf::StringVal*>(dst));
             return;
@@ -360,32 +409,32 @@ public:
         }
     }
 
-    /// Templated equality functions. These assume the input values are not NULL.
+    /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const PrimitiveType& type, const T& x, const T& y) {
+    static bool equals(const PrimitiveType& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
-    /// Templated equality functions. These assume the input values are not NULL.
+    /// Templated equality functions. These assume the input values are not nullptr.
     template <typename T>
-    static inline bool equals(const T& x, const T& y) {
-        return equals_internal(x, y);
-    }
-
-    template <typename T>
-    static inline bool equals(const TypeDescriptor& type, const T& x, const T& y) {
+    static bool equals(const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
     template <typename T>
-    static inline bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
+    static bool equals(const TypeDescriptor& type, const T& x, const T& y) {
+        return equals_internal(x, y);
+    }
+
+    template <typename T>
+    static bool equals(const FunctionContext::TypeDesc& type, const T& x, const T& y) {
         return equals_internal(x, y);
     }
 
 private:
     /// Implementations of Equals().
     template <typename T>
-    static inline bool equals_internal(const T& x, const T& y);
+    static bool equals_internal(const T& x, const T& y);
 };
 
 template <typename T>
@@ -431,4 +480,3 @@ Status allocate_any_val(RuntimeState* state, MemPool* pool, const TypeDescriptor
                         const std::string& mem_limit_exceeded_msg, AnyVal** result);
 
 } // namespace doris
-#endif

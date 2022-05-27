@@ -18,10 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Multimap;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -47,7 +47,7 @@ public class VirtualSlotRefTest {
     DataInputStream dis;
 
     @Before
-    public void setUp() throws IOException {
+    public void setUp() throws IOException, AnalysisException {
         Analyzer analyzerBase = AccessTestUtil.fetchTableAnalyzer();
         analyzer = new Analyzer(analyzerBase.getCatalog(), analyzerBase.getContext());
         String[] cols = {"k1", "k2", "k3"};
@@ -61,12 +61,10 @@ public class VirtualSlotRefTest {
             f.setAccessible(true);
             Multimap<String, TupleDescriptor> tupleByAlias = ArrayListMultimap.create();
             TupleDescriptor td = new TupleDescriptor(new TupleId(0));
-            td.setTable(analyzerBase.getTable(new TableName("testdb", "t")));
+            td.setTable(analyzerBase.getTableOrAnalysisException(new TableName("testdb", "t")));
             tupleByAlias.put("testdb.t", td);
             f.set(analyzer, tupleByAlias);
-        } catch (NoSuchFieldException e) {
-            e.printStackTrace();
-        } catch (IllegalAccessException e) {
+        } catch (NoSuchFieldException | IllegalAccessException e) {
             e.printStackTrace();
         }
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");

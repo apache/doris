@@ -22,14 +22,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -106,7 +107,7 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
-    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws DdlException {
+    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws UserException {
         UserProperty property = propertyMap.get(user);
         if (property == null) {
             throw new DdlException("Unknown user(" + user + ")");
@@ -129,6 +130,14 @@ public class UserPropertyMgr implements Writable {
             return Config.default_max_query_instances;
         }
         return existProperty.getMaxQueryInstances();
+    }
+
+    public Set<Tag> getResourceTags(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return UserProperty.INVALID_RESOURCE_TAGS;
+        }
+        return existProperty.getCopiedResourceTags();
     }
 
     public int getPropertyMapSize() {
@@ -220,8 +229,40 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
+    public String[] getSqlBlockRules(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return new String[]{};
+        }
+        return existProperty.getSqlBlockRules();
+    }
+
+    public int getCpuResourceLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getCpuResourceLimit();
+    }
+
     public UserProperty getUserProperty(String qualifiedUserName) {
         return propertyMap.get(qualifiedUserName);
+    }
+
+    public long getExecMemLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getExecMemLimit();
+    }
+
+    public long getLoadMemLimit(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getLoadMemLimit();
     }
 
     public static UserPropertyMgr read(DataInput in) throws IOException {
@@ -251,4 +292,3 @@ public class UserPropertyMgr implements Writable {
         resourceVersion = new AtomicLong(in.readLong());
     }
 }
-

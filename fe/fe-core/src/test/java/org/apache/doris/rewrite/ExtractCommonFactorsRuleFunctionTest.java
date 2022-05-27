@@ -6,7 +6,7 @@
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
 //
-//    http://www.apache.org/licenses/LICENSE-2.0
+//   http://www.apache.org/licenses/LICENSE-2.0
 //
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-//
 
 package org.apache.doris.rewrite;
 
@@ -23,15 +22,17 @@ import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.lang3.StringUtils;
-
-import java.util.UUID;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.UUID;
+
 public class ExtractCommonFactorsRuleFunctionTest {
+    private static final Logger LOG = LogManager.getLogger(ExtractCommonFactorsRuleFunctionTest.class);
     private static String baseDir = "fe";
     private static String runningDir = baseDir + "/mocked/ExtractCommonFactorsRuleFunctionTest/"
             + UUID.randomUUID().toString() + "/";
@@ -39,12 +40,13 @@ public class ExtractCommonFactorsRuleFunctionTest {
     private static final String DB_NAME = "db1";
     private static final String TABLE_NAME_1 = "tb1";
     private static final String TABLE_NAME_2 = "tb2";
+    private static final String TABLE_NAME_3 = "tb3";
 
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
         FeConstants.runningUnitTest = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
         String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_1
@@ -53,6 +55,10 @@ public class ExtractCommonFactorsRuleFunctionTest {
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_2
                 + " (k1 int, k2 int) "
+                + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        dorisAssert.withTable(createTableSQL);
+        createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME_3
+                + " (k1 tinyint, k2 smallint, k3 int, k4 bigint, k5 largeint, k6 date, k7 datetime, k8 float, k9 double) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
@@ -165,52 +171,52 @@ public class ExtractCommonFactorsRuleFunctionTest {
     // TPC-H Q19
     @Test
     public void testComplexQuery() throws Exception {
-        String createTableSQL = "CREATE TABLE `lineitem` (\n" +
-                "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_commitdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_receiptdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`l_orderkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        String createTableSQL = "CREATE TABLE `lineitem` (\n"
+                + "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_commitdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_receiptdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`l_orderkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
-        createTableSQL = "CREATE TABLE `part` (\n" +
-                "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n" +
-                "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_brand` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_size` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_container` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`p_partkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        createTableSQL = "CREATE TABLE `part` (\n"
+                + "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n"
+                + "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_brand` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_size` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_container` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`p_partkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
         String query = "select sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "
@@ -243,4 +249,60 @@ public class ExtractCommonFactorsRuleFunctionTest {
                 + "'MED BOX', 'MED PKG', 'MED PACK', 'LG CASE', 'LG BOX', 'LG PACK', 'LG PKG')"));
     }
 
+    @Test
+    public void testRewriteLikePredicate() throws Exception {
+        // tinyint
+        String sql = "select * from tb3 where k1 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("`k1` LIKE '%4%'");
+
+        // smallint
+        sql = "select * from tb3 where k2 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("`k2` LIKE '%4%'");
+
+        // int
+        sql = "select * from tb3 where k3 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("`k3` LIKE '%4%'");
+
+        // bigint
+        sql = "select * from tb3 where k4 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("`k4` LIKE '%4%'");
+
+        // largeint
+        sql = "select * from tb3 where k5 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainContains("`k5` LIKE '%4%'");
+    }
+
+    @Test
+    public void testRewriteLikePredicateDate() throws Exception {
+        // date
+        String sql = "select * from tb3 where k6 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+    }
+
+    @Test
+    public void testRewriteLikePredicateDateTime() throws Exception {
+        // datetime
+        String sql = "select * from tb3 where k7 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+        dorisAssert.query(sql).explainQuery();
+    }
+
+    @Test
+    public void testRewriteLikePredicateFloat() throws Exception {
+        // date
+        String sql = "select * from tb3 where k8 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+    }
+
+    @Test
+    public void testRewriteLikePredicateDouble() throws Exception {
+        // date
+        String sql = "select * from tb3 where k9 like '%4%';";
+        LOG.info("EXPLAIN:{}", dorisAssert.query(sql).explainQuery());
+    }
 }

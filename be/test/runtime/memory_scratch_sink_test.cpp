@@ -71,16 +71,16 @@ public:
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
 
-        system("mkdir -p ./test_run/output/");
-        system("pwd");
-        system("cp -r ./be/test/runtime/test_data/ ./test_run/.");
+        EXPECT_EQ(system("mkdir -p ./test_run/output/"), 0);
+        EXPECT_EQ(system("pwd"), 0);
+        EXPECT_EQ(system("cp -r ./be/test/runtime/test_data/ ./test_run/."), 0);
 
         init();
     }
 
     virtual void TearDown() {
         _obj_pool.clear();
-        system("rm -rf ./test_run");
+        EXPECT_EQ(system("rm -rf ./test_run"), 0);
     }
 
     void init();
@@ -115,7 +115,7 @@ void MemoryScratchSinkTest::init_runtime_state() {
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _env->exec_env());
     _state->init_instance_mem_tracker();
     _mem_tracker =
-            MemTracker::CreateTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
+            MemTracker::create_tracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -212,46 +212,35 @@ TEST_F(MemoryScratchSinkTest, work_flow_normal) {
     MemoryScratchSink sink(*_row_desc, _exprs, _tsink);
     TDataSink data_sink;
     data_sink.memory_scratch_sink = _tsink;
-    ASSERT_TRUE(sink.init(data_sink).ok());
-    ASSERT_TRUE(sink.prepare(_state).ok());
+    EXPECT_TRUE(sink.init(data_sink).ok());
+    EXPECT_TRUE(sink.prepare(_state).ok());
     std::vector<std::string> file_paths;
     file_paths.push_back("./test_run/test_data/csv_data");
     _tnode.csv_scan_node.__set_file_paths(file_paths);
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1));
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
 
-        ASSERT_EQ(6, num);
-        ASSERT_TRUE(sink.send(_state, &row_batch).ok());
-        ASSERT_TRUE(sink.close(_state, Status::OK()).ok());
+        EXPECT_EQ(6, num);
+        EXPECT_TRUE(sink.send(_state, &row_batch).ok());
+        EXPECT_TRUE(sink.close(_state, Status::OK()).ok());
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/sort-exec-exprs.h
+// and modified by Doris
 
-#ifndef INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
-#define INF_DORIS_QE_SRC_BE_EXEC_SORT_EXEC_EXPRS_H
+#pragma once
 
 #include "exprs/expr.h"
 #include "runtime/runtime_state.h"
@@ -37,7 +39,7 @@ public:
     Status init(const TSortInfo& sort_info, ObjectPool* pool);
 
     // Initialize the ordering and (optionally) materialization expressions from the thrift
-    // TExprs into the specified pool. sort_tuple_slot_exprs is NULL if the tuple is not
+    // TExprs into the specified pool. sort_tuple_slot_exprs is nullptr if the tuple is not
     // materialized.
     Status init(const std::vector<TExpr>& ordering_exprs,
                 const std::vector<TExpr>* sort_tuple_slot_exprs, ObjectPool* pool);
@@ -88,5 +90,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

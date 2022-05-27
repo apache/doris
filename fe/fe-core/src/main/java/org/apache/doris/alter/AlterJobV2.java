@@ -23,20 +23,16 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
@@ -49,8 +45,7 @@ public abstract class AlterJobV2 implements Writable {
 
     public enum JobState {
         PENDING, // Job is created
-        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns,
-                     // waiting for previous txns to be finished
+        WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns, waiting for previous txns to be finished
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
         FINISHED, // job is done
         CANCELLED; // job is cancelled(failed or be cancelled by user)
@@ -61,7 +56,9 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public enum JobType {
-        ROLLUP, SCHEMA_CHANGE
+        // Must not remove it or change the order, because catalog depend on it to traverse the image
+        // and load meta data
+        ROLLUP, SCHEMA_CHANGE, DECOMMISSION_BACKEND
     }
 
     @SerializedName(value = "type")
@@ -148,7 +145,7 @@ public abstract class AlterJobV2 implements Writable {
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
      * So using 'synchronized' to make sure only one thread can run the job at one time.
-     * 
+     *
      * lock order:
      *      synchronized
      *      db lock
@@ -161,17 +158,17 @@ public abstract class AlterJobV2 implements Writable {
 
         try {
             switch (jobState) {
-            case PENDING:
-                runPendingJob();
-                break;
-            case WAITING_TXN:
-                runWaitingTxnJob();
-                break;
-            case RUNNING:
-                runRunningJob();
-                break;
-            default:
-                break;
+                case PENDING:
+                    runPendingJob();
+                    break;
+                case WAITING_TXN:
+                    runWaitingTxnJob();
+                    break;
+                case RUNNING:
+                    runRunningJob();
+                    break;
+                default:
+                    break;
             }
         } catch (AlterCancelException e) {
             cancelImpl(e.getMessage());
@@ -187,14 +184,14 @@ public abstract class AlterJobV2 implements Writable {
     * return false if table is not stable.
     */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, Table.TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
 
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
                     Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
@@ -206,7 +203,7 @@ public abstract class AlterJobV2 implements Writable {
                 return false;
             } else {
                 // table is stable, set is to ROLLUP and begin altering.
-                LOG.info("table {} is stable, start {} job {}", tableId, type);
+                LOG.info("table {} is stable, start {} job {}", tableId, type, jobId);
                 tbl.setState(type == JobType.ROLLUP ? OlapTableState.ROLLUP : OlapTableState.SCHEMA_CHANGE);
                 errMsg = "";
                 return true;
@@ -229,53 +226,7 @@ public abstract class AlterJobV2 implements Writable {
     public abstract void replay(AlterJobV2 replayedJob);
 
     public static AlterJobV2 read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
-            JobType type = JobType.valueOf(Text.readString(in));
-            switch (type) {
-                case ROLLUP:
-                    return RollupJobV2.read(in);
-                case SCHEMA_CHANGE:
-                    return SchemaChangeJobV2.read(in);
-                default:
-                    Preconditions.checkState(false);
-                    return null;
-            }
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, type.name());
-        Text.writeString(out, jobState.name());
-
-        out.writeLong(jobId);
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        Text.writeString(out, tableName);
-
-        Text.writeString(out, errMsg);
-        out.writeLong(createTimeMs);
-        out.writeLong(finishedTimeMs);
-        out.writeLong(timeoutMs);
-    }
-
-    @Deprecated
-    public void readFields(DataInput in) throws IOException {
-        // read common members as write in AlterJobV2.write().
-        // except 'type' member, which is read in AlterJobV2.read()
-        jobState = JobState.valueOf(Text.readString(in));
-
-        jobId = in.readLong();
-        dbId = in.readLong();
-        tableId = in.readLong();
-        tableName = Text.readString(in);
-
-        errMsg = Text.readString(in);
-        createTimeMs = in.readLong();
-        finishedTimeMs = in.readLong();
-        timeoutMs = in.readLong();
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
     }
 }

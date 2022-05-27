@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_STREAMING_SAMPLER_H
-#define DORIS_BE_SRC_UTIL_STREAMING_SAMPLER_H
+#pragma once
 
 #include <string.h>
 
@@ -89,8 +88,8 @@ public:
     /// the period they were collected at.
     /// If lock is non-null, the lock will be taken before returning. The caller
     /// must unlock it.
-    const T* GetSamples(int* num_samples, int* period, SpinLock** lock = NULL) const {
-        if (lock != NULL) {
+    const T* GetSamples(int* num_samples, int* period, SpinLock** lock = nullptr) const {
+        if (lock != nullptr) {
             lock_.lock();
             *lock = &lock_;
         }
@@ -149,5 +148,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

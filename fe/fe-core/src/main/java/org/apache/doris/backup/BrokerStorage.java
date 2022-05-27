@@ -50,7 +50,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -88,8 +87,7 @@ public class BrokerStorage extends BlobStorage {
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        LOG.debug("download from {} to {}, file size: {}.",
-            remoteFilePath, localFilePath, fileSize);
+        LOG.debug("download from {} to {}, file size: {}.", remoteFilePath, localFilePath, fileSize);
 
         long start = System.currentTimeMillis();
 
@@ -105,7 +103,7 @@ public class BrokerStorage extends BlobStorage {
         TBrokerFD fd;
         try {
             TBrokerOpenReaderRequest req = new TBrokerOpenReaderRequest(TBrokerVersion.VERSION_ONE, remoteFilePath,
-                0, clientId(), getProperties());
+                    0, clientId(), getProperties());
             TBrokerOpenReaderResponse rep = client.openReader(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
@@ -116,7 +114,7 @@ public class BrokerStorage extends BlobStorage {
 
             fd = rep.getFd();
             LOG.info("finished to open reader. fd: {}. download {} to {}.",
-                fd, remoteFilePath, localFilePath);
+                    fd, remoteFilePath, localFilePath);
         } catch (TException e) {
             return new Status(Status.ErrCode.COMMON_ERROR,
                 "failed to open reader on broker " + BrokerUtil.printBroker(getName(), address)
@@ -160,7 +158,7 @@ public class BrokerStorage extends BlobStorage {
                 while (tryTimes < 3) {
                     try {
                         TBrokerPReadRequest req = new TBrokerPReadRequest(TBrokerVersion.VERSION_ONE,
-                            fd, readOffset, readLen);
+                                fd, readOffset, readLen);
                         rep = client.pread(req);
                         if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
                             // pread return failure.
@@ -176,7 +174,7 @@ public class BrokerStorage extends BlobStorage {
                         }
                         if (rep.opStatus.statusCode != TBrokerOperationStatusCode.END_OF_FILE) {
                             LOG.debug("download. readLen: {}, read data len: {}, left size:{}. total size: {}",
-                                readLen, rep.getData().length, leftSize, fileSize);
+                                    readLen, rep.getData().length, leftSize, fileSize);
                         } else {
                             LOG.debug("read eof: " + remoteFilePath);
                         }
@@ -224,9 +222,9 @@ public class BrokerStorage extends BlobStorage {
                     // I don't know why, but have to adapt to it.
                     if (rep.getData().length != readLen) {
                         LOG.warn("the actual read length does not equal to "
-                                + "the expected read length: {} vs. {}, file: {}, broker: {}",
-                            rep.getData().length, readLen, remoteFilePath,
-                            BrokerUtil.printBroker(getName(), address));
+                                        + "the expected read length: {} vs. {}, file: {}, broker: {}",
+                                rep.getData().length, readLen, remoteFilePath,
+                                BrokerUtil.printBroker(getName(), address));
                     }
 
                     out.write(rep.getData());
@@ -238,8 +236,8 @@ public class BrokerStorage extends BlobStorage {
                 }
             } // end of reading remote file
         } catch (IOException e) {
-            return new Status(Status.ErrCode.COMMON_ERROR, "Got exception: " + e.getMessage() + ", broker: " +
-                BrokerUtil.printBroker(getName(), address));
+            return new Status(Status.ErrCode.COMMON_ERROR, "Got exception: " + e.getMessage() + ", broker: "
+                    + BrokerUtil.printBroker(getName(), address));
         } finally {
             // close broker reader
             Status closeStatus = closeReader(client, address, fd);
@@ -255,8 +253,8 @@ public class BrokerStorage extends BlobStorage {
             }
         }
 
-        LOG.info("finished to download from {} to {} with size: {}. cost {} ms", remoteFilePath, localFilePath,
-            fileSize, (System.currentTimeMillis() - start));
+        LOG.info("finished to download from {} to {} with size: {}. cost {} ms",
+                remoteFilePath, localFilePath, fileSize, (System.currentTimeMillis() - start));
         return status;
     }
 
@@ -422,7 +420,7 @@ public class BrokerStorage extends BlobStorage {
 
         if (status.ok()) {
             LOG.info("finished to upload {} to remote path {}. cost: {} ms",
-                localPath, remotePath, (System.currentTimeMillis() - start));
+                    localPath, remotePath, (System.currentTimeMillis() - start));
         }
         return status;
     }
@@ -441,8 +439,8 @@ public class BrokerStorage extends BlobStorage {
         // 2. rename
         boolean needReturn = true;
         try {
-            TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE, origFilePath,
-                destFilePath, getProperties());
+            TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE,
+                    origFilePath, destFilePath, getProperties());
             TBrokerOperationStatus ost = client.renamePath(req);
             if (ost.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 return new Status(Status.ErrCode.COMMON_ERROR,
@@ -463,7 +461,7 @@ public class BrokerStorage extends BlobStorage {
         }
 
         LOG.info("finished to rename {} to  {}. cost: {} ms",
-            origFilePath, destFilePath, (System.currentTimeMillis() - start));
+                origFilePath, destFilePath, (System.currentTimeMillis() - start));
         return Status.OK;
     }
 
@@ -480,8 +478,8 @@ public class BrokerStorage extends BlobStorage {
         // delete
         boolean needReturn = true;
         try {
-            TBrokerDeletePathRequest req = new TBrokerDeletePathRequest(TBrokerVersion.VERSION_ONE, remotePath,
-                getProperties());
+            TBrokerDeletePathRequest req = new TBrokerDeletePathRequest(TBrokerVersion.VERSION_ONE,
+                    remotePath, getProperties());
             TBrokerOperationStatus opst = client.deletePath(req);
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
                 return new Status(Status.ErrCode.COMMON_ERROR,
@@ -522,7 +520,7 @@ public class BrokerStorage extends BlobStorage {
         boolean needReturn = true;
         try {
             TBrokerListPathRequest req = new TBrokerListPathRequest(TBrokerVersion.VERSION_ONE, remotePath,
-                false /* not recursive */, getProperties());
+                    false /* not recursive */, getProperties());
             req.setFileNameOnly(true);
             TBrokerListResponse rep = client.listPath(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
@@ -573,7 +571,7 @@ public class BrokerStorage extends BlobStorage {
         boolean needReturn = true;
         try {
             TBrokerCheckPathExistRequest req = new TBrokerCheckPathExistRequest(TBrokerVersion.VERSION_ONE,
-                remotePath, getProperties());
+                    remotePath, getProperties());
             TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
@@ -637,7 +635,7 @@ public class BrokerStorage extends BlobStorage {
                               TBrokerFD fd) {
         try {
             TBrokerOpenWriterRequest req = new TBrokerOpenWriterRequest(TBrokerVersion.VERSION_ONE,
-                remoteFile, TBrokerOpenMode.APPEND, clientId(), getProperties());
+                    remoteFile, TBrokerOpenMode.APPEND, clientId(), getProperties());
             TBrokerOpenWriterResponse rep = client.openWriter(req);
             TBrokerOperationStatus opst = rep.getOpStatus();
             if (opst.getStatusCode() != TBrokerOperationStatusCode.OK) {
@@ -648,8 +646,7 @@ public class BrokerStorage extends BlobStorage {
 
             fd.setHigh(rep.getFd().getHigh());
             fd.setLow(rep.getFd().getLow());
-            LOG.info("finished to open writer. fd: {}. directly upload to remote path {}.",
-                fd, remoteFile);
+            LOG.info("finished to open writer. fd: {}. directly upload to remote path {}.", fd, remoteFile);
         } catch (TException e) {
             return new Status(Status.ErrCode.BAD_CONNECTION,
                 "failed to open writer on broker " + BrokerUtil.printBroker(getName(), address)

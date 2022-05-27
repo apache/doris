@@ -32,6 +32,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -39,7 +40,10 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker.ThrowingRunnable;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.httpv2.HttpServer;
+import org.apache.doris.httpv2.IllegalArgException;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -49,20 +53,8 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
-import org.junit.After;
-import org.junit.AfterClass;
-import org.junit.Before;
-import org.junit.BeforeClass;
-
-import java.net.ServerSocket;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
 import junit.framework.AssertionFailedError;
 import mockit.Expectations;
 import mockit.Mock;
@@ -71,6 +63,20 @@ import mockit.Mocked;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import org.junit.After;
+import org.junit.AfterClass;
+import org.junit.Before;
+import org.junit.BeforeClass;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 abstract public class DorisHttpTestCase {
 
@@ -101,16 +107,27 @@ abstract public class DorisHttpTestCase {
     private static long tabletId = 400L;
 
     public static long testStartVersion = 12;
-    public static long testStartVersionHash = 12312;
     public static int testSchemaHash = 93423942;
-    public static long testPartitionCurrentVersionHash = 12312;
-    public static long testPartitionNextVersionHash = 123123123;
 
     public static int HTTP_PORT;
 
     protected static String URI;
 
     protected String rootAuth = Credentials.basic("root", "");
+
+    private static final String DORIS_HOME;
+
+    static {
+        String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            try {
+                dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        DORIS_HOME = dorisHome;
+    }
 
     @Mocked
     private static EditLog editLog;
@@ -123,12 +140,12 @@ abstract public class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
 
-        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
-        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testStartVersionHash, testSchemaHash, 1024000L, 2000L,
-                Replica.ReplicaState.NORMAL, -1, 0, 0, 0);
+        Replica replica1 = new Replica(testReplicaId1, testBackendId1, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica2 = new Replica(testReplicaId2, testBackendId2, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
+        Replica replica3 = new Replica(testReplicaId3, testBackendId3, testStartVersion, testSchemaHash, 1024000L, 2000L,
+                Replica.ReplicaState.NORMAL, -1, 0);
 
         // tablet
         Tablet tablet = new Tablet(tabletId);
@@ -145,14 +162,13 @@ abstract public class DorisHttpTestCase {
         // partition
         RandomDistributionInfo distributionInfo = new RandomDistributionInfo(2);
         Partition partition = new Partition(testPartitionId, "testPartition", baseIndex, distributionInfo);
-        partition.updateVisibleVersionAndVersionHash(testStartVersion, testStartVersionHash);
+        partition.updateVisibleVersion(testStartVersion);
         partition.setNextVersion(testStartVersion + 1);
-        partition.setNextVersionHash(testPartitionNextVersionHash, testPartitionCurrentVersionHash);
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(testPartitionId, (short) 3);
+        partitionInfo.setReplicaAllocation(testPartitionId, new ReplicaAllocation((short) 3));
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);
@@ -170,7 +186,7 @@ abstract public class DorisHttpTestCase {
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_DATA_PROPERTY);
-        partitionInfo.setReplicationNum(testPartitionId + 100, (short) 3);
+        partitionInfo.setReplicaAllocation(testPartitionId + 100, ReplicaAllocation.DEFAULT_ALLOCATION);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();
         props.put(EsTable.HOSTS, "http://node-1:8080");
@@ -204,11 +220,11 @@ abstract public class DorisHttpTestCase {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(db.getId());
+                    catalog.getDbNullable(db.getId());
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("default_cluster:" + DB_NAME);
+                    catalog.getDbNullable("default_cluster:" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
@@ -216,11 +232,11 @@ abstract public class DorisHttpTestCase {
                     minTimes = 0;
                     result = true;
 
-                    catalog.getDb("default_cluster:emptyDb");
+                    catalog.getDbNullable("default_cluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
@@ -290,19 +306,26 @@ abstract public class DorisHttpTestCase {
                 try {
                     socket.close();
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
         }
 
-        httpServer = new HttpServer(HTTP_PORT);
-        httpServer.setup();
+        FeConstants.runningUnitTest = true;
+        httpServer = new HttpServer();
+        httpServer.setPort(HTTP_PORT);
+        httpServer.setMaxHttpPostSize(100 * 1024 * 1024);
+        httpServer.setAcceptors(2);
+        httpServer.setSelectors(4);
+        httpServer.setWorkers(0);
         httpServer.start();
-        // must ensure the http server started before any unit test
-        while (!httpServer.isStarted()) {
-            Thread.sleep(500);
-        }
     }
 
+    @AfterClass
+    public static void afterClass() {
+        File file = new File(DORIS_HOME);
+        file.delete();
+    }
 
 
     @Before
@@ -316,7 +339,7 @@ abstract public class DorisHttpTestCase {
                 return new SchemaChangeHandler();
             }
             @Mock
-            MaterializedViewHandler getRollupHandler() {
+            MaterializedViewHandler getMaterializedViewHandler() {
                 return new MaterializedViewHandler();
             }
             @Mock
@@ -340,10 +363,6 @@ abstract public class DorisHttpTestCase {
     public void tearDown() {
     }
 
-    @AfterClass
-    public static void closeHttpServer() {
-        httpServer.shutDown();
-    }
 
     public void doSetUp() {
 

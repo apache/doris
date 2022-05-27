@@ -49,7 +49,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -58,7 +58,7 @@ public class SetVar {
         this.variable = variable;
         this.value = value;
         if (value instanceof LiteralExpr) {
-            this.result = (LiteralExpr)value;
+            this.result = (LiteralExpr) value;
         }
     }
 
@@ -114,7 +114,7 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
 
-        result = (LiteralExpr)literalExpr;
+        result = (LiteralExpr) literalExpr;
 
         // Need to check if group is valid
         if (variable.equalsIgnoreCase(SessionVariable.RESOURCE_VARIABLE)) {
@@ -129,22 +129,34 @@ public class SetVar {
             }
         }
 
-        if (getVariable().toLowerCase().equals("prefer_join_method")) {
+        if (getVariable().equalsIgnoreCase(SessionVariable.PREFER_JOIN_METHOD)) {
             String value = getValue().getStringValue();
-            if (!value.toLowerCase().equals("broadcast") && !value.toLowerCase().equals("shuffle")) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, "prefer_join_method", value);
+            if (!value.equalsIgnoreCase("broadcast") && !value.equalsIgnoreCase("shuffle")) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_FOR_VAR, SessionVariable.PREFER_JOIN_METHOD, value);
             }
         }
 
         // Check variable time_zone value is valid
-        if (getVariable().toLowerCase().equals("time_zone")) {
+        if (getVariable().equalsIgnoreCase(SessionVariable.TIME_ZONE)) {
             this.value = new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(getValue().getStringValue()));
             this.result = (LiteralExpr) this.value;
         }
 
-        if (getVariable().toLowerCase().equals("exec_mem_limit")) {
+        if (getVariable().equalsIgnoreCase(SessionVariable.EXEC_MEM_LIMIT)) {
             this.value = new StringLiteral(Long.toString(ParseUtil.analyzeDataVolumn(getValue().getStringValue())));
             this.result = (LiteralExpr) this.value;
+        }
+        if (getVariable().equalsIgnoreCase("is_report_success")) {
+            variable = SessionVariable.ENABLE_PROFILE;
+        }
+
+        if (getVariable().equalsIgnoreCase(SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION)) {
+            String value = getValue().getStringValue();
+            if (!"1".equals(value) && !"2".equals(value)) {
+                throw new AnalysisException("Value of "
+                        + SessionVariable.PARTITION_PRUNE_ALGORITHM_VERSION + " should be "
+                        + "either 1 or 2, but meet " + value);
+            }
         }
     }
 

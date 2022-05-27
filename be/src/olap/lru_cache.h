@@ -2,59 +2,66 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#ifndef DORIS_BE_SRC_OLAP_LRU_CACHE_H
-#define DORIS_BE_SRC_OLAP_LRU_CACHE_H
+#pragma once
 
 #include <gtest/gtest_prod.h>
 #include <rapidjson/document.h>
 #include <stdint.h>
 #include <string.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "olap/olap_common.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/thread_context.h"
 #include "util/metrics.h"
-#include "util/mutex.h"
 #include "util/slice.h"
 
 namespace doris {
 
-#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                    \
-    do {                                                             \
-        if (r_len > str.size()) {                                    \
-            memcpy(cur, str.c_str(), str.size());                    \
-            r_len -= str.size();                                     \
-            cur += str.size();                                       \
-        } else {                                                     \
-            OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(NULL, 0);                                \
-        }                                                            \
+#define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
+    do {                                                           \
+        if (r_len > str.size()) {                                  \
+            memcpy(cur, str.c_str(), str.size());                  \
+            r_len -= str.size();                                   \
+            cur += str.size();                                     \
+        } else {                                                   \
+            LOG(WARNING) << "construct cache key buf not enough."; \
+            return CacheKey(nullptr, 0);                           \
+        }                                                          \
     } while (0)
 
-#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)               \
-    do {                                                             \
-        if (r_len > sizeof(numeric)) {                               \
-            memcpy(cur, &numeric, sizeof(numeric));                  \
-            r_len -= sizeof(numeric);                                \
-            cur += sizeof(numeric);                                  \
-        } else {                                                     \
-            OLAP_LOG_WARNING("construct cache key buf not enough."); \
-            return CacheKey(NULL, 0);                                \
-        }                                                            \
+#define OLAP_CACHE_NUMERIC_TO_BUF(cur, numeric, r_len)             \
+    do {                                                           \
+        if (r_len > sizeof(numeric)) {                             \
+            memcpy(cur, &numeric, sizeof(numeric));                \
+            r_len -= sizeof(numeric);                              \
+            cur += sizeof(numeric);                                \
+        } else {                                                   \
+            LOG(WARNING) << "construct cache key buf not enough."; \
+            return CacheKey(nullptr, 0);                           \
+        }                                                          \
     } while (0)
 
 class Cache;
 class CacheKey;
 
-// Create a new cache with a specified name and a fixed size capacity.  This implementation
-// of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity, std::shared_ptr<MemTracker> parent_tracekr = nullptr);
+enum LRUCacheType {
+    SIZE,  // The capacity of cache is based on the size of cache entry.
+    NUMBER // The capacity of cache is based on the number of cache entry.
+};
+
+// Create a new cache with a specified name and a fixed SIZE capacity.
+// This implementation of Cache uses a least-recently-used eviction policy.
+extern Cache* new_lru_cache(const std::string& name, size_t capacity);
+
+extern Cache* new_typed_lru_cache(const std::string& name, size_t capacity, LRUCacheType type);
 
 class CacheKey {
 public:
-    CacheKey() : _data(NULL), _size(0) {}
+    CacheKey() : _data(nullptr), _size(0) {}
     // Create a slice that refers to d[0,n-1].
     CacheKey(const char* d, size_t n) : _data(d), _size(n) {}
 
@@ -84,7 +91,7 @@ public:
 
     // Change this slice to refer to an empty array
     void clear() {
-        _data = NULL;
+        _data = nullptr;
         _size = 0;
     }
 
@@ -98,13 +105,13 @@ public:
     // Return a string that contains the copy of the referenced data.
     std::string to_string() const { return std::string(_data, _size); }
 
-    inline bool operator==(const CacheKey& other) const {
+    bool operator==(const CacheKey& other) const {
         return ((size() == other.size()) && (memcmp(data(), other.data(), size()) == 0));
     }
 
-    inline bool operator!=(const CacheKey& other) const { return !(*this == other); }
+    bool operator!=(const CacheKey& other) const { return !(*this == other); }
 
-    inline int compare(const CacheKey& b) const {
+    int compare(const CacheKey& b) const {
         const size_t min_len = (_size < b._size) ? _size : b._size;
         int r = memcmp(_data, b._data, min_len);
         if (r == 0) {
@@ -139,6 +146,8 @@ private:
 // The entry with smaller CachePriority will evict firstly
 enum class CachePriority { NORMAL = 0, DURABLE = 1 };
 
+using CacheValuePredicate = std::function<bool(const void*)>;
+
 class Cache {
 public:
     Cache() {}
@@ -163,7 +172,7 @@ public:
                            void (*deleter)(const CacheKey& key, void* value),
                            CachePriority priority = CachePriority::NORMAL) = 0;
 
-    // If the cache has no mapping for "key", returns NULL.
+    // If the cache has no mapping for "key", returns nullptr.
     //
     // Else return a handle that corresponds to the mapping.  The caller
     // must call this->release(handle) when the returned mapping is no
@@ -201,7 +210,13 @@ public:
     // Default implementation of Prune() does nothing.  Subclasses are strongly
     // encouraged to override the default implementation.  A future release of
     // leveldb may change prune() to a pure abstract method.
-    virtual void prune() {}
+    // return num of entries being pruned.
+    virtual int64_t prune() { return 0; }
+
+    // Same as prune(), but the entry will only be pruned if the predicate matched.
+    // NOTICE: the predicate should be simple enough, or the prune_if() function
+    // may hold lock for a long time to execute predicate.
+    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -213,15 +228,16 @@ typedef struct LRUHandle {
     void* value;
     void (*deleter)(const CacheKey&, void* value);
     LRUHandle* next_hash = nullptr; // next entry in hash table
-    LRUHandle* prev_hash = nullptr; // previous entry in hash table
     LRUHandle* next = nullptr;      // next entry in lru list
     LRUHandle* prev = nullptr;      // previous entry in lru list
     size_t charge;
     size_t key_length;
-    bool in_cache; // Whether entry is in the cache.
+    size_t total_size; // including key length
+    bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
+    MemTracker* mem_tracker;
     char key_data[1]; // Beginning of key
 
     CacheKey key() const {
@@ -236,6 +252,9 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
+        if (mem_tracker)
+            mem_tracker->transfer_to(tls_ctx()->_thread_mem_tracker_mgr->mem_tracker().get(),
+                                     total_size);
         ::free(this);
     }
 
@@ -249,7 +268,7 @@ typedef struct LRUHandle {
 
 class HandleTable {
 public:
-    HandleTable() : _length(0), _elems(0), _list(NULL) { _resize(); }
+    HandleTable() : _length(0), _elems(0), _list(nullptr) { _resize(); }
 
     ~HandleTable();
 
@@ -262,7 +281,8 @@ public:
 
     // Remove element from hash table by "h", it would be faster
     // than the function above.
-    void remove(const LRUHandle* h);
+    // Return whether h is found and removed.
+    bool remove(const LRUHandle* h);
 
 private:
     FRIEND_TEST(CacheTest, HandleTableTest);
@@ -278,16 +298,13 @@ private:
     // pointer to the trailing slot in the corresponding linked list.
     LRUHandle** _find_pointer(const CacheKey& key, uint32_t hash);
 
-    // Insert "handle" after "head".
-    void _head_insert(LRUHandle* head, LRUHandle* handle);
-
     void _resize();
 };
 
 // A single shard of sharded cache.
 class LRUCache {
 public:
-    LRUCache();
+    LRUCache(LRUCacheType type);
     ~LRUCache();
 
     // Separate from constructor so caller can easily make an array of LRUCache
@@ -296,11 +313,13 @@ public:
     // Like Cache methods, but with an extra "hash" parameter.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL,
+                          MemTracker* tracker = nullptr);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
-    int prune();
+    int64_t prune();
+    int64_t prune_if(CacheValuePredicate pred);
 
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
@@ -311,15 +330,17 @@ private:
     void _lru_remove(LRUHandle* e);
     void _lru_append(LRUHandle* list, LRUHandle* e);
     bool _unref(LRUHandle* e);
-    void _evict_from_lru(size_t charge, LRUHandle** to_remove_head);
+    void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
-    void _prune_one(LRUHandle* old);
+
+private:
+    LRUCacheType _type;
 
     // Initialized before use.
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    Mutex _mutex;
+    std::mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.
@@ -340,28 +361,30 @@ static const int kNumShards = 1 << kNumShardBits;
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, std::shared_ptr<MemTracker> parent);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL);
-    virtual Handle* lookup(const CacheKey& key);
-    virtual void release(Handle* handle);
-    virtual void erase(const CacheKey& key);
-    virtual void* value(Handle* handle);
+                           CachePriority priority = CachePriority::NORMAL) override;
+    virtual Handle* lookup(const CacheKey& key) override;
+    virtual void release(Handle* handle) override;
+    virtual void erase(const CacheKey& key) override;
+    virtual void* value(Handle* handle) override;
     Slice value_slice(Handle* handle) override;
-    virtual uint64_t new_id();
-    virtual void prune();
+    virtual uint64_t new_id() override;
+    virtual int64_t prune() override;
+    virtual int64_t prune_if(CacheValuePredicate pred) override;
 
 private:
     void update_cache_metrics() const;
+
 private:
-    static inline uint32_t _hash_slice(const CacheKey& s);
+    static uint32_t _hash_slice(const CacheKey& s);
     static uint32_t _shard(uint32_t hash);
 
     std::string _name;
-    LRUCache _shards[kNumShards];
+    LRUCache* _shards[kNumShards];
     std::atomic<uint64_t> _last_id;
 
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -375,5 +398,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_LRU_CACHE_H

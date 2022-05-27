@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/aggregate-functions.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_AGGREGATE_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_AGGREGATE_FUNCTIONS_H
+#pragma once
 
-//#include "exprs/opcode_registry.h"
 #include "olap/hll.h"
 #include "udf/udf.h"
 #include "udf/udf_internal.h"
@@ -36,14 +37,22 @@ class HybridSetBase;
 
 class AggregateFunctions {
 public:
-    // Initializes dst to NULL.
+    // Initializes dst to nullptr.
     static void init_null(doris_udf::FunctionContext*, doris_udf::AnyVal* dst);
-    // Initializes dst to NULL and sets dst->ptr to NULL.
+    // Initializes dst to nullptr and sets dst->ptr to nullptr.
     static void init_null_string(doris_udf::FunctionContext* c, doris_udf::StringVal* dst);
+
+    // Initializes dst to 0 and is_null = true.
+    template <typename T>
+    static void init_zero(doris_udf::FunctionContext*, T* dst);
+
+    // Initializes dst to 0 and is_null = true.
+    template <typename T>
+    static void init_zero_null(doris_udf::FunctionContext*, T* dst);
 
     // Initializes dst to 0.
     template <typename T>
-    static void init_zero(doris_udf::FunctionContext*, T* dst);
+    static void init_zero_not_null(doris_udf::FunctionContext*, T* dst);
 
     template <typename SRC_VAL, typename DST_VAL>
     static void sum_remove(doris_udf::FunctionContext* ctx, const SRC_VAL& src, DST_VAL* dst);
@@ -64,6 +73,19 @@ public:
     static void count_star_update(doris_udf::FunctionContext*, doris_udf::BigIntVal* dst);
 
     static void count_star_remove(FunctionContext*, BigIntVal* dst);
+
+    // Implementation of percentile
+    static void percentile_init(FunctionContext* ctx, StringVal* dst);
+
+    template <typename T>
+    static void percentile_update(FunctionContext* ctx, const T& src, const DoubleVal& quantile,
+                                  StringVal* dst);
+
+    static void percentile_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+
+    static StringVal percentile_serialize(FunctionContext* ctx, const StringVal& state_sv);
+
+    static DoubleVal percentile_finalize(FunctionContext* ctx, const StringVal& src);
 
     // Implementation of percentile_approx
     static void percentile_approx_init(doris_udf::FunctionContext* ctx, doris_udf::StringVal* dst);
@@ -127,9 +149,17 @@ public:
     template <typename SRC_VAL, typename DST_VAL>
     static void sum(doris_udf::FunctionContext*, const SRC_VAL& src, DST_VAL* dst);
 
+    // MinInit
+    template <typename T>
+    static void min_init(doris_udf::FunctionContext*, T* dst);
+
     // MinUpdate/MinMerge
     template <typename T>
     static void min(doris_udf::FunctionContext*, const T& src, T* dst);
+
+    // MaxInit
+    template <typename T>
+    static void max_init(doris_udf::FunctionContext*, T* dst);
 
     // MaxUpdate/MaxMerge
     template <typename T>
@@ -202,12 +232,10 @@ public:
                                                     StringVal* dst);
     static void count_or_sum_distinct_decimalv2_merge(FunctionContext* ctx, StringVal& src,
                                                       StringVal* dst);
-    static StringVal count_or_sum_distinct_decimal_serialize(FunctionContext* ctx,
-                                                             const StringVal& state_sv);
+
     static StringVal count_or_sum_distinct_decimalv2_serialize(FunctionContext* ctx,
                                                                const StringVal& state_sv);
-    static BigIntVal count_distinct_decimal_finalize(FunctionContext* ctx,
-                                                     const StringVal& state_sv);
+
     static BigIntVal count_distinct_decimalv2_finalize(FunctionContext* ctx,
                                                        const StringVal& state_sv);
     static DecimalV2Val sum_distinct_decimalv2_finalize(FunctionContext* ctx,
@@ -235,6 +263,8 @@ public:
     static void knuth_var_init(FunctionContext* context, StringVal* val);
     template <typename T>
     static void knuth_var_update(FunctionContext* context, const T& input, StringVal* val);
+    template <typename T>
+    static void knuth_var_remove(FunctionContext* context, const T& src, StringVal* dst);
     static void knuth_var_merge(FunctionContext* context, const StringVal& src, StringVal* dst);
     static DoubleVal knuth_var_finalize(FunctionContext* context, const StringVal& val);
 
@@ -247,8 +277,14 @@ public:
     /// Calculates the biased STDDEV, uses KnuthVar Init-Update-Merge functions
     static DoubleVal knuth_stddev_pop_finalize(FunctionContext* context, const StringVal& val);
 
+    static DoubleVal knuth_var_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_var_pop_get_value(FunctionContext* context, const StringVal& val);
+    static DoubleVal knuth_stddev_get_value(FunctionContext* ctx, const StringVal& state_sv);
+    static DoubleVal knuth_stddev_pop_get_value(FunctionContext* context, const StringVal& val);
+
     // variance/stddev for decimals.
     static void decimalv2_knuth_var_init(FunctionContext* context, StringVal* val);
+    static void knuth_var_remove(FunctionContext* ctx, const DecimalV2Val& src, StringVal* dst);
     static void knuth_var_update(FunctionContext* context, const DecimalV2Val& src, StringVal* val);
     static void decimalv2_knuth_var_merge(FunctionContext* context, const StringVal& src,
                                           StringVal* val);
@@ -260,6 +296,15 @@ public:
                                                         const StringVal& val);
     static DecimalV2Val decimalv2_knuth_stddev_pop_finalize(FunctionContext* context,
                                                             const StringVal& val);
+
+    static DecimalV2Val decimalv2_knuth_var_get_value(FunctionContext* ctx,
+                                                      const StringVal& state_sv);
+    static DecimalV2Val decimalv2_knuth_var_pop_get_value(FunctionContext* context,
+                                                          const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_get_value(FunctionContext* context,
+                                                         const StringVal& val);
+    static DecimalV2Val decimalv2_knuth_stddev_pop_get_value(FunctionContext* context,
+                                                             const StringVal& val);
 
     /// ----------------------------- Analytic Functions ---------------------------------
     /// Analytic functions implement the UDA interface (except Merge(), Serialize()) and are
@@ -320,6 +365,15 @@ public:
     static void offset_fn_update(doris_udf::FunctionContext*, const T& src,
                                  const doris_udf::BigIntVal&, const T&, T* dst);
 
+    // windowFunnel
+    static void window_funnel_init(FunctionContext* ctx, StringVal* dst);
+    static void window_funnel_update(FunctionContext* ctx, const BigIntVal& window,
+                                     const StringVal& mode, const DateTimeVal& timestamp,
+                                     int num_cond, const BooleanVal* conds, StringVal* dst);
+    static void window_funnel_merge(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    static StringVal window_funnel_serialize(FunctionContext* ctx, const StringVal& src);
+    static IntVal window_funnel_finalize(FunctionContext* ctx, const StringVal& src);
+
     // todo(kks): keep following HLL methods only for backward compatibility, we should remove these methods
     //            when doris 0.12 release
     static void hll_init(doris_udf::FunctionContext*, doris_udf::StringVal* slot);
@@ -360,5 +414,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

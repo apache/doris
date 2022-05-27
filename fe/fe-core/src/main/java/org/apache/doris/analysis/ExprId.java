@@ -14,14 +14,17 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ExprId.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class ExprId extends Id<ExprId> {
     private final static Logger LOG = LogManager.getLogger(ExprId.class);
@@ -34,9 +37,14 @@ public class ExprId extends Id<ExprId> {
     public static IdGenerator<ExprId> createGenerator() {
         return new IdGenerator<ExprId>() {
             @Override
-            public ExprId getNextId() { return new ExprId(nextId_++); }
+            public ExprId getNextId() {
+                return new ExprId(nextId++);
+            }
+
             @Override
-            public ExprId getMaxId() { return new ExprId(nextId_ - 1); }
+            public ExprId getMaxId() {
+                return new ExprId(nextId - 1);
+            }
         };
     }
 }

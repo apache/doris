@@ -34,12 +34,11 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +72,7 @@ public class OdbcScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC");
+        super(id, desc, "SCAN ODBC", NodeType.ODBC_SCAN_NODE);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = OdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
@@ -139,10 +138,13 @@ public class OdbcScanNode extends ScanNode {
         }
 
         // Other DataBase use limit do top n
-        if (shouldPushDownLimit() && (odbcType == TOdbcTableType.MYSQL || odbcType == TOdbcTableType.POSTGRESQL || odbcType == TOdbcTableType.MONGODB) ) {
-            sql.append(" LIMIT " + limit);
+        if (shouldPushDownLimit()
+                && (odbcType == TOdbcTableType.MYSQL
+                || odbcType == TOdbcTableType.POSTGRESQL
+                || odbcType == TOdbcTableType.MONGODB)) {
+            sql.append(" LIMIT ").append(limit);
         }
-        
+
         return sql.toString();
     }
 

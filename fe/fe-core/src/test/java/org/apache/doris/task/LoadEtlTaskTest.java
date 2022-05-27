@@ -17,8 +17,6 @@
 
 package org.apache.doris.task;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -42,7 +40,8 @@ import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -78,23 +77,23 @@ public class LoadEtlTaskTest {
         indexId = 0L;
         tabletId = 0L;
         backendId = 0L;
-        
+
         label = "test_label";
-        
+
         UnitTestUtil.initDppConfig();
     }
-    
+
     @Test
     public void testRunEtlTask(@Mocked DppScheduler dppScheduler) throws Exception {
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
         new Expectations(catalog) {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -114,7 +113,7 @@ public class LoadEtlTaskTest {
         String cluster = Config.dpp_default_cluster;
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());
         List<Source> sources = Lists.newArrayList();
@@ -144,7 +143,7 @@ public class LoadEtlTaskTest {
                 result = load;
             }
         };
-        
+
         // mock dppscheduler
         EtlStatus runningStatus = new EtlStatus();
         runningStatus.setState(TEtlState.RUNNING);
@@ -178,18 +177,17 @@ public class LoadEtlTaskTest {
         // test exec: running
         HadoopLoadEtlTask loadEtlTask = new HadoopLoadEtlTask(job);
         loadEtlTask.exec();
-        
+
         // verify running
         Assert.assertEquals(job.getId(), loadEtlTask.getSignature());
         Assert.assertEquals(60, job.getProgress());
         Assert.assertEquals(JobState.ETL, job.getState());
-        
+
         // test exec: finished
         loadEtlTask.exec();
-        
+
         // verify finished
         Assert.assertEquals(100, job.getProgress());
-        long expectVersion = partition.getVisibleVersion() + 1;
         Assert.assertEquals(-1,
                             job.getIdToTableLoadInfo().get(tableId)
                 .getIdToPartitionLoadInfo().get(partitionId).getVersion());
@@ -203,5 +201,5 @@ public class LoadEtlTaskTest {
         }
         Assert.assertEquals(tabletNum, tabletLoadInfos.size());
     }
-    
+
 }

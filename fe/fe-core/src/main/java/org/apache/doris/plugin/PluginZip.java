@@ -23,7 +23,6 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -172,8 +171,8 @@ class PluginZip {
                 // normalizing the path (which removes foo/..) and ensuring the normalized entry
                 // is still rooted with the target plugin directory.
                 if (!targetFile.normalize().startsWith(targetPath)) {
-                    throw new UserException("Zip contains entry name '" +
-                            entry.getName() + "' resolving outside of plugin directory");
+                    throw new UserException("Zip contains entry name '"
+                            + entry.getName() + "' resolving outside of plugin directory");
                 }
 
                 // be on the safe side: do not rely on that directories are always extracted

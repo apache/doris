@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.common.Pair;
+
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,13 +67,17 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             PartitionMove that = (PartitionMove) o;
-            return Objects.equal(partitionId, that.partitionId) &&
-                    Objects.equal(indexId, that.indexId) &&
-                    Objects.equal(fromBe, that.fromBe) &&
-                    Objects.equal(toBe, that.toBe);
+            return Objects.equal(partitionId, that.partitionId)
+                    && Objects.equal(indexId, that.indexId)
+                    && Objects.equal(fromBe, that.fromBe)
+                    && Objects.equal(toBe, that.toBe);
         }
 
         @Override
@@ -82,11 +87,11 @@ public class TwoDimensionalGreedyRebalanceAlgo {
 
         @Override
         public String toString() {
-            return "ReplicaMove{" +
-                    "pid=" + partitionId + "-" + indexId +
-                    ", from=" + fromBe +
-                    ", to=" + toBe +
-                    '}';
+            return "ReplicaMove{"
+                    + "pid=" + partitionId + "-" + indexId
+                    + ", from=" + fromBe
+                    + ", to=" + toBe
+                    + '}';
         }
     }
 
@@ -136,6 +141,17 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             return Lists.newArrayList();
         }
 
+        NavigableSet<Long> keySet = info.beByTotalReplicaCount.keySet();
+        if (keySet.isEmpty() || keySet.last() == 0L) {
+            // the number of replica on specified medium we get from getReplicaNumByBeIdAndStorageMedium() is
+            // defined by table properties,but in fact there may not has SSD/HDD disk on this backend.
+            // So if we found that no SSD/HDD disk on this backend, set the replica number to 0,
+            // but the partitionInfoBySkew doesn't consider this scene, medium has no SSD/HDD disk also skew,
+            // cause rebalance exception
+            return Lists.newArrayList();
+        }
+
+
         List<PartitionMove> moves = Lists.newArrayList();
         for (int i = 0; i < maxMovesNum; ++i) {
             PartitionMove move = getNextMove(info.beByTotalReplicaCount, info.partitionInfoBySkew);
@@ -173,8 +189,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         // improves cluster skew.
         NavigableSet<PartitionBalanceInfo> maxSet = skewMap.get(maxPartitionSkew);
         for (PartitionBalanceInfo pbi : maxSet) {
-            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of " +
-                    "partition " + pbi.partitionId + "-" + pbi.indexId);
+            Preconditions.checkArgument(!pbi.beByReplicaCount.isEmpty(), "no information on replicas of "
+                    + "partition " + pbi.partitionId + "-" + pbi.indexId);
 
             Long minReplicaCount = pbi.beByReplicaCount.keySet().first();
             Long maxReplicaCount = pbi.beByReplicaCount.keySet().last();
@@ -200,7 +216,8 @@ public class TwoDimensionalGreedyRebalanceAlgo {
                 continue;
             }
 
-            Long minLoadedBe, maxLoadedBe;
+            Long minLoadedBe;
+            Long maxLoadedBe;
             if (equalSkewOption == EqualSkewOption.PICK_FIRST) {
                 // beWithExtremumCount lists & intersection lists are natural ordering
                 minLoadedBe = minLoaded.intersection.isEmpty() ? minLoaded.beWithExtremumCount.get(0) : minLoaded.intersection.get(0);
@@ -280,9 +297,9 @@ public class TwoDimensionalGreedyRebalanceAlgo {
             moveOneReplica(move.fromBe, move.toBe, newInfo.beByReplicaCount);
 
             skewMap.remove(skew, partitionBalanceInfo);
-            long min_count = newInfo.beByReplicaCount.keySet().first();
-            long max_count = newInfo.beByReplicaCount.keySet().last();
-            skewMap.put(max_count - min_count, newInfo);
+            long minCount = newInfo.beByReplicaCount.keySet().first();
+            long maxCount = newInfo.beByReplicaCount.keySet().last();
+            skewMap.put(maxCount - minCount, newInfo);
         } catch (IllegalStateException e) {
             // If touch IllegalState, the skew map doesn't be modified, so we should rollback the move of beByTotalReplicaCount
             moveOneReplica(move.toBe, move.fromBe, beByTotalReplicaCount);

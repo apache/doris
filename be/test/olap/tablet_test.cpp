@@ -37,7 +37,7 @@ public:
     virtual void SetUp() {
         _tablet_meta = static_cast<TabletMetaSharedPtr>(
                 new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK));
+                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, ""));
         _json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
@@ -47,7 +47,6 @@ public:
             "rowset_state": "VISIBLE",
             "start_version": 2,
             "end_version": 2,
-            "version_hash": 8391828013814912580,
             "num_rows": 3929,
             "total_disk_size": 84699,
             "data_disk_size": 84464,
@@ -178,7 +177,9 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
         _tablet_meta->add_rs_meta(rowset);
     }
 
-    TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr));
+    StorageParamPB storage_param;
+    storage_param.set_storage_medium(StorageMediumPB::HDD);
+    TabletSharedPtr _tablet(new Tablet(_tablet_meta, storage_param, nullptr));
     _tablet->init();
 
     for (auto ptr : expired_rs_metas) {
@@ -189,13 +190,7 @@ TEST_F(TestTablet, delete_expired_stale_rowset) {
     }
     _tablet->delete_expired_stale_rowset();
 
-    ASSERT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
+    EXPECT_EQ(0, _tablet->_timestamped_version_tracker._stale_version_path_map.size());
     _tablet.reset();
 }
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    auto ret = RUN_ALL_TESTS();
-    return ret;
-}

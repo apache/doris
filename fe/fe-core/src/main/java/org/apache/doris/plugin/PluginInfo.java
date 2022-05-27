@@ -22,10 +22,9 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
 import com.google.common.base.Strings;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -123,14 +122,12 @@ public class PluginInfo implements Writable {
         }
 
         final Map<String, String> propsMap;
-        {
-            final Properties props = new Properties();
-            try (InputStream stream = Files.newInputStream(descriptor)) {
-                props.load(stream);
-            }
-            propsMap = props.stringPropertyNames().stream()
-                    .collect(Collectors.toMap(Function.identity(), props::getProperty));
+        final Properties props = new Properties();
+        try (InputStream stream = Files.newInputStream(descriptor)) {
+            props.load(stream);
         }
+        propsMap = props.stringPropertyNames().stream()
+                .collect(Collectors.toMap(Function.identity(), props::getProperty));
 
         final String name = propsMap.remove("name");
         if (Strings.isNullOrEmpty(name)) {
@@ -236,9 +233,9 @@ public class PluginInfo implements Writable {
             return false;
         }
         PluginInfo that = (PluginInfo) o;
-        return Objects.equals(name, that.name) &&
-                type == that.type &&
-                Objects.equals(version, that.version);
+        return Objects.equals(name, that.name)
+                && type == that.type
+                && Objects.equals(version, that.version);
     }
 
     @Override

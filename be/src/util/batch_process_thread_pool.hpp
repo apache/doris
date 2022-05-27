@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_BATCH_PROCESS_THREAD_POOL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_BATCH_PROCESS_THREAD_POOL_HPP
+#pragma once
 
 #include <unistd.h>
 
@@ -27,6 +26,7 @@
 #include "common/config.h"
 #include "util/blocking_priority_queue.hpp"
 #include "util/stopwatch.hpp"
+#include "util/thread_group.h"
 
 namespace doris {
 
@@ -156,7 +156,7 @@ private:
     BlockingPriorityQueue<T> _work_queue;
 
     // Collection of worker threads that process work from the queue.
-    boost::thread_group _threads;
+    ThreadGroup _threads;
 
     // Guards _shutdown and _empty_cv
     std::mutex _lock;
@@ -173,5 +173,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -20,11 +20,18 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_nullable.h"
+
+using namespace doris::vectorized;
 
 namespace doris {
 
 NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
         : ColumnPredicate(column_id), _is_null(opposite != is_null) {}
+
+PredicateType NullPredicate::type() const {
+    return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
+}
 
 void NullPredicate::evaluate(VectorizedRowBatch* batch) const {
     uint16_t n = batch->size();
@@ -77,7 +84,8 @@ void NullPredicate::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) 
     *size = new_size;
 }
 
-void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                                bool* flags) const {
     if (!block->is_nullable() && _is_null) {
         memset(flags, true, size);
     } else {
@@ -89,7 +97,8 @@ void NullPredicate::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size
     }
 }
 
-void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) const {
+void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size,
+                                 bool* flags) const {
     if (!block->is_nullable() && _is_null) {
         return;
     } else {
@@ -103,9 +112,9 @@ void NullPredicate::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t siz
 
 Status NullPredicate::evaluate(const Schema& schema,
                                const std::vector<BitmapIndexIterator*>& iterators,
-                               uint32_t num_rows, Roaring* roaring) const {
+                               uint32_t num_rows, roaring::Roaring* roaring) const {
     if (iterators[_column_id] != nullptr) {
-        Roaring null_bitmap;
+        roaring::Roaring null_bitmap;
         RETURN_IF_ERROR(iterators[_column_id]->read_null_bitmap(&null_bitmap));
         if (_is_null) {
             *roaring &= null_bitmap;
@@ -114,6 +123,58 @@ Status NullPredicate::evaluate(const Schema& schema,
         }
     }
     return Status::OK();
+}
+
+void NullPredicate::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {
+    uint16_t new_size = 0;
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < *size; ++i) {
+            uint16_t idx = sel[i];
+            sel[new_size] = idx;
+            new_size += (null_map[idx] == _is_null);
+        }
+        *size = new_size;
+    } else {
+        if (_is_null) *size = 0;
+    }
+}
+
+void NullPredicate::evaluate_or(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] |= (null_map[idx] == _is_null);
+        }
+    } else {
+        if (!_is_null) memset(flags, true, size);
+    }
+}
+
+void NullPredicate::evaluate_and(IColumn& column, uint16_t* sel, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            if (flags[i]) continue;
+            uint16_t idx = sel[i];
+            flags[i] &= (null_map[idx] == _is_null);
+        }
+    } else {
+        if (_is_null) memset(flags, false, size);
+    }
+}
+
+void NullPredicate::evaluate_vec(vectorized::IColumn& column, uint16_t size, bool* flags) const {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto& null_map = nullable->get_null_map_data();
+        for (uint16_t i = 0; i < size; ++i) {
+            flags[i] = (null_map[i] == _is_null);
+        }
+    } else {
+        if (_is_null) memset(flags, false, size);
+    }
 }
 
 } //namespace doris

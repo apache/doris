@@ -29,6 +29,7 @@ import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowProcedureStmt;
+import org.apache.doris.analysis.ShowSqlBlockRuleStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.analysis.ShowViewStmt;
@@ -53,8 +54,11 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
-import com.google.common.collect.Lists;
 
+import com.google.common.collect.Lists;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -65,9 +69,6 @@ import org.junit.rules.ExpectedException;
 import java.io.IOException;
 import java.net.URL;
 import java.util.List;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
 
 public class ShowExecutorTest {
     private ConnectContext ctx;
@@ -88,9 +89,6 @@ public class ShowExecutorTest {
         column2.setIsKey(true);
         // mock index 1
         MaterializedIndex index1 = new MaterializedIndex();
-
-        // mock index 2
-        MaterializedIndex index2 = new MaterializedIndex();
 
         // mock partition
         Partition partition = Deencapsulation.newInstance(Partition.class);
@@ -158,12 +156,12 @@ public class ShowExecutorTest {
                 db.readUnlock();
                 minTimes = 0;
 
-                db.getTable(anyString);
+                db.getTableNullable(anyString);
                 minTimes = 0;
                 result = table;
             }
         };
-        
+
         // mock auth
         PaloAuth auth = AccessTestUtil.fetchAdminAccess();
 
@@ -171,11 +169,11 @@ public class ShowExecutorTest {
         catalog = Deencapsulation.newInstance(Catalog.class);
         new Expectations(catalog) {
             {
-                catalog.getDb("testCluster:testDb");
+                catalog.getDbNullable("testCluster:testDb");
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb("testCluster:emptyDb");
+                catalog.getDbNullable("testCluster:emptyDb");
                 minTimes = 0;
                 result = null;
 
@@ -255,7 +253,7 @@ public class ShowExecutorTest {
         ShowDbStmt stmt = new ShowDbStmt(null);
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
         ctx.setCatalog(AccessTestUtil.fetchBlockCatalog());
-        ShowResultSet resultSet = executor.execute();
+        executor.execute();
     }
 
     @Test
@@ -398,7 +396,7 @@ public class ShowExecutorTest {
 
         ShowCreateDbStmt stmt = new ShowCreateDbStmt("testCluster:emptyDb");
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        executor.execute();
 
         Assert.fail("No exception throws.");
     }
@@ -407,7 +405,7 @@ public class ShowExecutorTest {
     public void testShowCreateTableEmptyDb() throws AnalysisException {
         ShowCreateTableStmt stmt = new ShowCreateTableStmt(new TableName("testCluster:emptyDb", "testTable"));
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
-        ShowResultSet resultSet = executor.execute();
+        executor.execute();
 
         Assert.fail("No Exception throws.");
     }
@@ -482,7 +480,7 @@ public class ShowExecutorTest {
         ShowExecutor executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:emptyDb.testTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
 
         // empty table
@@ -491,7 +489,7 @@ public class ShowExecutorTest {
         executor = new ShowExecutor(ctx, stmt);
 
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Unknown table 'testCluster:testDb.emptyTable'");
+        expectedEx.expectMessage("Unknown database 'testCluster:emptyDb'");
         executor.execute();
     }
 
@@ -588,5 +586,21 @@ public class ShowExecutorTest {
         resultSet = executor.execute();
 
         Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
+    public void testShowSqlBlockRule() throws AnalysisException {
+        ShowSqlBlockRuleStmt stmt = new ShowSqlBlockRuleStmt("test_rule");
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        ShowResultSet resultSet = executor.execute();
+        Assert.assertEquals(8, resultSet.getMetaData().getColumnCount());
+        Assert.assertEquals("Name", resultSet.getMetaData().getColumn(0).getName());
+        Assert.assertEquals("Sql", resultSet.getMetaData().getColumn(1).getName());
+        Assert.assertEquals("SqlHash", resultSet.getMetaData().getColumn(2).getName());
+        Assert.assertEquals("PartitionNum", resultSet.getMetaData().getColumn(3).getName());
+        Assert.assertEquals("TabletNum", resultSet.getMetaData().getColumn(4).getName());
+        Assert.assertEquals("Cardinality", resultSet.getMetaData().getColumn(5).getName());
+        Assert.assertEquals("Global", resultSet.getMetaData().getColumn(6).getName());
+        Assert.assertEquals("Enable", resultSet.getMetaData().getColumn(7).getName());
     }
 }

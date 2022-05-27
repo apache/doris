@@ -35,14 +35,14 @@ public class DropIndexClauseTest {
 
     @Test
     public void testNormal() throws UserException {
-        DropIndexClause clause = new DropIndexClause("index1", new TableName("db", "table"), false);
+        DropIndexClause clause = new DropIndexClause("index1", false, new TableName("db", "table"), false);
         clause.analyze(analyzer);
         Assert.assertEquals("DROP INDEX index1 ON `db`.`table`", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoIndex() throws UserException {
-        DropIndexClause clause = new DropIndexClause("", new TableName("db", "table"), false);
+        DropIndexClause clause = new DropIndexClause("", false, new TableName("db", "table"), false);
         clause.analyze(analyzer);
     }
 }

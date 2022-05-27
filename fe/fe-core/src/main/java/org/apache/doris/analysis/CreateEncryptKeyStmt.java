@@ -23,10 +23,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-
-import com.google.common.base.Strings;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
 
 /**
  * create a encryptKey
@@ -40,7 +40,7 @@ import org.apache.doris.qe.ConnectContext;
  * for example:
  *     CREATE ENCRYPTKEY test.key1 AS "beijing";
  */
-public class CreateEncryptKeyStmt extends DdlStmt{
+public class CreateEncryptKeyStmt extends DdlStmt {
     private final EncryptKeyName encryptKeyName;
     private final String keyString;
     private EncryptKey encryptKey;

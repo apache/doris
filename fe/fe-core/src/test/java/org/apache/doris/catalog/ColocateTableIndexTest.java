@@ -18,12 +18,18 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
@@ -45,5 +51,32 @@ public class ColocateTableIndexTest {
         Assert.assertTrue(balancingGroups.size() == 1);
         balancingGroups.remove(groupId2);
         Assert.assertTrue(balancingGroups.isEmpty());
+    }
+
+    @Test
+    public void testSerialization() throws Exception {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File("./GroupIdTest");
+        file.createNewFile();
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+
+        ColocateTableIndex.GroupId groupId = new ColocateTableIndex.GroupId(1, 2);
+        groupId.write(dos);
+        dos.flush();
+        dos.close();
+
+        // 2. Read objects from file
+        DataInputStream dis = new DataInputStream(new FileInputStream(file));
+
+        ColocateTableIndex.GroupId rGroupId = ColocateTableIndex.GroupId.read(dis);
+        Assert.assertTrue(groupId.equals(rGroupId));
+
+        // 3. delete files
+        dis.close();
+        file.delete();
     }
 }

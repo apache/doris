@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/hash-util.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
-#define DORIS_BE_SRC_COMMON_UTIL_HASH_UTIL_HPP
+#pragma once
 
 #include "common/compiler_util.h"
 #include "common/logging.h"
@@ -345,7 +347,7 @@ public:
 #endif
     }
     // hash_combine is the same with boost hash_combine,
-    // except replace boost::hash with std::hash 
+    // except replace boost::hash with std::hash
     template <class T>
     static inline void hash_combine(std::size_t& seed, const T& v) {
         std::hash<T> hasher;
@@ -376,7 +378,7 @@ struct hash<doris::TNetworkAddress> {
     }
 };
 
-#if !defined(IR_COMPILE) && __GNUC__ < 6
+#if __GNUC__ < 6 && !defined(__clang__)
 // Cause this is builtin function
 template <>
 struct hash<__int128> {
@@ -398,5 +400,3 @@ struct hash<std::pair<doris::TUniqueId, int64_t>> {
 };
 
 } // namespace std
-
-#endif

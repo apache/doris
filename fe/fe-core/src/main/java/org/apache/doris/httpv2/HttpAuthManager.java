@@ -22,7 +22,6 @@ import org.apache.doris.analysis.UserIdentity;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,7 +69,7 @@ public final class HttpAuthManager {
         return null;
     }
 
-    public void removeSession(String sessionId){
+    public void removeSession(String sessionId) {
         if (!Strings.isNullOrEmpty(sessionId)) {
             authSessions.invalidate(sessionId);
             LOG.debug("remove session id: {}, left size: {}", sessionId, authSessions.size());
@@ -85,4 +84,3 @@ public final class HttpAuthManager {
         return authSessions;
     }
 }
-

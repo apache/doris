@@ -30,5 +30,9 @@ Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
     return Status::EndOfFile("no more data in segment");
 }
 
+Status EmptySegmentIterator::next_batch(vectorized::Block* block) {
+    return Status::EndOfFile("no more data in segment");
+}
+
 } // namespace segment_v2
 } // namespace doris

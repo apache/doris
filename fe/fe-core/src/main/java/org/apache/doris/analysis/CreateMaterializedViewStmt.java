@@ -24,7 +24,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -88,11 +87,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private String baseIndexName;
     private String dbName;
     private KeysType mvKeysType = KeysType.DUP_KEYS;
+    //if process is replaying log, isReplay is true, otherwise is false, avoid replay process error report, only in Rollup or MaterializedIndexMeta is true
+    private boolean isReplay = false;
 
     public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt, Map<String, String> properties) {
         this.mvName = mvName;
         this.selectStmt = selectStmt;
         this.properties = properties;
+    }
+
+    public void setIsReplay(boolean isReplay) {
+        this.isReplay = isReplay;
     }
 
     public String getMVName() {
@@ -125,9 +130,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        if (!Config.enable_materialized_view) {
-            throw new AnalysisException("The materialized view is disabled");
-        }
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
         // TODO(ml): The mv name in from clause should pass the analyze without error.
@@ -193,14 +195,17 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // Function must match pattern.
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 String functionName = functionCallExpr.getFnName().getFunction();
-                MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
-                if (mvColumnPattern == null) {
-                    throw new AnalysisException(
-                            "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
-                }
-                if (!mvColumnPattern.match(functionCallExpr)) {
-                    throw new AnalysisException(
-                            "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
+                // current version not support count(distinct) function in creating materialized view
+                if (!isReplay) {
+                    MVColumnPattern mvColumnPattern = FN_NAME_TO_PATTERN.get(functionName.toLowerCase());
+                    if (mvColumnPattern == null) {
+                        throw new AnalysisException(
+                                "Materialized view does not support this function:" + functionCallExpr.toSqlImpl());
+                    }
+                    if (!mvColumnPattern.match(functionCallExpr)) {
+                        throw new AnalysisException(
+                                "The function " + functionName + " must match pattern:" + mvColumnPattern.toString());
+                    }
                 }
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();

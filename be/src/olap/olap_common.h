@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_OLAP_COMMON_H
-#define DORIS_BE_SRC_OLAP_OLAP_COMMON_H
+#pragma once
 
 #include <netinet/in.h>
 
@@ -31,6 +30,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include "env/env.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "util/hash_util.hpp"
@@ -43,7 +43,6 @@ namespace doris {
 static const int64_t MAX_ROWSET_ID = 1L << 56;
 
 typedef int32_t SchemaHash;
-typedef int64_t VersionHash;
 typedef __int128 int128_t;
 typedef unsigned __int128 uint128_t;
 
@@ -52,18 +51,18 @@ typedef UniqueId TabletUid;
 enum CompactionType { BASE_COMPACTION = 1, CUMULATIVE_COMPACTION = 2 };
 
 struct DataDirInfo {
-    std::string path;
+    FilePathDesc path_desc;
     size_t path_hash = 0;
-    int64_t disk_capacity = 1;  // actual disk capacity
-    int64_t available = 0;      // 可用空间，单位字节
+    int64_t disk_capacity = 1; // actual disk capacity
+    int64_t available = 0;     // available space, in bytes unit
     int64_t data_used_capacity = 0;
-    bool is_used = false;       // 是否可用标识
-    TStorageMedium::type storage_medium = TStorageMedium::HDD; // 存储介质类型：SSD|HDD
+    bool is_used = false;                                      // whether available mark
+    TStorageMedium::type storage_medium = TStorageMedium::HDD; // Storage medium type: SSD|HDD
 };
 
 // Sort DataDirInfo by available space.
 struct DataDirInfoLessAvailability {
-    bool operator() (const DataDirInfo& left, const DataDirInfo& right) const {
+    bool operator()(const DataDirInfo& left, const DataDirInfo& right) const {
         return left.available < right.available;
     }
 };
@@ -94,11 +93,8 @@ struct TabletInfo {
 };
 
 struct TabletSize {
-    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size) :
-            tablet_id(in_tablet_id),
-            schema_hash(in_schema_hash),
-            tablet_size(in_tablet_size) {}
-
+    TabletSize(TTabletId in_tablet_id, TSchemaHash in_schema_hash, size_t in_tablet_size)
+            : tablet_id(in_tablet_id), schema_hash(in_schema_hash), tablet_size(in_tablet_size) {}
 
     TTabletId tablet_id;
     TSchemaHash schema_hash;
@@ -117,8 +113,9 @@ enum DelCondSatisfied {
     DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
     DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
 };
-
-// 定义Field支持的所有数据类型
+// Define all data types supported by Field.
+// If new filed_type is defined, not only new TypeInfo may need be defined,
+// but also some functions like get_type_info in types.cpp need to be changed.
 enum FieldType {
     OLAP_FIELD_TYPE_TINYINT = 1, // MYSQL_TYPE_TINY
     OLAP_FIELD_TYPE_UNSIGNED_TINYINT = 2,
@@ -141,17 +138,19 @@ enum FieldType {
     OLAP_FIELD_TYPE_STRUCT = 18,  // Struct
     OLAP_FIELD_TYPE_ARRAY = 19,   // ARRAY
     OLAP_FIELD_TYPE_MAP = 20,     // Map
-    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW Type
+    OLAP_FIELD_TYPE_UNKNOWN = 21, // UNKNOW OLAP_FIELD_TYPE_STRING
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
     OLAP_FIELD_TYPE_BOOL = 24,
-    OLAP_FIELD_TYPE_OBJECT = 25
+    OLAP_FIELD_TYPE_OBJECT = 25,
+    OLAP_FIELD_TYPE_STRING = 26,
+    OLAP_FIELD_TYPE_QUANTILE_STATE = 27
 };
 
-// 定义Field支持的所有聚集方法
-// 注意，实际中并非所有的类型都能使用以下所有的聚集方法
-// 例如对于string类型使用SUM就是毫无意义的(但不会导致程序崩溃)
-// Field类的实现并没有进行这类检查，应该在创建表的时候进行约束
+// Define all aggregation methods supported by Field
+// Note that in practice, not all types can use all the following aggregation methods
+// For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
+// The implementation of the Field class does not perform such checks, and should be constrained when creating the table
 enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -163,13 +162,17 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
     // Replace if and only if added value is not null
     OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
+    OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
-// 压缩算法类型
+// Compression algorithm type
 enum OLAPCompressionType {
-    OLAP_COMP_TRANSPORT = 1, // 用于网络传输的压缩算法，压缩率低，cpu开销低
-    OLAP_COMP_STORAGE = 2,   // 用于硬盘数据的压缩算法，压缩率高，cpu开销大
-    OLAP_COMP_LZ4 = 3,       // 用于储存的压缩算法，压缩率低，cpu开销低
+    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
+    OLAP_COMP_TRANSPORT = 1,
+    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
+    OLAP_COMP_STORAGE = 2,
+    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
+    OLAP_COMP_LZ4 = 3,
 };
 
 enum PushType {
@@ -236,6 +239,8 @@ class Field;
 class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
+static const int GENERAL_DEBUG_COUNT = 0;
+
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
     int64_t io_ns = 0;
@@ -259,6 +264,10 @@ struct OlapReaderStatistics {
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_vec_del_cond_filtered = 0;
     int64_t vec_cond_ns = 0;
+    int64_t short_cond_ns = 0;
+    int64_t first_read_ns = 0;
+    int64_t lazy_read_ns = 0;
+    int64_t output_col_ns = 0;
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
@@ -283,6 +292,17 @@ struct OlapReaderStatistics {
     int64_t filtered_segment_number = 0;
     // total number of segment
     int64_t total_segment_number = 0;
+    // general_debug_ns is designed for the purpose of DEBUG, to record any infomations of debugging or profiling.
+    // different from specific meaningful timer such as index_load_ns, general_debug_ns can be used flexibly.
+    // general_debug_ns has associated with OlapScanNode's _general_debug_timer already.
+    // so general_debug_ns' values will update to _general_debug_timer automaticly,
+    // the timer result can be checked through QueryProfile web page easily.
+    // when search general_debug_ns, you can find that general_debug_ns has not been used,
+    // this is because such codes added for debug purpose should not commit, it's just for debuging.
+    // so, please do not delete general_debug_ns defined here
+    // usage example:
+    //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
+    int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
 };
 
 typedef uint32_t ColumnId;
@@ -368,5 +388,3 @@ struct RowsetId {
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H

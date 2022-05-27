@@ -22,6 +22,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -35,13 +36,23 @@ public class SqlCache extends Cache {
         super(queryId, selectStmt);
     }
 
-    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable) {
+    public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
+        this.allViewExpandStmtListStr = allViewExpandStmtListStr;
+    }
+
+    public String getSqlWithViewStmt() {
+        return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+    }
+
+    // only used for UT
+    public Types.PUniqueId getSqlKey() {
+        return CacheProxy.getMd5(getSqlWithViewStmt());
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
         InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
-                .setSqlKey(CacheProxy.getMd5(selectStmt.toSql()))
+                .setSqlKey(CacheProxy.getMd5(getSqlWithViewStmt()))
                 .addParams(InternalService.PCacheParam.newBuilder()
                         .setPartitionKey(latestTable.latestPartitionId)
                         .setLastVersion(latestTable.latestVersion)
@@ -73,8 +84,9 @@ public class SqlCache extends Cache {
             return;
         }
 
-        InternalService.PUpdateCacheRequest updateRequest = rowBatchBuilder.buildSqlUpdateRequest(selectStmt.toSql(),
-                latestTable.latestPartitionId, latestTable.latestVersion, latestTable.latestTime);
+        InternalService.PUpdateCacheRequest updateRequest =
+                rowBatchBuilder.buildSqlUpdateRequest(getSqlWithViewStmt(), latestTable.latestPartitionId,
+                        latestTable.latestVersion, latestTable.latestTime);
         if (updateRequest.getValuesCount() > 0) {
             CacheBeProxy proxy = new CacheBeProxy();
             Status status = new Status();

@@ -22,18 +22,19 @@ public enum TransactionStatus {
     PREPARE(1),
     COMMITTED(2),
     VISIBLE(3),
-    ABORTED(4);
-    
+    ABORTED(4),
+    PRECOMMITTED(5);
+
     private final int flag;
-    
+
     private TransactionStatus(int flag) {
         this.flag = flag;
     }
-    
+
     public int value() {
         return flag;
     }
-    
+
     public static TransactionStatus valueOf(int flag) {
         switch (flag) {
             case 0:
@@ -46,11 +47,13 @@ public enum TransactionStatus {
                 return VISIBLE;
             case 4:
                 return ABORTED;
+            case 5:
+                return PRECOMMITTED;
             default:
                 return null;
         }
     }
-    
+
     public boolean isFinalStatus() {
         return this == TransactionStatus.VISIBLE || this == TransactionStatus.ABORTED;
     }
@@ -68,6 +71,8 @@ public enum TransactionStatus {
                 return "VISIBLE";
             case ABORTED:
                 return "ABORTED";
+            case PRECOMMITTED:
+                return "PRECOMMITTED";
             default:
                 return "UNKNOWN";
         }

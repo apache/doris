@@ -26,10 +26,9 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.load.BrokerFileGroup;
@@ -47,7 +46,6 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -68,6 +66,7 @@ public class LoadingTaskPlanner {
     private final boolean strictMode;
     private final long timeoutS;    // timeout of load job, in second
     private final int loadParallelism;
+    private final int sendBatchParallelism;
     private UserIdentity userInfo;
     // Something useful
     // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
@@ -83,7 +82,7 @@ public class LoadingTaskPlanner {
     public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
                               BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
                               boolean strictMode, String timezone, long timeoutS, int loadParallelism,
-                              UserIdentity userInfo) {
+                              int sendBatchParallelism, UserIdentity userInfo) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -94,9 +93,10 @@ public class LoadingTaskPlanner {
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
         this.loadParallelism = loadParallelism;
+        this.sendBatchParallelism = sendBatchParallelism;
         this.userInfo = userInfo;
         if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(userInfo,
-                Catalog.getCurrentCatalog().getDb(dbId).getFullName(), PrivPredicate.SELECT)) {
+                Catalog.getCurrentCatalog().getDbNullable(dbId).getFullName(), PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
             this.analyzer.setUDFAllowed(false);
@@ -123,16 +123,19 @@ public class LoadingTaskPlanner {
         // 1. Broker scan node
         BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), destTupleDesc, "BrokerScanNode",
                 fileStatusesList, filesAdded);
-        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism);
+        scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
+        if (Config.enable_vectorized_load) {
+            scanNode.convertToVectoriezd();
+        }
         scanNodes.add(scanNode);
         descTable.computeStatAndMemLayout();
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(table, destTupleDesc, partitionIds);
-        olapTableSink.init(loadId, txnId, dbId, timeoutS);
+        olapTableSink.init(loadId, txnId, dbId, timeoutS, sendBatchParallelism, false);
         olapTableSink.complete();
 
         // 3. Plan fragment
@@ -144,12 +147,7 @@ public class LoadingTaskPlanner {
 
         // 4. finalize
         for (PlanFragment fragment : fragments) {
-            try {
-                fragment.finalize(analyzer, false);
-            } catch (NotImplementedException e) {
-                LOG.info("Fragment finalize failed.{}", e.getMessage());
-                throw new UserException("Fragment finalize failed.");
-            }
+            fragment.finalize(null);
         }
         Collections.reverse(fragments);
     }
@@ -171,30 +169,19 @@ public class LoadingTaskPlanner {
     }
 
     private List<Long> getAllPartitionIds() throws LoadException, MetaNotFoundException {
-        Set<Long> partitionIds = Sets.newHashSet();
+        Set<Long> specifiedPartitionIds = Sets.newHashSet();
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
             if (brokerFileGroup.getPartitionIds() != null) {
-                partitionIds.addAll(brokerFileGroup.getPartitionIds());
+                specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
             // all file group in fileGroups should have same partitions, so only need to get partition ids
             // from one of these file groups
             break;
         }
-
-        if (partitionIds.isEmpty()) {
-            for (Partition partition : table.getPartitions()) {
-                partitionIds.add(partition.getId());
-            }
+        if (specifiedPartitionIds.isEmpty()) {
+            return null;
         }
-
-        // If this is a dynamic partitioned table, it will take some time to create the partition after the
-        // table is created, a exception needs to be thrown here
-        if (partitionIds.isEmpty()) {
-            throw new LoadException("data cannot be inserted into table with empty partition. " +
-                    "Use `SHOW PARTITIONS FROM " + table.getName() + "` to see the currently partitions of this table. ");
-        }
-
-        return Lists.newArrayList(partitionIds);
+        return Lists.newArrayList(specifiedPartitionIds);
     }
 
     // when retry load by reusing this plan in load process, the load_id should be changed

@@ -22,19 +22,14 @@
 
 #include <sstream>
 
-#include "common/logging.h"
 #include "exprs/expr.h"
-#include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple_row.h"
 #include "util/arrow/row_batch.h"
-#include "util/date_func.h"
-#include "util/types.h"
 
 namespace doris {
 
@@ -73,7 +68,7 @@ Status MemoryScratchSink::prepare(RuntimeState* state) {
 }
 
 Status MemoryScratchSink::send(RuntimeState* state, RowBatch* batch) {
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
     std::shared_ptr<arrow::RecordBatch> result;
@@ -96,8 +91,7 @@ Status MemoryScratchSink::close(RuntimeState* state, Status exec_status) {
         _queue->blocking_put(nullptr);
     }
     Expr::close(_output_expr_ctxs, state);
-    _closed = true;
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 } // namespace doris

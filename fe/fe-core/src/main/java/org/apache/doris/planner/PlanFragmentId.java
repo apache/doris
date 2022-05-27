@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanFragmentId.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -28,9 +31,14 @@ public class PlanFragmentId extends Id<PlanFragmentId> {
     public static IdGenerator<PlanFragmentId> createGenerator() {
         return new IdGenerator<PlanFragmentId>() {
             @Override
-            public PlanFragmentId getNextId() { return new PlanFragmentId(nextId_++); }
+            public PlanFragmentId getNextId() {
+                return new PlanFragmentId(nextId++);
+            }
+
             @Override
-            public PlanFragmentId getMaxId() { return new PlanFragmentId(nextId_ - 1); }
+            public PlanFragmentId getMaxId() {
+                return new PlanFragmentId(nextId - 1);
+            }
         };
     }
 

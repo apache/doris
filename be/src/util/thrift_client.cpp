@@ -17,12 +17,10 @@
 
 #include "util/thrift_client.h"
 
-#include <boost/assign.hpp>
 #include <ostream>
 #include <string>
 
 #include "gutil/strings/substitute.h"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -35,8 +33,8 @@ Status ThriftClientImpl::open() {
         try {
             _transport->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
-            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port() << ", ignoring ("
-                    << e.what() << ")";
+            VLOG_CRITICAL << "Error closing socket to: " << ipaddress() << ":" << port()
+                          << ", ignoring (" << e.what() << ")";
         }
         // In certain cases in which the remote host is overloaded, this failure can
         // happen quite frequently. Let's print this error message without the stack
@@ -70,7 +68,7 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
             LOG(INFO) << "(Attempt " << try_count << " of " << num_tries << ")";
         }
 
-        SleepFor(MonoDelta::FromMilliseconds(wait_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
     }
 
     return status;

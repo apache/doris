@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
-#define DORIS_BE_SRC_COMMON_UTIL_DORIS_METRICS_H
+#pragma once
 
 #include <set>
 #include <string>
@@ -28,18 +27,19 @@
 
 namespace doris {
 
-#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                                \
-    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric));         \
+#define REGISTER_ENTITY_HOOK_METRIC(entity, owner, metric, func)                        \
+    owner->metric = (UIntGauge*)(entity->register_metric<UIntGauge>(&METRIC_##metric)); \
     entity->register_hook(#metric, [&]() { owner->metric->set_value(func()); });
 
-#define REGISTER_HOOK_METRIC(metric, func)                                                      \
-    REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), DorisMetrics::instance(), metric, func)
+#define REGISTER_HOOK_METRIC(metric, func)                                 \
+    REGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), \
+                                DorisMetrics::instance(), metric, func)
 
-#define DEREGISTER_ENTITY_HOOK_METRIC(entity, name)                                             \
-    entity->deregister_metric(&METRIC_##name);                                                  \
+#define DEREGISTER_ENTITY_HOOK_METRIC(entity, name) \
+    entity->deregister_metric(&METRIC_##name);      \
     entity->deregister_hook(#name);
 
-#define DEREGISTER_HOOK_METRIC(name)                                                            \
+#define DEREGISTER_HOOK_METRIC(name) \
     DEREGISTER_ENTITY_HOOK_METRIC(DorisMetrics::instance()->server_entity(), name)
 
 class DorisMetrics {
@@ -64,6 +64,7 @@ public:
     IntCounter* report_all_tablets_requests_failed;
     IntCounter* report_tablet_requests_total;
     IntCounter* report_tablet_requests_failed;
+    IntCounter* report_all_tablets_requests_skip;
     IntCounter* report_disk_requests_total;
     IntCounter* report_disk_requests_failed;
     IntCounter* report_task_requests_total;
@@ -74,6 +75,8 @@ public:
     IntCounter* create_rollup_requests_total;
     IntCounter* create_rollup_requests_failed;
     IntCounter* storage_migrate_requests_total;
+    IntCounter* storage_migrate_v2_requests_total;
+    IntCounter* storage_migrate_v2_requests_failed;
     IntCounter* delete_requests_total;
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
@@ -122,6 +125,12 @@ public:
 
     IntCounter* memtable_flush_total;
     IntCounter* memtable_flush_duration_us;
+
+    IntCounter* attach_task_thread_count;
+    IntCounter* switch_thread_mem_tracker_count;
+    IntCounter* switch_thread_mem_tracker_err_cb_count;
+    // brpc server response count
+    IntCounter* switch_bthread_count;
 
     IntGauge* memory_pool_bytes_total;
     IntGauge* process_thread_num;
@@ -176,12 +185,15 @@ public:
     UIntGauge* small_file_cache_count;
     UIntGauge* stream_load_pipe_count;
     UIntGauge* brpc_endpoint_stub_count;
+    UIntGauge* brpc_function_endpoint_stub_count;
     UIntGauge* tablet_writer_count;
 
     UIntGauge* compaction_mem_consumption;
     UIntGauge* load_mem_consumption;
+    UIntGauge* load_channel_mem_consumption;
     UIntGauge* query_mem_consumption;
     UIntGauge* schema_change_mem_consumption;
+    UIntGauge* storage_migration_mem_consumption;
     UIntGauge* tablet_meta_mem_consumption;
 
     // Cache metrics
@@ -191,6 +203,9 @@ public:
 
     UIntGauge* scanner_thread_pool_queue_size;
     UIntGauge* etl_thread_pool_queue_size;
+    UIntGauge* add_batch_task_queue_size;
+    UIntGauge* send_batch_thread_pool_thread_num;
+    UIntGauge* send_batch_thread_pool_queue_size;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;
@@ -230,5 +245,3 @@ private:
 };
 
 }; // namespace doris
-
-#endif

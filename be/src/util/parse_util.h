@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/parse-util.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
-#define DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
+#pragma once
 
-#include <boost/cstdint.hpp>
 #include <string>
 
 namespace doris {
@@ -36,9 +37,10 @@ public:
     // Requires MemInfo to be initialized for the '%' spec to work.
     // Returns 0 if mem_spec_str is empty or '-1'.
     // Returns -1 if parsing failed.
-    static int64_t parse_mem_spec(const std::string& mem_spec_str, bool* is_percent);
+    // if is_percent, return the percent of parent_limit.
+    // if parent_limit is -1, use physical_mem as parent limit.
+    static int64_t parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
+                                  int64_t physical_mem, bool* is_percent);
 };
 
 } // namespace doris
-
-#endif

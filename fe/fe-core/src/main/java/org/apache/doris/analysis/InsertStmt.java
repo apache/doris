@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -29,7 +28,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -57,7 +55,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -92,8 +89,7 @@ public class InsertStmt extends DdlStmt {
     private final TableName tblName;
     private final PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames.
-    // if targetPartitionNames is not set, add all formal partitions' id of the table into it
-    private List<Long> targetPartitionIds = Lists.newArrayList();
+    private List<Long> targetPartitionIds;
     private final List<String> targetColumnNames;
     private QueryStmt queryStmt;
     private final List<String> planHints;
@@ -198,21 +194,15 @@ public class InsertStmt extends DdlStmt {
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        Database db = analyzer.getCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        Table table = db.getTable(tblName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
-        }
+        Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
+        Table table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), dbName + ": " + tableName);
         }
 
         tableMap.put(table.getId(), table);
@@ -280,7 +270,7 @@ public class InsertStmt extends DdlStmt {
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tblName.getTbl());
+                                                ConnectContext.get().getRemoteIP(), tblName.getDb() + ": " + tblName.getTbl());
         }
 
         // check partition
@@ -302,7 +292,7 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getCatalog().getDb(tblName.getDb());
+        db = analyzer.getCatalog().getDbOrAnalysisException(tblName.getDb());
 
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
@@ -310,7 +300,6 @@ public class InsertStmt extends DdlStmt {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId());
         }
         if (!isExplain() && !isTransactionBegin) {
-
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 MetricRepo.COUNTER_LOAD_ADD.increase(1L);
@@ -326,17 +315,15 @@ public class InsertStmt extends DdlStmt {
         if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = analyzer.getContext().queryId();
-            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
+            int sendBatchParallelism = analyzer.getContext().getSessionVariable().getSendBatchParallelism();
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond, sendBatchParallelism, false);
         }
     }
 
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            targetTable = analyzer.getTable(tblName);
-            if (targetTable == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName.getTbl());
-            }
+            targetTable = analyzer.getTableOrAnalysisException(tblName);
         }
 
         if (targetTable instanceof OlapTable) {
@@ -344,6 +331,7 @@ public class InsertStmt extends DdlStmt {
 
             // partition
             if (targetPartitionNames != null) {
+                targetPartitionIds = Lists.newArrayList();
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
@@ -354,14 +342,6 @@ public class InsertStmt extends DdlStmt {
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());
                     }
                     targetPartitionIds.add(part.getId());
-                }
-            } else {
-                for (Partition partition : olapTable.getPartitions()) {
-                    targetPartitionIds.add(partition.getId());
-                }
-                if (targetPartitionIds.isEmpty()) {
-                    ErrorReport.reportAnalysisException(
-                            ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, targetTable.getName());
                 }
             }
             // need a descriptor
@@ -438,11 +418,9 @@ public class InsertStmt extends DdlStmt {
             }
             // hll column mush in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
-                if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
-                }
-                if (col.getType().isBitmapType() && !mentionedColumns.contains(col.getName())) {
-                    throw new AnalysisException (" object column " + col.getName() + " mush in insert into columns");
+                if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException(" object-stored column " + col.getName()
+                            + " mush in insert into columns");
                 }
             }
         }
@@ -455,7 +433,7 @@ public class InsertStmt extends DdlStmt {
          * processing, targetColumns: (A, B, C, __doris_shadow_B), and
          * origColIdxsForExtendCols has 1 element: "1", which is the index of column B
          * in targetColumns.
-         * 
+         *
          * Rule A: If the column which the shadow column related to is not mentioned,
          * then do not add the shadow column to targetColumns. They will be filled by
          * null or default value when loading.
@@ -506,8 +484,8 @@ public class InsertStmt extends DdlStmt {
         }
 
         // Check if all columns mentioned is enough
-        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema()) ;
-        
+        checkColumnCoverage(mentionedColumns, targetTable.getBaseSchema());
+
         // handle VALUES() or SELECT constant list
         if (isValuesOrConstantSelect) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -529,7 +507,9 @@ public class InsertStmt extends DdlStmt {
             } else {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
-                rows.add(selectStmt.getResultExprs());
+                // ATTN: must copy the `selectStmt.getResultExprs()`, otherwise the following
+                // `selectStmt.getResultExprs().clear();` will clear the `rows` too, causing error.
+                rows.add(Lists.newArrayList(selectStmt.getResultExprs()));
                 analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForExtendCols);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
@@ -559,15 +539,8 @@ public class InsertStmt extends DdlStmt {
             // check compatibility
             for (int i = 0; i < targetColumns.size(); ++i) {
                 Column column = targetColumns.get(i);
-                if (column.getType().isHllType()) {
-                    Expr expr = queryStmt.getResultExprs().get(i);
-                    checkHllCompatibility(column, expr);
-                }
-
-                if (column.getAggregationType() == AggregateType.BITMAP_UNION) {
-                    Expr expr = queryStmt.getResultExprs().get(i);
-                    checkBitmapCompatibility(column, expr);
-                }
+                Expr expr = queryStmt.getResultExprs().get(i);
+                queryStmt.getResultExprs().set(i, expr.checkTypeCompatibility(column.getType()));
             }
         }
 
@@ -620,22 +593,24 @@ public class InsertStmt extends DdlStmt {
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForExtendCols.isEmpty()) {
             /**
-             * we should extends the row for shadow columns.
+             * we should extend the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
              */
             ArrayList<Expr> extentedRow = Lists.newArrayList();
             extentedRow.addAll(row);
-            
+
             for (Pair<Integer, Column> entry : origColIdxsForExtendCols) {
-                if (entry == null) {
-                    extentedRow.add(extentedRow.get(entry.first));
-                } else {
-                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                    smap.getLhs().add(entry.second.getRefColumn());
-                    smap.getRhs().add(extentedRow.get(entry.first));
-                    extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
+                if (entry != null) {
+                    if (entry.second == null) {
+                        extentedRow.add(extentedRow.get(entry.first));
+                    } else {
+                        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                        smap.getLhs().add(entry.second.getRefColumn());
+                        smap.getRhs().add(extentedRow.get(entry.first));
+                        extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()), smap, analyzer, false).get(0));
+                    }
                 }
             }
 
@@ -647,11 +622,6 @@ public class InsertStmt extends DdlStmt {
             Expr expr = row.get(i);
             Column col = targetColumns.get(i);
 
-            // TargetTable's hll column must be hll_hash's result
-            if (col.getType().equals(Type.HLL)) {
-                checkHllCompatibility(col, expr);
-            }
-
             if (expr instanceof DefaultValueExpr) {
                 if (targetColumns.get(i).getDefaultValue() == null) {
                     throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
@@ -661,11 +631,7 @@ public class InsertStmt extends DdlStmt {
 
             expr.analyze(analyzer);
 
-            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
-                checkBitmapCompatibility(col, expr);
-            }
-
-            row.set(i, checkTypeCompatibility(col, expr));
+            row.set(i, expr.checkTypeCompatibility(col.getType()));
         }
     }
 
@@ -697,49 +663,14 @@ public class InsertStmt extends DdlStmt {
             }
         }
     }
-    private void checkHllCompatibility(Column col, Expr expr) throws AnalysisException {
-        final String hllMismatchLog = "Column's type is HLL,"
-                + " SelectList must contains HLL or hll_hash or hll_empty function's result, column=" + col.getName();
-        if (expr instanceof SlotRef) {
-            final SlotRef slot = (SlotRef) expr;
-            if (!slot.getType().equals(Type.HLL)) {
-                throw new AnalysisException(hllMismatchLog);
-            }
-        } else if (expr instanceof FunctionCallExpr) {
-            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (!functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_hash") &&
-                    !functionExpr.getFnName().getFunction().equalsIgnoreCase("hll_empty")) {
-                throw new AnalysisException(hllMismatchLog);
-            }
-        } else {
-            throw new AnalysisException(hllMismatchLog);
-        }
-    }
-
-    private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
-        String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
-                col.getName());
-        if (!expr.getType().isBitmapType()) {
-            throw new AnalysisException(errorMsg);
-        }
-    }
-
-    private Expr checkTypeCompatibility(Column col, Expr expr) throws AnalysisException {
-        if (col.getDataType().equals(expr.getType().getPrimitiveType())) {
-            return expr;
-        }
-        Expr newExpr = expr.castTo(col.getType());
-        newExpr.checkValueValid();
-        return newExpr;
-    }
 
     public void prepareExpressions() throws UserException {
-        List<Expr> selectList = Expr.cloneList(queryStmt.getBaseTblResultExprs());
+        List<Expr> selectList = Expr.cloneList(queryStmt.getResultExprs());
         // check type compatibility
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {
             Column col = targetColumns.get(i);
-            Expr expr = checkTypeCompatibility(col, selectList.get(i));
+            Expr expr = selectList.get(i).checkTypeCompatibility(col.getType());
             selectList.set(i, expr);
             exprByName.put(col.getName(), expr);
         }
@@ -756,9 +687,9 @@ public class InsertStmt extends DdlStmt {
                      */
                     Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-                }
-                else {
-                    resultExprs.add(checkTypeCompatibility(col, new StringLiteral(col.getDefaultValue())));
+                } else {
+                    StringLiteral defaultValueExpr = new StringLiteral(col.getDefaultValue());
+                    resultExprs.add(defaultValueExpr.checkTypeCompatibility(col.getType()));
                 }
             }
         }
@@ -814,7 +745,9 @@ public class InsertStmt extends DdlStmt {
     @Override
     public void reset() {
         super.reset();
-        targetPartitionIds.clear();
+        if (targetPartitionIds != null) {
+            targetPartitionIds.clear();
+        }
         queryStmt.reset();
         resultExprs.clear();
         exprByName.clear();

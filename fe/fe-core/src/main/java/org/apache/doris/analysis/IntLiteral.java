@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TIntLiteral;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -126,7 +125,6 @@ public class IntLiteral extends LiteralExpr {
                 valid = false;
                 break;
         }
-
         if (!valid) {
             throw new AnalysisException("Number out of range[" + longValue + "]. type: " + type);
         }

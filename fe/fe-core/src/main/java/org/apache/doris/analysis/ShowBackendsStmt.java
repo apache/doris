@@ -30,9 +30,9 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 public class ShowBackendsStmt extends ShowStmt {
 
-    public ShowBackendsStmt() {  
+    public ShowBackendsStmt() {
     }
-    
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
@@ -44,12 +44,12 @@ public class ShowBackendsStmt extends ShowStmt {
 
     @Override
     public ShowResultSetMetaData getMetaData() {
-         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-         for (String title : BackendsProcDir.TITLE_NAMES) {
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String title : BackendsProcDir.TITLE_NAMES) {
             // hide hostname for SHOW BACKENDS stmt
             if (title.equals("HostName")) {
-                 continue;
-             }
+                continue;
+            }
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
@@ -64,4 +64,3 @@ public class ShowBackendsStmt extends ShowStmt {
         }
     }
 }
-

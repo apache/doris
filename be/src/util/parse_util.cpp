@@ -14,15 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/parse-util.cc
+// and modified by Doris
 
 #include "util/parse_util.h"
 
-#include "util/mem_info.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
 
-int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_percent) {
+int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, int64_t parent_limit,
+                                  int64_t physical_mem, bool* is_percent) {
     if (mem_spec_str.empty()) {
         return 0;
     }
@@ -67,7 +70,7 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
     }
 
     StringParser::ParseResult result;
-    int64_t bytes;
+    int64_t bytes = -1;
 
     if (multiplier != -1 || *is_percent) {
         // Parse float - MB or GB or percent
@@ -81,7 +84,11 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
         if (multiplier != -1) {
             bytes = multiplier * limit_val;
         } else if (*is_percent) {
-            bytes = (static_cast<double>(limit_val) / 100.0) * MemInfo::physical_mem();
+            if (parent_limit == -1) {
+                bytes = (static_cast<double>(limit_val) / 100.0) * physical_mem;
+            } else {
+                bytes = (static_cast<double>(limit_val) / 100.0) * parent_limit;
+            }
         }
     } else {
         // Parse int - bytes

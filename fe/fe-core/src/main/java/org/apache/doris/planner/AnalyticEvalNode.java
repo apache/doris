@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalyticEvalNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -35,7 +38,6 @@ import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,11 +75,11 @@ public class AnalyticEvalNode extends PlanNode {
     private final TupleDescriptor bufferedTupleDesc;
 
     public AnalyticEvalNode(
-        PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
-        List<Expr> partitionExprs, List<OrderByElement> orderByElements,
-        AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
-        TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
-        Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, ExprSubstitutionMap logicalToPhysicalSmap,
+            Expr partitionByEq, Expr orderByEq, TupleDescriptor bufferedTupleDesc) {
         super(id, input.getTupleIds(), "ANALYTIC");
         Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
         // we're materializing the input row augmented with the analytic output tuple
@@ -96,9 +98,6 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
-    public boolean isBlockingNode() {
-        return true;
-    }
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
@@ -186,8 +185,7 @@ public class AnalyticEvalNode extends PlanNode {
         msg.analytic_node.setIntermediateTupleId(intermediateTupleDesc.getId().asInt());
         msg.analytic_node.setOutputTupleId(outputTupleDesc.getId().asInt());
         msg.analytic_node.setPartitionExprs(Expr.treesToThrift(substitutedPartitionExprs));
-        msg.analytic_node.setOrderByExprs(
-            Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
+        msg.analytic_node.setOrderByExprs(Expr.treesToThrift(OrderByElement.getOrderByExprs(orderByElements)));
         msg.analytic_node.setAnalyticFunctions(Expr.treesToThrift(analyticFnCalls));
 
         if (analyticWindow == null) {
@@ -261,8 +259,7 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         if (!conjuncts.isEmpty()) {
-            output.append(
-                prefix + "predicates: " + getExplainString(conjuncts) + "\n");
+            output.append(prefix + "predicates: " + getExplainString(conjuncts) + "\n");
         }
 
         return output.toString();

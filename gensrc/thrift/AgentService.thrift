@@ -49,6 +49,8 @@ struct TTabletSchema {
     8: optional bool is_in_memory
     9: optional i32 delete_sign_idx = -1
     10: optional i32 sequence_col_idx = -1
+    11: optional Types.TSortType sort_type
+    12: optional i32 sort_col_num
 }
 
 // this enum stands for different storage format in src_backends
@@ -63,6 +65,23 @@ enum TStorageFormat {
 enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
+}
+
+struct TS3StorageParam {
+    1: optional string s3_endpoint
+    2: optional string s3_region
+    3: optional string s3_ak
+    4: optional string s3_sk
+    5: optional i32 s3_max_conn = 50
+    6: optional i32 s3_request_timeout_ms = 3000
+    7: optional i32 s3_conn_timeout_ms = 1000
+    8: optional string root_path
+}
+
+struct TStorageParam {
+    1: required Types.TStorageMedium storage_medium = TStorageMedium.HDD
+    2: required string storage_name = "";
+    3: optional TS3StorageParam s3_storage_param
 }
 
 struct TCreateTabletReq {
@@ -85,6 +104,7 @@ struct TCreateTabletReq {
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
     14: optional TTabletType tablet_type
+    15: optional TStorageParam storage_param
 }
 
 struct TDropTabletReq {
@@ -98,6 +118,12 @@ struct TAlterTabletReq {
     3: required TCreateTabletReq new_tablet_req
 }
 
+enum TAlterTabletType {
+    SCHEMA_CHANGE = 1,
+    ROLLUP = 2,
+    MIGRATION = 3
+}
+
 // This v2 request will replace the old TAlterTabletReq.
 // TAlterTabletReq should be deprecated after new alter job process merged.
 struct TAlterTabletReqV2 {
@@ -109,12 +135,21 @@ struct TAlterTabletReqV2 {
     5: optional Types.TVersion alter_version
     6: optional Types.TVersionHash alter_version_hash // Deprecated
     7: optional list<TAlterMaterializedViewParam> materialized_view_params
+    8: optional TAlterTabletType alter_tablet_type = TAlterTabletType.SCHEMA_CHANGE
 }
 
 struct TAlterMaterializedViewParam {
     1: required string column_name
     2: optional string origin_column_name
     3: optional Exprs.TExpr mv_expr
+}
+
+struct TStorageMigrationReqV2 {
+    1: optional Types.TTabletId base_tablet_id
+    2: optional Types.TTabletId new_tablet_id
+    3: optional Types.TSchemaHash base_schema_hash
+    4: optional Types.TSchemaHash new_schema_hash
+    5: optional Types.TVersion migration_version
 }
 
 struct TClusterInfo {
@@ -156,6 +191,12 @@ struct TCloneReq {
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
+}
+
+struct TCompactionReq {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TSchemaHash schema_hash
+    3: optional string type
 }
 
 struct TStorageMediumMigrateReq {
@@ -316,6 +357,8 @@ struct TAgentTaskRequest {
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
     25: optional i64 recv_time // time the task is inserted to queue
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
+    27: optional TCompactionReq compaction_req
+    28: optional TStorageMigrationReqV2 storage_migration_req_v2
 }
 
 struct TAgentResult {

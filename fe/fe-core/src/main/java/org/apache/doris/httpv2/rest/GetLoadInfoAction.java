@@ -20,18 +20,17 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.http.rest.RestBaseResult;
+import org.apache.doris.httpv2.entity.RestBaseResult;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
-
-import com.google.common.base.Strings;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -113,4 +112,3 @@ public class GetLoadInfoAction extends RestBaseController {
         }
     }
 }
-

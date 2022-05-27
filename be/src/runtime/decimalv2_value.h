@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
-#define DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H
+#pragma once
 
 #include <cctype>
 #include <climits>
@@ -59,12 +58,14 @@ public:
     friend std::istream& operator>>(std::istream& ism, DecimalV2Value& decimal_value);
     friend DecimalV2Value operator-(const DecimalV2Value& v);
 
-    static const int32_t PRECISION = 27;
-    static const int32_t SCALE = 9;
-    static const uint32_t ONE_BILLION = 1000000000;
-    static const int64_t MAX_INT_VALUE = 999999999999999999;
-    static const int32_t MAX_FRAC_VALUE = 999999999;
-    static const int64_t MAX_INT64 = 9223372036854775807ll;
+    static constexpr int32_t PRECISION = 27;
+    static constexpr int32_t SCALE = 9;
+    static constexpr int32_t SCALE_TRIM_ARRAY[SCALE + 1] = {
+            1000000000, 100000000, 10000000, 1000000, 100000, 10000, 1000, 100, 10, 1};
+    static constexpr uint32_t ONE_BILLION = 1000000000;
+    static constexpr int64_t MAX_INT_VALUE = 999999999999999999;
+    static constexpr int32_t MAX_FRAC_VALUE = 999999999;
+    static constexpr int64_t MAX_INT64 = 9223372036854775807ll;
     // In sqrt, the integer part and the decimal part of the square root to be solved separately are
     // multiplied by the PRECISION/2 power of 10, so that they can be placed in an int128_t variable
     static const int128_t SQRT_MOLECULAR_MAGNIFICATION;
@@ -75,8 +76,8 @@ public:
             static_cast<int128_t>(MAX_INT64) * ONE_BILLION + MAX_FRAC_VALUE;
 
     DecimalV2Value() = default;
-    inline const int128_t& value() const { return _value; }
-    inline int128_t& value() { return _value; }
+    const int128_t& value() const { return _value; }
+    int128_t& value() { return _value; }
 
     DecimalV2Value(const std::string& decimal_str) {
         parse_from_str(decimal_str.c_str(), decimal_str.size());
@@ -90,7 +91,7 @@ public:
         from_olap_decimal(int_value, frac_value);
     }
 
-    inline bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
+    bool from_olap_decimal(int64_t int_value, int64_t frac_value) {
         bool success = true;
         bool is_negative = (int_value < 0 || frac_value < 0);
         if (is_negative) {
@@ -194,6 +195,9 @@ public:
     // The maximum of fraction part is "scale".
     // If the length of fraction part is less than "scale", '0' will be filled.
     std::string to_string(int scale) const;
+
+    int32_t to_buffer(char* buffer, int scale) const;
+
     // Output actual "scale", remove ending zeroes.
     std::string to_string() const;
 
@@ -319,5 +323,3 @@ struct hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
 } // namespace std
-
-#endif // DORIS_BE_SRC_RUNTIME_DECIMALV2_VALUE_H

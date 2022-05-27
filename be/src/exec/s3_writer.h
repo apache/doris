@@ -52,7 +52,6 @@ private:
     const std::map<std::string, std::string>& _properties;
     std::string _path;
     S3URI _uri;
-    bool _sync_needed;
     std::shared_ptr<Aws::S3::S3Client> _client;
     std::shared_ptr<Aws::Utils::TempFile> _temp_file;
 };

@@ -97,7 +97,7 @@ void test_float_value(const std::string& s, StringParser::ParseResult exp_result
     EXPECT_EQ(exp_result, result);
 
     if (exp_result == StringParser::PARSE_SUCCESS && result == exp_result) {
-        T exp_val = strtod(s.c_str(), NULL);
+        T exp_val = strtod(s.c_str(), nullptr);
         EXPECT_EQ(exp_val, val);
     }
 }
@@ -535,14 +535,3 @@ TEST(StringToFloat, BruteForce) {
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

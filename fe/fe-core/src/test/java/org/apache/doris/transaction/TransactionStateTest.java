@@ -25,7 +25,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.collect.Lists;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -51,7 +50,7 @@ public class TransactionStateTest {
     @Test
     public void testSerDe() throws IOException {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_83);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file

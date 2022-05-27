@@ -37,6 +37,7 @@ static std::string CAPACITY_UC = "CAPACITY";
 static std::string MEDIUM_UC = "MEDIUM";
 static std::string SSD_UC = "SSD";
 static std::string HDD_UC = "HDD";
+static std::string REMOTE_CACHE_UC = "REMOTE_CACHE";
 
 // TODO: should be a general util method
 static std::string to_upper(const std::string& str) {
@@ -45,10 +46,12 @@ static std::string to_upper(const std::string& str) {
     return out;
 }
 
-// Currently, both of two following formats are supported(see be.conf)
+// Currently, both of three following formats are supported(see be.conf), remote cache is the
+// local cache path for remote storage.
 //   format 1:   /home/disk1/palo.HDD,50
 //   format 2:   /home/disk1/palo,medium:ssd,capacity:50
-OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
+//   remote cache format:  /home/disk/palo/cache,medium:remote_cache,capacity:50
+Status parse_root_path(const string& root_path, StorePath* path) {
     std::vector<string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
 
     // parse root path name
@@ -56,14 +59,14 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
     tmp_vec[0].erase(tmp_vec[0].find_last_not_of("/") + 1);
     if (tmp_vec[0].empty() || tmp_vec[0][0] != '/') {
         LOG(WARNING) << "invalid store path. path=" << tmp_vec[0];
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     string canonicalized_path;
     Status status = Env::Default()->canonicalize(tmp_vec[0], &canonicalized_path);
     if (!status.ok()) {
         LOG(WARNING) << "path can not be canonicalized. may be not exist. path=" << tmp_vec[0];
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     path->path = tmp_vec[0];
 
@@ -102,18 +105,18 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
             medium_str = to_upper(value);
         } else {
             LOG(WARNING) << "invalid property of store path, " << tmp_vec[i];
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
     }
 
     path->capacity_bytes = -1;
     if (!capacity_str.empty()) {
         if (!valid_signed_number<int64_t>(capacity_str) ||
-            strtol(capacity_str.c_str(), NULL, 10) < 0) {
+            strtol(capacity_str.c_str(), nullptr, 10) < 0) {
             LOG(WARNING) << "invalid capacity of store path, capacity=" << capacity_str;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
-        path->capacity_bytes = strtol(capacity_str.c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
+        path->capacity_bytes = strtol(capacity_str.c_str(), nullptr, 10) * GB_EXCHANGE_BYTE;
     }
 
     path->storage_medium = TStorageMedium::HDD;
@@ -122,21 +125,23 @@ OLAPStatus parse_root_path(const string& root_path, StorePath* path) {
             path->storage_medium = TStorageMedium::SSD;
         } else if (medium_str == HDD_UC) {
             path->storage_medium = TStorageMedium::HDD;
+        } else if (medium_str == REMOTE_CACHE_UC) {
+            path->storage_medium = TStorageMedium::REMOTE_CACHE;
         } else {
             LOG(WARNING) << "invalid storage medium. medium=" << medium_str;
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
+Status parse_conf_store_paths(const string& config_path, std::vector<StorePath>* paths) {
     std::vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
     for (auto& item : path_vec) {
         StorePath path;
         auto res = parse_root_path(item, &path);
-        if (res == OLAP_SUCCESS) {
+        if (res.ok()) {
             paths->emplace_back(std::move(path));
         } else {
             LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
@@ -144,9 +149,9 @@ OLAPStatus parse_conf_store_paths(const string& config_path, std::vector<StorePa
     }
     if (paths->empty() || (path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         LOG(WARNING) << "fail to parse storage_root_path config. value=[" << config_path << "]";
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // end namespace doris

@@ -45,4 +45,3 @@ public class LoadErrorHubProcNode implements ProcNodeInterface {
         return result;
     }
 }
-

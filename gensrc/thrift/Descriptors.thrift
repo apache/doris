@@ -214,6 +214,7 @@ struct TMySQLTable {
   4: required string passwd
   5: required string db
   6: required string table
+  7: required string charset
 }
 
 struct TOdbcTable {
@@ -237,6 +238,24 @@ struct TSchemaTable {
 struct TBrokerTable {
 }
 
+struct THiveTable {
+  1: required string db_name
+  2: required string table_name
+  3: required map<string, string> properties
+}
+
+struct TIcebergTable {
+  1: required string db_name
+  2: required string table_name
+  3: required map<string, string> properties
+}
+
+struct THudiTable {
+  1: optional string dbName
+  2: optional string tableName
+  3: optional map<string, string> properties
+}
+
 // "Union" of all table types.
 struct TTableDescriptor {
   1: required Types.TTableId id
@@ -255,6 +274,9 @@ struct TTableDescriptor {
   14: optional TBrokerTable BrokerTable
   15: optional TEsTable esTable
   16: optional TOdbcTable odbcTable
+  17: optional THiveTable hiveTable
+  18: optional TIcebergTable icebergTable
+  19: optional THudiTable hudiTable
 }
 
 struct TDescriptorTable {

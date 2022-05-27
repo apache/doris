@@ -24,10 +24,13 @@
 #include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
+
+#if defined(__x86_64__)
+#include "exec/hdfs_file_reader.h"
+#endif
 
 // orc include file didn't expose orc::TimezoneError
 // we have to declare it by hand, following is the source code in orc link
@@ -116,15 +119,10 @@ ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
                        const TBrokerScanRangeParams& params,
                        const std::vector<TBrokerRangeDesc>& ranges,
                        const std::vector<TNetworkAddress>& broker_addresses,
-                       const std::vector<ExprContext*>& pre_filter_ctxs,
-                       ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
+                       const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           // _splittable(params.splittable),
-          _next_range(0),
           _cur_file_eof(true),
-          _scanner_eof(false),
           _total_groups(0),
           _current_group(0),
           _rows_of_group(0),
@@ -152,7 +150,7 @@ Status ORCScanner::open() {
     return Status::OK();
 }
 
-Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     try {
         SCOPED_TIMER(_read_timer);
         // Get one line
@@ -354,9 +352,13 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
-            if (fill_dest_tuple(tuple, tuple_pool)) {
-                break; // get one line, break from while
-            }          // else skip this line and continue get_next to return
+            RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool, fill_tuple));
+            break;
+        }
+        if (_scanner_eof) {
+            *eof = true;
+        } else {
+            *eof = false;
         }
         return Status::OK();
     } catch (orc::ParseError& e) {
@@ -396,15 +398,25 @@ Status ORCScanner::open_next_reader() {
             if (range.__isset.file_size) {
                 file_size = range.file_size;
             }
-            file_reader.reset(new BufferedReader(new BrokerReader(_state->exec_env(), _broker_addresses,
-                                               _params.properties, range.path, range.start_offset,
-                                               file_size)));
+            file_reader.reset(new BufferedReader(
+                    _profile,
+                    new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
+                                     range.path, range.start_offset, file_size)));
             break;
         }
         case TFileType::FILE_S3: {
             file_reader.reset(new BufferedReader(
-                    new S3Reader(_params.properties, range.path, range.start_offset)));
+                    _profile, new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
+        }
+        case TFileType::FILE_HDFS: {
+#if defined(__x86_64__)
+            file_reader.reset(
+                    new HdfsFileReader(range.hdfs_params, range.path, range.start_offset));
+            break;
+#else
+            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
+#endif
         }
         default: {
             std::stringstream ss;
@@ -444,6 +456,7 @@ Status ORCScanner::open_next_reader() {
 }
 
 void ORCScanner::close() {
+    BaseScanner::close();
     _batch = nullptr;
     _reader.reset(nullptr);
     _row_reader.reset(nullptr);

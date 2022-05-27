@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_COMMON_COMPILER_UTIL_H
-#define DORIS_BE_SRC_COMMON_COMMON_COMPILER_UTIL_H
+#pragma once
 
 // Compiler hint that this branch is likely or unlikely to
 // be taken. Take from the "What all programmers should know
@@ -42,8 +41,11 @@
 /// not a command. This should be used sparingly for cases when either the function
 /// needs to be inlined for a specific reason or the compiler's heuristics make a bad
 /// decision, e.g. not inlining a small function on a hot path.
+#ifdef ALWAYS_INLINE
+#undef ALWAYS_INLINE
+#endif
 #define ALWAYS_INLINE __attribute__((always_inline))
+#define NO_INLINE __attribute__((__noinline__))
+#define MAY_ALIAS __attribute__((__may_alias__))
 
 #define ALIGN_CACHE_LINE __attribute__((aligned(CACHE_LINE_SIZE)))
-
-#endif

@@ -67,7 +67,7 @@ else
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;
             --) shift ;  break ;;
-            *) ehco "Internal error" ; exit 1 ;;
+            *) echo "Internal error" ; exit 1 ;;
         esac
     done
 fi
@@ -81,12 +81,6 @@ echo "Get params:
     BUILD_ALL_PLUGIN       -- $ALL_PLUGIN
     CLEAN                  -- $CLEAN
 "
-
-# check if palo-fe.jar exist
-if [ ! -f "$DORIS_HOME/fe/fe-core/target/palo-fe.jar" ]; then
-    echo "ERROR: palo-fe.jar does not exist. Please build FE first"
-    exit -1
-fi
 
 cd ${DORIS_HOME}
 PLUGIN_MODULE=

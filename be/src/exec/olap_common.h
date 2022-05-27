@@ -15,16 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_COMMON_H
+#pragma once
 
 #include <stdint.h>
 
 #include <boost/lexical_cast.hpp>
-#include <boost/variant.hpp>
 #include <map>
 #include <sstream>
 #include <string>
+#include <variant>
 
 #include "common/logging.h"
 #include "exec/olap_utils.h"
@@ -317,10 +316,10 @@ private:
     bool _is_convertible;
 };
 
-typedef boost::variant<
-        ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
-        ColumnValueRange<int64_t>, ColumnValueRange<__int128>, ColumnValueRange<StringValue>,
-        ColumnValueRange<DateTimeValue>, ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
+typedef std::variant<ColumnValueRange<int8_t>, ColumnValueRange<int16_t>, ColumnValueRange<int32_t>,
+                     ColumnValueRange<int64_t>, ColumnValueRange<__int128>,
+                     ColumnValueRange<StringValue>, ColumnValueRange<DateTimeValue>,
+                     ColumnValueRange<DecimalV2Value>, ColumnValueRange<bool>>
         ColumnValueRangeType;
 
 template <class T>
@@ -763,7 +762,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
     //if a column doesn't have any predicate, we will try converting the range to fixed values
     auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
-        if (range.get_fixed_value_size() * scan_keys_size > max_scan_key_num) {
+        if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
             if (range.is_range_value_convertible()) {
                 range.convert_to_range_value();
             } else {
@@ -772,7 +771,7 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
         }
     } else {
         if (range.is_fixed_value_convertible() && _is_convertible) {
-            if (range.get_convertible_fixed_value_size() * scan_keys_size < max_scan_key_num) {
+            if (range.get_convertible_fixed_value_size() < max_scan_key_num / scan_keys_size) {
                 range.convert_to_fixed_value();
             }
         }
@@ -863,7 +862,3 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<T>& range, int32_t max_sca
 }
 
 } // namespace doris
-
-#endif
-
-/* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

@@ -17,25 +17,24 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Injectable;
-
 public class MVColumnHLLUnionPatternTest {
 
     @Test
-    public void testCorrectExpr1() {
+    public void testCorrectExpr1(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
@@ -44,12 +43,13 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testCorrectExpr2(@Injectable CastExpr castExpr) {
+    public void testCorrectExpr2(@Injectable CastExpr castExpr, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         new Expectations() {
@@ -64,12 +64,13 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testUpperCaseOfFunction() {
+    public void testUpperCaseOfFunction(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         List<Expr> child0Params = Lists.newArrayList();
@@ -78,22 +79,24 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION.toUpperCase(), params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertTrue(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectLiteralExpr1() {
+    public void testIncorrectLiteralExpr1(@Injectable AggregateFunction aggregateFunction) {
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> params = Lists.newArrayList();
         params.add(intLiteral);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectLiteralExpr2() {
+    public void testIncorrectLiteralExpr2(@Injectable AggregateFunction aggregateFunction) {
         IntLiteral intLiteral = new IntLiteral(1);
         List<Expr> child0Params = Lists.newArrayList();
         child0Params.add(intLiteral);
@@ -101,12 +104,13 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
-    public void testIncorrectDecimalSlotRef() {
+    public void testIncorrectDecimalSlotRef(@Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef = new SlotRef(tableName, "c1");
         Deencapsulation.setField(slotRef, "type", Type.DECIMALV2);
@@ -116,18 +120,20 @@ public class MVColumnHLLUnionPatternTest {
         List<Expr> params = Lists.newArrayList();
         params.add(child0);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         MVColumnHLLUnionPattern pattern = new MVColumnHLLUnionPattern();
         Assert.assertFalse(pattern.match(expr));
     }
 
     @Test
     public void testAggTableHLLColumn(@Injectable SlotDescriptor desc,
-            @Injectable Column column) {
+            @Injectable Column column, @Injectable AggregateFunction aggregateFunction) {
         TableName tableName = new TableName("db", "table");
         SlotRef slotRef1 = new SlotRef(tableName, "c1");
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef1);
         FunctionCallExpr expr = new FunctionCallExpr(FunctionSet.HLL_UNION, params);
+        Deencapsulation.setField(expr, "fn", aggregateFunction);
         slotRef1.setType(Type.HLL);
         slotRef1.setDesc(desc);
         new Expectations() {

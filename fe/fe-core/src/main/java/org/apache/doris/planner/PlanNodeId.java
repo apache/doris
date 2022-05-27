@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/PlanNodeId.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -28,9 +31,14 @@ public class PlanNodeId extends Id<PlanNodeId> {
     public static IdGenerator<PlanNodeId> createGenerator() {
         return new IdGenerator<PlanNodeId>() {
             @Override
-            public PlanNodeId getNextId() { return new PlanNodeId(nextId_++); }
+            public PlanNodeId getNextId() {
+                return new PlanNodeId(nextId++);
+            }
+
             @Override
-            public PlanNodeId getMaxId() { return new PlanNodeId(nextId_ - 1); }
+            public PlanNodeId getMaxId() {
+                return new PlanNodeId(nextId - 1);
+            }
         };
     }
 

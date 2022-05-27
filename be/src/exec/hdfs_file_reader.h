@@ -26,7 +26,7 @@ namespace doris {
 
 class HdfsFileReader : public FileReader {
 public:
-    HdfsFileReader(THdfsParams hdfs_params, const std::string& path, int64_t start_offset);
+    HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path, int64_t start_offset);
     virtual ~HdfsFileReader();
 
     virtual Status open() override;

@@ -28,10 +28,20 @@ import org.apache.doris.qe.ConnectContext;
 
 public class CreateRoleStmt extends DdlStmt {
 
+    private boolean ifNotExists;
     private String role;
 
     public CreateRoleStmt(String role) {
         this.role = role;
+    }
+
+    public CreateRoleStmt(boolean ifNotExists, String role) {
+        this.ifNotExists = ifNotExists;
+        this.role = role;
+    }
+
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
     }
 
     public String getQualifiedRole() {

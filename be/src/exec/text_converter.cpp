@@ -59,4 +59,26 @@ void TextConverter::unescape_string(const char* src, char* dest, size_t* len) {
     *len = dest_ptr - dest_start;
 }
 
+void TextConverter::unescape_string_on_spot(const char* src, size_t* len) {
+    char* dest_ptr = const_cast<char*>(src);
+    const char* end = src + *len;
+    bool escape_next_char = false;
+
+    while (src < end) {
+        if (*src == _escape_char) {
+            escape_next_char = !escape_next_char;
+        } else {
+            escape_next_char = false;
+        }
+
+        if (escape_next_char) {
+            ++src;
+        } else {
+            *dest_ptr++ = *src++;
+        }
+    }
+
+    *len = dest_ptr - src;
+}
+
 } // namespace doris

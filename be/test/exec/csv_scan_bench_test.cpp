@@ -297,10 +297,10 @@ void CsvScanNodeBenchTest::init_desc_tbl() {
 TEST_F(CsvScanNodeBenchTest, NormalUse) {
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     bool eos = false;
 
@@ -308,37 +308,19 @@ TEST_F(CsvScanNodeBenchTest, NormalUse) {
         // RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
         RowBatch row_batch(scan_node._row_descriptor, 1024);
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        // ASSERT_TRUE(num > 0);
-        // std::cout << "num: " << num << std::endl;
+        // EXPECT_TRUE(num > 0);
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 
     {
         std::stringstream ss;
         scan_node.runtime_profile()->pretty_print(&ss);
         LOG(WARNING) << ss.str();
-        std::cout << ss.str() << std::endl;
     }
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ProfilerStart("profile_scan_bench");
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    RUN_ALL_TESTS();
-
-    ProfilerStop();
-    return 0;
-}

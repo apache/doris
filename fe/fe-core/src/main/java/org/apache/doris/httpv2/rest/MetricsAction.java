@@ -24,12 +24,10 @@ import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
 import com.google.common.base.Strings;
-
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -46,7 +44,7 @@ public class MetricsAction {
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
             visitor = new SimpleCoreMetricVisitor("doris_fe");
-        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("agent")) {
+        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("json")) {
             visitor = new JsonMetricVisitor("doris_fe");
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");

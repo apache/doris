@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_EXPORT_SINK_H
-#define DORIS_BE_SRC_RUNTIME_EXPORT_SINK_H
+#pragma once
 
 #include <vector>
 
@@ -31,7 +30,6 @@ class TExpr;
 class RuntimeState;
 class RuntimeProfile;
 class ExprContext;
-class MemTracker;
 class FileWriter;
 class TupleRow;
 
@@ -54,12 +52,13 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status) override;
 
-    virtual RuntimeProfile* profile() { return _profile; }
+    virtual RuntimeProfile* profile() override { return _profile; }
 
 private:
     Status open_file_writer();
     Status gen_row_buffer(TupleRow* row, std::stringstream* ss);
     std::string gen_file_name();
+    Status write_csv_header();
 
     RuntimeState* _state;
 
@@ -75,13 +74,10 @@ private:
 
     RuntimeProfile* _profile;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
-
     RuntimeProfile::Counter* _bytes_written_counter;
     RuntimeProfile::Counter* _rows_written_counter;
     RuntimeProfile::Counter* _write_timer;
+    bool _header_sent;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_EXPORT_SINK_H

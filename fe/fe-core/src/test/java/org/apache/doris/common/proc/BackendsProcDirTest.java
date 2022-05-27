@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -26,6 +24,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -158,17 +158,16 @@ public class BackendsProcDirTest {
     @Test
     public void testLookupInvalid() {
         BackendsProcDir dir;
-        ProcNodeInterface node;
 
         dir = new BackendsProcDir(systemInfoService);
         try {
-            node = dir.lookup(null);
+            dir.lookup(null);
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
 
         try {
-            node = dir.lookup("");
+            dir.lookup("");
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
@@ -184,5 +183,4 @@ public class BackendsProcDirTest {
         Assert.assertNotNull(result);
         Assert.assertTrue(result instanceof BaseProcResult);
     }
-
 }

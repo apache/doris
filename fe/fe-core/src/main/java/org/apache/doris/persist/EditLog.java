@@ -19,26 +19,25 @@ package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
-import org.apache.doris.alter.DecommissionBackendJob;
-import org.apache.doris.alter.RollupJob;
-import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
+import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.EncryptKeyHelper;
+import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
-import org.apache.doris.catalog.EncryptKey;
-import org.apache.doris.catalog.EncryptKeySearchDesc;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -59,11 +58,13 @@ import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.policy.DropPolicyLog;
+import org.apache.doris.policy.Policy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -192,11 +193,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DROP_TABLE: {
                     DropInfo info = (DropInfo) journal.getData();
-                    Database db = catalog.getDb(info.getDbId());
-                    if (db == null) {
-                        LOG.warn("failed to get db[{}]", info.getDbId());
-                        break;
-                    }
+                    Database db = Catalog.getCurrentCatalog().getDbOrMetaException(info.getDbId());
                     LOG.info("Begin to unprotect drop table. db = "
                             + db.getFullName() + " table = " + info.getTableId());
                     catalog.replayDropTable(db, info.getTableId(), info.isForceDrop());
@@ -227,7 +224,7 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_MODIFY_PARTITION: {
                     BatchModifyPartitionsInfo info = (BatchModifyPartitionsInfo) journal.getData();
-                    for(ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
+                    for (ModifyPartitionInfo modifyPartitionInfo : info.getModifyPartitionInfos()) {
                         catalog.getAlterInstance().replayModifyPartition(modifyPartitionInfo);
                     }
                     break;
@@ -278,63 +275,17 @@ public class EditLog {
                     catalog.getBackupHandler().replayAddJob(job);
                     break;
                 }
-                case OperationType.OP_START_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISHING_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayFinishing(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayFinish(job, catalog);
-                    break;
-                }
-                case OperationType.OP_CANCEL_ROLLUP: {
-                    RollupJob job = (RollupJob) journal.getData();
-                    catalog.getRollupHandler().replayCancel(job, catalog);
-                    break;
-                }
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
-                    catalog.getRollupHandler().replayDropRollup(info, catalog);
+                    catalog.getMaterializedViewHandler().replayDropRollup(info, catalog);
                     break;
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
-                        catalog.getRollupHandler().replayDropRollup(
+                        catalog.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId, false), catalog);
                     }
-                    break;
-                }
-                case OperationType.OP_START_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.info("Begin to unprotect create schema change job. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISHING_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.info("Begin to unprotect replay finishing schema change job. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayFinishing(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    catalog.getSchemaChangeHandler().replayFinish(job, catalog);
-                    break;
-                }
-                case OperationType.OP_CANCEL_SCHEMA_CHANGE: {
-                    SchemaChangeJob job = (SchemaChangeJob) journal.getData();
-                    LOG.debug("Begin to unprotect cancel schema change. db = " + job.getDbId()
-                            + " table = " + job.getTableId());
-                    catalog.getSchemaChangeHandler().replayCancel(job, catalog);
                     break;
                 }
                 case OperationType.OP_FINISH_CONSISTENCY_CHECK: {
@@ -427,21 +378,14 @@ public class EditLog {
                     Catalog.getCurrentSystemInfo().replayDropBackend(be);
                     break;
                 }
+                case OperationType.OP_MODIFY_BACKEND: {
+                    Backend be = (Backend) journal.getData();
+                    Catalog.getCurrentSystemInfo().replayModifyBackend(be);
+                    break;
+                }
                 case OperationType.OP_BACKEND_STATE_CHANGE: {
                     Backend be = (Backend) journal.getData();
                     Catalog.getCurrentSystemInfo().updateBackendState(be);
-                    break;
-                }
-                case OperationType.OP_START_DECOMMISSION_BACKEND: {
-                    DecommissionBackendJob job = (DecommissionBackendJob) journal.getData();
-                    LOG.debug("{}: {}", opCode, job.getTableId());
-                    catalog.getClusterHandler().replayInitJob(job, catalog);
-                    break;
-                }
-                case OperationType.OP_FINISH_DECOMMISSION_BACKEND: {
-                    DecommissionBackendJob job = (DecommissionBackendJob) journal.getData();
-                    LOG.debug("{}: {}", opCode, job.getTableId());
-                    catalog.getClusterHandler().replayFinish(job, catalog);
                     break;
                 }
                 case OperationType.OP_ADD_FIRST_FRONTEND:
@@ -485,6 +429,11 @@ public class EditLog {
                     catalog.getAuth().replaySetPassword(privInfo);
                     break;
                 }
+                case OperationType.OP_SET_LDAP_PASSWORD: {
+                    LdapInfo ldapInfo = (LdapInfo) journal.getData();
+                    catalog.getAuth().replaySetLdapPassword(ldapInfo);
+                    break;
+                }
                 case OperationType.OP_CREATE_ROLE: {
                     PrivInfo privInfo = (PrivInfo) journal.getData();
                     catalog.getAuth().replayCreateRole(privInfo);
@@ -520,11 +469,6 @@ public class EditLog {
                         System.exit(-1);
                     }
                     MetaContext.get().setMetaVersion(version);
-                    break;
-                }
-                case OperationType.OP_GLOBAL_VARIABLE: {
-                    SessionVariable variable = (SessionVariable) journal.getData();
-                    catalog.replayGlobalVariable(variable);
                     break;
                 }
                 case OperationType.OP_CREATE_CLUSTER: {
@@ -679,6 +623,11 @@ public class EditLog {
                     Catalog.getCurrentCatalog().replayBackendTabletsInfo(backendTabletsInfo);
                     break;
                 }
+                case OperationType.OP_BACKEND_REPLICAS_INFO: {
+                    BackendReplicasInfo backendReplicasInfo = (BackendReplicasInfo) journal.getData();
+                    Catalog.getCurrentCatalog().replayBackendReplicasInfo(backendReplicasInfo);
+                    break;
+                }
                 case OperationType.OP_CREATE_ROUTINE_LOAD_JOB: {
                     RoutineLoadJob routineLoadJob = (RoutineLoadJob) journal.getData();
                     Catalog.getCurrentCatalog().getRoutineLoadManager().replayCreateRoutineLoadJob(routineLoadJob);
@@ -710,6 +659,16 @@ public class EditLog {
                     catalog.getLoadManager().replayUpdateLoadJobStateInfo(info);
                     break;
                 }
+                case OperationType.OP_CREATE_SYNC_JOB: {
+                    SyncJob syncJob = (SyncJob) journal.getData();
+                    catalog.getSyncJobManager().replayAddSyncJob(syncJob);
+                    break;
+                }
+                case OperationType.OP_UPDATE_SYNC_JOB_STATE: {
+                    SyncJob.SyncJobUpdateStateInfo info = (SyncJob.SyncJobUpdateStateInfo) journal.getData();
+                    catalog.getSyncJobManager().replayUpdateSyncJobState(info);
+                    break;
+                }
                 case OperationType.OP_FETCH_STREAM_LOAD_RECORD: {
                     FetchStreamLoadRecord fetchStreamLoadRecord = (FetchStreamLoadRecord) journal.getData();
                     catalog.getStreamLoadRecordMgr().replayFetchStreamLoadRecord(fetchStreamLoadRecord);
@@ -723,6 +682,11 @@ public class EditLog {
                 case OperationType.OP_DROP_RESOURCE: {
                     final DropResourceOperationLog operationLog = (DropResourceOperationLog) journal.getData();
                     catalog.getResourceMgr().replayDropResource(operationLog);
+                    break;
+                }
+                case OperationType.OP_ALTER_RESOURCE: {
+                    final Resource resource = (Resource) journal.getData();
+                    catalog.getResourceMgr().replayAlterResource(resource);
                     break;
                 }
                 case OperationType.OP_CREATE_SMALL_FILE: {
@@ -739,7 +703,7 @@ public class EditLog {
                     AlterJobV2 alterJob = (AlterJobV2) journal.getData();
                     switch (alterJob.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayAlterJobV2(alterJob);
+                            catalog.getMaterializedViewHandler().replayAlterJobV2(alterJob);
                             break;
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
@@ -750,14 +714,14 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
-                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo)journal.getData();
+                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
-                        catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
+                        catalog.getMaterializedViewHandler().replayAlterJobV2(alterJobV2);
                     }
                     break;
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
-                    TableInfo tableInfo = (TableInfo)journal.getData();
+                    TableInfo tableInfo = (TableInfo) journal.getData();
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
@@ -770,7 +734,7 @@ public class EditLog {
                 }
                 case OperationType.OP_MODIFY_DISTRIBUTION_BUCKET_NUM: {
                     ModifyTableDefaultDistributionBucketNumOperationLog modifyTableDefaultDistributionBucketNumOperationLog = (ModifyTableDefaultDistributionBucketNumOperationLog) journal.getData();
-                    catalog.replayModifyTableDefaultDistributionBucketNum(opCode, modifyTableDefaultDistributionBucketNumOperationLog);
+                    catalog.replayModifyTableDefaultDistributionBucketNum(modifyTableDefaultDistributionBucketNumOperationLog);
                     break;
                 }
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
@@ -797,7 +761,7 @@ public class EditLog {
                     RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayRemoveAlterJobV2(log);
+                            catalog.getMaterializedViewHandler().replayRemoveAlterJobV2(log);
                             break;
                         case SCHEMA_CHANGE:
                             catalog.getSchemaChangeHandler().replayRemoveAlterJobV2(log);
@@ -805,6 +769,11 @@ public class EditLog {
                         default:
                             break;
                     }
+                    break;
+                }
+                case OperationType.OP_MODIFY_COMMENT: {
+                    ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
+                    catalog.getAlterInstance().replayModifyComment(operation);
                     break;
                 }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
@@ -822,12 +791,56 @@ public class EditLog {
                     catalog.getAlterInstance().replayReplaceTable(log);
                     break;
                 }
+                case OperationType.OP_CREATE_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayCreate(rule);
+                    break;
+                }
+                case OperationType.OP_ALTER_SQL_BLOCK_RULE: {
+                    SqlBlockRule rule = (SqlBlockRule) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayAlter(rule);
+                    break;
+                }
+                case OperationType.OP_DROP_SQL_BLOCK_RULE: {
+                    DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
+                    catalog.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
+                    break;
+                }
+                case OperationType.OP_MODIFY_TABLE_ENGINE: {
+                    ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
+                    catalog.getAlterInstance().replayProcessModifyEngine(log);
+                    break;
+                }
+                case OperationType.OP_CREATE_POLICY: {
+                    Policy log = (Policy) journal.getData();
+                    catalog.getPolicyMgr().replayCreate(log);
+                    break;
+                }
+                case OperationType.OP_DROP_POLICY: {
+                    DropPolicyLog log = (DropPolicyLog) journal.getData();
+                    catalog.getPolicyMgr().replayDrop(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
                     throw e;
                 }
             }
+        } catch (MetaNotFoundException e) {
+            /**
+             * In the following cases, doris may record metadata modification information for a table that no longer exists.
+             * 1. Thread 1: get TableA object
+             * 2. Thread 2: lock db and drop table and record edit log of the dropped TableA
+             * 3. Thread 1: lock table, modify table and record edit log of the modified TableA
+             * **The modified edit log is after the dropped edit log**
+             * Because the table has been dropped, the olapTable in here is null when the modified edit log is replayed.
+             * So in this case, we will ignore the edit log of the modified table after the table is dropped.
+             * This could make the meta inconsistent, for example, an edit log on a dropped table is ignored, but
+             * this table is restored later, so there may be an inconsistent situation between master and followers. We
+             * log a warning here to debug when happens. This could happen to other meta like DB.
+             */
+            LOG.warn("[INCONSISTENT META] replay failed {}: {}", journal, e.getMessage(), e);
         } catch (Exception e) {
             LOG.error("Operation Type {}", opCode, e);
             System.exit(-1);
@@ -1012,44 +1025,12 @@ public class EditLog {
         logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
-    public void logStartRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_START_ROLLUP, rollupJob);
-    }
-
-    public void logFinishingRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_FINISHING_ROLLUP, rollupJob);
-    }
-
-    public void logFinishRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_FINISH_ROLLUP, rollupJob);
-    }
-
-    public void logCancelRollup(RollupJob rollupJob) {
-        logEdit(OperationType.OP_CANCEL_ROLLUP, rollupJob);
-    }
-
     public void logDropRollup(DropInfo info) {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
     }
 
-    public void logBatchDropRollup (BatchDropInfo batchDropInfo) {
+    public void logBatchDropRollup(BatchDropInfo batchDropInfo) {
         logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
-    }
-
-    public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_START_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logFinishingSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_FINISHING_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logFinishSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_FINISH_SCHEMA_CHANGE, schemaChangeJob);
-    }
-
-    public void logCancelSchemaChange(SchemaChangeJob schemaChangeJob) {
-        logEdit(OperationType.OP_CANCEL_SCHEMA_CHANGE, schemaChangeJob);
     }
 
     public void logFinishConsistencyCheck(ConsistencyCheckInfo info) {
@@ -1062,6 +1043,10 @@ public class EditLog {
 
     public void logDropBackend(Backend be) {
         logEdit(OperationType.OP_DROP_BACKEND, be);
+    }
+
+    public void logModifyBackend(Backend be) {
+        logEdit(OperationType.OP_MODIFY_BACKEND, be);
     }
 
     public void logAddFrontend(Frontend fe) {
@@ -1128,20 +1113,16 @@ public class EditLog {
         logEdit(OperationType.OP_SET_PASSWORD, info);
     }
 
+    public void logSetLdapPassword(LdapInfo info) {
+        logEdit(OperationType.OP_SET_LDAP_PASSWORD, info);
+    }
+
     public void logCreateRole(PrivInfo info) {
         logEdit(OperationType.OP_CREATE_ROLE, info);
     }
 
     public void logDropRole(PrivInfo info) {
         logEdit(OperationType.OP_DROP_ROLE, info);
-    }
-
-    public void logStartDecommissionBackend(DecommissionBackendJob job) {
-        logEdit(OperationType.OP_START_DECOMMISSION_BACKEND, job);
-    }
-
-    public void logFinishDecommissionBackend(DecommissionBackendJob job) {
-        logEdit(OperationType.OP_FINISH_DECOMMISSION_BACKEND, job);
     }
 
     public void logDatabaseRename(DatabaseInfo databaseInfo) {
@@ -1166,10 +1147,6 @@ public class EditLog {
 
     public void logPartitionRename(TableInfo tableInfo) {
         logEdit(OperationType.OP_RENAME_PARTITION, tableInfo);
-    }
-
-    public void logGlobalVariable(SessionVariable variable) {
-        logEdit(OperationType.OP_GLOBAL_VARIABLE, variable);
     }
 
     public void logCreateCluster(Cluster cluster) {
@@ -1229,7 +1206,7 @@ public class EditLog {
     public void logInsertTransactionState(TransactionState transactionState) {
         logEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, transactionState);
     }
-    
+
     public void logBackupJob(BackupJob job) {
         logEdit(OperationType.OP_BACKUP_JOB, job);
     }
@@ -1298,8 +1275,13 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_ENCRYPTKEY, desc);
     }
 
+    @Deprecated
     public void logBackendTabletsInfo(BackendTabletsInfo backendTabletsInfo) {
         logEdit(OperationType.OP_BACKEND_TABLETS_INFO, backendTabletsInfo);
+    }
+
+    public void logBackendReplicasInfo(BackendReplicasInfo backendReplicasInfo) {
+        logEdit(OperationType.OP_BACKEND_REPLICAS_INFO, backendReplicasInfo);
     }
 
     public void logCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
@@ -1326,6 +1308,14 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_LOAD_JOB, info);
     }
 
+    public void logCreateSyncJob(SyncJob syncJob) {
+        logEdit(OperationType.OP_CREATE_SYNC_JOB, syncJob);
+    }
+
+    public void logUpdateSyncJobState(SyncJob.SyncJobUpdateStateInfo info) {
+        logEdit(OperationType.OP_UPDATE_SYNC_JOB_STATE, info);
+    }
+
     public void logFetchStreamLoadRecord(FetchStreamLoadRecord fetchStreamLoadRecord) {
         logEdit(OperationType.OP_FETCH_STREAM_LOAD_RECORD, fetchStreamLoadRecord);
     }
@@ -1336,6 +1326,10 @@ public class EditLog {
 
     public void logDropResource(DropResourceOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_RESOURCE, operationLog);
+    }
+
+    public void logAlterResource(Resource resource) {
+        logEdit(OperationType.OP_ALTER_RESOURCE, resource);
     }
 
     public void logCreateSmallFile(SmallFile info) {
@@ -1408,5 +1402,33 @@ public class EditLog {
 
     public void logBatchRemoveTransactions(BatchRemoveTransactionsOperation op) {
         logEdit(OperationType.OP_BATCH_REMOVE_TXNS, op);
+    }
+
+    public void logModifyComment(ModifyCommentOperationLog op) {
+        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+    }
+
+    public void logCreateSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_CREATE_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logAlterSqlBlockRule(SqlBlockRule rule) {
+        logEdit(OperationType.OP_ALTER_SQL_BLOCK_RULE, rule);
+    }
+
+    public void logDropSqlBlockRule(List<String> ruleNames) {
+        logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
+    }
+
+    public void logModifyTableEngine(ModifyTableEngineOperationLog log) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ENGINE, log);
+    }
+
+    public void logCreatePolicy(Policy policy) {
+        logEdit(OperationType.OP_CREATE_POLICY, policy);
+    }
+
+    public void logDropPolicy(DropPolicyLog log) {
+        logEdit(OperationType.OP_DROP_POLICY, log);
     }
 }

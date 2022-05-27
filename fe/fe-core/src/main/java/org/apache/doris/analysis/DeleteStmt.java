@@ -46,11 +46,11 @@ public class DeleteStmt extends DdlStmt {
         this.wherePredicate = wherePredicate;
         this.deleteConditions = new LinkedList<Predicate>();
     }
-    
+
     public String getTableName() {
         return tbl.getTbl();
     }
-    
+
     public String getDbName() {
         return tbl.getDb();
     }
@@ -66,7 +66,7 @@ public class DeleteStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        
+
         if (tbl == null) {
             throw new AnalysisException("Table is not set");
         }
@@ -92,7 +92,7 @@ public class DeleteStmt extends DdlStmt {
                                                                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                                                 ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(), tbl.getTbl());
+                                                ConnectContext.get().getRemoteIP(), tbl.getDb() + ": " + tbl.getTbl());
         }
     }
 

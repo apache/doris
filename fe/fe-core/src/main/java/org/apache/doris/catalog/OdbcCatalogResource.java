@@ -17,21 +17,20 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Map;
 import java.util.zip.Adler32;
-
-import com.google.gson.annotations.SerializedName;
 
 /**
  * External ODBC Catalog resource for external table query.
@@ -90,10 +89,42 @@ public class OdbcCatalogResource extends Resource {
         if (value == null) {
             throw new DdlException("Missing " + propertiesKey + " in properties");
         }
-
     }
 
-    public String getProperties(String propertiesKey)  {
+    @Override
+    public void modifyProperties(Map<String, String> properties) throws DdlException {
+        // modify properties
+        replaceIfEffectiveValue(this.configs, HOST, properties.get(HOST));
+        replaceIfEffectiveValue(this.configs, PORT, properties.get(PORT));
+        replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
+        replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
+        replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+    }
+
+    @Override
+    public void checkProperties(Map<String, String> properties) throws AnalysisException {
+        Map<String, String> copiedProperties = Maps.newHashMap(properties);
+        // check properties
+        copiedProperties.remove(HOST);
+        copiedProperties.remove(PORT);
+        copiedProperties.remove(USER);
+        copiedProperties.remove(PASSWORD);
+        copiedProperties.remove(TYPE);
+        copiedProperties.remove(DRIVER);
+
+        if (!copiedProperties.isEmpty()) {
+            throw new AnalysisException("Unknown ODBC catalog resource properties: " + copiedProperties);
+        }
+    }
+
+    @Override
+    public Map<String, String> getCopiedProperties() {
+        Map<String, String> copiedProperties = Maps.newHashMap(configs);
+        return copiedProperties;
+    }
+
+    public String getProperty(String propertiesKey)  {
         // check the properties key
         String value = configs.get(propertiesKey);
         return value;
@@ -113,7 +144,7 @@ public class OdbcCatalogResource extends Resource {
             adler32.update(type.name().getBytes(charsetName));
             LOG.debug("signature. view type: {}", type.name());
             // configs
-            for (Map.Entry<String, String> config: configs.entrySet()) {
+            for (Map.Entry<String, String> config : configs.entrySet()) {
                 adler32.update(config.getKey().getBytes(charsetName));
                 adler32.update(config.getValue().getBytes(charsetName));
                 LOG.debug("signature. view config: {}", config);
@@ -153,4 +184,3 @@ public class OdbcCatalogResource extends Resource {
         }
     }
 }
-

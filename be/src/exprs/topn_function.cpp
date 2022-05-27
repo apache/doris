@@ -91,50 +91,10 @@ StringVal TopNFunctions::topn_finalize(FunctionContext* ctx, const StringVal& sr
     return result;
 }
 
-template void TopNFunctions::topn_update(FunctionContext*, const BooleanVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const TinyIntVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const SmallIntVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const IntVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const BigIntVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const FloatVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DoubleVal&, const IntVal&,
-                                         StringVal*);
 template void TopNFunctions::topn_update(FunctionContext*, const StringVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DateTimeVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const LargeIntVal&, const IntVal&,
-                                         StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DecimalV2Val&, const IntVal&,
                                          StringVal*);
 
-template void TopNFunctions::topn_update(FunctionContext*, const BooleanVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const TinyIntVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const SmallIntVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const IntVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const BigIntVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const FloatVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DoubleVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
 template void TopNFunctions::topn_update(FunctionContext*, const StringVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DateTimeVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const LargeIntVal&, const IntVal&,
-                                         const IntVal&, StringVal*);
-template void TopNFunctions::topn_update(FunctionContext*, const DecimalV2Val&, const IntVal&,
                                          const IntVal&, StringVal*);
 
 } // namespace doris

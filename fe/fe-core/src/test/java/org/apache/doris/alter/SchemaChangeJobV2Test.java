@@ -17,8 +17,6 @@
 
 package org.apache.doris.alter;
 
-import static org.junit.Assert.assertEquals;
-
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddColumnClause;
@@ -34,6 +32,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
@@ -64,8 +63,6 @@ import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
-
-import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -107,15 +104,12 @@ public class SchemaChangeJobV2Test {
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
             InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
+        FakeCatalog.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         fakeEditLog = new FakeEditLog();
         fakeCatalog = new FakeCatalog();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_61);
-        metaContext.setThreadLocalInfo();
-
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
         slaveTransMgr = slaveCatalog.getGlobalTransactionMgr();
@@ -135,8 +129,8 @@ public class SchemaChangeJobV2Test {
         SchemaChangeHandler schemaChangeHandler = Catalog.getCurrentCatalog().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
         Assert.assertEquals(1, alterJobsV2.size());
@@ -154,8 +148,8 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -163,9 +157,9 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
 
         MaterializedIndex baseIndex = testPartition.getBaseIndex();
-        assertEquals(IndexState.NORMAL, baseIndex.getState());
-        assertEquals(PartitionState.NORMAL, testPartition.getState());
-        assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+        Assert.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assert.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         Tablet baseTablet = baseIndex.getTablets().get(0);
         List<Replica> replicas = baseTablet.getReplicas();
@@ -173,15 +167,15 @@ public class SchemaChangeJobV2Test {
         Replica replica2 = replicas.get(1);
         Replica replica3 = replicas.get(2);
 
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
-        assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(-1, replica2.getLastFailedVersion());
-        assertEquals(-1, replica3.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assert.assertEquals(-1, replica1.getLastFailedVersion());
+        Assert.assertEquals(-1, replica2.getLastFailedVersion());
+        Assert.assertEquals(-1, replica3.getLastFailedVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
 
         // runPendingJob
         schemaChangeHandler.runAfterCatalogReady();
@@ -212,7 +206,7 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
             }
         }
 
@@ -230,8 +224,8 @@ public class SchemaChangeJobV2Test {
         // add a schema change job
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(addColumnClause);
-        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Database db = masterCatalog.getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
         Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
@@ -239,9 +233,9 @@ public class SchemaChangeJobV2Test {
         SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
 
         MaterializedIndex baseIndex = testPartition.getBaseIndex();
-        assertEquals(IndexState.NORMAL, baseIndex.getState());
-        assertEquals(PartitionState.NORMAL, testPartition.getState());
-        assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+        Assert.assertEquals(IndexState.NORMAL, baseIndex.getState());
+        Assert.assertEquals(PartitionState.NORMAL, testPartition.getState());
+        Assert.assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
 
         Tablet baseTablet = baseIndex.getTablets().get(0);
         List<Replica> replicas = baseTablet.getReplicas();
@@ -249,15 +243,15 @@ public class SchemaChangeJobV2Test {
         Replica replica2 = replicas.get(1);
         Replica replica3 = replicas.get(2);
 
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
-        assertEquals(-1, replica1.getLastFailedVersion());
-        assertEquals(-1, replica2.getLastFailedVersion());
-        assertEquals(-1, replica3.getLastFailedVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
-        assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        Assert.assertEquals(-1, replica1.getLastFailedVersion());
+        Assert.assertEquals(-1, replica2.getLastFailedVersion());
+        Assert.assertEquals(-1, replica3.getLastFailedVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        Assert.assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
 
         // runPendingJob
         replica1.setState(Replica.ReplicaState.DECOMMISSION);
@@ -294,7 +288,7 @@ public class SchemaChangeJobV2Test {
         MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
         for (Tablet shadowTablet : shadowIndex.getTablets()) {
             for (Replica shadowReplica : shadowTablet.getReplicas()) {
-                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
+                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
             }
         }
 
@@ -317,7 +311,7 @@ public class SchemaChangeJobV2Test {
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
         alterClauses.add(new ModifyTablePropertiesClause(properties));
         Database db = CatalogMocker.mockDb();
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
@@ -370,11 +364,12 @@ public class SchemaChangeJobV2Test {
         alterClauses.add(new ModifyTablePropertiesClause(properties));
 
         Database db = CatalogMocker.mockDb();
-        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogMocker.TEST_TBL2_ID);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("errCode = 2, detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. " +
-                "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
+        expectedEx.expectMessage("errCode = 2,"
+                + " detailMessage = Table test_db.test_tbl2 is not a dynamic partition table. "
+                + "Use command `HELP ALTER TABLE` to see how to change a normal table to a dynamic partition table.");
         schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
     }
 
@@ -392,9 +387,10 @@ public class SchemaChangeJobV2Test {
         // prepare file
         File file = new File(fileName);
         file.createNewFile();
+        file.deleteOnExit();
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
-        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1,1, "test",600000);
+        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1, 1, "test", 600000);
         schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
         Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
         Map<Long, SchemaVersionAndHash> indexSchemaVersionAndHashMap = Maps.newHashMap();
@@ -408,7 +404,7 @@ public class SchemaChangeJobV2Test {
 
         // read objects from file
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_86);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
 
         DataInputStream in = new DataInputStream(new FileInputStream(file));
@@ -423,5 +419,18 @@ public class SchemaChangeJobV2Test {
         Map<Long, SchemaVersionAndHash> map = Deencapsulation.getField(result, "indexSchemaVersionAndHashMap");
         Assert.assertEquals(10, map.get(1000L).schemaVersion);
         Assert.assertEquals(20, map.get(1000L).schemaHash);
+    }
+
+    @Test
+    public void testModifyTableDistributionType() throws DdlException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1).get();
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
+        Catalog.getCurrentCatalog().convertDistributionType(db, olapTable);
+        Assert.assertTrue(olapTable.getDefaultDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
+        Partition partition1 = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        Assert.assertTrue(partition1.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM);
     }
 }

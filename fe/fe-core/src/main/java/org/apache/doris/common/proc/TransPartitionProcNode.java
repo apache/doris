@@ -30,7 +30,6 @@ public class TransPartitionProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId")
             .add("CommittedVersion")
-            .add("CommittedVersionHash")
             .build();
 
     private long dbId;

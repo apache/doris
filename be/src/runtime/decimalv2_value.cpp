@@ -238,7 +238,8 @@ DecimalV2Value& DecimalV2Value::operator+=(const DecimalV2Value& other) {
 // Solve a one-dimensional quadratic equation: ax2 + bx + c =0
 // Reference: https://gist.github.com/miloyip/1fcc1859c94d33a01957cf41a7c25fdf
 // Reference: https://www.zhihu.com/question/51381686
-static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint128_t b, __uint128_t c) {
+static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint128_t b,
+                                                          __uint128_t c) {
     __uint128_t dis = b * b - 4 * a * c;
     // assert(dis >= 0);
     // not handling complex root
@@ -252,15 +253,18 @@ static std::pair<double, double> quadratic_equation_naive(__uint128_t a, __uint1
 }
 
 static inline double sgn(double x) {
-    if      (x > 0) return  1;
-    else if (x < 0) return -1;
-    else            return  0;
+    if (x > 0)
+        return 1;
+    else if (x < 0)
+        return -1;
+    else
+        return 0;
 }
 
-// In the above quadratic_equation_naive solution process, we found that -b + sqrtdis will 
-// get the correct answer, and -b-sqrtdis will get the wrong answer. For two close floating-point 
+// In the above quadratic_equation_naive solution process, we found that -b + sqrtdis will
+// get the correct answer, and -b-sqrtdis will get the wrong answer. For two close floating-point
 // decimals a, b, a-b will cause larger errors than a + b, which is called catastrophic cancellation.
-// Both -b and sqrtdis are positive numbers. We can first find the roots brought by -b + sqrtdis, 
+// Both -b and sqrtdis are positive numbers. We can first find the roots brought by -b + sqrtdis,
 // and then use the product of the two roots of the quadratic equation in one unknown to find another root
 static std::pair<double, double> quadratic_equation_better(int128_t a, int128_t b, int128_t c) {
     if (b == 0) return quadratic_equation_naive(a, b, c);
@@ -269,14 +273,14 @@ static std::pair<double, double> quadratic_equation_better(int128_t a, int128_t 
     // not handling complex root
     if (dis < 0) return std::make_pair(0, 0);
 
-    // There may be a loss of precision, but here is used to find the mantissa of the square root. 
-    // The current SCALE=9, which is less than the 15 significant digits of the double type, 
+    // There may be a loss of precision, but here is used to find the mantissa of the square root.
+    // The current SCALE=9, which is less than the 15 significant digits of the double type,
     // so theoretically the loss of precision will not be reflected in the result.
     double sqrtdis = std::sqrt(static_cast<double>(dis));
     double a_r = static_cast<double>(a);
     double b_r = static_cast<double>(b);
     double c_r = static_cast<double>(c);
-    // Here b comes from an unsigned integer, and sgn(b) is always 1, 
+    // Here b comes from an unsigned integer, and sgn(b) is always 1,
     // which is only used to preserve the complete algorithm
     double x1 = (-b_r - sgn(b_r) * sqrtdis) / (a_r + a_r);
     double x2 = c_r / (a_r * x1);
@@ -284,49 +288,50 @@ static std::pair<double, double> quadratic_equation_better(int128_t a, int128_t 
 }
 
 // Large integer square roots, returns the integer part.
-// The time complexity is lower than the traditional dichotomy 
+// The time complexity is lower than the traditional dichotomy
 // and Newton iteration method, and the number of iterations is fixed.
-// in real-time systems, functions that execute an unpredictable number of iterations 
+// in real-time systems, functions that execute an unpredictable number of iterations
 // will make the total time per task unpredictable, and introduce jitter
 // Reference: https://www.embedded.com/integer-square-roots/
-// Reference: https://link.zhihu.com/?target=https%3A//gist.github.com/miloyip/69663b78b26afa0dcc260382a6034b1a 
-// Reference: https://www.zhihu.com/question/35122102 
+// Reference: https://link.zhihu.com/?target=https%3A//gist.github.com/miloyip/69663b78b26afa0dcc260382a6034b1a
+// Reference: https://www.zhihu.com/question/35122102
 static std::pair<__uint128_t, __uint128_t> sqrt_integer(__uint128_t n) {
     __uint128_t remainder = 0, root = 0;
     for (size_t i = 0; i < 64; i++) {
         root <<= 1;
         ++root;
         remainder <<= 2;
-        remainder |= n >> 126;   n <<= 2; // Extract 2 MSB from n
+        remainder |= n >> 126;
+        n <<= 2; // Extract 2 MSB from n
         if (root <= remainder) {
             remainder -= root;
             ++root;
-        }
-        else{
+        } else {
             --root;
         }
     }
     return std::make_pair(root >>= 1, remainder);
 }
 
-// According to the integer part and the remainder of the square root, 
+// According to the integer part and the remainder of the square root,
 // Use one-dimensional quadratic equation to solve the fractional part of the square root
 static double sqrt_fractional(int128_t sqrt_int, int128_t remainder) {
-    std::pair<double, double> p = quadratic_equation_better(1, 2*sqrt_int, -remainder);
-    if ((0 < p.first) &&  (p.first < 1)) return  p.first;
-    if ((0 < p.second) &&  (p.second < 1)) return  p.second;
+    std::pair<double, double> p = quadratic_equation_better(1, 2 * sqrt_int, -remainder);
+    if ((0 < p.first) && (p.first < 1)) return p.first;
+    if ((0 < p.second) && (p.second < 1)) return p.second;
     return 0;
 }
 
-const int128_t DecimalV2Value::SQRT_MOLECULAR_MAGNIFICATION = get_scale_base(PRECISION/2);
-const int128_t DecimalV2Value::SQRT_DENOMINATOR = std::sqrt(ONE_BILLION) * get_scale_base(PRECISION/2 - SCALE);
+const int128_t DecimalV2Value::SQRT_MOLECULAR_MAGNIFICATION = get_scale_base(PRECISION / 2);
+const int128_t DecimalV2Value::SQRT_DENOMINATOR =
+        std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE);
 
 DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     int128_t x = v.value();
     std::pair<__uint128_t, __uint128_t> sqrt_integer_ret;
     bool is_negative = (x < 0);
     if (x == 0) {
-       return DecimalV2Value(0);
+        return DecimalV2Value(0);
     }
     sqrt_integer_ret = sqrt_integer(abs(x));
     int128_t integer_root = static_cast<int128_t>(sqrt_integer_ret.first);
@@ -336,10 +341,11 @@ DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     // Multiplying by SQRT_MOLECULAR_MAGNIFICATION here will not overflow,
     // because integer_root can be up to 64 bits.
     int128_t molecular_integer = integer_root * SQRT_MOLECULAR_MAGNIFICATION;
-    int128_t molecular_fractional = static_cast<int128_t>(fractional * SQRT_MOLECULAR_MAGNIFICATION);
-    int128_t ret = (molecular_integer + molecular_fractional)/SQRT_DENOMINATOR;
+    int128_t molecular_fractional =
+            static_cast<int128_t>(fractional * SQRT_MOLECULAR_MAGNIFICATION);
+    int128_t ret = (molecular_integer + molecular_fractional) / SQRT_DENOMINATOR;
     if (is_negative) ret = -ret;
-    return DecimalV2Value(ret); 
+    return DecimalV2Value(ret);
 }
 
 int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
@@ -354,50 +360,86 @@ int DecimalV2Value::parse_from_str(const char* decimal_str, int32_t length) {
     return error;
 }
 
-std::string DecimalV2Value::to_string(int round_scale) const {
-    if (_value == 0) return std::string(1, '0');
-
-    int last_char_idx = PRECISION + 2 + (_value < 0);
-    std::string str = std::string(last_char_idx, '0');
-
-    int128_t remaining_value = _value;
-    int first_digit_idx = 0;
-    if (_value < 0) {
-        remaining_value = -_value;
-        first_digit_idx = 1;
-    }
-
-    int remaining_scale = SCALE;
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-    } while (--remaining_scale > 0);
-    str[--last_char_idx] = '.';
-
-    do {
-        str[--last_char_idx] = (remaining_value % 10) + '0';
-        remaining_value /= 10;
-        if (remaining_value == 0) {
-            if (last_char_idx > first_digit_idx) str.erase(0, last_char_idx - first_digit_idx);
-            break;
+std::string DecimalV2Value::to_string(int scale) const {
+    int64_t int_val = int_value();
+    int32_t frac_val = abs(frac_value());
+    if (scale < 0 || scale > SCALE) {
+        if (frac_val == 0) {
+            scale = 0;
+        } else {
+            scale = SCALE;
+            while (frac_val != 0 && frac_val % 10 == 0) {
+                frac_val = frac_val / 10;
+                scale--;
+            }
         }
-    } while (last_char_idx > first_digit_idx);
-
-    if (_value < 0) str[0] = '-';
-
-    // right trim and round
-    int scale = 0;
-    int len = str.size();
-    for (scale = 0; scale < SCALE && scale < len; scale++) {
-        if (str[len - scale - 1] != '0') break;
+    } else {
+        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
     }
-    if (scale == SCALE) scale++; //integer, trim .
-    if (round_scale >= 0 && round_scale <= SCALE) {
-        scale = std::max(scale, SCALE - round_scale);
+    auto f_int = fmt::format_int(int_val);
+    if (scale == 0) {
+        return f_int.str();
     }
-    if (scale > 1 && scale <= len) str.erase(len - scale, len - 1);
-
+    std::string str;
+    if (_value < 0 && int_val == 0 && frac_val != 0) {
+        str.reserve(f_int.size() + scale + 2);
+        str.push_back('-');
+    } else {
+        str.reserve(f_int.size() + scale + 1);
+    }
+    str.append(f_int.data(), f_int.size());
+    str.push_back('.');
+    if (frac_val == 0) {
+        str.append(scale, '0');
+    } else {
+        auto f_frac = fmt::format_int(frac_val);
+        if (f_frac.size() < scale) {
+            str.append(scale - f_frac.size(), '0');
+        }
+        str.append(f_frac.data(), f_frac.size());
+    }
     return str;
+}
+
+int32_t DecimalV2Value::to_buffer(char* buffer, int scale) const {
+    int64_t int_val = int_value();
+    int32_t frac_val = abs(frac_value());
+    if (scale < 0 || scale > SCALE) {
+        if (frac_val == 0) {
+            scale = 0;
+        } else {
+            scale = SCALE;
+            while (frac_val != 0 && frac_val % 10 == 0) {
+                frac_val = frac_val / 10;
+                scale--;
+            }
+        }
+    } else {
+        frac_val = frac_val / SCALE_TRIM_ARRAY[scale];
+    }
+    int extra_sign_size = 0;
+    if (_value < 0 && int_val == 0 && frac_val != 0) {
+        *buffer++ = '-';
+        extra_sign_size = 1;
+    }
+    auto f_int = fmt::format_int(int_val);
+    memcpy(buffer, f_int.data(), f_int.size());
+    if (scale == 0) {
+        return f_int.size();
+    }
+    *(buffer + f_int.size()) = '.';
+    buffer = buffer + f_int.size() + 1;
+    if (frac_val == 0) {
+        memset(buffer, '0', scale);
+    } else {
+        auto f_frac = fmt::format_int(frac_val);
+        if (f_frac.size() < scale) {
+            memset(buffer, '0', scale - f_frac.size());
+            buffer = buffer + scale - f_frac.size();
+        }
+        memcpy(buffer, f_frac.data(), f_frac.size());
+    }
+    return f_int.size() + scale + 1 + extra_sign_size;
 }
 
 std::string DecimalV2Value::to_string() const {

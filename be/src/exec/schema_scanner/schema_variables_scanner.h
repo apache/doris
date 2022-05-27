@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_VARIABLES_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_VARIABLES_SCANNER_H
+#pragma once
 
 #include <map>
 #include <string>
@@ -42,7 +41,6 @@ private:
 
     Status fill_one_row(Tuple* tuple, MemPool* pool);
 
-    int _index;
     static SchemaScanner::ColumnDesc _s_vars_columns[];
 
     TShowVariableResult _var_result;
@@ -51,4 +49,3 @@ private:
 };
 
 } // namespace doris
-#endif

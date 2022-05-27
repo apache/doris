@@ -50,7 +50,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,13 +78,13 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Map<String, EtlPartitionConf> etlPartitions = createEtlPartitions();
         Preconditions.checkNotNull(etlPartitions);
         taskConf.setEtlPartitions(etlPartitions);
-    
+
         LoadErrorHub.Param info = load.getLoadErrorHubInfo();
         // hadoop load only support mysql load error hub
         if (info != null && info.getType() == HubType.MYSQL_TYPE) {
             taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
         }
-    
+
         etlTaskConf = taskConf.toDppTaskConf();
         Preconditions.checkNotNull(etlTaskConf);
 
@@ -95,10 +94,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             throw new LoadException("txn does not exist: " + job.getTransactionId());
         }
         for (long tableId : job.getIdToTableLoadInfo().keySet()) {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 txnState.addTableIndexes(table);
@@ -132,10 +128,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             long tableId = tableEntry.getKey();
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
 
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            if (table == null) {
-                throw new LoadException("table does not exist. id: " + tableId);
-            }
+            OlapTable table = (OlapTable) db.getTableOrException(tableId, s -> new LoadException("table does not exist. id: " + s));
             table.readLock();
             try {
                 // columns
@@ -175,7 +168,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
 
     private Map<String, EtlColumn> createEtlColumns(OlapTable table) {
         Map<String, EtlColumn> etlColumns = Maps.newHashMap();
-        for (Column column : table.getBaseSchema()) {
+        for (Column column : table.getBaseSchema(true)) {
             etlColumns.put(column.getName(), new EtlColumn(column));
         }
         return etlColumns;
@@ -217,7 +210,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 } else {
                     dppColumn.put("is_key", false);
                     String aggregation = "none";
-                    if ("AGG_KEYS" == table.getKeysType().name()) {
+                    if ("AGG_KEYS".equals(table.getKeysType().name())) {
                         AggregateType aggregateType = column.getAggregationType();
                         if (AggregateType.SUM == aggregateType) {
                             aggregation = "ADD";
@@ -231,7 +224,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                 }
                 columnRefs.add(dppColumn);
             }
-
             // distribution infos
             DistributionInfo distributionInfo = partition.getDistributionInfo();
             List<String> distributionColumnRefs = Lists.newArrayList();
@@ -263,7 +255,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                             dppColumn.put("name", column.getName());
                             dppColumn.put("is_key", true);
                             dppColumn.put("is_implicit", true);
-                            columnRefs.add(keySize, dppColumn); 
+                            columnRefs.add(keySize, dppColumn);
                             ++keySize;
                         }
                     }
@@ -272,7 +264,6 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     LOG.warn("unknown distribution type. type: {}", distributionInfo.getType().name());
                     throw new LoadException("unknown distribution type. type: " + distributionInfo.getType().name());
             }
-
             etlIndex.setPidKeyCount(keySize);
             etlIndex.setColumnRefs(columnRefs);
             etlIndices.put(String.valueOf(indexId), etlIndex);
@@ -551,6 +542,10 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
                     break;
                 case BITMAP:
                     columnType = "BITMAP";
+                    break;
+                // TODO(weixiang): not support in broker load.
+                case QUANTILE_STATE:
+                    columnType = "QUANTILE_STATE";
                     break;
                 case DECIMALV2:
                     columnType = "DECIMAL";

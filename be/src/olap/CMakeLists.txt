@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 add_subdirectory(rowset)
 add_subdirectory(fs)
-add_subdirectory(memory)
 
 add_library(Olap STATIC
     aggregate_func.cpp
@@ -65,12 +64,14 @@ add_library(Olap STATIC
     page_cache.cpp
     push_handler.cpp
     reader.cpp
+    tuple_reader.cpp
     row_block.cpp
     row_block2.cpp
     row_cursor.cpp
     version_graph.cpp
     schema.cpp
     schema_change.cpp
+    storage_migration_v2.cpp
     serialize.cpp
     storage_engine.cpp
     data_dir.cpp
@@ -85,7 +86,6 @@ add_library(Olap STATIC
     tablet_meta.cpp
     tablet_meta_manager.cpp
     tablet_schema.cpp
-    tablet_sync_service.cpp
     txn_manager.cpp
     types.cpp 
     utils.cpp
@@ -117,8 +117,9 @@ add_library(Olap STATIC
     task/engine_checksum_task.cpp
     task/engine_clone_task.cpp
     task/engine_storage_migration_task.cpp
+    task/engine_storage_migration_task_v2.cpp
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
-    olap_snapshot_converter.cpp
     column_vector.cpp
+    segment_loader.cpp
 )

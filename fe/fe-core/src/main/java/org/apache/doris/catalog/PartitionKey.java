@@ -32,7 +32,6 @@ import org.apache.doris.common.io.Writable;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -190,16 +189,16 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     // compare with other PartitionKey. used for partition prune
     @Override
     public int compareTo(PartitionKey other) {
-        int this_key_len = this.keys.size();
-        int other_key_len = other.keys.size();
-        int min_len = Math.min(this_key_len, other_key_len);
-        for (int i = 0; i < min_len; ++i) {
+        int thisKeyLen = this.keys.size();
+        int otherKeyLen = other.keys.size();
+        int minLen = Math.min(thisKeyLen, otherKeyLen);
+        for (int i = 0; i < minLen; ++i) {
             int ret = compareLiteralExpr(this.getKeys().get(i), other.getKeys().get(i));
             if (0 != ret) {
                 return ret;
             }
         }
-        return Integer.compare(this_key_len, other_key_len);
+        return Integer.compare(thisKeyLen, otherKeyLen);
     }
 
     // return: ("100", "200", "300")
@@ -238,6 +237,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         builder.append("]; ");
 
         builder.append("keys: [");
+        builder.append(toString(keys));
+        builder.append("]; ");
+
+        return builder.toString();
+    }
+
+    public static String toString(List<LiteralExpr> keys) {
+        StringBuilder builder = new StringBuilder();
         int i = 0;
         for (LiteralExpr expr : keys) {
             Object value = null;
@@ -253,12 +260,10 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
             if (keys.size() - 1 == i) {
                 builder.append(value);
             } else {
-                builder.append(value + ", ");
+                builder.append(value).append(", ");
             }
             ++i;
         }
-        builder.append("]; ");
-
         return builder.toString();
     }
 
@@ -309,6 +314,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                         break;
                     case CHAR:
                     case VARCHAR:
+                    case STRING:
                         literal = StringLiteral.read(in);
                         break;
                     case BOOLEAN:

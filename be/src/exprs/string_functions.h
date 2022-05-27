@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/string-functions.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_STRING_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_STRING_FUNCTIONS_H
+#pragma once
 
 #include <re2/re2.h>
 
@@ -26,6 +28,7 @@
 #include <string_view>
 
 #include "anyval_util.h"
+#include "gutil/strings/numbers.h"
 #include "runtime/string_search.hpp"
 #include "runtime/string_value.h"
 
@@ -111,15 +114,6 @@ public:
                                     const doris_udf::StringVal& replace);
     static void regexp_close(doris_udf::FunctionContext*,
                              doris_udf::FunctionContext::FunctionStateScope);
-#if 0
-    static void RegexpMatchCountPrepare(FunctionContext* context,
-                                        FunctionContext::FunctionStateScope scope);
-    static IntVal RegexpMatchCount2Args(FunctionContext* context, const StringVal& str,
-                                        const StringVal& pattern);
-    static IntVal RegexpMatchCount4Args(FunctionContext* context, const StringVal& str,
-                                        const StringVal& pattern, const IntVal& start_pos,
-                                        const StringVal& match_parameter);
-#endif
     static StringVal concat(doris_udf::FunctionContext*, int num_children, const StringVal* strs);
     static StringVal concat_ws(doris_udf::FunctionContext*, const doris_udf::StringVal& sep,
                                int num_children, const doris_udf::StringVal* strs);
@@ -148,28 +142,40 @@ public:
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                              const doris_udf::LargeIntVal& v);
 
-    struct CommaMoneypunct : std::moneypunct<char> {
-        pattern do_pos_format() const override { return {{none, sign, none, value}}; }
-        pattern do_neg_format() const override { return {{none, sign, none, value}}; }
-        int do_frac_digits() const override { return 2; }
-        char_type do_thousands_sep() const override { return ','; }
-        string_type do_grouping() const override { return "\003"; }
-        string_type do_negative_sign() const override { return "-"; }
+    template <typename T, size_t N>
+    static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                     const int32_t frac_value = 0) {
+        char local[N];
+        char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+        int32_t string_val_len = local + sizeof(local) - p + 3;
+        StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+        memcpy(result.ptr, p, string_val_len - 3);
+        *(result.ptr + string_val_len - 3) = '.';
+        *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+        *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+        return result;
     };
 
-    static StringVal do_money_format(FunctionContext* context, const std::string& v) {
-        static std::locale comma_locale(std::locale(), new CommaMoneypunct());
-        static std::stringstream ss;
-        static bool ss_init = false;
-        if (UNLIKELY(!ss_init)) {
-            ss.imbue(comma_locale);
-            ss_init = true;
+    // Note string value must be valid decimal string which contains two digits after the decimal point
+    static StringVal do_money_format(FunctionContext* context, const string& value) {
+        bool is_positive = (value[0] != '-');
+        int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+        StringVal result = StringVal::create_temp_string_val(context, result_len);
+        if (!is_positive) {
+            *result.ptr = '-';
         }
-        static std::string empty_string;
-        ss.str(empty_string);
-
-        ss << std::put_money(v);
-        return AnyValUtil::from_string_temp(context, ss.str());
+        for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+            *(result.ptr + j) = *(value.data() + i);
+            if (i - 1 < 0) break;
+            *(result.ptr + j - 1) = *(value.data() + i - 1);
+            if (i - 2 < 0) break;
+            *(result.ptr + j - 2) = *(value.data() + i - 2);
+            if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+                *(result.ptr + j - 3) = ',';
+            }
+        }
+        memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+        return result;
     };
 
     static StringVal split_part(FunctionContext* context, const StringVal& content,
@@ -179,8 +185,9 @@ public:
                              const StringVal& oldStr, const StringVal& newStr);
 
     static doris_udf::IntVal bit_length(doris_udf::FunctionContext* context,
-                                    const doris_udf::StringVal& str);
+                                        const doris_udf::StringVal& str);
+    // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
+    static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
+                                   const StringVal& match_parameter);
 };
 } // namespace doris
-
-#endif

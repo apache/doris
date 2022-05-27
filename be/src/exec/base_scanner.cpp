@@ -17,7 +17,10 @@
 
 #include "base_scanner.h"
 
+#include <fmt/format.h>
+
 #include "common/logging.h"
+#include "common/utils.h"
 #include "exec/exec_node.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
@@ -25,34 +28,42 @@
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
 BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
                          const TBrokerScanRangeParams& params,
-                         const std::vector<ExprContext*>& pre_filter_ctxs,
-                         ScannerCounter* counter)
+                         const std::vector<TBrokerRangeDesc>& ranges,
+                         const std::vector<TNetworkAddress>& broker_addresses,
+                         const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
         : _state(state),
           _params(params),
+          _ranges(ranges),
+          _broker_addresses(broker_addresses),
+          _next_range(0),
           _counter(counter),
           _src_tuple(nullptr),
           _src_tuple_row(nullptr),
 #if BE_TEST
           _mem_tracker(new MemTracker()),
 #else
-          _mem_tracker(
-                  MemTracker::CreateTracker(-1, "BaseScanner:" + std::to_string(state->load_job_id()),
-                                            state->instance_mem_tracker())),
+          _mem_tracker(MemTracker::create_tracker(
+                  -1, state->query_type() == TQueryType::LOAD
+                              ? "BaseScanner:" + std::to_string(state->load_job_id())
+                              : "BaseScanner:Select")),
 #endif
-          _mem_pool(_mem_tracker.get()),
+          _mem_pool(std::make_unique<MemPool>(_mem_tracker.get())),
           _dest_tuple_desc(nullptr),
-          _pre_filter_ctxs(pre_filter_ctxs),
+          _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
           _line_counter(0),
           _profile(profile),
           _rows_read_counter(nullptr),
           _read_timer(nullptr),
-          _materialize_timer(nullptr) {
+          _materialize_timer(nullptr),
+          _success(false),
+          _scanner_eof(false) {
 }
 
 Status BaseScanner::open() {
@@ -66,6 +77,22 @@ Status BaseScanner::open() {
     _rows_read_counter = ADD_COUNTER(_profile, "RowsRead", TUnit::UNIT);
     _read_timer = ADD_TIMER(_profile, "TotalRawReadTime(*)");
     _materialize_timer = ADD_TIMER(_profile, "MaterializeTupleTime(*)");
+
+    DCHECK(!_ranges.empty());
+    const auto& range = _ranges[0];
+    _num_of_columns_from_file = range.__isset.num_of_columns_from_file
+                                        ? implicit_cast<int>(range.num_of_columns_from_file)
+                                        : implicit_cast<int>(_src_slot_descs.size());
+
+    // check consistency
+    if (range.__isset.num_of_columns_from_file) {
+        int size = range.columns_from_path.size();
+        for (const auto& r : _ranges) {
+            if (r.columns_from_path.size() != size) {
+                return Status::InternalError("ranges have different number of columns.");
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -93,12 +120,30 @@ Status BaseScanner::init_expr_ctxes() {
         _src_slot_descs.emplace_back(it->second);
     }
     // Construct source tuple and tuple row
-    _src_tuple = (Tuple*)_mem_pool.allocate(src_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*)_mem_pool.allocate(sizeof(Tuple*));
+    _src_tuple = (Tuple*)_mem_pool->allocate(src_tuple_desc->byte_size());
+    _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
     _src_tuple_row->set_tuple(0, _src_tuple);
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),
                                       std::vector<bool>({false})));
+
+    // preceding filter expr should be initialized by using `_row_desc`, which is the source row descriptor
+    if (!_pre_filter_texprs.empty()) {
+        if (_state->enable_vectorized_exec()) {
+            // for vectorized, preceding filter exprs should be compounded to one passed from fe.
+            DCHECK(_pre_filter_texprs.size() == 1);
+            _vpre_filter_ctx_ptr.reset(new doris::vectorized::VExprContext*);
+            RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(
+                    _state->obj_pool(), _pre_filter_texprs[0], _vpre_filter_ctx_ptr.get()));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->prepare(_state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR((*_vpre_filter_ctx_ptr)->open(_state));
+        } else {
+            RETURN_IF_ERROR(Expr::create_expr_trees(_state->obj_pool(), _pre_filter_texprs,
+                                                    &_pre_filter_ctxs));
+            RETURN_IF_ERROR(Expr::prepare(_pre_filter_ctxs, _state, *_row_desc, _mem_tracker));
+            RETURN_IF_ERROR(Expr::open(_pre_filter_ctxs, _state));
+        }
+    }
 
     // Construct dest slots information
     _dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
@@ -120,11 +165,21 @@ Status BaseScanner::init_expr_ctxes() {
                << ", name=" << slot_desc->col_name();
             return Status::InternalError(ss.str());
         }
-        ExprContext* ctx = nullptr;
-        RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
-        RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
-        RETURN_IF_ERROR(ctx->open(_state));
-        _dest_expr_ctx.emplace_back(ctx);
+
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(
+                    vectorized::VExpr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_vexpr_ctx.emplace_back(ctx);
+        } else {
+            ExprContext* ctx = nullptr;
+            RETURN_IF_ERROR(Expr::create_expr_tree(_state->obj_pool(), it->second, &ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_row_desc.get(), _mem_tracker));
+            RETURN_IF_ERROR(ctx->open(_state));
+            _dest_expr_ctx.emplace_back(ctx);
+        }
         if (has_slot_id_map) {
             auto it = _params.dest_sid_to_src_sid_without_trans.find(slot_desc->id());
             if (it == std::end(_params.dest_sid_to_src_sid_without_trans)) {
@@ -143,11 +198,23 @@ Status BaseScanner::init_expr_ctxes() {
     return Status::OK();
 }
 
-bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
+Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
+    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
+    if (_success) {
+        free_expr_local_allocations();
+        *fill_tuple = true;
+    } else {
+        *fill_tuple = false;
+    }
+    return Status::OK();
+}
+
+Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
     // filter src tuple by preceding filter first
-	if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
+    if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
         _counter->num_rows_unselected++;
-        return false;
+        _success = false;
+        return Status::OK();
     }
 
     // convert and fill dest tuple
@@ -164,41 +231,62 @@ bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
             // Only when the expr return value is null, we will check the error message.
             std::string expr_error = ctx->get_error_msg();
             if (!expr_error.empty()) {
-                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())),
-                                                 expr_error);
+                RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                        [&]() -> std::string {
+                            return _src_tuple_row->to_string(*(_row_desc.get()));
+                        },
+                        [&]() -> std::string { return expr_error; }, &_scanner_eof));
                 _counter->num_rows_filtered++;
                 // The ctx is reused, so must clear the error state and message.
                 ctx->clear_error_msg();
-                return false;
+                _success = false;
+                return Status::OK();
             }
             // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
             if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
                 !_src_tuple->is_null(
                         _src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
-                //Type of the slot is must be Varchar in _src_tuple.
-                StringValue* raw_value = _src_tuple->get_string_slot(
-                        _src_slot_descs_order_by_dest[dest_index]->tuple_offset());
-                std::string raw_string;
-                if (raw_value != nullptr) { //is not null then get raw value
-                    raw_string = raw_value->to_string();
-                }
-                std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is incorrect "
-                          << "while strict mode is " << std::boolalpha << _strict_mode
-                          << ", src value is " << raw_string;
-                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())),
-                                                 error_msg.str());
+                RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                        [&]() -> std::string {
+                            return _src_tuple_row->to_string(*(_row_desc.get()));
+                        },
+                        [&]() -> std::string {
+                            // Type of the slot is must be Varchar in _src_tuple.
+                            StringValue* raw_value = _src_tuple->get_string_slot(
+                                    _src_slot_descs_order_by_dest[dest_index]->tuple_offset());
+                            std::string raw_string;
+                            if (raw_value != nullptr) { //is not null then get raw value
+                                raw_string = raw_value->to_string();
+                            }
+                            fmt::memory_buffer error_msg;
+                            fmt::format_to(error_msg,
+                                           "column({}) value is incorrect while strict mode is {}, "
+                                           "src value is {}",
+                                           slot_desc->col_name(), _strict_mode, raw_string);
+                            return fmt::to_string(error_msg);
+                        },
+                        &_scanner_eof));
                 _counter->num_rows_filtered++;
-                return false;
+                _success = false;
+                return Status::OK();
             }
             if (!slot_desc->is_nullable()) {
-                std::stringstream error_msg;
-                error_msg << "column(" << slot_desc->col_name() << ") value is null "
-                          << "while columns is not nullable";
-                _state->append_error_msg_to_file(_src_tuple_row->to_string(*(_row_desc.get())),
-                                                 error_msg.str());
+                RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                        [&]() -> std::string {
+                            return _src_tuple_row->to_string(*(_row_desc.get()));
+                        },
+                        [&]() -> std::string {
+                            fmt::memory_buffer error_msg;
+                            fmt::format_to(
+                                    error_msg,
+                                    "column({}) values is null while columns is not nullable",
+                                    slot_desc->col_name());
+                            return fmt::to_string(error_msg);
+                        },
+                        &_scanner_eof));
                 _counter->num_rows_filtered++;
-                return false;
+                _success = false;
+                return Status::OK();
             }
             dest_tuple->set_null(slot_desc->null_indicator_offset());
             continue;
@@ -208,9 +296,134 @@ bool BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
         }
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
-        continue;
     }
-    return true;
+    _success = true;
+    return Status::OK();
+}
+
+Status BaseScanner::_filter_src_block() {
+    auto origin_column_num = _src_block.columns();
+    // filter block
+    auto old_rows = _src_block.rows();
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_vpre_filter_ctx_ptr, &_src_block,
+                                                           origin_column_num));
+    _counter->num_rows_unselected += old_rows - _src_block.rows();
+    return Status::OK();
+}
+
+Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
+    // Do vectorized expr here
+    int ctx_idx = 0;
+    size_t rows = _src_block.rows();
+    auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
+    auto& filter_map = filter_column->get_data();
+
+    for (auto slot_desc : _dest_tuple_desc->slots()) {
+        if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        int dest_index = ctx_idx++;
+
+        auto* ctx = _dest_vexpr_ctx[dest_index];
+        int result_column_id = -1;
+        // PT1 => dest primitive type
+        RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
+        auto column_ptr = _src_block.get_by_position(result_column_id).column;
+
+        // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
+        // is likely to be nullable
+        if (LIKELY(column_ptr->is_nullable())) {
+            auto nullable_column =
+                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+            for (int i = 0; i < rows; ++i) {
+                if (filter_map[i] && nullable_column->is_null_at(i)) {
+                    if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index]) &&
+                        !_src_block.get_by_position(dest_index).column->is_null_at(i)) {
+                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                                [&]() -> std::string {
+                                    return _src_block.dump_one_line(i, _num_of_columns_from_file);
+                                },
+                                [&]() -> std::string {
+                                    auto raw_value =
+                                            _src_block.get_by_position(ctx_idx).column->get_data_at(
+                                                    i);
+                                    std::string raw_string = raw_value.to_string();
+                                    fmt::memory_buffer error_msg;
+                                    fmt::format_to(error_msg,
+                                                   "column({}) value is incorrect while strict "
+                                                   "mode is {}, "
+                                                   "src value is {}",
+                                                   slot_desc->col_name(), _strict_mode, raw_string);
+                                    return fmt::to_string(error_msg);
+                                },
+                                &_scanner_eof));
+                        filter_map[i] = false;
+                    } else if (!slot_desc->is_nullable()) {
+                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                                [&]() -> std::string {
+                                    return _src_block.dump_one_line(i, _num_of_columns_from_file);
+                                },
+                                [&]() -> std::string {
+                                    fmt::memory_buffer error_msg;
+                                    fmt::format_to(error_msg,
+                                                   "column({}) values is null while columns is not "
+                                                   "nullable",
+                                                   slot_desc->col_name());
+                                    return fmt::to_string(error_msg);
+                                },
+                                &_scanner_eof));
+                        filter_map[i] = false;
+                    }
+                }
+            }
+            if (!slot_desc->is_nullable()) column_ptr = nullable_column->get_nested_column_ptr();
+        } else if (slot_desc->is_nullable()) {
+            column_ptr = vectorized::make_nullable(column_ptr);
+        }
+        dest_block->insert(vectorized::ColumnWithTypeAndName(
+                std::move(column_ptr), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    }
+
+    // after do the dest block insert operation, clear _src_block to remove the reference of origin column
+    _src_block.clear();
+
+    size_t dest_size = dest_block->columns();
+    // do filter
+    dest_block->insert(vectorized::ColumnWithTypeAndName(
+            std::move(filter_column), std::make_shared<vectorized::DataTypeUInt8>(),
+            "filter column"));
+    RETURN_IF_ERROR(vectorized::Block::filter_block(dest_block, dest_size, dest_size));
+    _counter->num_rows_filtered += rows - dest_block->rows();
+
+    return Status::OK();
+}
+
+// TODO: opt the reuse of src_block or dest_block column. some case we have to
+// shallow copy the column of src_block to dest block
+Status BaseScanner::_init_src_block() {
+    DCHECK(_src_block.columns() == 0);
+    for (auto i = 0; i < _num_of_columns_from_file; ++i) {
+        SlotDescriptor* slot_desc = _src_slot_descs[i];
+        if (slot_desc == nullptr) {
+            continue;
+        }
+        auto data_type = slot_desc->get_data_type_ptr();
+        _src_block.insert(vectorized::ColumnWithTypeAndName(
+                data_type->create_column(), slot_desc->get_data_type_ptr(), slot_desc->col_name()));
+    }
+
+    return Status::OK();
+}
+
+Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
+    *eof = _scanner_eof;
+    _fill_columns_from_path();
+    if (LIKELY(_src_block.rows() > 0)) {
+        RETURN_IF_ERROR(BaseScanner::_filter_src_block());
+        RETURN_IF_ERROR(BaseScanner::_materialize_dest_block(dest_block));
+    }
+
+    return Status::OK();
 }
 
 void BaseScanner::fill_slots_of_columns_from_path(
@@ -220,7 +433,7 @@ void BaseScanner::fill_slots_of_columns_from_path(
         auto slot_desc = _src_slot_descs.at(i + start);
         _src_tuple->set_not_null(slot_desc->null_indicator_offset());
         void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        auto* str_slot = reinterpret_cast<StringValue*>(slot);
         const std::string& column_from_path = columns_from_path[i];
         str_slot->ptr = const_cast<char*>(column_from_path.c_str());
         str_slot->len = column_from_path.size();
@@ -233,5 +446,38 @@ void BaseScanner::free_expr_local_allocations() {
     }
 }
 
+void BaseScanner::close() {
+    if (!_pre_filter_ctxs.empty()) {
+        Expr::close(_pre_filter_ctxs, _state);
+    }
+
+    if (_vpre_filter_ctx_ptr) {
+        (*_vpre_filter_ctx_ptr)->close(_state);
+    }
+}
+
+void BaseScanner::_fill_columns_from_path() {
+    const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
+    if (range.__isset.num_of_columns_from_file) {
+        size_t start = range.num_of_columns_from_file;
+        size_t rows = _src_block.rows();
+
+        for (size_t i = 0; i < range.columns_from_path.size(); ++i) {
+            auto slot_desc = _src_slot_descs.at(i + start);
+            if (slot_desc == nullptr) continue;
+            auto is_nullable = slot_desc->is_nullable();
+            auto data_type = vectorized::DataTypeFactory::instance().create_data_type(TYPE_VARCHAR,
+                                                                                      is_nullable);
+            auto data_column = data_type->create_column();
+            const std::string& column_from_path = range.columns_from_path[i];
+            for (size_t j = 0; j < rows; ++j) {
+                data_column->insert_data(const_cast<char*>(column_from_path.c_str()),
+                                         column_from_path.size());
+            }
+            _src_block.insert(vectorized::ColumnWithTypeAndName(std::move(data_column), data_type,
+                                                                slot_desc->col_name()));
+        }
+    }
+}
 
 } // namespace doris

@@ -28,12 +28,12 @@ public class BalanceStatus {
         STATE_NOT_NORMAL,
         COMMON_ERROR
     }
-    
+
     private ErrCode errCode;
     private List<String> errMsgs = Lists.newArrayList();
-    
+
     public static final BalanceStatus OK = new BalanceStatus(ErrCode.OK, "");
-    
+
     public BalanceStatus(ErrCode errCode) {
         this.errCode = errCode;
     }
@@ -42,15 +42,15 @@ public class BalanceStatus {
         this.errCode = errCode;
         this.errMsgs.add(errMsg);
     }
-    
+
     public ErrCode getErrCode() {
         return errCode;
     }
-    
+
     public List<String> getErrMsgs() {
         return errMsgs;
     }
-    
+
     public void addErrMsgs(List<String> errMsgs) {
         this.errMsgs.addAll(errMsgs);
     }
@@ -62,7 +62,7 @@ public class BalanceStatus {
     public boolean ok() {
         return errCode == ErrCode.OK;
     }
-    
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

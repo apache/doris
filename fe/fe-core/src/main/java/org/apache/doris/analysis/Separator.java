@@ -34,6 +34,10 @@ public class Separator implements ParseNode {
         this.separator = null;
     }
 
+    public String getOriSeparator() {
+        return oriSeparator;
+    }
+
     public String getSeparator() {
         return separator;
     }
@@ -122,7 +126,7 @@ public class Separator implements ParseNode {
                     case 'n':
                         sb.append('\n');
                         break;
-                    default :
+                    default:
                         sb.append('\\').append(ch);
                         break;
                 }

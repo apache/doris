@@ -17,8 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+
+import com.google.common.base.Strings;
 
 /*
   Resume routine load job by name
@@ -26,12 +30,17 @@ import org.apache.doris.common.UserException;
   syntax:
       RESUME ROUTINE LOAD [database.]name
  */
-public class ResumeRoutineLoadStmt extends DdlStmt{
+public class ResumeRoutineLoadStmt extends DdlStmt {
 
     private final LabelName labelName;
+    private String db;
 
     public ResumeRoutineLoadStmt(LabelName labelName) {
         this.labelName = labelName;
+    }
+
+    public boolean isAll() {
+        return labelName == null;
     }
 
     public String getName() {
@@ -39,12 +48,20 @@ public class ResumeRoutineLoadStmt extends DdlStmt{
     }
 
     public String getDbFullName() {
-        return labelName.getDbName();
+        return db;
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        labelName.analyze(analyzer);
+        if (labelName != null) {
+            labelName.analyze(analyzer);
+            db = labelName.getDbName();
+        } else {
+            if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+            db = ClusterNamespace.getFullName(analyzer.getClusterName(), analyzer.getDefaultDb());
+        }
     }
 }

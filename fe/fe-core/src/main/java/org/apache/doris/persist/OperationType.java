@@ -66,6 +66,8 @@ public class OperationType {
     public static final short OP_BATCH_ADD_ROLLUP = 123;
     public static final short OP_BATCH_DROP_ROLLUP = 124;
     public static final short OP_REMOVE_ALTER_JOB_V2 = 125;
+    public static final short OP_MODIFY_COMMENT = 126;
+    public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
@@ -86,8 +88,10 @@ public class OperationType {
     @Deprecated
     public static final short OP_FINISH_ASYNC_DELETE = 44;
     public static final short OP_UPDATE_REPLICA = 45;
+    @Deprecated
     public static final short OP_BACKEND_TABLETS_INFO = 46;
     public static final short OP_SET_REPLICA_STATUS = 47;
+    public static final short OP_BACKEND_REPLICAS_INFO = 48;
 
     public static final short OP_ADD_BACKEND = 50;
     public static final short OP_DROP_BACKEND = 51;
@@ -132,6 +136,7 @@ public class OperationType {
     public static final short OP_UPDATE_CLUSTER_AND_BACKENDS = 88;
     public static final short OP_CREATE_REPOSITORY = 89;
     public static final short OP_DROP_REPOSITORY = 90;
+    public static final short OP_MODIFY_BACKEND = 91;
 
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;
@@ -172,6 +177,10 @@ public class OperationType {
     public static final short OP_UPDATE_LOAD_JOB = 232;
     // fetch stream load record
     public static final short OP_FETCH_STREAM_LOAD_RECORD = 233;
+    // create sync job
+    public static final short OP_CREATE_SYNC_JOB = 234;
+    // update sync job state
+    public static final short OP_UPDATE_SYNC_JOB_STATE = 235;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
@@ -198,9 +207,21 @@ public class OperationType {
     // resource 276~290
     public static final short OP_CREATE_RESOURCE = 276;
     public static final short OP_DROP_RESOURCE = 277;
+    public static final short OP_ALTER_RESOURCE = 278;
 
     // alter external table
     public static final short OP_ALTER_EXTERNAL_TABLE_SCHEMA = 280;
+
+    public static final short OP_SET_LDAP_PASSWORD = 290;
+
+    // sql block rule 300-310
+    public static final short OP_CREATE_SQL_BLOCK_RULE = 300;
+    public static final short OP_ALTER_SQL_BLOCK_RULE = 301;
+    public static final short OP_DROP_SQL_BLOCK_RULE = 302;
+
+    // policy 310-320
+    public static final short OP_CREATE_POLICY = 310;
+    public static final short OP_DROP_POLICY = 311;
 
     // get opcode name by op codeStri
     public static String getOpName(short opCode) {

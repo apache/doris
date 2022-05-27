@@ -37,7 +37,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -54,7 +53,7 @@ public abstract class RoutineLoadTaskInfo {
     private static final Logger LOG = LogManager.getLogger(RoutineLoadTaskInfo.class);
 
     private RoutineLoadManager routineLoadManager = Catalog.getCurrentCatalog().getRoutineLoadManager();
-    
+
     protected UUID id;
     protected long txnId = -1L;
     protected long jobId;
@@ -88,15 +87,15 @@ public abstract class RoutineLoadTaskInfo {
         this(id, jobId, clusterName, timeoutMs);
         this.previousBeId = previousBeId;
     }
-    
+
     public UUID getId() {
         return id;
     }
-    
+
     public long getJobId() {
         return jobId;
     }
-    
+
     public String getClusterName() {
         return clusterName;
     }
@@ -116,7 +115,7 @@ public abstract class RoutineLoadTaskInfo {
     public long getBeId() {
         return beId;
     }
-    
+
     public long getTxnId() {
         return txnId;
     }
@@ -189,6 +188,7 @@ public abstract class RoutineLoadTaskInfo {
                     DebugUtil.printId(id), jobId, e);
             throw e;
         }
+        routineLoadJob.jobStatistic.runningTxnIds.add(txnId);
         return true;
     }
 
@@ -207,7 +207,9 @@ public abstract class RoutineLoadTaskInfo {
     }
 
     abstract String getTaskDataSourceProperties();
-    
+
+    abstract boolean hasMoreDataToConsume();
+
     @Override
     public boolean equals(Object obj) {
         if (obj instanceof RoutineLoadTaskInfo) {

@@ -14,17 +14,19 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AggregateInfoBase.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,12 +43,12 @@ public abstract class AggregateInfoBase {
 
     // For aggregations: All unique grouping expressions from a select block.
     // For analytics: Empty.
-    protected ArrayList<Expr> groupingExprs_;
+    protected ArrayList<Expr> groupingExprs;
 
     // For aggregations: All unique aggregate expressions from a select block.
     // For analytics: The results of AnalyticExpr.getFnCall() for the unique
     // AnalyticExprs of a select block.
-    protected ArrayList<FunctionCallExpr> aggregateExprs_;
+    protected ArrayList<FunctionCallExpr> aggregateExprs;
 
     // The tuple into which the intermediate output of an aggregation is materialized.
     // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
@@ -55,28 +57,28 @@ public abstract class AggregateInfoBase {
     // of the aggregate functions' intermediate types.
     // Identical to outputTupleDesc_ if no aggregateExpr has an output type that is
     // different from its intermediate type.
-    protected TupleDescriptor intermediateTupleDesc_;
+    protected TupleDescriptor intermediateTupleDesc;
 
     // The tuple into which the final output of the aggregation is materialized.
     // Contains groupingExprs.size() + aggregateExprs.size() slots, the first of which
     // contain the values of the grouping exprs, followed by slots into which the
     // aggregateExprs' finalize() symbol write its result, i.e., slots of the aggregate
     // functions' output types.
-    protected TupleDescriptor outputTupleDesc_;
+    protected TupleDescriptor outputTupleDesc;
 
     // For aggregation: indices into aggregate exprs for that need to be materialized
     // For analytics: indices into the analytic exprs and their corresponding aggregate
     // exprs that need to be materialized.
     // Populated in materializeRequiredSlots() which must be implemented by subclasses.
-    protected ArrayList<Integer> materializedSlots_ = Lists.newArrayList();
+    protected ArrayList<Integer> materializedSlots = Lists.newArrayList();
 
     protected AggregateInfoBase(ArrayList<Expr> groupingExprs,
                                 ArrayList<FunctionCallExpr> aggExprs)  {
         Preconditions.checkState(groupingExprs != null || aggExprs != null);
-        groupingExprs_ =
+        this.groupingExprs =
                 groupingExprs != null ? Expr.cloneList(groupingExprs) : new ArrayList<Expr>();
         Preconditions.checkState(aggExprs != null || !(this instanceof AnalyticInfo));
-        aggregateExprs_ =
+        aggregateExprs =
                 aggExprs != null ? Expr.cloneList(aggExprs) : new ArrayList<FunctionCallExpr>();
     }
 
@@ -84,13 +86,13 @@ public abstract class AggregateInfoBase {
      * C'tor for cloning.
      */
     protected AggregateInfoBase(AggregateInfoBase other) {
-        groupingExprs_ =
-                (other.groupingExprs_ != null) ? Expr.cloneList(other.groupingExprs_) : null;
-        aggregateExprs_ =
-                (other.aggregateExprs_ != null) ? Expr.cloneList(other.aggregateExprs_) : null;
-        intermediateTupleDesc_ = other.intermediateTupleDesc_;
-        outputTupleDesc_ = other.outputTupleDesc_;
-        materializedSlots_ = Lists.newArrayList(other.materializedSlots_);
+        groupingExprs =
+                (other.groupingExprs != null) ? Expr.cloneList(other.groupingExprs) : null;
+        aggregateExprs =
+                (other.aggregateExprs != null) ? Expr.cloneList(other.aggregateExprs) : null;
+        intermediateTupleDesc = other.intermediateTupleDesc;
+        outputTupleDesc = other.outputTupleDesc;
+        materializedSlots = Lists.newArrayList(other.materializedSlots);
     }
 
     /**
@@ -101,11 +103,11 @@ public abstract class AggregateInfoBase {
     protected void createTupleDescs(Analyzer analyzer) {
         // Create the intermediate tuple desc first, so that the tuple ids are increasing
         // from bottom to top in the plan tree.
-        intermediateTupleDesc_ = createTupleDesc(analyzer, false);
-        if (requiresIntermediateTuple(aggregateExprs_)) {
-            outputTupleDesc_ = createTupleDesc(analyzer, true);
+        intermediateTupleDesc = createTupleDesc(analyzer, false);
+        if (requiresIntermediateTuple(aggregateExprs, groupingExprs.size() == 0)) {
+            outputTupleDesc = createTupleDesc(analyzer, true);
         } else {
-            outputTupleDesc_ = intermediateTupleDesc_;
+            outputTupleDesc = intermediateTupleDesc;
         }
     }
 
@@ -120,15 +122,24 @@ public abstract class AggregateInfoBase {
                 analyzer.getDescTbl().createTupleDescriptor(
                         tupleDebugName() + (isOutputTuple ? "-out" : "-intermed"));
         List<Expr> exprs = Lists.newArrayListWithCapacity(
-                groupingExprs_.size() + aggregateExprs_.size());
-        exprs.addAll(groupingExprs_);
-        exprs.addAll(aggregateExprs_);
+                groupingExprs.size() + aggregateExprs.size());
+        exprs.addAll(groupingExprs);
+        exprs.addAll(aggregateExprs);
 
-        int aggregateExprStartIndex = groupingExprs_.size();
+        int aggregateExprStartIndex = groupingExprs.size();
+        // if agg is grouping set, so we should set all groupingExpr unless last groupingExpr
+        // must set be be nullable
+        boolean isGroupingSet = !groupingExprs.isEmpty()
+                && groupingExprs.get(groupingExprs.size() - 1) instanceof VirtualSlotRef;
+
         for (int i = 0; i < exprs.size(); ++i) {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
             slotDesc.initFromExpr(expr);
+            // Not change the nullable of slot desc when is not grouping set id
+            if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
+                slotDesc.setIsNullable(true);
+            }
             if (i < aggregateExprStartIndex) {
                 // register equivalence between grouping slot and grouping expr;
                 // do this only when the grouping expr isn't a constant, otherwise
@@ -139,7 +150,7 @@ public abstract class AggregateInfoBase {
                 }
             } else {
                 Preconditions.checkArgument(expr instanceof FunctionCallExpr);
-                FunctionCallExpr aggExpr = (FunctionCallExpr)expr;
+                FunctionCallExpr aggExpr = (FunctionCallExpr) expr;
                 if (aggExpr.isMergeAggFn()) {
                     slotDesc.setLabel(aggExpr.getChild(0).toSql());
                     slotDesc.setSourceExpr(aggExpr.getChild(0));
@@ -148,18 +159,13 @@ public abstract class AggregateInfoBase {
                     slotDesc.setSourceExpr(aggExpr);
                 }
 
-                // COUNT(), NDV() and NDV_NO_FINALIZE() are non-nullable. The latter two are used
-                // by compute stats and compute incremental stats, respectively.
-                if (aggExpr.getFnName().getFunction().equals(FunctionSet.COUNT)
-                        || aggExpr.getFnName().getFunction().equals("ndv")
-                        || aggExpr.getFnName().getFunction().equals(FunctionSet.BITMAP_UNION_INT)
-                        || aggExpr.getFnName().getFunction().equals("ndv_no_finalize")) {
-                    // TODO: Consider making nullability a property of types or of builtin agg fns.
-                    // row_number(), rank(), and dense_rank() are non-nullable as well.
-                    slotDesc.setIsNullable(false);
+                if (isOutputTuple && aggExpr.getFn().getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)
+                        && groupingExprs.size() == 0) {
+                    slotDesc.setIsNullable(true);
                 }
+
                 if (!isOutputTuple) {
-                    Type intermediateType = ((AggregateFunction)aggExpr.fn).getIntermediateType();
+                    Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
                     if (intermediateType != null) {
                         // Use the output type as intermediate if the function has a wildcard decimal.
                         if (!intermediateType.isWildcardDecimal()) {
@@ -187,16 +193,34 @@ public abstract class AggregateInfoBase {
     public abstract void materializeRequiredSlots(Analyzer analyzer,
                                                   ExprSubstitutionMap smap);
 
-    public ArrayList<Expr> getGroupingExprs() { return groupingExprs_; }
-    public ArrayList<FunctionCallExpr> getAggregateExprs() { return aggregateExprs_; }
-    public TupleDescriptor getOutputTupleDesc() { return outputTupleDesc_; }
-    public TupleDescriptor getIntermediateTupleDesc() { return intermediateTupleDesc_; }
-    public TupleId getIntermediateTupleId() { return intermediateTupleDesc_.getId(); }
-    public TupleId getOutputTupleId() { return outputTupleDesc_.getId(); }
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
+    public ArrayList<FunctionCallExpr> getAggregateExprs() {
+        return aggregateExprs;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public TupleDescriptor getIntermediateTupleDesc() {
+        return intermediateTupleDesc;
+    }
+
+    public TupleId getIntermediateTupleId() {
+        return intermediateTupleDesc.getId();
+    }
+
+    public TupleId getOutputTupleId() {
+        return outputTupleDesc.getId();
+    }
+
     public boolean requiresIntermediateTuple() {
-        Preconditions.checkNotNull(intermediateTupleDesc_);
-        Preconditions.checkNotNull(outputTupleDesc_);
-        return intermediateTupleDesc_ != outputTupleDesc_;
+        Preconditions.checkNotNull(intermediateTupleDesc);
+        Preconditions.checkNotNull(outputTupleDesc);
+        return intermediateTupleDesc != outputTupleDesc;
     }
 
     /**
@@ -205,9 +229,28 @@ public abstract class AggregateInfoBase {
      * its output type.
      */
     public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs) {
-        for (Expr aggExpr: aggExprs) {
+        for (Expr aggExpr : aggExprs) {
             Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
-            if (intermediateType != null) return true;
+            if (intermediateType != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * output tuple maybe different from intermediate when noGrouping and fn null mode
+     * is depend on argument
+     */
+    public static <T extends Expr> boolean requiresIntermediateTuple(List<T> aggExprs, boolean noGrouping) {
+        for (Expr aggExpr : aggExprs) {
+            Type intermediateType = ((AggregateFunction) aggExpr.fn).getIntermediateType();
+            if (intermediateType != null) {
+                return true;
+            }
+            if (noGrouping && ((AggregateFunction) aggExpr.fn).getNullableMode().equals(Function.NullableMode.DEPEND_ON_ARGUMENT)) {
+                return true;
+            }
         }
         return false;
     }
@@ -215,12 +258,12 @@ public abstract class AggregateInfoBase {
     public String debugString() {
         StringBuilder out = new StringBuilder();
         out.append(MoreObjects.toStringHelper(this)
-                .add("grouping_exprs", Expr.debugString(groupingExprs_))
-                .add("aggregate_exprs", Expr.debugString(aggregateExprs_))
-                .add("intermediate_tuple", (intermediateTupleDesc_ == null)
-                        ? "null" : intermediateTupleDesc_.debugString())
-                .add("output_tuple", (outputTupleDesc_ == null)
-                        ? "null" : outputTupleDesc_.debugString())
+                .add("grouping_exprs", Expr.debugString(groupingExprs))
+                .add("aggregate_exprs", Expr.debugString(aggregateExprs))
+                .add("intermediate_tuple", (intermediateTupleDesc == null)
+                        ? "null" : intermediateTupleDesc.debugString())
+                .add("output_tuple", (outputTupleDesc == null)
+                        ? "null" : outputTupleDesc.debugString())
                 .toString());
         return out.toString();
     }

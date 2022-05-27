@@ -53,7 +53,7 @@ TEST(GenericIteratorsTest, AutoIncrement) {
 
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     RowBlockV2 block(schema, 128);
 
@@ -63,30 +63,30 @@ TEST(GenericIteratorsTest, AutoIncrement) {
         st = iter->next_batch(&block);
         for (int i = 0; i < block.num_rows(); ++i) {
             auto row = block.row(i);
-            ASSERT_EQ(row_count, *(int16_t*)row.cell_ptr(0));
-            ASSERT_EQ(row_count + 1, *(int32_t*)row.cell_ptr(1));
-            ASSERT_EQ(row_count + 2, *(int64_t*)row.cell_ptr(2));
+            EXPECT_EQ(row_count, *(int16_t*)row.cell_ptr(0));
+            EXPECT_EQ(row_count + 1, *(int32_t*)row.cell_ptr(1));
+            EXPECT_EQ(row_count + 2, *(int64_t*)row.cell_ptr(2));
             row_count++;
         }
     } while (st.ok());
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(500, row_count);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(500, row_count);
 
     delete iter;
 }
 
 TEST(GenericIteratorsTest, Union) {
     auto schema = create_schema();
-    std::list<RowwiseIterator*> inputs;
+    std::vector<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_union_iterator(std::move(inputs), MemTracker::CreateTracker(-1, "UnionIterator", nullptr, false));
+    auto iter = new_union_iterator(inputs);
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     RowBlockV2 block(schema, 128);
 
@@ -102,30 +102,30 @@ TEST(GenericIteratorsTest, Union) {
                 base_value -= 100;
             }
             auto row = block.row(i);
-            ASSERT_EQ(base_value, *(int16_t*)row.cell_ptr(0));
-            ASSERT_EQ(base_value + 1, *(int32_t*)row.cell_ptr(1));
-            ASSERT_EQ(base_value + 2, *(int64_t*)row.cell_ptr(2));
+            EXPECT_EQ(base_value, *(int16_t*)row.cell_ptr(0));
+            EXPECT_EQ(base_value + 1, *(int32_t*)row.cell_ptr(1));
+            EXPECT_EQ(base_value + 2, *(int64_t*)row.cell_ptr(2));
             row_count++;
         }
     } while (st.ok());
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(600, row_count);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(600, row_count);
 
     delete iter;
 }
 
 TEST(GenericIteratorsTest, Merge) {
     auto schema = create_schema();
-    std::list<RowwiseIterator*> inputs;
+    std::vector<RowwiseIterator*> inputs;
 
     inputs.push_back(new_auto_increment_iterator(schema, 100));
     inputs.push_back(new_auto_increment_iterator(schema, 200));
     inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = new_merge_iterator(std::move(inputs), MemTracker::CreateTracker(-1, "MergeIterator", nullptr, false));
+    auto iter = new_merge_iterator(std::move(inputs), -1);
     StorageReadOptions opts;
     auto st = iter->init(opts);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     RowBlockV2 block(schema, 128);
 
@@ -144,21 +144,16 @@ TEST(GenericIteratorsTest, Merge) {
                 base_value = row_count - 300;
             }
             auto row = block.row(i);
-            ASSERT_EQ(base_value, *(int16_t*)row.cell_ptr(0));
-            ASSERT_EQ(base_value + 1, *(int32_t*)row.cell_ptr(1));
-            ASSERT_EQ(base_value + 2, *(int64_t*)row.cell_ptr(2));
+            EXPECT_EQ(base_value, *(int16_t*)row.cell_ptr(0));
+            EXPECT_EQ(base_value + 1, *(int32_t*)row.cell_ptr(1));
+            EXPECT_EQ(base_value + 2, *(int64_t*)row.cell_ptr(2));
             row_count++;
         }
     } while (st.ok());
-    ASSERT_TRUE(st.is_end_of_file());
-    ASSERT_EQ(600, row_count);
+    EXPECT_TRUE(st.is_end_of_file());
+    EXPECT_EQ(600, row_count);
 
     delete iter;
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

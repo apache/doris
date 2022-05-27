@@ -1,22 +1,19 @@
-/*
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-  -->
- */
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 package com.alibaba.datax.plugin.writer.doriswriter;
 
@@ -26,13 +23,13 @@ import com.alibaba.datax.plugin.rdbms.util.DBUtilErrorCode;
 import com.alibaba.fastjson.JSON;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.http.HttpEntity;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpRequest;
 import org.apache.http.HttpResponse;
 import org.apache.http.HttpStatus;
 import org.apache.http.ProtocolException;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpHead;
@@ -56,6 +53,7 @@ import java.net.URL;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // Used to load batch of rows to Doris using stream load
 public class DorisWriterEmitter {
@@ -64,9 +62,16 @@ public class DorisWriterEmitter {
     private int hostPos = 0;
     private List<String> targetHosts = Lists.newArrayList();
 
+    private RequestConfig requestConfig;
+
     public DorisWriterEmitter(final Key keys) {
         this.keys = keys;
         initHostList();
+        initRequestConfig();
+    }
+
+    private void initRequestConfig() {
+        requestConfig = RequestConfig.custom().setConnectTimeout(this.keys.getConnectTimeout()).build();
     }
 
     // get target host from config
@@ -87,29 +92,35 @@ public class DorisWriterEmitter {
     /**
      * execute doris stream load
      */
-    public void doStreamLoad(final DorisFlushBatch flushData) throws IOException {
+    public void doStreamLoad(final DorisFlushBatch flushData) {
         long start = System.currentTimeMillis();
         final String host = this.getAvailableHost();
         if (null == host) {
-            throw new IOException("None of the load url can be connected.");
+            throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, "None of the load url can be connected.");
         }
         final String loadUrl = host + "/api/" + this.keys.getDatabase() + "/" + this.keys.getTable() + "/_stream_load";
         // do http put request and get response
-        final Map<String, Object> loadResult = this.doHttpPut(loadUrl, flushData);
+        final Map<String, Object> loadResult;
+        try {
+            loadResult = this.doHttpPut(loadUrl, flushData);
+        } catch (IOException e) {
+            throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, e);
+        }
 
         long cost = System.currentTimeMillis() - start;
         LOG.info("StreamLoad response: " + JSON.toJSONString(loadResult) + ", cost(ms): " + cost);
         final String keyStatus = "Status";
         if (null == loadResult || !loadResult.containsKey(keyStatus)) {
-            throw new IOException("Unable to flush data to doris: unknown result status.");
+            throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, "Unable to flush data to doris: unknown result status.");
         }
         if (loadResult.get(keyStatus).equals("Fail")) {
-            throw new IOException("Failed to flush data to doris.\n" + JSON.toJSONString(loadResult));
+            throw DataXException.asDataXException(DBUtilErrorCode.WRITE_DATA_ERROR, "Failed to flush data to doris.\n" + JSON.toJSONString(loadResult));
         }
     }
 
     /**
      * loop to get target host
+     *
      * @return
      */
     private String getAvailableHost() {
@@ -162,7 +173,7 @@ public class DorisWriterEmitter {
                     return new HttpGet(uri);
                 } else {
                     int status = response.getStatusLine().getStatusCode();
-                    return (HttpUriRequest)(status == 307 ? RequestBuilder.copy(request).setUri(uri).build() : new HttpGet(uri));
+                    return (HttpUriRequest) (status == 307 ? RequestBuilder.copy(request).setUri(uri).build() : new HttpGet(uri));
                 }
             }
         });
@@ -171,7 +182,7 @@ public class DorisWriterEmitter {
             final HttpPut httpPut = new HttpPut(loadUrl);
             final List<String> cols = this.keys.getColumns();
             if (null != cols && !cols.isEmpty()) {
-                httpPut.setHeader("columns", String.join(",", cols));
+                httpPut.setHeader("columns", String.join(",", cols.stream().map(item -> String.format("`%s`", item.trim().replace("`", ""))).collect(Collectors.toList())));
             }
 
             // put loadProps to http header
@@ -187,10 +198,14 @@ public class DorisWriterEmitter {
             httpPut.setHeader(HttpHeaders.AUTHORIZATION, this.getBasicAuthHeader(this.keys.getUsername(), this.keys.getPassword()));
             httpPut.setHeader("label", flushBatch.getLabel());
             httpPut.setHeader("format", "json");
+            httpPut.setHeader("line_delimiter", this.keys.getLineDelimiterDesc());
             httpPut.setHeader("read_json_by_line", "true");
             httpPut.setHeader("fuzzy_parse", "true");
+
             // Use ByteArrayEntity instead of StringEntity to handle Chinese correctly
             httpPut.setEntity(new ByteArrayEntity(flushBatch.getData().toString().getBytes()));
+
+            httpPut.setConfig(requestConfig);
 
             try (final CloseableHttpResponse resp = httpclient.execute(httpPut)) {
                 final int code = resp.getStatusLine().getStatusCode();

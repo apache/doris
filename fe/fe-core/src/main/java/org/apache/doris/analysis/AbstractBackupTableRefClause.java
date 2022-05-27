@@ -19,10 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,13 +44,19 @@ public class AbstractBackupTableRefClause implements ParseNode {
     public void analyze(Analyzer analyzer) throws UserException {
         // normalize
         // table name => table ref
-        Map<String, TableRef> tblPartsMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        Map<String, TableRef> tblPartsMap;
+        if (GlobalVariable.lowerCaseTableNames == 0) {
+            // comparisons case sensitive
+            tblPartsMap = Maps.newTreeMap();
+        } else {
+            tblPartsMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        }
         for (TableRef tblRef : tableRefList) {
             String tblName = tblRef.getName().getTbl();
             if (!tblPartsMap.containsKey(tblName)) {
                 tblPartsMap.put(tblName, tblRef);
             } else {
-                throw new AnalysisException("Duplicated restore table: " + tblName);
+                throw new AnalysisException("Duplicated table: " + tblName);
             }
         }
 

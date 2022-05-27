@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/data-stream-mgr.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
-#define DORIS_BE_SRC_RUNTIME_DATA_STREAM_MGR_H
+#pragma once
 
-#include <boost/shared_ptr.hpp>
 #include <condition_variable>
 #include <list>
 #include <mutex>
@@ -29,9 +30,8 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-#include "gen_cpp/palo_internal_service.pb.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h" // for PlanNodeId
-#include "runtime/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 
@@ -75,7 +75,7 @@ public:
     // single stream.
     // Ownership of the receiver is shared between this DataStream mgr instance and the
     // caller.
-    boost::shared_ptr<DataStreamRecvr> create_recvr(
+    std::shared_ptr<DataStreamRecvr> create_recvr(
             RuntimeState* state, const RowDescriptor& row_desc,
             const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
             int buffer_size, RuntimeProfile* profile, bool is_merging,
@@ -98,7 +98,7 @@ private:
     // create_recvr().
     // we don't want to create a map<pair<TUniqueId, PlanNodeId>, DataStreamRecvr*>,
     // because that requires a bunch of copying of ids for lookup
-    typedef std::unordered_multimap<uint32_t, boost::shared_ptr<DataStreamRecvr>> StreamMap;
+    typedef std::unordered_multimap<uint32_t, std::shared_ptr<DataStreamRecvr>> StreamMap;
     StreamMap _receiver_map;
 
     // less-than ordering for pair<TUniqueId, PlanNodeId>
@@ -123,17 +123,15 @@ private:
     FragmentStreamSet _fragment_stream_set;
 
     // Return the receiver for given fragment_instance_id/node_id,
-    // or NULL if not found. If 'acquire_lock' is false, assumes _lock is already being
+    // or nullptr if not found. If 'acquire_lock' is false, assumes _lock is already being
     // held and won't try to acquire it.
-    boost::shared_ptr<DataStreamRecvr> find_recvr(const TUniqueId& fragment_instance_id,
-                                                  PlanNodeId node_id, bool acquire_lock = true);
+    std::shared_ptr<DataStreamRecvr> find_recvr(const TUniqueId& fragment_instance_id,
+                                                PlanNodeId node_id, bool acquire_lock = true);
 
     // Remove receiver block for fragment_instance_id/node_id from the map.
     Status deregister_recvr(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 
-    inline uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
+    uint32_t get_hash_value(const TUniqueId& fragment_instance_id, PlanNodeId node_id);
 };
 
 } // namespace doris
-
-#endif

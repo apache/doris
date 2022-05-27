@@ -20,9 +20,9 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateEncryptKeyStmt;
 import org.apache.doris.analysis.DropEncryptKeyStmt;
 import org.apache.doris.analysis.EncryptKeyName;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -32,37 +32,25 @@ public class EncryptKeyHelper {
 
     public static void createEncryptKey(CreateEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Catalog.getCurrentCatalog().getDb(name.getDb());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(name.getDb());
         db.addEncryptKey(stmt.getEncryptKey());
     }
 
-    public static void replayCreateEncryptKey(EncryptKey encryptKey) {
+    public static void replayCreateEncryptKey(EncryptKey encryptKey) throws MetaNotFoundException {
         String dbName = encryptKey.getEncryptKeyName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new Error("unknown database when replay log, db=" + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
         db.replayAddEncryptKey(encryptKey);
     }
 
     public static void dropEncryptKey(DropEncryptKeyStmt stmt) throws UserException {
         EncryptKeyName name = stmt.getEncryptKeyName();
-        Database db = Catalog.getCurrentCatalog().getDb(name.getDb());
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, name.getDb());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(name.getDb());
         db.dropEncryptKey(stmt.getEncryptKeysSearchDesc());
     }
 
-    public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) {
+    public static void replayDropEncryptKey(EncryptKeySearchDesc encryptKeySearchDesc) throws MetaNotFoundException {
         String dbName = encryptKeySearchDesc.getKeyEncryptKeyName().getDb();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new Error("unknown database when replay log, db=" + dbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbName);
         db.replayDropEncryptKey(encryptKeySearchDesc);
     }
 

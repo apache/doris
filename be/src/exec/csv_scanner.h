@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
-#define DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H
+#pragma once
 
 #include <fstream>
 #include <string>
@@ -26,6 +25,7 @@
 
 namespace doris {
 
+// Now, CsvScanNode and CsvScanner are only for unit test
 class CsvScanner {
 public:
     CsvScanner(const std::vector<std::string>& csv_file_paths);
@@ -43,4 +43,3 @@ private:
 };
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_QUERY_EXEC_CSV_SCANNER_H

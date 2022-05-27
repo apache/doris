@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "exec/parquet_scanner.h"
 #include "olap/row.h"
-#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/schema_change.h"
@@ -53,20 +52,20 @@ namespace doris {
 //           clear schema change info in both current tablet and related
 //           tablets, finally we will only push for current tablets. this is
 //           very useful in rollup action.
-OLAPStatus PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                                    PushType push_type,
-                                                    std::vector<TTabletInfo>* tablet_info_vec) {
+Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+                                                PushType push_type,
+                                                std::vector<TTabletInfo>* tablet_info_vec) {
     LOG(INFO) << "begin to realtime push. tablet=" << tablet->full_name()
               << ", transaction_id=" << request.transaction_id;
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     _request = request;
     std::vector<TabletVars> tablet_vars(1);
     tablet_vars[0].tablet = tablet;
     res = _do_streaming_ingestion(tablet, request, push_type, &tablet_vars, tablet_info_vec);
 
-    if (res == OLAP_SUCCESS) {
-        if (tablet_info_vec != NULL) {
+    if (res.ok()) {
+        if (tablet_info_vec != nullptr) {
             _get_tablet_infos(tablet_vars, tablet_info_vec);
         }
         LOG(INFO) << "process realtime push successfully. "
@@ -77,80 +76,28 @@ OLAPStatus PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, cons
     return res;
 }
 
-OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
-                                                PushType push_type,
-                                                std::vector<TabletVars>* tablet_vars,
-                                                std::vector<TTabletInfo>* tablet_info_vec) {
+Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+                                            PushType push_type,
+                                            std::vector<TabletVars>* tablet_vars,
+                                            std::vector<TTabletInfo>* tablet_info_vec) {
     // add transaction in engine, then check sc status
     // lock, prevent sc handler checking transaction concurrently
     if (tablet == nullptr) {
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
-    ReadLock base_migration_rlock(tablet->get_migration_lock_ptr(), TRY_LOCK);
-    if (!base_migration_rlock.own_lock()) {
-        return OLAP_ERR_RWLOCK_ERROR;
+
+    std::shared_lock base_migration_rlock(tablet->get_migration_lock(), std::try_to_lock);
+    if (!base_migration_rlock.owns_lock()) {
+        return Status::OLAPInternalError(OLAP_ERR_RWLOCK_ERROR);
     }
-    tablet->obtain_push_lock();
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
-            request.partition_id, tablet, request.transaction_id, load_id));
-
-    // prepare txn will be always successful
-    // if current tablet is under schema change, origin tablet is successful and
-    // new tablet is not successful, it maybe a fatal error because new tablet has
-    // not load successfully
-
-    // only when fe sends schema_change true, should consider to push related
-    // tablet
-    if (_request.is_schema_changing) {
-        VLOG_NOTICE << "push req specify schema changing is true. "
-                << "tablet=" << tablet->full_name()
-                << ", transaction_id=" << request.transaction_id;
-        AlterTabletTaskSharedPtr alter_task = tablet->alter_task();
-        if (alter_task != nullptr && alter_task->alter_state() != ALTER_FAILED) {
-            TTabletId related_tablet_id = alter_task->related_tablet_id();
-            TSchemaHash related_schema_hash = alter_task->related_schema_hash();
-            LOG(INFO) << "find schema_change status when realtime push. "
-                      << "tablet=" << tablet->full_name()
-                      << ", related_tablet_id=" << related_tablet_id
-                      << ", related_schema_hash=" << related_schema_hash
-                      << ", transaction_id=" << request.transaction_id;
-            TabletSharedPtr related_tablet =
-                    StorageEngine::instance()->tablet_manager()->get_tablet(related_tablet_id,
-                                                                            related_schema_hash);
-
-            // if related tablet not exists, only push current tablet
-            if (related_tablet == nullptr) {
-                LOG(WARNING) << "find alter task but not find related tablet, "
-                             << "related_tablet_id=" << related_tablet_id
-                             << ", related_schema_hash=" << related_schema_hash;
-                tablet->release_push_lock();
-                return OLAP_ERR_TABLE_NOT_FOUND;
-                // if current tablet is new tablet, only push current tablet
-            } else if (tablet->creation_time() > related_tablet->creation_time()) {
-                LOG(INFO) << "current tablet is new, only push current tablet. "
-                          << "tablet=" << tablet->full_name()
-                          << " related_tablet=" << related_tablet->full_name();
-            } else {
-                ReadLock new_migration_rlock(related_tablet->get_migration_lock_ptr(), TRY_LOCK);
-                if (!new_migration_rlock.own_lock()) {
-                    return OLAP_ERR_RWLOCK_ERROR;
-                }
-                PUniqueId load_id;
-                load_id.set_hi(0);
-                load_id.set_lo(0);
-                RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
-                        request.partition_id, related_tablet, request.transaction_id, load_id));
-                // prepare txn will always be successful
-                tablet_vars->push_back(TabletVars());
-                TabletVars& new_item = tablet_vars->back();
-                new_item.tablet = related_tablet;
-            }
-        }
+    {
+        std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+        RETURN_NOT_OK(StorageEngine::instance()->txn_manager()->prepare_txn(
+                request.partition_id, tablet, request.transaction_id, load_id));
     }
-    tablet->release_push_lock();
 
     if (tablet_vars->size() == 1) {
         tablet_vars->resize(2);
@@ -159,7 +106,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
     // not call validate request here, because realtime load does not
     // contain version info
 
-    OLAPStatus res;
+    Status res;
     // check delete condition if push for delete
     std::queue<DeletePredicatePB> del_preds;
     if (push_type == PUSH_FOR_DELETE) {
@@ -170,12 +117,13 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 
             DeletePredicatePB del_pred;
             DeleteConditionHandler del_cond_handler;
-            tablet_var.tablet->obtain_header_rdlock();
-            res = del_cond_handler.generate_delete_predicate(tablet_var.tablet->tablet_schema(),
-                                                             request.delete_conditions, &del_pred);
-            del_preds.push(del_pred);
-            tablet_var.tablet->release_header_lock();
-            if (res != OLAP_SUCCESS) {
+            {
+                std::shared_lock rdlock(tablet_var.tablet->get_header_lock());
+                res = del_cond_handler.generate_delete_predicate(
+                        tablet_var.tablet->tablet_schema(), request.delete_conditions, &del_pred);
+                del_preds.push(del_pred);
+            }
+            if (!res.ok()) {
                 LOG(WARNING) << "fail to generate delete condition. res=" << res
                              << ", tablet=" << tablet_var.tablet->full_name();
                 return res;
@@ -189,7 +137,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
                      << tablet_vars->at(0).tablet->version_count()
                      << ", exceed limit: " << config::max_tablet_version_num
                      << ". tablet: " << tablet_vars->at(0).tablet->full_name();
-        return OLAP_ERR_TOO_MANY_VERSION;
+        return Status::OLAPInternalError(OLAP_ERR_TOO_MANY_VERSION);
     }
 
     // write
@@ -201,20 +149,20 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
         res = _convert(tablet_vars->at(0).tablet, tablet_vars->at(1).tablet,
                        &(tablet_vars->at(0).rowset_to_add), &(tablet_vars->at(1).rowset_to_add));
     }
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to convert tmp file when realtime push. res=" << res
                      << ", failed to process realtime push."
-                     << ", table=" << tablet->full_name()
+                     << ", tablet=" << tablet->full_name()
                      << ", transaction_id=" << request.transaction_id;
         for (TabletVars& tablet_var : *tablet_vars) {
             if (tablet_var.tablet == nullptr) {
                 continue;
             }
 
-            OLAPStatus rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
+            Status rollback_status = StorageEngine::instance()->txn_manager()->rollback_txn(
                     request.partition_id, tablet_var.tablet, request.transaction_id);
             // has to check rollback status to ensure not delete a committed rowset
-            if (rollback_status == OLAP_SUCCESS) {
+            if (rollback_status.ok()) {
                 // actually, olap_index may has been deleted in delete_transaction()
                 StorageEngine::instance()->add_unused_rowset(tablet_var.rowset_to_add);
             }
@@ -232,11 +180,11 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
             tablet_var.rowset_to_add->rowset_meta()->set_delete_predicate(del_preds.front());
             del_preds.pop();
         }
-        OLAPStatus commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
+        Status commit_status = StorageEngine::instance()->txn_manager()->commit_txn(
                 request.partition_id, tablet_var.tablet, request.transaction_id, load_id,
                 tablet_var.rowset_to_add, false);
-        if (commit_status != OLAP_SUCCESS &&
-            commit_status != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+        if (commit_status != Status::OK() &&
+            commit_status.precise_code() != OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
             res = commit_status;
         }
     }
@@ -246,7 +194,7 @@ OLAPStatus PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TP
 void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
                                     std::vector<TTabletInfo>* tablet_info_vec) {
     for (const TabletVars& tablet_var : tablet_vars) {
-        if (tablet_var.tablet.get() == NULL) {
+        if (tablet_var.tablet.get() == nullptr) {
             continue;
         }
 
@@ -258,9 +206,9 @@ void PushHandler::_get_tablet_infos(const std::vector<TabletVars>& tablet_vars,
     }
 }
 
-OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                    RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
+                                RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+    Status res = Status::OK();
     uint32_t num_rows = 0;
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -271,30 +219,14 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
 
         // 1. init RowsetBuilder of cur_tablet for current push
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
-                << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
-        RowsetWriterContext context;
-        context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        context.tablet_uid = cur_tablet->tablet_uid();
-        context.tablet_id = cur_tablet->tablet_id();
-        context.partition_id = _request.partition_id;
-        context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-            context.rowset_type = BETA_ROWSET;
-        }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
-        context.tablet_schema = &(cur_tablet->tablet_schema());
-        context.rowset_state = PREPARED;
-        context.txn_id = _request.transaction_id;
-        context.load_id = load_id;
+                    << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
         // although the spark load output files are fully sorted,
         // but it depends on thirparty implementation, so we conservatively
         // set this value to OVERLAP_UNKNOWN
-        context.segments_overlap = OVERLAP_UNKNOWN;
-
         std::unique_ptr<RowsetWriter> rowset_writer;
-        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
-        if (OLAP_SUCCESS != res) {
+        res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
+                                               OVERLAP_UNKNOWN, &rowset_writer);
+        if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
             break;
@@ -310,7 +242,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             std::unique_ptr<PushBrokerReader> reader(new (std::nothrow) PushBrokerReader());
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
-                res = OLAP_ERR_MALLOC_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
                 break;
             }
 
@@ -318,16 +250,16 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             std::unique_ptr<Schema> schema(new (std::nothrow) Schema(cur_tablet->tablet_schema()));
             if (schema == nullptr) {
                 LOG(WARNING) << "fail to create schema. tablet=" << cur_tablet->full_name();
-                res = OLAP_ERR_MALLOC_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
                 break;
             }
 
             // init Reader
-            if (OLAP_SUCCESS !=
-                (res = reader->init(schema.get(), _request.broker_scan_range, _request.desc_tbl))) {
+            if (!(res = reader->init(schema.get(), _request.broker_scan_range,
+                                     _request.desc_tbl))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name();
-                res = OLAP_ERR_PUSH_INIT_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
                 break;
             }
 
@@ -340,7 +272,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             VLOG_NOTICE << "start to convert etl file to delta.";
             while (!reader->eof()) {
                 res = reader->next(&row);
-                if (OLAP_SUCCESS != res) {
+                if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res << " read_rows=" << num_rows;
                     break;
@@ -348,7 +280,11 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
                     if (reader->eof()) {
                         break;
                     }
-                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
+                    //if read row but fill tuple fails,
+                    if (!reader->is_fill_tuple()) {
+                        break;
+                    }
+                    if (!(res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                                      << "res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << ", read_rows=" << num_rows;
@@ -362,14 +298,14 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
             reader->close();
         }
 
-        if (rowset_writer->flush() != OLAP_SUCCESS) {
+        if (rowset_writer->flush() != Status::OK()) {
             LOG(WARNING) << "failed to finalize writer";
             break;
         }
         *cur_rowset = rowset_writer->build();
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             break;
         }
 
@@ -381,8 +317,8 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
         if (new_tablet != nullptr) {
             auto schema_change_handler = SchemaChangeHandler::instance();
             res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                       new_rowset);
-            if (res != OLAP_SUCCESS) {
+                                                                new_rowset);
+            if (!res.ok()) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
                              << "']";
@@ -391,16 +327,16 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet, TabletSharedPtr 
     } while (0);
 
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
-             << ", processed_rows" << num_rows;
+               << ", processed_rows" << num_rows;
     return res;
 }
 
-OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
-                                 RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet,
+                             RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset) {
+    Status res = Status::OK();
     RowCursor row;
     BinaryFile raw_file;
-    IBinaryReader* reader = NULL;
+    IBinaryReader* reader = nullptr;
     uint32_t num_rows = 0;
     PUniqueId load_id;
     load_id.set_hi(0);
@@ -413,10 +349,10 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         //    in case of empty push and delete data, this will be skipped.
         if (_request.__isset.http_file_path) {
             // open raw file
-            if (OLAP_SUCCESS != (res = raw_file.init(_request.http_file_path.c_str()))) {
+            if (!(res = raw_file.init(_request.http_file_path.c_str()))) {
                 LOG(WARNING) << "failed to read raw file. res=" << res
                              << ", file=" << _request.http_file_path;
-                res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
                 break;
             }
 
@@ -429,7 +365,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 #ifndef DORIS_WITH_LZO
             if (need_decompress) {
                 // if lzo is disabled, compressed data is not allowed here
-                res = OLAP_ERR_LZO_DISABLED;
+                res = Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 break;
             }
 #endif
@@ -438,45 +374,25 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
-                res = OLAP_ERR_MALLOC_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
                 break;
             }
 
             // init BinaryReader
-            if (OLAP_SUCCESS != (res = reader->init(cur_tablet, &raw_file))) {
+            if (!(res = reader->init(cur_tablet, &raw_file))) {
                 LOG(WARNING) << "fail to init reader. res=" << res
                              << ", tablet=" << cur_tablet->full_name()
                              << ", file=" << _request.http_file_path;
-                res = OLAP_ERR_PUSH_INIT_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
                 break;
             }
         }
 
         // 2. init RowsetBuilder of cur_tablet for current push
-        VLOG_NOTICE << "init RowsetBuilder.";
-        RowsetWriterContext context;
-        context.rowset_id = StorageEngine::instance()->next_rowset_id();
-        context.tablet_uid = cur_tablet->tablet_uid();
-        context.tablet_id = cur_tablet->tablet_id();
-        context.partition_id = _request.partition_id;
-        context.tablet_schema_hash = cur_tablet->schema_hash();
-        context.rowset_type = StorageEngine::instance()->default_rowset_type();
-        if (cur_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-            context.rowset_type = BETA_ROWSET;
-        }
-        context.rowset_path_prefix = cur_tablet->tablet_path();
-        context.tablet_schema = &(cur_tablet->tablet_schema());
-        context.rowset_state = PREPARED;
-        context.txn_id = _request.transaction_id;
-        context.load_id = load_id;
-        // although the hadoop load output files are fully sorted,
-        // but it depends on thirparty implementation, so we conservatively
-        // set this value to OVERLAP_UNKNOWN
-        context.segments_overlap = OVERLAP_UNKNOWN;
-
         std::unique_ptr<RowsetWriter> rowset_writer;
-        res = RowsetFactory::create_rowset_writer(context, &rowset_writer);
-        if (OLAP_SUCCESS != res) {
+        res = cur_tablet->create_rowset_writer(_request.transaction_id, load_id, PREPARED,
+                                               OVERLAP_UNKNOWN, &rowset_writer);
+        if (!res.ok()) {
             LOG(WARNING) << "failed to init rowset writer, tablet=" << cur_tablet->full_name()
                          << ", txn_id=" << _request.transaction_id << ", res=" << res;
             break;
@@ -484,10 +400,10 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
         // 3. New RowsetBuilder to write data into rowset
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->full_name()
-                << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
+                    << ", block_row_size=" << cur_tablet->num_rows_per_row_block();
 
         // 4. Init RowCursor
-        if (OLAP_SUCCESS != (res = row.init(cur_tablet->tablet_schema()))) {
+        if (!(res = row.init(cur_tablet->tablet_schema()))) {
             LOG(WARNING) << "fail to init rowcursor. res=" << res;
             break;
         }
@@ -498,12 +414,12 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
             VLOG_NOTICE << "start to convert row file to delta.";
             while (!reader->eof()) {
                 res = reader->next(&row);
-                if (OLAP_SUCCESS != res) {
+                if (!res.ok()) {
                     LOG(WARNING) << "read next row failed."
                                  << " res=" << res << " read_rows=" << num_rows;
                     break;
                 } else {
-                    if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
+                    if (!(res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                                      << " res=" << res << ", tablet=" << cur_tablet->full_name()
                                      << " read_rows=" << num_rows;
@@ -517,12 +433,12 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
             if (!reader->validate_checksum()) {
                 LOG(WARNING) << "pushed delta file has wrong checksum.";
-                res = OLAP_ERR_PUSH_BUILD_DELTA_ERROR;
+                res = Status::OLAPInternalError(OLAP_ERR_PUSH_BUILD_DELTA_ERROR);
                 break;
             }
         }
 
-        if (rowset_writer->flush() != OLAP_SUCCESS) {
+        if (rowset_writer->flush() != Status::OK()) {
             LOG(WARNING) << "failed to finalize writer.";
             break;
         }
@@ -530,7 +446,7 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
         if (*cur_rowset == nullptr) {
             LOG(WARNING) << "fail to build rowset";
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             break;
         }
 
@@ -542,8 +458,8 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
         if (new_tablet != nullptr) {
             auto schema_change_handler = SchemaChangeHandler::instance();
             res = schema_change_handler->schema_version_convert(cur_tablet, new_tablet, cur_rowset,
-                                                       new_rowset);
-            if (res != OLAP_SUCCESS) {
+                                                                new_rowset);
+            if (!res.ok()) {
                 LOG(WARNING) << "failed to change schema version for delta."
                              << "[res=" << res << " new_tablet='" << new_tablet->full_name()
                              << "']";
@@ -553,29 +469,29 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet, TabletSharedPtr new
 
     SAFE_DELETE(reader);
     VLOG_TRACE << "convert delta file end. res=" << res << ", tablet=" << cur_tablet->full_name()
-             << ", processed_rows" << num_rows;
+               << ", processed_rows" << num_rows;
     return res;
 }
 
-OLAPStatus BinaryFile::init(const char* path) {
+Status BinaryFile::init(const char* path) {
     // open file
-    if (OLAP_SUCCESS != open(path, "rb")) {
+    if (!open(path, "rb")) {
         LOG(WARNING) << "fail to open file. file=" << path;
-        return OLAP_ERR_IO_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     // load header
-    if (OLAP_SUCCESS != _header.unserialize(this)) {
+    if (!_header.unserialize(this)) {
         LOG(WARNING) << "fail to read file header. file=" << path;
         close();
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 IBinaryReader* IBinaryReader::create(bool need_decompress) {
-    IBinaryReader* reader = NULL;
+    IBinaryReader* reader = nullptr;
     if (need_decompress) {
 #ifdef DORIS_WITH_LZO
         reader = new (std::nothrow) LzoBinaryReader();
@@ -586,10 +502,10 @@ IBinaryReader* IBinaryReader::create(bool need_decompress) {
     return reader;
 }
 
-BinaryReader::BinaryReader() : IBinaryReader(), _row_buf(NULL), _row_buf_size(0) {}
+BinaryReader::BinaryReader() : IBinaryReader(), _row_buf(nullptr), _row_buf_size(0) {}
 
-OLAPStatus BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
+    Status res = Status::OK();
 
     do {
         _file = file;
@@ -599,13 +515,13 @@ OLAPStatus BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
         _row_buf = new (std::nothrow) char[_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc one row buf. size=" << _row_buf_size;
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = OLAP_ERR_IO_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
             break;
         }
 
@@ -613,24 +529,24 @@ OLAPStatus BinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
         _ready = true;
     } while (0);
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         SAFE_DELETE_ARRAY(_row_buf);
     }
     return res;
 }
 
-OLAPStatus BinaryReader::finalize() {
+Status BinaryReader::finalize() {
     _ready = false;
     SAFE_DELETE_ARRAY(_row_buf);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BinaryReader::next(RowCursor* row) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BinaryReader::next(RowCursor* row) {
+    Status res = Status::OK();
 
-    if (!_ready || NULL == row) {
+    if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     const TabletSchema& schema = _tablet->tablet_schema();
@@ -638,7 +554,7 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
     size_t field_size = 0;
     size_t num_null_bytes = (_tablet->num_null_columns() + 7) / 8;
 
-    if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, num_null_bytes))) {
+    if (!(res = _file->read(_row_buf + offset, num_null_bytes))) {
         LOG(WARNING) << "read file for one row fail. res=" << res;
         return res;
     }
@@ -664,32 +580,48 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
         }
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Read varchar length buffer first
-            if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, sizeof(StringLengthType)))) {
+            if (!(res = _file->read(_row_buf + offset, sizeof(VarcharLengthType)))) {
                 LOG(WARNING) << "read file for one row fail. res=" << res;
                 return res;
             }
 
             // Get varchar field size
+            field_size = *reinterpret_cast<VarcharLengthType*>(_row_buf + offset);
+            offset += sizeof(VarcharLengthType);
+            if (field_size > column.length() - sizeof(VarcharLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(VarcharLengthType)
+                             << ", real_len=" << field_size;
+                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            // Read string length buffer first
+            if (!(res = _file->read(_row_buf + offset, sizeof(StringLengthType)))) {
+                LOG(WARNING) << "read file for one row fail. res=" << res;
+                return res;
+            }
+
+            // Get string field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + offset);
             offset += sizeof(StringLengthType);
             if (field_size > column.length() - sizeof(StringLengthType)) {
-                LOG(WARNING) << "invalid data length for VARCHAR! "
+                LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
-                return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
             }
         } else {
             field_size = column.length();
         }
 
         // Read field content according to field size
-        if (OLAP_SUCCESS != (res = _file->read(_row_buf + offset, field_size))) {
+        if (!(res = _file->read(_row_buf + offset, field_size))) {
             LOG(WARNING) << "read file for one row fail. res=" << res;
             return res;
         }
 
         if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-            column.type() == OLAP_FIELD_TYPE_HLL) {
+            column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_STRING) {
             Slice slice(_row_buf + offset, field_size);
             row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
         } else {
@@ -706,17 +638,17 @@ OLAPStatus BinaryReader::next(RowCursor* row) {
 
 LzoBinaryReader::LzoBinaryReader()
         : IBinaryReader(),
-          _row_buf(NULL),
-          _row_compressed_buf(NULL),
-          _row_info_buf(NULL),
+          _row_buf(nullptr),
+          _row_compressed_buf(nullptr),
+          _row_info_buf(nullptr),
           _max_row_num(0),
           _max_row_buf_size(0),
           _max_compressed_buf_size(0),
           _row_num(0),
           _next_row_start(0) {}
 
-OLAPStatus LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
+    Status res = Status::OK();
 
     do {
         _file = file;
@@ -726,13 +658,13 @@ OLAPStatus LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
         _row_info_buf = new (std::nothrow) char[row_info_buf_size];
         if (_row_info_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows info buf. size=" << row_info_buf_size;
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             break;
         }
 
         if (-1 == _file->seek(_file->header_size(), SEEK_SET)) {
             LOG(WARNING) << "skip header, seek fail.";
-            res = OLAP_ERR_IO_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
             break;
         }
 
@@ -740,31 +672,31 @@ OLAPStatus LzoBinaryReader::init(TabletSharedPtr tablet, BinaryFile* file) {
         _ready = true;
     } while (0);
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         SAFE_DELETE_ARRAY(_row_info_buf);
     }
     return res;
 }
 
-OLAPStatus LzoBinaryReader::finalize() {
+Status LzoBinaryReader::finalize() {
     _ready = false;
     SAFE_DELETE_ARRAY(_row_buf);
     SAFE_DELETE_ARRAY(_row_compressed_buf);
     SAFE_DELETE_ARRAY(_row_info_buf);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus LzoBinaryReader::next(RowCursor* row) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status LzoBinaryReader::next(RowCursor* row) {
+    Status res = Status::OK();
 
-    if (!_ready || NULL == row) {
+    if (!_ready || nullptr == row) {
         // Here i assume _ready means all states were set up correctly
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     if (_row_num == 0) {
         // read next block
-        if (OLAP_SUCCESS != (res = _next_block())) {
+        if (!(res = _next_block())) {
             return res;
         }
     }
@@ -796,21 +728,32 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
         const TabletColumn& column = schema.column(i);
         if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
             // Get varchar field size
+            field_size = *reinterpret_cast<VarcharLengthType*>(_row_buf + _next_row_start + offset);
+            offset += sizeof(VarcharLengthType);
+
+            if (field_size > column.length() - sizeof(VarcharLengthType)) {
+                LOG(WARNING) << "invalid data length for VARCHAR! "
+                             << "max_len=" << column.length() - sizeof(VarcharLengthType)
+                             << ", real_len=" << field_size;
+                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            // Get string field size
             field_size = *reinterpret_cast<StringLengthType*>(_row_buf + _next_row_start + offset);
             offset += sizeof(StringLengthType);
 
             if (field_size > column.length() - sizeof(StringLengthType)) {
-                LOG(WARNING) << "invalid data length for VARCHAR! "
+                LOG(WARNING) << "invalid data length for string! "
                              << "max_len=" << column.length() - sizeof(StringLengthType)
                              << ", real_len=" << field_size;
-                return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
             }
         } else {
             field_size = column.length();
         }
 
         if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-            column.type() == OLAP_FIELD_TYPE_HLL) {
+            column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_STRING) {
             Slice slice(_row_buf + _next_row_start + offset, field_size);
             row->set_field_content_shallow(i, reinterpret_cast<char*>(&slice));
         } else {
@@ -828,12 +771,12 @@ OLAPStatus LzoBinaryReader::next(RowCursor* row) {
     return res;
 }
 
-OLAPStatus LzoBinaryReader::_next_block() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status LzoBinaryReader::_next_block() {
+    Status res = Status::OK();
 
     // Get row num and compressed data size
     size_t row_info_buf_size = sizeof(RowNumType) + sizeof(CompressedSizeType);
-    if (OLAP_SUCCESS != (res = _file->read(_row_info_buf, row_info_buf_size))) {
+    if (!(res = _file->read(_row_info_buf, row_info_buf_size))) {
         LOG(WARNING) << "read rows info fail. res=" << res;
         return res;
     }
@@ -853,7 +796,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
         _row_buf = new (std::nothrow) char[_max_row_buf_size];
         if (_row_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows buf. size=" << _max_row_buf_size;
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             return res;
         }
     }
@@ -866,12 +809,12 @@ OLAPStatus LzoBinaryReader::_next_block() {
         _row_compressed_buf = new (std::nothrow) char[_max_compressed_buf_size];
         if (_row_compressed_buf == nullptr) {
             LOG(WARNING) << "fail to malloc rows compressed buf. size=" << _max_compressed_buf_size;
-            res = OLAP_ERR_MALLOC_ERROR;
+            res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
             return res;
         }
     }
 
-    if (OLAP_SUCCESS != (res = _file->read(_row_compressed_buf, compressed_size))) {
+    if (!(res = _file->read(_row_compressed_buf, compressed_size))) {
         LOG(WARNING) << "read compressed rows fail. res=" << res;
         return res;
     }
@@ -880,10 +823,9 @@ OLAPStatus LzoBinaryReader::_next_block() {
     // and add 5 bytes header (\xf0 + 4 bytes(uncompress data size))
     size_t written_len = 0;
     size_t block_header_size = 5;
-    if (OLAP_SUCCESS !=
-        (res = olap_decompress(_row_compressed_buf + block_header_size,
-                               compressed_size - block_header_size, _row_buf, _max_row_buf_size,
-                               &written_len, OLAP_COMP_TRANSPORT))) {
+    if (!(res = olap_decompress(_row_compressed_buf + block_header_size,
+                                compressed_size - block_header_size, _row_buf, _max_row_buf_size,
+                                &written_len, OLAP_COMP_TRANSPORT))) {
         LOG(WARNING) << "olap decompress fail. res=" << res;
         return res;
     }
@@ -893,8 +835,8 @@ OLAPStatus LzoBinaryReader::_next_block() {
     return res;
 }
 
-OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_scan_range,
-                                  const TDescriptorTable& t_desc_tbl) {
+Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_scan_range,
+                              const TDescriptorTable& t_desc_tbl) {
     // init schema
     _schema = schema;
 
@@ -912,23 +854,21 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     TQueryGlobals query_globals;
     _runtime_state.reset(
             new RuntimeState(params, query_options, query_globals, ExecEnv::GetInstance()));
-    DescriptorTbl* desc_tbl = NULL;
+    DescriptorTbl* desc_tbl = nullptr;
     Status status = DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to create descriptor table, msg: " << status.get_error_msg();
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
     _runtime_state->set_desc_tbl(desc_tbl);
     status = _runtime_state->init_mem_trackers(dummy_id);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to init mem trackers, msg: " << status.get_error_msg();
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_tracker = MemTracker::CreateTracker(-1, "PushBrokerReader",
-                                             _runtime_state->instance_mem_tracker());
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _mem_pool.reset(new MemPool("PushBrokerReader"));
     _counter.reset(new ScannerCounter());
 
     // init scanner
@@ -937,17 +877,17 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     case TFileFormatType::FORMAT_PARQUET:
         scanner = new ParquetScanner(_runtime_state.get(), _runtime_profile, t_scan_range.params,
                                      t_scan_range.ranges, t_scan_range.broker_addresses,
-                                     _pre_filter_ctxs, _counter.get());
+                                     _pre_filter_texprs, _counter.get());
         break;
     default:
         LOG(WARNING) << "Unsupported file format type: " << t_scan_range.ranges[0].format_type;
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
     _scanner.reset(scanner);
     status = _scanner->open();
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Failed to open scanner, msg: " << status.get_error_msg();
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
 
     // init tuple
@@ -956,58 +896,121 @@ OLAPStatus PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& 
     if (_tuple_desc == nullptr) {
         std::stringstream ss;
         LOG(WARNING) << "Failed to get tuple descriptor, tuple_id: " << tuple_id;
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
 
     int tuple_buffer_size = _tuple_desc->byte_size();
     void* tuple_buffer = _mem_pool->allocate(tuple_buffer_size);
     if (tuple_buffer == nullptr) {
         LOG(WARNING) << "Allocate memory for tuple failed";
-        return OLAP_ERR_PUSH_INIT_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INIT_ERROR);
     }
     _tuple = reinterpret_cast<Tuple*>(tuple_buffer);
 
     _ready = true;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
+Status PushBrokerReader::fill_field_row(RowCursorCell* dst, const char* src, bool src_null,
+                                        MemPool* mem_pool, FieldType type) {
+    switch (type) {
+    case OLAP_FIELD_TYPE_DECIMAL: {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            break;
+        }
+        auto* decimal_value = reinterpret_cast<const DecimalV2Value*>(src);
+        auto* storage_decimal_value = reinterpret_cast<decimal12_t*>(dst->mutable_cell_ptr());
+        storage_decimal_value->integer = decimal_value->int_value();
+        storage_decimal_value->fraction = decimal_value->frac_value();
+        break;
+    }
+    case OLAP_FIELD_TYPE_DATETIME: {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            break;
+        }
+
+        auto* datetime_value = reinterpret_cast<const DateTimeValue*>(src);
+        auto* storage_datetime_value = reinterpret_cast<uint64_t*>(dst->mutable_cell_ptr());
+        *storage_datetime_value = datetime_value->to_olap_datetime();
+        break;
+    }
+
+    case OLAP_FIELD_TYPE_DATE: {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            break;
+        }
+
+        auto* date_value = reinterpret_cast<const DateTimeValue*>(src);
+        auto* storage_date_value = reinterpret_cast<uint24_t*>(dst->mutable_cell_ptr());
+        *storage_date_value = static_cast<int64_t>(date_value->to_olap_date());
+        break;
+    }
+    case OLAP_FIELD_TYPE_BOOL:
+    case OLAP_FIELD_TYPE_TINYINT:
+    case OLAP_FIELD_TYPE_SMALLINT:
+    case OLAP_FIELD_TYPE_INT:
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+    case OLAP_FIELD_TYPE_BIGINT:
+    case OLAP_FIELD_TYPE_LARGEINT:
+    case OLAP_FIELD_TYPE_FLOAT:
+    case OLAP_FIELD_TYPE_DOUBLE:
+    case OLAP_FIELD_TYPE_CHAR:
+    case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_HLL:
+    case OLAP_FIELD_TYPE_OBJECT: {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            break;
+        }
+        const auto* type_info = get_scalar_type_info(type);
+        type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        break;
+    }
+    default:
+        return Status::OLAPInternalError(OLAP_ERR_INVALID_SCHEMA);
+    }
+
+    return Status::OK();
+}
+
+Status PushBrokerReader::next(ContiguousRow* row) {
     if (!_ready || row == nullptr) {
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     memset(_tuple, 0, _tuple_desc->num_null_bytes());
     // Get from scanner
-    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof);
+    Status status = _scanner->get_next(_tuple, _mem_pool.get(), &_eof, &_fill_tuple);
     if (UNLIKELY(!status.ok())) {
         LOG(WARNING) << "Scanner get next tuple failed";
-        return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_PUSH_INPUT_DATA_ERROR);
     }
-    if (_eof) {
-        return OLAP_SUCCESS;
+    if (_eof || !_fill_tuple) {
+        return Status::OK();
     }
 
     auto slot_descs = _tuple_desc->slots();
-    size_t num_key_columns = _schema->num_key_columns();
-
     // finalize row
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         auto cell = row->cell(i);
         const SlotDescriptor* slot = slot_descs[i];
         bool is_null = _tuple->is_null(slot->null_indicator_offset());
         const void* value = _tuple->get_slot(slot->tuple_offset());
-        // try execute init method defined in aggregateInfo
-        // by default it only copies data into cell
-        _schema->column(i)->consume(&cell, (const char*)value, is_null, _mem_pool.get(),
-                                    _runtime_state->obj_pool());
-        // if column(i) is a value column, try execute finalize method defined in aggregateInfo
-        // to convert data into final format
-        if (i >= num_key_columns) {
-            _schema->column(i)->agg_finalize(&cell, _mem_pool.get());
+
+        FieldType type = _schema->column(i)->type();
+        Status field_status =
+                fill_field_row(&cell, (const char*)value, is_null, _mem_pool.get(), type);
+        if (field_status != Status::OK()) {
+            LOG(WARNING) << "fill field row failed in spark load, slot index: " << i
+                         << ", type: " << type;
+            return Status::OLAPInternalError(OLAP_ERR_SCHEMA_SCHEMA_FIELD_INVALID);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void PushBrokerReader::print_profile() {

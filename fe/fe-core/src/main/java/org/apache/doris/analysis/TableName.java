@@ -14,9 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TableName.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -39,6 +43,9 @@ public class TableName implements Writable {
     }
 
     public TableName(String db, String tbl) {
+        if (Catalog.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(tbl)) {
+            tbl = tbl.toLowerCase();
+        }
         this.db = db;
         this.tbl = tbl;
     }
@@ -136,5 +143,10 @@ public class TableName implements Writable {
     public void readFields(DataInput in) throws IOException {
         db = Text.readString(in);
         tbl = Text.readString(in);
+    }
+
+    public TableName cloneWithoutAnalyze() {
+        TableName tableName = new TableName(this.db, this.tbl);
+        return tableName;
     }
 }

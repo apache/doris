@@ -17,26 +17,28 @@
 
 #include "service/http_service.h"
 
+#include "http/action/check_rpc_channel_action.h"
 #include "http/action/checksum_action.h"
 #include "http/action/compaction_action.h"
+#include "http/action/config_action.h"
+#include "http/action/download_action.h"
 #include "http/action/health_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/mini_load.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
+#include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
-#include "http/action/tablets_distribution_action.h"
+#include "http/action/stream_load_2pc.h"
 #include "http/action/tablet_migration_action.h"
+#include "http/action/tablets_distribution_action.h"
 #include "http/action/tablets_info_action.h"
-#include "http/action/update_config_action.h"
 #include "http/default_path_handlers.h"
-#include "http/download_action.h"
 #include "http/ev_http_server.h"
 #include "http/http_method.h"
-#include "http/monitor_action.h"
 #include "http/web_page_handler.h"
 #include "runtime/exec_env.h"
 #include "runtime/load_path_mgr.h"
@@ -52,7 +54,7 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
 HttpService::~HttpService() {}
 
 Status HttpService::start() {
-    add_default_path_handlers(_web_page_handler.get(), _env->process_mem_tracker());
+    add_default_path_handlers(_web_page_handler.get(), MemTracker::get_process_tracker());
 
     // register load
     MiniLoadAction* miniload_action = _pool.add(new MiniLoadAction(_env));
@@ -60,10 +62,16 @@ Status HttpService::start() {
     StreamLoadAction* streamload_action = _pool.add(new StreamLoadAction(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load",
                                       streamload_action);
+    StreamLoad2PCAction* streamload_2pc_action = _pool.add(new StreamLoad2PCAction(_env));
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/_stream_load_2pc",
+                                      streamload_2pc_action);
 
     // register download action
     std::vector<std::string> allow_paths;
     for (auto& path : _env->store_paths()) {
+        if (FilePathDesc::is_remote(path.storage_medium)) {
+            continue;
+        }
         allow_paths.emplace_back(path.path);
     }
     DownloadAction* download_action = _pool.add(new DownloadAction(_env, allow_paths));
@@ -84,7 +92,7 @@ Status HttpService::start() {
                                       error_log_download_action);
 
     // Register BE health action
-    HealthAction* health_action = _pool.add(new HealthAction(_env));
+    HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     // Register Tablets Info action
@@ -92,12 +100,15 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/tablets_json", tablets_info_action);
 
     // Register Tablets Distribution action
-    TabletsDistributionAction* tablets_distribution_action = _pool.add(new TabletsDistributionAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution", tablets_distribution_action);
+    TabletsDistributionAction* tablets_distribution_action =
+            _pool.add(new TabletsDistributionAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablets_distribution",
+                                      tablets_distribution_action);
 
     // Register tablet migration action
     TabletMigrationAction* tablet_migration_action = _pool.add(new TabletMigrationAction());
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration", tablet_migration_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/tablet_migration",
+                                      tablet_migration_action);
 
     // register pprof actions
     PprofActions::setup(_env, _ev_http_server.get(), _pool);
@@ -109,12 +120,11 @@ Status HttpService::start() {
     }
 
     MetaAction* meta_action = _pool.add(new MetaAction(HEADER));
-    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}/{schema_hash}",
-                                      meta_action);
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/meta/header/{tablet_id}", meta_action);
 
 #ifndef BE_TEST
     // Register BE checksum action
-    ChecksumAction* checksum_action = _pool.add(new ChecksumAction(_env));
+    ChecksumAction* checksum_action = _pool.add(new ChecksumAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/checksum", checksum_action);
 
     // Register BE reload tablet action
@@ -126,7 +136,7 @@ Status HttpService::start() {
                                       restore_tablet_action);
 
     // Register BE snapshot action
-    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction(_env));
+    SnapshotAction* snapshot_action = _pool.add(new SnapshotAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/snapshot", snapshot_action);
 #endif
 
@@ -144,9 +154,22 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
 
-    UpdateConfigAction* update_config_action = _pool.add(new UpdateConfigAction());
+    ConfigAction* update_config_action =
+            _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
+    ConfigAction* show_config_action = _pool.add(new ConfigAction(ConfigActionType::SHOW_CONFIG));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/show_config", show_config_action);
+
+    // 3 check action
+    CheckRPCChannelAction* check_rpc_channel_action = _pool.add(new CheckRPCChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET,
+                                      "/api/check_rpc_channel/{ip}/{port}/{payload_size}",
+                                      check_rpc_channel_action);
+
+    ResetRPCChannelAction* reset_rpc_channel_action = _pool.add(new ResetRPCChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/reset_rpc_channel/{endpoints}",
+                                      reset_rpc_channel_action);
     _ev_http_server->start();
     return Status::OK();
 }

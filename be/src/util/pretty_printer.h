@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/pretty-printer.h
+// and modified by Doris
 
-#ifndef IMPALA_UTIL_PRETTY_PRINTER_H
-#define IMPALA_UTIL_PRETTY_PRINTER_H
+#pragma once
 
 #include <boost/algorithm/string.hpp>
 #include <cmath>
@@ -24,9 +26,8 @@
 #include <sstream>
 
 #include "gen_cpp/RuntimeProfile_types.h"
-#include "util/cpu_info.h"
-#include "util/template_util.h"
 #include "util/binary_cast.hpp"
+#include "util/cpu_info.h"
 
 /// Truncate a double to offset decimal places.
 #define DOUBLE_TRUNCATE(val, offset) floor(val* pow(10, offset)) / pow(10, offset)
@@ -48,8 +49,8 @@ public:
     /// If verbose is true, this also prints the raw value (before unit conversion) for
     /// types where this is applicable.
     template <typename T>
-    static ENABLE_IF_ARITHMETIC(T, std::string)
-            print(T value, TUnit::type unit, bool verbose = false) {
+    static typename std::enable_if<std::is_arithmetic<T>::value, std::string>::type print(
+            T value, TUnit::type unit, bool verbose = false) {
         std::stringstream ss;
         ss.flags(std::ios::fixed);
         switch (unit) {
@@ -158,7 +159,8 @@ public:
     /// TODO: There's no good is_string equivalent, so there's a needless copy for strings
     /// here.
     template <typename T>
-    static ENABLE_IF_NOT_ARITHMETIC(T, std::string) print(const T& value, TUnit::type unit) {
+    static typename std::enable_if<!std::is_arithmetic<T>::value, std::string>::type print(
+            const T& value, TUnit::type unit) {
         std::stringstream ss;
         ss << std::boolalpha << value;
         return ss.str();
@@ -236,12 +238,14 @@ private:
 
     /// Utility to perform integer modulo if T is integral, otherwise to use fmod().
     template <typename T>
-    static ENABLE_IF_INTEGRAL(T, int64_t) mod(const T& value, const int modulus) {
+    static typename boost::enable_if_c<boost::is_integral<T>::value, int64_t>::type mod(
+            const T& value, const int modulus) {
         return value % modulus;
     }
 
     template <typename T>
-    static ENABLE_IF_FLOAT(T, double) mod(const T& value, int modulus) {
+    static typename boost::enable_if_c<!boost::is_integral<T>::value, double>::type mod(
+            const T& value, int modulus) {
         return fmod(value, 1. * modulus);
     }
 
@@ -279,5 +283,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

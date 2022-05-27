@@ -20,9 +20,11 @@
 #include <unistd.h>
 
 #include "common/logging.h"
+#include "service/backend_options.h"
 
 namespace doris {
-HdfsFileReader::HdfsFileReader(THdfsParams hdfs_params, const std::string& path,
+
+HdfsFileReader::HdfsFileReader(const THdfsParams& hdfs_params, const std::string& path,
                                int64_t start_offset)
         : _hdfs_params(hdfs_params),
           _path(path),
@@ -63,9 +65,11 @@ Status HdfsFileReader::connect() {
         }
     }
     _hdfs_fs = hdfsBuilderConnect(hdfs_builder);
+    hdfsFreeBuilder(hdfs_builder);
     if (_hdfs_fs == nullptr) {
         std::stringstream ss;
-        ss << "connect failed. " << _namenode;
+        ss << "connect to hdfs failed. namenode address:" << _namenode
+           << ", error: " << hdfsGetLastError();
         return Status::InternalError(ss.str());
     }
     return Status::OK();
@@ -79,7 +83,10 @@ Status HdfsFileReader::open() {
     _hdfs_file = hdfsOpenFile(_hdfs_fs, _path.c_str(), O_RDONLY, 0, 0, 0);
     if (_hdfs_file == nullptr) {
         std::stringstream ss;
-        ss << "open file failed. " << _namenode << _path;
+        ss << "open file failed. "
+           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
+           << ", err: " << strerror(errno);
+        ;
         return Status::InternalError(ss.str());
     }
     LOG(INFO) << "open file. " << _namenode << _path;
@@ -138,7 +145,10 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
         int ret = hdfsSeek(_hdfs_fs, _hdfs_file, position);
         if (ret != 0) { // check fseek return value
             std::stringstream ss;
-            ss << "hdfsSeek failed. " << _namenode << _path;
+            ss << "hdfsSeek failed. "
+               << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
+               << ", err: " << strerror(errno);
+            ;
             return Status::InternalError(ss.str());
         }
     }
@@ -146,7 +156,10 @@ Status HdfsFileReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_r
     *bytes_read = hdfsRead(_hdfs_fs, _hdfs_file, out, nbytes);
     if (*bytes_read < 0) {
         std::stringstream ss;
-        ss << "Read hdfs file failed. " << _namenode << _path;
+        ss << "Read hdfs file failed. "
+           << "(BE: " << BackendOptions::get_localhost() << ")" << _namenode << _path
+           << ", err: " << strerror(errno);
+        ;
         return Status::InternalError(ss.str());
     }
     _current_offset += *bytes_read; // save offset with file
@@ -164,7 +177,9 @@ int64_t HdfsFileReader::size() {
         }
         hdfsFileInfo* file_info = hdfsGetPathInfo(_hdfs_fs, _path.c_str());
         if (file_info == nullptr) {
-            LOG(WARNING) << "get path info failed: " << _namenode << _path;
+            LOG(WARNING) << "get path info failed: " << _namenode << _path
+                         << ", err: " << strerror(errno);
+            ;
             close();
             return -1;
         }
@@ -180,10 +195,10 @@ int64_t HdfsFileReader::size() {
 Status HdfsFileReader::seek(int64_t position) {
     int res = hdfsSeek(_hdfs_fs, _hdfs_file, position);
     if (res != 0) {
-        char err_buf[64];
         std::stringstream ss;
-        ss << "Seek to offset failed. offset=" << position
-           << ", error=" << strerror_r(errno, err_buf, 64);
+        ss << "Seek to offset failed. "
+           << "(BE: " << BackendOptions::get_localhost() << ")"
+           << " offset=" << position << ", err: " << strerror(errno);
         return Status::InternalError(ss.str());
     }
     return Status::OK();

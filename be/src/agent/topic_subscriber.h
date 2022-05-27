@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
-#define DORIS_BE_SRC_AGENT_TOPIC_SUBSCRIBER_H
+#pragma once
 
-#include <boost/thread.hpp>
 #include <map>
+#include <mutex>
 #include <shared_mutex>
+#include <thread>
 
 #include "agent/topic_listener.h"
 #include "gen_cpp/AgentService_types.h"
@@ -41,4 +41,3 @@ private:
     std::shared_mutex _listener_mtx;
 };
 } // namespace doris
-#endif

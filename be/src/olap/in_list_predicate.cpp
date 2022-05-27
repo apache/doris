@@ -20,208 +20,287 @@
 #include "olap/field.h"
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
+#include "vec/columns/column_dictionary.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/predicate_column.h"
 
 namespace doris {
 
-#define IN_LIST_PRED_CONSTRUCTOR(CLASS)                                       \
-    template <class type>                                                     \
-    CLASS<type>::CLASS(uint32_t column_id, phmap::flat_hash_set<type>&& values, bool opposite) \
+#define IN_LIST_PRED_CONSTRUCTOR(CLASS)                                                  \
+    template <class T>                                                                   \
+    CLASS<T>::CLASS(uint32_t column_id, phmap::flat_hash_set<T>&& values, bool opposite) \
             : ColumnPredicate(column_id, opposite), _values(std::move(values)) {}
 
 IN_LIST_PRED_CONSTRUCTOR(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR(NotInListPredicate)
 
-#define IN_LIST_PRED_EVALUATE(CLASS, OP)                                                       \
-    template <class type>                                                                      \
-    void CLASS<type>::evaluate(VectorizedRowBatch* batch) const {                              \
-        uint16_t n = batch->size();                                                            \
-        if (n == 0) {                                                                          \
-            return;                                                                            \
-        }                                                                                      \
-        uint16_t* sel = batch->selected();                                                     \
-        const type* col_vector =                                                               \
-                reinterpret_cast<const type*>(batch->column(_column_id)->col_data());          \
-        uint16_t new_size = 0;                                                                 \
-        if (batch->column(_column_id)->no_nulls()) {                                           \
-            if (batch->selected_in_use()) {                                                    \
-                for (uint16_t j = 0; j != n; ++j) {                                            \
-                    uint16_t i = sel[j];                                                       \
-                    sel[new_size] = i;                                                         \
-                    new_size += (_values.find(col_vector[i]) OP _values.end());                \
-                }                                                                              \
-                batch->set_size(new_size);                                                     \
-            } else {                                                                           \
-                for (uint16_t i = 0; i != n; ++i) {                                            \
-                    sel[new_size] = i;                                                         \
-                    new_size += (_values.find(col_vector[i]) OP _values.end());                \
-                }                                                                              \
-                if (new_size < n) {                                                            \
-                    batch->set_size(new_size);                                                 \
-                    batch->set_selected_in_use(true);                                          \
-                }                                                                              \
-            }                                                                                  \
-        } else {                                                                               \
-            bool* is_null = batch->column(_column_id)->is_null();                              \
-            if (batch->selected_in_use()) {                                                    \
-                for (uint16_t j = 0; j != n; ++j) {                                            \
-                    uint16_t i = sel[j];                                                       \
-                    sel[new_size] = i;                                                         \
-                    new_size += (!is_null[i] && _values.find(col_vector[i]) OP _values.end()); \
-                }                                                                              \
-                batch->set_size(new_size);                                                     \
-            } else {                                                                           \
-                for (int i = 0; i != n; ++i) {                                                 \
-                    sel[new_size] = i;                                                         \
-                    new_size += (!is_null[i] && _values.find(col_vector[i]) OP _values.end()); \
-                }                                                                              \
-                if (new_size < n) {                                                            \
-                    batch->set_size(new_size);                                                 \
-                    batch->set_selected_in_use(true);                                          \
-                }                                                                              \
-            }                                                                                  \
-        }                                                                                      \
+#define IN_LIST_PRED_EVALUATE(CLASS, OP)                                                         \
+    template <class T>                                                                           \
+    void CLASS<T>::evaluate(VectorizedRowBatch* batch) const {                                   \
+        uint16_t n = batch->size();                                                              \
+        if (n == 0) {                                                                            \
+            return;                                                                              \
+        }                                                                                        \
+        uint16_t* sel = batch->selected();                                                       \
+        const T* col_vector = reinterpret_cast<const T*>(batch->column(_column_id)->col_data()); \
+        uint16_t new_size = 0;                                                                   \
+        if (batch->column(_column_id)->no_nulls()) {                                             \
+            if (batch->selected_in_use()) {                                                      \
+                for (uint16_t j = 0; j != n; ++j) {                                              \
+                    uint16_t i = sel[j];                                                         \
+                    sel[new_size] = i;                                                           \
+                    new_size += (_values.find(col_vector[i]) OP _values.end());                  \
+                }                                                                                \
+                batch->set_size(new_size);                                                       \
+            } else {                                                                             \
+                for (uint16_t i = 0; i != n; ++i) {                                              \
+                    sel[new_size] = i;                                                           \
+                    new_size += (_values.find(col_vector[i]) OP _values.end());                  \
+                }                                                                                \
+                if (new_size < n) {                                                              \
+                    batch->set_size(new_size);                                                   \
+                    batch->set_selected_in_use(true);                                            \
+                }                                                                                \
+            }                                                                                    \
+        } else {                                                                                 \
+            bool* is_null = batch->column(_column_id)->is_null();                                \
+            if (batch->selected_in_use()) {                                                      \
+                for (uint16_t j = 0; j != n; ++j) {                                              \
+                    uint16_t i = sel[j];                                                         \
+                    sel[new_size] = i;                                                           \
+                    new_size += (!is_null[i] && _values.find(col_vector[i]) OP _values.end());   \
+                }                                                                                \
+                batch->set_size(new_size);                                                       \
+            } else {                                                                             \
+                for (int i = 0; i != n; ++i) {                                                   \
+                    sel[new_size] = i;                                                           \
+                    new_size += (!is_null[i] && _values.find(col_vector[i]) OP _values.end());   \
+                }                                                                                \
+                if (new_size < n) {                                                              \
+                    batch->set_size(new_size);                                                   \
+                    batch->set_selected_in_use(true);                                            \
+                }                                                                                \
+            }                                                                                    \
+        }                                                                                        \
     }
 
 IN_LIST_PRED_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_EVALUATE(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP)                                     \
-    template <class type>                                                                 \
-    void CLASS<type>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const { \
-        uint16_t new_size = 0;                                                            \
-        if (block->is_nullable()) {                                                       \
-            for (uint16_t i = 0; i < *size; ++i) {                                        \
-                uint16_t idx = sel[i];                                                    \
-                sel[new_size] = idx;                                                      \
-                const type* cell_value =                                                  \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)   \
-                                                                      OP _values.end());  \
-                new_size += _opposite ? !result : result;                                 \
-            }                                                                             \
-        } else {                                                                          \
-            for (uint16_t i = 0; i < *size; ++i) {                                        \
-                uint16_t idx = sel[i];                                                    \
-                sel[new_size] = idx;                                                      \
-                const type* cell_value =                                                  \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());       \
-                auto result = (_values.find(*cell_value) OP _values.end());               \
-                new_size += _opposite ? !result : result;                                 \
-            }                                                                             \
-        }                                                                                 \
-        *size = new_size;                                                                 \
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(CLASS, OP)                                          \
+    template <class T>                                                                         \
+    void CLASS<T>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const {         \
+        uint16_t new_size = 0;                                                                 \
+        if (block->is_nullable()) {                                                            \
+            for (uint16_t i = 0; i < *size; ++i) {                                             \
+                uint16_t idx = sel[i];                                                         \
+                sel[new_size] = idx;                                                           \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)        \
+                                                                      OP _values.end());       \
+                new_size += _opposite ? !result : result;                                      \
+            }                                                                                  \
+        } else {                                                                               \
+            for (uint16_t i = 0; i < *size; ++i) {                                             \
+                uint16_t idx = sel[i];                                                         \
+                sel[new_size] = idx;                                                           \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (_values.find(*cell_value) OP _values.end());                    \
+                new_size += _opposite ? !result : result;                                      \
+            }                                                                                  \
+        }                                                                                      \
+        *size = new_size;                                                                      \
     }
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                         \
-    template <class type>                                                                        \
-    void CLASS<type>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
-            const {                                                                              \
-        if (block->is_nullable()) {                                                              \
-            for (uint16_t i = 0; i < size; ++i) {                                                \
-                if (flags[i]) continue;                                                          \
-                uint16_t idx = sel[i];                                                           \
-                const type* cell_value =                                                         \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
-                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)          \
-                                                                      OP _values.end());         \
-                flags[i] |= _opposite ? !result : result;                                        \
+// todo(zeno) define interface in IColumn to simplify code
+#define IN_LIST_PRED_COLUMN_EVALUATE(CLASS, OP)                                                  \
+    template <class T>                                                                           \
+    void CLASS<T>::evaluate(vectorized::IColumn& column, uint16_t* sel, uint16_t* size) const {  \
+        uint16_t new_size = 0;                                                                   \
+        if (column.is_nullable()) {                                                              \
+            auto* nullable_col =                                                                 \
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(column);        \
+            auto& null_bitmap = reinterpret_cast<const vectorized::ColumnUInt8&>(                \
+                                        nullable_col->get_null_map_column())                     \
+                                        .get_data();                                             \
+            auto& nested_col = nullable_col->get_nested_column();                                \
+            if (nested_col.is_column_dictionary()) {                                             \
+                if constexpr (std::is_same_v<T, StringValue>) {                                  \
+                    auto* nested_col_ptr = vectorized::check_and_get_column<                     \
+                            vectorized::ColumnDictionary<vectorized::Int32>>(nested_col);        \
+                    auto& data_array = nested_col_ptr->get_data();                               \
+                    auto dict_codes = nested_col_ptr->find_codes(_values);                       \
+                    for (uint16_t i = 0; i < *size; i++) {                                       \
+                        uint16_t idx = sel[i];                                                   \
+                        sel[new_size] = idx;                                                     \
+                        const auto& cell_value = data_array[idx];                                \
+                        bool ret = !null_bitmap[idx] &&                                          \
+                                   (dict_codes.find(cell_value) OP dict_codes.end());            \
+                        new_size += _opposite ? !ret : ret;                                      \
+                    }                                                                            \
+                }                                                                                \
+            } else {                                                                             \
+                auto* nested_col_ptr =                                                           \
+                        vectorized::check_and_get_column<vectorized::PredicateColumnType<T>>(    \
+                                nested_col);                                                     \
+                auto& data_array = nested_col_ptr->get_data();                                   \
+                for (uint16_t i = 0; i < *size; i++) {                                           \
+                    uint16_t idx = sel[i];                                                       \
+                    sel[new_size] = idx;                                                         \
+                    const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);        \
+                    bool ret = !null_bitmap[idx] && (_values.find(cell_value) OP _values.end()); \
+                    new_size += _opposite ? !ret : ret;                                          \
+                }                                                                                \
+            }                                                                                    \
+        } else if (column.is_column_dictionary()) {                                              \
+            if constexpr (std::is_same_v<T, StringValue>) {                                      \
+                auto& dict_col =                                                                 \
+                        reinterpret_cast<vectorized::ColumnDictionary<vectorized::Int32>&>(      \
+                                column);                                                         \
+                auto& data_array = dict_col.get_data();                                          \
+                auto dict_codes = dict_col.find_codes(_values);                                  \
+                for (uint16_t i = 0; i < *size; i++) {                                           \
+                    uint16_t idx = sel[i];                                                       \
+                    sel[new_size] = idx;                                                         \
+                    const auto& cell_value = data_array[idx];                                    \
+                    auto result = (dict_codes.find(cell_value) OP dict_codes.end());             \
+                    new_size += _opposite ? !result : result;                                    \
+                }                                                                                \
             }                                                                                    \
         } else {                                                                                 \
-            for (uint16_t i = 0; i < size; ++i) {                                                \
-                if (flags[i]) continue;                                                          \
+            auto& number_column = reinterpret_cast<vectorized::PredicateColumnType<T>&>(column); \
+            auto& data_array = number_column.get_data();                                         \
+            for (uint16_t i = 0; i < *size; i++) {                                               \
                 uint16_t idx = sel[i];                                                           \
-                const type* cell_value =                                                         \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());              \
-                auto result = (_values.find(*cell_value) OP _values.end());                      \
-                flags[i] |= _opposite ? !result : result;                                        \
+                sel[new_size] = idx;                                                             \
+                const auto& cell_value = reinterpret_cast<const T&>(data_array[idx]);            \
+                auto result = (_values.find(cell_value) OP _values.end());                       \
+                new_size += _opposite ? !result : result;                                        \
             }                                                                                    \
         }                                                                                        \
+        *size = new_size;                                                                        \
+    }
+
+IN_LIST_PRED_COLUMN_EVALUATE(InListPredicate, !=)
+IN_LIST_PRED_COLUMN_EVALUATE(NotInListPredicate, ==)
+
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(CLASS, OP)                                       \
+    template <class T>                                                                         \
+    void CLASS<T>::evaluate_or(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags)  \
+            const {                                                                            \
+        if (block->is_nullable()) {                                                            \
+            for (uint16_t i = 0; i < size; ++i) {                                              \
+                if (flags[i]) continue;                                                        \
+                uint16_t idx = sel[i];                                                         \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)        \
+                                                                      OP _values.end());       \
+                flags[i] |= _opposite ? !result : result;                                      \
+            }                                                                                  \
+        } else {                                                                               \
+            for (uint16_t i = 0; i < size; ++i) {                                              \
+                if (flags[i]) continue;                                                        \
+                uint16_t idx = sel[i];                                                         \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (_values.find(*cell_value) OP _values.end());                    \
+                flags[i] |= _opposite ? !result : result;                                      \
+            }                                                                                  \
+        }                                                                                      \
     }
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_OR(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                         \
-    template <class type>                                                                         \
-    void CLASS<type>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
-            const {                                                                               \
-        if (block->is_nullable()) {                                                               \
-            for (uint16_t i = 0; i < size; ++i) {                                                 \
-                if (!flags[i]) continue;                                                          \
-                uint16_t idx = sel[i];                                                            \
-                const type* cell_value =                                                          \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
-                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)           \
-                                                                      OP _values.end());          \
-                flags[i] &= _opposite ? !result : result;                                         \
-            }                                                                                     \
-        } else {                                                                                  \
-            for (uint16_t i = 0; i < size; ++i) {                                                 \
-                if (!flags[i]) continue;                                                          \
-                uint16_t idx = sel[i];                                                            \
-                const type* cell_value =                                                          \
-                        reinterpret_cast<const type*>(block->cell(idx).cell_ptr());               \
-                auto result = (_values.find(*cell_value) OP _values.end());                       \
-                flags[i] &= _opposite ? !result : result;                                         \
-            }                                                                                     \
-        }                                                                                         \
+#define IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(CLASS, OP)                                      \
+    template <class T>                                                                         \
+    void CLASS<T>::evaluate_and(ColumnBlock* block, uint16_t* sel, uint16_t size, bool* flags) \
+            const {                                                                            \
+        if (block->is_nullable()) {                                                            \
+            for (uint16_t i = 0; i < size; ++i) {                                              \
+                if (!flags[i]) continue;                                                       \
+                uint16_t idx = sel[i];                                                         \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (!block->cell(idx).is_null() && _values.find(*cell_value)        \
+                                                                      OP _values.end());       \
+                flags[i] &= _opposite ? !result : result;                                      \
+            }                                                                                  \
+        } else {                                                                               \
+            for (uint16_t i = 0; i < size; ++i) {                                              \
+                if (!flags[i]) continue;                                                       \
+                uint16_t idx = sel[i];                                                         \
+                const T* cell_value = reinterpret_cast<const T*>(block->cell(idx).cell_ptr()); \
+                auto result = (_values.find(*cell_value) OP _values.end());                    \
+                flags[i] &= _opposite ? !result : result;                                      \
+            }                                                                                  \
+        }                                                                                      \
     }
 
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(InListPredicate, !=)
 IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_AND(NotInListPredicate, ==)
 
-#define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP)                                      \
-    template <class type>                                                            \
-    Status CLASS<type>::evaluate(const Schema& schema,                               \
-                                 const std::vector<BitmapIndexIterator*>& iterators, \
-                                 uint32_t num_rows, Roaring* result) const {         \
-        BitmapIndexIterator* iterator = iterators[_column_id];                       \
-        if (iterator == nullptr) {                                                   \
-            return Status::OK();                                                     \
-        }                                                                            \
-        if (iterator->has_null_bitmap()) {                                           \
-            Roaring null_bitmap;                                                     \
-            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));               \
-            *result -= null_bitmap;                                                  \
-        }                                                                            \
-        Roaring indices;                                                             \
-        for (auto value : _values) {                                                 \
-            bool exact_match;                                                        \
-            Status s = iterator->seek_dictionary(&value, &exact_match);              \
-            rowid_t seeked_ordinal = iterator->current_ordinal();                    \
-            if (!s.is_not_found()) {                                                 \
-                if (!s.ok()) {                                                       \
-                    return s;                                                        \
-                }                                                                    \
-                if (exact_match) {                                                   \
-                    Roaring index;                                                   \
-                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &index));  \
-                    indices |= index;                                                \
-                }                                                                    \
-            }                                                                        \
-        }                                                                            \
-        *result OP indices;                                                          \
-        return Status::OK();                                                         \
+#define IN_LIST_PRED_BITMAP_EVALUATE(CLASS, OP)                                     \
+    template <class T>                                                              \
+    Status CLASS<T>::evaluate(const Schema& schema,                                 \
+                              const std::vector<BitmapIndexIterator*>& iterators,   \
+                              uint32_t num_rows, roaring::Roaring* result) const {  \
+        BitmapIndexIterator* iterator = iterators[_column_id];                      \
+        if (iterator == nullptr) {                                                  \
+            return Status::OK();                                                    \
+        }                                                                           \
+        if (iterator->has_null_bitmap()) {                                          \
+            roaring::Roaring null_bitmap;                                           \
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap));              \
+            *result -= null_bitmap;                                                 \
+        }                                                                           \
+        roaring::Roaring indices;                                                   \
+        for (auto value : _values) {                                                \
+            bool exact_match;                                                       \
+            Status s = iterator->seek_dictionary(&value, &exact_match);             \
+            rowid_t seeked_ordinal = iterator->current_ordinal();                   \
+            if (!s.is_not_found()) {                                                \
+                if (!s.ok()) {                                                      \
+                    return s;                                                       \
+                }                                                                   \
+                if (exact_match) {                                                  \
+                    roaring::Roaring index;                                         \
+                    RETURN_IF_ERROR(iterator->read_bitmap(seeked_ordinal, &index)); \
+                    indices |= index;                                               \
+                }                                                                   \
+            }                                                                       \
+        }                                                                           \
+        *result OP indices;                                                         \
+        return Status::OK();                                                        \
     }
 
 IN_LIST_PRED_BITMAP_EVALUATE(InListPredicate, &=)
 IN_LIST_PRED_BITMAP_EVALUATE(NotInListPredicate, -=)
 
-#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                        \
-    template CLASS<int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values, bool opposite);           \
-    template CLASS<int16_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values, bool opposite);         \
-    template CLASS<int32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values, bool opposite);         \
-    template CLASS<int64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values, bool opposite);         \
-    template CLASS<int128_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values, bool opposite);       \
-    template CLASS<float>::CLASS(uint32_t column_id, phmap::flat_hash_set<float>&& values, bool opposite);             \
-    template CLASS<double>::CLASS(uint32_t column_id, phmap::flat_hash_set<double>&& values, bool opposite);           \
-    template CLASS<decimal12_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<decimal12_t>&& values, bool opposite); \
-    template CLASS<StringValue>::CLASS(uint32_t column_id, phmap::flat_hash_set<StringValue>&& values, bool opposite); \
-    template CLASS<uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values, bool opposite);       \
-    template CLASS<uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values, bool opposite);
+#define IN_LIST_PRED_CONSTRUCTOR_DECLARATION(CLASS)                                                \
+    template CLASS<int8_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int8_t>&& values,       \
+                                  bool opposite);                                                  \
+    template CLASS<int16_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int16_t>&& values,     \
+                                   bool opposite);                                                 \
+    template CLASS<int32_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int32_t>&& values,     \
+                                   bool opposite);                                                 \
+    template CLASS<int64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int64_t>&& values,     \
+                                   bool opposite);                                                 \
+    template CLASS<int128_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<int128_t>&& values,   \
+                                    bool opposite);                                                \
+    template CLASS<float>::CLASS(uint32_t column_id, phmap::flat_hash_set<float>&& values,         \
+                                 bool opposite);                                                   \
+    template CLASS<double>::CLASS(uint32_t column_id, phmap::flat_hash_set<double>&& values,       \
+                                  bool opposite);                                                  \
+    template CLASS<decimal12_t>::CLASS(uint32_t column_id,                                         \
+                                       phmap::flat_hash_set<decimal12_t>&& values, bool opposite); \
+    template CLASS<StringValue>::CLASS(uint32_t column_id,                                         \
+                                       phmap::flat_hash_set<StringValue>&& values, bool opposite); \
+    template CLASS<uint24_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint24_t>&& values,   \
+                                    bool opposite);                                                \
+    template CLASS<uint64_t>::CLASS(uint32_t column_id, phmap::flat_hash_set<uint64_t>&& values,   \
+                                    bool opposite);
 
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(InListPredicate)
 IN_LIST_PRED_CONSTRUCTOR_DECLARATION(NotInListPredicate)
@@ -271,37 +350,37 @@ IN_LIST_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotInListPredicate)
 #define IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(CLASS)                                           \
     template Status CLASS<int8_t>::evaluate(const Schema& schema,                                 \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, Roaring* bitmap) const;            \
+                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
     template Status CLASS<int16_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int32_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int64_t>::evaluate(const Schema& schema,                                \
                                              const std::vector<BitmapIndexIterator*>& iterators,  \
-                                             uint32_t num_rows, Roaring* bitmap) const;           \
+                                             uint32_t num_rows, roaring::Roaring* bitmap) const;  \
     template Status CLASS<int128_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;          \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<float>::evaluate(const Schema& schema,                                  \
                                            const std::vector<BitmapIndexIterator*>& iterators,    \
-                                           uint32_t num_rows, Roaring* bitmap) const;             \
+                                           uint32_t num_rows, roaring::Roaring* bitmap) const;    \
     template Status CLASS<double>::evaluate(const Schema& schema,                                 \
                                             const std::vector<BitmapIndexIterator*>& iterators,   \
-                                            uint32_t num_rows, Roaring* bitmap) const;            \
+                                            uint32_t num_rows, roaring::Roaring* bitmap) const;   \
     template Status CLASS<decimal12_t>::evaluate(                                                 \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, Roaring* bitmap) const;                                            \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
     template Status CLASS<StringValue>::evaluate(                                                 \
             const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,             \
-            uint32_t num_rows, Roaring* bitmap) const;                                            \
+            uint32_t num_rows, roaring::Roaring* bitmap) const;                                   \
     template Status CLASS<uint24_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;          \
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const; \
     template Status CLASS<uint64_t>::evaluate(const Schema& schema,                               \
                                               const std::vector<BitmapIndexIterator*>& iterators, \
-                                              uint32_t num_rows, Roaring* bitmap) const;
+                                              uint32_t num_rows, roaring::Roaring* bitmap) const;
 
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(InListPredicate)
 IN_LIST_PRED_BITMAP_EVALUATE_DECLARATION(NotInListPredicate)

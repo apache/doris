@@ -81,26 +81,14 @@ private:
 
 TEST_F(ResultSinkTest, init_normal) {
     ResultSink sink(_row_desc, _exprs, _tsink, 1024);
-    ASSERT_TRUE(sink.init(_runtime_state).ok());
+    EXPECT_TRUE(sink.init(_runtime_state).ok());
     RowBatch row_batch(_row_desc, 1024);
     row_batch.add_row();
     row_batch.commit_last_row();
-    ASSERT_TRUE(sink.send(_runtime_state, &row_batch).ok());
-    ASSERT_TRUE(sink.close(_runtime_state, Status::OK()).ok());
+    EXPECT_TRUE(sink.send(_runtime_state, &row_batch).ok());
+    EXPECT_TRUE(sink.close(_runtime_state, Status::OK()).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

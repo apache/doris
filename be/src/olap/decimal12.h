@@ -27,7 +27,6 @@ namespace doris {
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
-
     decimal12_t& operator+=(const decimal12_t& value) {
         fraction += value.fraction;
         integer += value.integer;
@@ -47,7 +46,7 @@ struct decimal12_t {
             fraction += (sign ? -FRAC_RATIO : FRAC_RATIO);
         }
 
-        //OLAP_LOG_WARNING("agg: int=%ld, frac=%d", integer, fraction);
+        //LOG(WARNING) << "agg: int=" << integer << ", frac=" << fraction;
         //_set_flag();
         return *this;
     }
@@ -90,45 +89,49 @@ struct decimal12_t {
         return std::string(buf);
     }
 
-    OLAPStatus from_string(const std::string& str) {
+    Status from_string(const std::string& str) {
         integer = 0;
         fraction = 0;
         const char* value_string = str.c_str();
         const char* sign = strchr(value_string, '-');
 
-        if (sign != NULL) {
+        if (sign != nullptr) {
             if (sign != value_string) {
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             } else {
                 ++value_string;
             }
         }
 
         const char* sepr = strchr(value_string, '.');
-        if ((sepr != NULL && sepr - value_string > MAX_INT_DIGITS_NUM) ||
-            (sepr == NULL && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
+        if ((sepr != nullptr && sepr - value_string > MAX_INT_DIGITS_NUM) ||
+            (sepr == nullptr && strlen(value_string) > MAX_INT_DIGITS_NUM)) {
             integer = 999999999999999999;
             fraction = 999999999;
         } else {
+            int32_t f = 0;
+            int64_t i = 0;
             if (sepr == value_string) {
-                sscanf(value_string, ".%9d", &fraction);
-                integer = 0;
+                int32_t f = 0;
+                sscanf(value_string, ".%9d", &f);
             } else {
-                sscanf(value_string, "%18ld.%9d", &integer, &fraction);
+                sscanf(value_string, "%18ld.%9d", &i, &f);
             }
+            integer = i;
+            fraction = f;
 
-            int32_t frac_len =
-                    (NULL != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1) : MAX_FRAC_DIGITS_NUM;
+            int32_t frac_len = (nullptr != sepr) ? MAX_FRAC_DIGITS_NUM - strlen(sepr + 1)
+                                                 : MAX_FRAC_DIGITS_NUM;
             frac_len = frac_len > 0 ? frac_len : 0;
             fraction *= g_power_table[frac_len];
         }
 
-        if (sign != NULL) {
+        if (sign != nullptr) {
             fraction = -fraction;
             integer = -integer;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     static const int32_t FRAC_RATIO = 1000000000;

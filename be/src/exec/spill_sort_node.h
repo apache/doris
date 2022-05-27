@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H
-#define DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H
+#pragma once
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
@@ -65,7 +64,7 @@ private:
     // BEGIN: Members that must be reset()
 
     // Object used for external sorting.
-    boost::scoped_ptr<SpillSorter> _sorter;
+    std::unique_ptr<SpillSorter> _sorter;
 
     // Keeps track of the number of rows skipped for handling _offset.
     int64_t _num_rows_skipped;
@@ -75,5 +74,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_EXEC_SPILL_SORT_NODE_H

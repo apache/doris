@@ -17,17 +17,22 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TSortType;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -36,7 +41,6 @@ import org.apache.doris.thrift.TTabletType;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,9 +54,11 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
+    public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
-    public static final String PROPERTIES_STORAGE_COLDOWN_TIME = "storage_cooldown_time";
+    public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
+    public static final String PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME = "remote_storage_cooldown_time";
     // for 1.x -> 2.x migration
     public static final String PROPERTIES_VERSION_INFO = "version_info";
     // for restore
@@ -62,12 +68,12 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BF_FPP = "bloom_filter_fpp";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
-    
+
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
     public static final String PROPERTIES_COLOCATE_WITH = "colocate_with";
-    
+
     public static final String PROPERTIES_TIMEOUT = "timeout";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -81,6 +87,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
+    public static final String PROPERTIES_REMOTE_STORAGE_RESOURCE = "remote_storage_resource";
+
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
@@ -93,17 +101,27 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_SWAP_TABLE = "swap";
 
+    public static final String TAG_LOCATION = "tag.location";
+
+    public static final String PROPERTIES_DISABLE_QUERY = "disable_query";
+
+    public static final String PROPERTIES_DISABLE_LOAD = "disable_load";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
-        if (properties == null) {
+        if (properties == null || properties.isEmpty()) {
             return oldDataProperty;
         }
 
         TStorageMedium storageMedium = null;
-        long coolDownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        long cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+        String remoteStorageResourceName = "";
+        long remoteCooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
 
         boolean hasMedium = false;
         boolean hasCooldown = false;
+        boolean hasRemoteStorageResource = false;
+        boolean hasRemoteCooldown = false;
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             String key = entry.getKey();
             String value = entry.getValue();
@@ -116,44 +134,85 @@ public class PropertyAnalyzer {
                 } else {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
-            } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COLDOWN_TIME)) {
-                hasCooldown = true;
+            } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
-                coolDownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                cooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                if (cooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                    hasCooldown = true;
+                }
+            } else if (!hasRemoteStorageResource && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+                if (!Strings.isNullOrEmpty(value)) {
+                    hasRemoteStorageResource = true;
+                    remoteStorageResourceName = value;
+                }
+            } else if (!hasRemoteCooldown && key.equalsIgnoreCase(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME)) {
+                DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
+                remoteCooldownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                if (remoteCooldownTimeStamp != DataProperty.MAX_COOLDOWN_TIME_MS) {
+                    hasRemoteCooldown = true;
+                }
             }
         } // end for properties
+
+        // Check properties
 
         if (!hasCooldown && !hasMedium) {
             return oldDataProperty;
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
-        properties.remove(PROPERTIES_STORAGE_COLDOWN_TIME);
+        properties.remove(PROPERTIES_STORAGE_COOLDOWN_TIME);
+        properties.remove(PROPERTIES_REMOTE_STORAGE_RESOURCE);
+        properties.remove(PROPERTIES_REMOTE_STORAGE_COOLDOWN_TIME);
+
 
         if (hasCooldown && !hasMedium) {
             throw new AnalysisException("Invalid data property. storage medium property is not found");
         }
 
         if (storageMedium == TStorageMedium.HDD && hasCooldown) {
-            throw new AnalysisException("Can not assign cooldown timestamp to HDD storage medium");
+            cooldownTimeStamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+            LOG.info("Can not assign cool down timestamp to HDD storage medium, ignore user setting.");
+            hasCooldown = false;
         }
 
         long currentTimeMs = System.currentTimeMillis();
         if (storageMedium == TStorageMedium.SSD && hasCooldown) {
-            if (coolDownTimeStamp <= currentTimeMs) {
-                throw new AnalysisException("Cooldown time should later than now");
+            if (cooldownTimeStamp <= currentTimeMs) {
+                throw new AnalysisException("Cool down time should later than now");
             }
         }
 
         if (storageMedium == TStorageMedium.SSD && !hasCooldown) {
             // set default cooldown time
-            coolDownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimeStamp = currentTimeMs + Config.storage_cooldown_second * 1000L;
+        }
+
+        // check remote_storage_resource and remote_storage_cooldown_time
+        if ((!hasRemoteCooldown && hasRemoteStorageResource) || (hasRemoteCooldown && !hasRemoteStorageResource)) {
+            throw new AnalysisException("Invalid data property, "
+                    + "`remote_storage_resource` and `remote_storage_cooldown_time` must be used together.");
+        }
+        if (hasRemoteStorageResource && hasRemoteCooldown) {
+            // check remote resource
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(remoteStorageResourceName);
+            if (resource == null) {
+                throw new AnalysisException("Invalid data property, "
+                        + "`remote_storage_resource` [" + remoteStorageResourceName + "] dose not exist.");
+            }
+            // check remote storage cool down timestamp
+            if (remoteCooldownTimeStamp <= currentTimeMs) {
+                throw new AnalysisException("Remote storage cool down time should later than now");
+            }
+            if (hasCooldown && (remoteCooldownTimeStamp <= cooldownTimeStamp)) {
+                throw new AnalysisException("`remote_storage_cooldown_time` should later than `storage_cooldown_time`.");
+            }
         }
 
         Preconditions.checkNotNull(storageMedium);
-        return new DataProperty(storageMedium, coolDownTimeStamp);
+        return new DataProperty(storageMedium, cooldownTimeStamp, remoteStorageResourceName, remoteCooldownTimeStamp);
     }
-    
+
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
         short shortKeyColumnCount = (short) -1;
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
@@ -173,36 +232,24 @@ public class PropertyAnalyzer {
 
         return shortKeyColumnCount;
     }
-    
-    public static Short analyzeReplicationNum(Map<String, String> properties, short oldReplicationNum)
+
+    private static Short analyzeReplicationNum(Map<String, String> properties, String prefix, short oldReplicationNum)
             throws AnalysisException {
         Short replicationNum = oldReplicationNum;
-        if (properties != null && properties.containsKey(PROPERTIES_REPLICATION_NUM)) {
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_NUM : prefix + "." + PROPERTIES_REPLICATION_NUM;
+        if (properties != null && properties.containsKey(propKey)) {
             try {
-                replicationNum = Short.valueOf(properties.get(PROPERTIES_REPLICATION_NUM));
+                replicationNum = Short.valueOf(properties.get(propKey));
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
 
-            if (replicationNum <= 0) {
-                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            if (replicationNum < Config.min_replication_num_per_tablet || replicationNum > Config.max_replication_num_per_tablet) {
+                throw new AnalysisException("Replication num should between " + Config.min_replication_num_per_tablet
+                        + " and " + Config.max_replication_num_per_tablet);
             }
 
-            properties.remove(PROPERTIES_REPLICATION_NUM);
-        }
-        return replicationNum;
-    }
-
-    public static Short analyzeReplicationNum(Map<String, String> properties, boolean isDefault) throws AnalysisException {
-        String key = "default.";
-        if (isDefault) {
-            key += PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        } else {
-            key = PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        }
-        short replicationNum = Short.valueOf(properties.get(key));
-        if (replicationNum <= 0) {
-            throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            properties.remove(propKey);
         }
         return replicationNum;
     }
@@ -259,27 +306,18 @@ public class PropertyAnalyzer {
         return tTabletType;
     }
 
-    public static Pair<Long, Long> analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
-        Pair<Long, Long> versionInfo = new Pair<>(Partition.PARTITION_INIT_VERSION,
-                Partition.PARTITION_INIT_VERSION_HASH);
+    public static long analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
+        long version = Partition.PARTITION_INIT_VERSION;
         if (properties != null && properties.containsKey(PROPERTIES_VERSION_INFO)) {
             String versionInfoStr = properties.get(PROPERTIES_VERSION_INFO);
-            String[] versionInfoArr = versionInfoStr.split(COMMA_SEPARATOR);
-            if (versionInfoArr.length == 2) {
-                try {
-                    versionInfo.first = Long.parseLong(versionInfoArr[0]);
-                    versionInfo.second = Long.parseLong(versionInfoArr[1]);
-                } catch (NumberFormatException e) {
-                    throw new AnalysisException("version info number format error");
-                }
-            } else {
-                throw new AnalysisException("version info format error. format: version,version_hash");
+            try {
+                version = Long.parseLong(versionInfoStr);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("version info number format error: " + versionInfoStr);
             }
-
             properties.remove(PROPERTIES_VERSION_INFO);
         }
-
-        return versionInfo;
+        return version;
     }
 
     public static int analyzeSchemaVersion(Map<String, String> properties) throws AnalysisException {
@@ -332,9 +370,9 @@ public class PropertyAnalyzer {
                             found = true;
                             break;
                         } else {
-                            throw new AnalysisException("Bloom filter index only used in columns of" +
-                                " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table." +
-                                " invalid column: " + bfColumn);
+                            throw new AnalysisException("Bloom filter index only used in columns of"
+                                    + " UNIQUE_KEYS/DUP_KEYS table or key columns of AGG_KEYS table."
+                                    + " invalid column: " + bfColumn);
                         }
                     }
                 }
@@ -408,11 +446,8 @@ public class PropertyAnalyzer {
         }
 
         if (storageFormat.equalsIgnoreCase("v1")) {
-            if (!Config.enable_alpha_rowset) {
-                throw new AnalysisException("Storage format V1 has been deprecated since version 0.14," +
-                        " please use V2 instead");
-            }
-            return TStorageFormat.V1;
+            throw new AnalysisException("Storage format V1 has been deprecated since version 0.14, "
+                    + "please use V2 instead");
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
         } else if (storageFormat.equalsIgnoreCase("default")) {
@@ -432,6 +467,21 @@ public class PropertyAnalyzer {
         return defaultVal;
     }
 
+    // analyze remote storage resource
+    public static String analyzeRemoteStorageResource(Map<String, String> properties) throws AnalysisException {
+        String resourceName = "";
+        if (properties != null && properties.containsKey(PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+            resourceName = properties.get(PROPERTIES_REMOTE_STORAGE_RESOURCE);
+            // check resource existence
+            Resource resource = Catalog.getCurrentCatalog().getResourceMgr().getResource(resourceName);
+            if (resource == null) {
+                throw new AnalysisException("Resource does not exist, name: " + resourceName);
+            }
+        }
+
+        return resourceName;
+    }
+
     // analyze property like : "type" = "xxx";
     public static String analyzeType(Map<String, String> properties) throws AnalysisException {
         String type = null;
@@ -442,7 +492,7 @@ public class PropertyAnalyzer {
         return type;
     }
 
-    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws  AnalysisException{
+    public static Type analyzeSequenceType(Map<String, String> properties, KeysType keysType) throws AnalysisException {
         String typeStr = null;
         String propertyName = PROPERTIES_FUNCTION_COLUMN + "." + PROPERTIES_SEQUENCE_TYPE;
         if (properties != null && properties.containsKey(propertyName)) {
@@ -456,9 +506,124 @@ public class PropertyAnalyzer {
             throw new AnalysisException("sequence column only support UNIQUE_KEYS");
         }
         PrimitiveType type = PrimitiveType.valueOf(typeStr.toUpperCase());
-        if (!type.isFixedPointType() && !type.isDateType())  {
+        if (!type.isFixedPointType() && !type.isDateType()) {
             throw new AnalysisException("sequence type only support integer types and date types");
         }
         return ScalarType.createType(type);
+    }
+
+    public static Boolean analyzeBackendDisableProperties(Map<String, String> properties, String key, Boolean defaultValue) throws AnalysisException {
+        if (properties.containsKey(key)) {
+            String value = properties.remove(key);
+            return Boolean.valueOf(value);
+        }
+        return defaultValue;
+    }
+
+    public static Tag analyzeBackendTagProperties(Map<String, String> properties, Tag defaultValue) throws AnalysisException {
+        if (properties.containsKey(TAG_LOCATION)) {
+            String tagVal = properties.remove(TAG_LOCATION);
+            return Tag.create(Tag.TYPE_LOCATION, tagVal);
+        }
+        return defaultValue;
+    }
+
+    // There are 2 kinds of replication property:
+    // 1. "replication_num" = "3"
+    // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
+    // These 2 kinds of property will all be converted to a ReplicaAllocation and return.
+    // Return ReplicaAllocation.NOT_SET if no replica property is set.
+    //
+    // prefix is for property key such as "dynamic_partition.replication_num", which prefix is "dynamic_partition"
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
+            throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return ReplicaAllocation.NOT_SET;
+        }
+        // if give "replication_num" property, return with default backend tag
+        Short replicaNum = analyzeReplicationNum(properties, prefix, (short) 0);
+        if (replicaNum > 0) {
+            return new ReplicaAllocation(replicaNum);
+        }
+
+        String propKey = Strings.isNullOrEmpty(prefix) ? PROPERTIES_REPLICATION_ALLOCATION
+                : prefix + "." + PROPERTIES_REPLICATION_ALLOCATION;
+        // if not set, return default replication allocation
+        if (!properties.containsKey(propKey)) {
+            return ReplicaAllocation.NOT_SET;
+        }
+
+        // analyze user specified replication allocation
+        // format is as: "tag.location.zone1: 2, tag.location.zone2: 1"
+        ReplicaAllocation replicaAlloc = new ReplicaAllocation();
+        String allocationVal = properties.remove(propKey);
+        allocationVal = allocationVal.replaceAll(" ", "");
+        String[] locations = allocationVal.split(",");
+        int totalReplicaNum = 0;
+        for (String location : locations) {
+            String[] parts = location.split(":");
+            if (parts.length != 2) {
+                throw new AnalysisException("Invalid replication allocation property: " + location);
+            }
+            if (!parts[0].startsWith(TAG_LOCATION)) {
+                throw new AnalysisException("Invalid replication allocation tag property: " + location);
+            }
+            String locationVal = parts[0].substring(TAG_LOCATION.length() + 1); // +1 to skip dot.
+            if (Strings.isNullOrEmpty(locationVal)) {
+                throw new AnalysisException("Invalid replication allocation location tag property: " + location);
+            }
+
+            Short replicationNum = Short.valueOf(parts[1]);
+            replicaAlloc.put(Tag.create(Tag.TYPE_LOCATION, locationVal), replicationNum);
+            totalReplicaNum += replicationNum;
+        }
+        if (totalReplicaNum < Config.min_replication_num_per_tablet || totalReplicaNum > Config.max_replication_num_per_tablet) {
+            throw new AnalysisException("Total replication num should between " + Config.min_replication_num_per_tablet
+                    + " and " + Config.max_replication_num_per_tablet);
+        }
+
+        if (replicaAlloc.isEmpty()) {
+            throw new AnalysisException("Not specified replica allocation property");
+        }
+        return replicaAlloc;
+    }
+
+    public static DataSortInfo analyzeDataSortInfo(Map<String, String> properties, KeysType keyType,
+                                                   int keyCount, TStorageFormat storageFormat) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return new DataSortInfo(TSortType.LEXICAL, keyCount);
+        }
+        String sortMethod = TSortType.LEXICAL.name();
+        if (properties.containsKey(DataSortInfo.DATA_SORT_TYPE)) {
+            sortMethod = properties.remove(DataSortInfo.DATA_SORT_TYPE);
+        }
+        TSortType sortType = TSortType.LEXICAL;
+        if (sortMethod.equalsIgnoreCase(TSortType.ZORDER.name())) {
+            sortType = TSortType.ZORDER;
+        } else if (sortMethod.equalsIgnoreCase(TSortType.LEXICAL.name())) {
+            sortType = TSortType.LEXICAL;
+        } else {
+            throw new AnalysisException("only support zorder/lexical method!");
+        }
+        if (keyType != KeysType.DUP_KEYS && sortType == TSortType.ZORDER) {
+            throw new AnalysisException("only duplicate key supports zorder method!");
+        }
+        if (storageFormat != TStorageFormat.V2 && sortType == TSortType.ZORDER) {
+            throw new AnalysisException("only V2 storage format supports zorder method!");
+        }
+
+        int colNum = keyCount;
+        if (properties.containsKey(DataSortInfo.DATA_SORT_COL_NUM)) {
+            try {
+                colNum = Integer.valueOf(properties.remove(DataSortInfo.DATA_SORT_COL_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException("param " + DataSortInfo.DATA_SORT_COL_NUM + " error");
+            }
+        }
+        if (sortType == TSortType.ZORDER && (colNum <= 1 || colNum > keyCount)) {
+            throw new AnalysisException("z-order needs 2 columns at least, " + keyCount + " columns at most!");
+        }
+        DataSortInfo dataSortInfo = new DataSortInfo(sortType, colNum);
+        return dataSortInfo;
     }
 }

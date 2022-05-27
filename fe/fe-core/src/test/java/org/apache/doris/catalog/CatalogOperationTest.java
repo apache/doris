@@ -47,7 +47,7 @@ public class CatalogOperationTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 1000;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -56,36 +56,36 @@ public class CatalogOperationTest {
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
-        createTable("create table test.renameTest\n" +
-                "(k1 int)\n" +
-                "distributed by hash(k1) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\");");
+        createTable("create table test.renameTest\n"
+                + "(k1 int)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
 
-        createResource("CREATE EXTERNAL RESOURCE \"mysql_resource\"\n" +
-                "PROPERTIES\n" +
-                "(\n" +
-                "  \"type\" = \"odbc_catalog\",\n" +
-                "  \"user\" = \"mysql_user\",\n" +
-                "  \"password\" = \"mysql_passwd\",\n" +
-                "  \"host\" = \"127.0.0.1\",\n" +
-                "   \"port\" = \"8239\"\n" +
-                ");");
+        createResource("CREATE EXTERNAL RESOURCE \"mysql_resource\"\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "  \"type\" = \"odbc_catalog\",\n"
+                + "  \"user\" = \"mysql_user\",\n"
+                + "  \"password\" = \"mysql_passwd\",\n"
+                + "  \"host\" = \"127.0.0.1\",\n"
+                + "   \"port\" = \"8239\"\n"
+                + ");");
 
-        createTable("CREATE EXTERNAL TABLE test.mysqlRenameTest\n" +
-                "(\n" +
-                "k1 DATE,\n" +
-                "k2 INT,\n" +
-                "k3 SMALLINT,\n" +
-                "k4 VARCHAR(2048),\n" +
-                "k5 DATETIME\n" +
-                ")\n" +
-                "ENGINE=mysql\n" +
-                "PROPERTIES\n" +
-                "(\n" +
-                "\"odbc_catalog_resource\" = \"mysql_resource\",\n" +
-                "\"database\" = \"mysql_db_test\",\n" +
-                "\"table\" = \"mysql_table_test\"\n" +
-                ");");
+        createTable("CREATE EXTERNAL TABLE test.mysqlRenameTest\n"
+                + "(\n"
+                + "k1 DATE,\n"
+                + "k2 INT,\n"
+                + "k3 SMALLINT,\n"
+                + "k4 VARCHAR(2048),\n"
+                + "k5 DATETIME\n"
+                + ")\n"
+                + "ENGINE=mysql\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"odbc_catalog_resource\" = \"mysql_resource\",\n"
+                + "\"database\" = \"mysql_db_test\",\n"
+                + "\"table\" = \"mysql_table_test\"\n"
+                + ");");
     }
 
     @AfterClass
@@ -108,21 +108,21 @@ public class CatalogOperationTest {
     public void testRenameTable() throws Exception {
         // rename olap table
         String renameTblStmt = "alter table test.renameTest rename newNewTest";
-        AlterTableStmt alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:test");
         Assert.assertNotNull(db);
-        Assert.assertNotNull(db.getTable("renameTest"));
+        Assert.assertNotNull(db.getTableNullable("renameTest"));
 
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("renameTest"));
-        Assert.assertNotNull(db.getTable("newNewTest"));
+        Assert.assertNull(db.getTableNullable("renameTest"));
+        Assert.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
         String alterStmtStr = "alter table test.newNewTest add rollup r1(k1)";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(1, alterJobs.size());
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
@@ -133,8 +133,9 @@ public class CatalogOperationTest {
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
 
+        Thread.sleep(1000);
         renameTblStmt = "alter table test.newNewTest rename r1";
-        alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
+        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         try {
             Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
             Assert.fail();
@@ -143,18 +144,18 @@ public class CatalogOperationTest {
         }
 
         renameTblStmt = "alter table test.newNewTest rename goodName";
-        alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
+        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("newNewTest"));
-        Assert.assertNotNull(db.getTable("goodName"));
+        Assert.assertNull(db.getTableNullable("newNewTest"));
+        Assert.assertNotNull(db.getTableNullable("goodName"));
 
         // rename external table
         renameTblStmt = "alter table test.mysqlRenameTest rename newMysqlRenameTest";
-        alterTableStmt = (AlterTableStmt)UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
-        Assert.assertNotNull(db.getTable("mysqlRenameTest"));
+        alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(renameTblStmt, connectContext);
+        Assert.assertNotNull(db.getTableNullable("mysqlRenameTest"));
 
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        Assert.assertNull(db.getTable("mysqlRenameTest"));
-        Assert.assertNotNull(db.getTable("newMysqlRenameTest"));
+        Assert.assertNull(db.getTableNullable("mysqlRenameTest"));
+        Assert.assertNotNull(db.getTableNullable("newMysqlRenameTest"));
     }
 }

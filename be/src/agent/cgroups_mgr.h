@@ -15,17 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
-#define DORIS_BE_SRC_AGENT_CGROUPS_MGR_H
-
-#include <sys/types.h>
+#pragma once
 
 #include <cstdint>
 #include <map>
 #include <mutex>
 #include <string>
 
-#include "agent/status.h"
+#include "common/status.h"
 #include "gen_cpp/MasterService_types.h"
 
 namespace doris {
@@ -42,10 +39,10 @@ public:
 
     // Compare the old user resource and new user resource to find deleted user
     // then delete nonexisting cgroups, create new user cgroups, update all user cgroups
-    AgentStatus update_local_cgroups(const TFetchResourceResult& new_fetched_resource);
+    Status update_local_cgroups(const TFetchResourceResult& new_fetched_resource);
 
     // Delete all existing cgroups under root path
-    AgentStatus init_cgroups();
+    Status init_cgroups();
 
     // Modify cgroup resource shares under cgroups_root_path.
     // Create related cgroups if it not exist.
@@ -58,9 +55,9 @@ public:
     //
     //   level_share: a mapping for shares for different levels under the user.
     //               mapping key is level name; value is level's share. Currently, different resource using the same share.
-    AgentStatus modify_user_cgroups(const std::string& user_name,
-                                    const std::map<std::string, int32_t>& user_share,
-                                    const std::map<std::string, int32_t>& level_share);
+    Status modify_user_cgroups(const std::string& user_name,
+                               const std::map<std::string, int32_t>& user_share,
+                               const std::map<std::string, int32_t>& level_share);
 
     static void apply_cgroup(const std::string& user_name, const std::string& level);
 
@@ -70,34 +67,34 @@ public:
     //
     // Input parameters:
     //   user_name&level: the user name and level used to find the cgroup
-    AgentStatus assign_to_cgroups(const std::string& user_name, const std::string& level);
+    Status assign_to_cgroups(const std::string& user_name, const std::string& level);
 
     // Assign the thread identified by thread id to the cgroup identified by user name and level
     //
     // Input parameters:
     //   thread_id: the unique id for the thread
     //   user_name&level: the user name and level used to find the cgroup
-    AgentStatus assign_thread_to_cgroups(int64_t thread_id, const std::string& user_name,
-                                         const std::string& level);
+    Status assign_thread_to_cgroups(int64_t thread_id, const std::string& user_name,
+                                    const std::string& level);
 
     // Delete the user's cgroups and its sub level cgroups using DropCgroups
     // Input parameters:
     //   user name: user name to be deleted
-    AgentStatus delete_user_cgroups(const std::string& user_name);
+    Status delete_user_cgroups(const std::string& user_name);
     // Delete a cgroup
     // If there are active tasks in this cgroups, they will be relocated
     // to root cgroups.
     // If there are sub cgroups, it will return error.
     // Input parameters:
     //   deleted_cgroups_path: the absolute cgroups path to be deleted
-    AgentStatus drop_cgroups(const std::string& deleted_cgroups_path);
+    Status drop_cgroups(const std::string& deleted_cgroups_path);
 
     // Relocate all threads or processes in src cgroups to dest cgroups
     // Ignore errors when echo to dest cgroups
     // Input parameters:
     //   src_cgroups: absolute path for src cgroups folder
     //   dest_cgroups: absolute path for dest cgroups folder
-    AgentStatus relocate_tasks(const std::string& src_cgroups, const std::string& dest_cgroups);
+    Status relocate_tasks(const std::string& src_cgroups, const std::string& dest_cgroups);
 
     int64_t get_cgroups_version() { return _cur_version; }
 
@@ -125,11 +122,11 @@ public:
     //  ssd_write_iops: write iops number for ssd disk.
     //  ssd_read_mbps: read bps number for ssd disk, using mb not byte or kb.
     //  ssd_write_mbps: write bps number for ssd disk, using mb not byte or kb.
-    AgentStatus _config_disk_throttle(std::string user_name, std::string level,
-                                      int64_t hdd_read_iops, int64_t hdd_write_iops,
-                                      int64_t hdd_read_mbps, int64_t hdd_write_mbps,
-                                      int64_t ssd_read_iops, int64_t ssd_write_iops,
-                                      int64_t ssd_read_mbps, int64_t ssd_write_mbps);
+    Status _config_disk_throttle(std::string user_name, std::string level, int64_t hdd_read_iops,
+                                 int64_t hdd_write_iops, int64_t hdd_read_mbps,
+                                 int64_t hdd_write_mbps, int64_t ssd_read_iops,
+                                 int64_t ssd_write_iops, int64_t ssd_read_mbps,
+                                 int64_t ssd_write_mbps);
 
     // echo command in string stream to the cgroup file
     // Input parameters:
@@ -157,7 +154,6 @@ public:
     const static std::string _s_system_group;
 
 private:
-    ExecEnv* _exec_env;
     std::string _root_cgroups_path;
     int32_t _drop_retry_times = 10;
     bool _is_cgroups_init_success;
@@ -171,4 +167,3 @@ private:
     static std::map<TResourceType::type, std::string> _s_resource_cgroups;
 };
 } // namespace doris
-#endif

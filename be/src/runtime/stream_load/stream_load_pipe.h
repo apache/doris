@@ -22,27 +22,27 @@
 #include <mutex>
 
 #include "exec/file_reader.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/message_body_sink.h"
 #include "util/bit_util.h"
 #include "util/byte_buffer.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
+const size_t kMaxPipeBufferedBytes = 4 * 1024 * 1024;
 // StreamLoadPipe use to transfer data from producer to consumer
 // Data in pip is stored in chunks.
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
-    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024,
-                   int64_t total_length = -1, bool use_proto = false)
+    StreamLoadPipe(size_t max_buffered_bytes = kMaxPipeBufferedBytes,
+                   size_t min_chunk_size = 64 * 1024, int64_t total_length = -1,
+                   bool use_proto = false)
             : _buffered_bytes(0),
               _proto_buffered_bytes(0),
               _max_buffered_bytes(max_buffered_bytes),
               _min_chunk_size(min_chunk_size),
               _total_length(total_length),
-              _use_proto(use_proto),
-              _finished(false),
-              _cancelled(false) {}
+              _use_proto(use_proto) {}
     virtual ~StreamLoadPipe() {}
 
     Status open() override { return Status::OK(); }
@@ -123,7 +123,7 @@ public:
             }
             // cancelled
             if (_cancelled) {
-                return Status::InternalError("cancelled");
+                return Status::InternalError("cancelled: " + _cancelled_reason);
             }
             // finished
             if (_buf_queue.empty()) {
@@ -148,7 +148,7 @@ public:
         return Status::OK();
     }
 
-    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+    Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) override {
         return Status::InternalError("Not implemented");
     }
 
@@ -159,7 +159,7 @@ public:
     Status tell(int64_t* position) override { return Status::InternalError("Not implemented"); }
 
     // called when consumer finished
-    void close() override { cancel(); }
+    void close() override { cancel("closed"); }
 
     bool closed() override { return _cancelled; }
 
@@ -179,10 +179,11 @@ public:
     }
 
     // called when producer/consumer failed
-    void cancel() override {
+    void cancel(const std::string& reason) override {
         {
             std::lock_guard<std::mutex> l(_lock);
             _cancelled = true;
+            _cancelled_reason = reason;
         }
         _get_cond.notify_all();
         _put_cond.notify_all();
@@ -197,7 +198,7 @@ private:
         }
         // cancelled
         if (_cancelled) {
-            return Status::InternalError("cancelled");
+            return Status::InternalError("cancelled: " + _cancelled_reason);
         }
         // finished
         if (_buf_queue.empty()) {
@@ -237,7 +238,7 @@ private:
                 }
             }
             if (_cancelled) {
-                return Status::InternalError("cancelled");
+                return Status::InternalError("cancelled: " + _cancelled_reason);
             }
             _buf_queue.push_back(buf);
             if (_use_proto) {
@@ -268,9 +269,6 @@ private:
     std::deque<ByteBufferPtr> _buf_queue;
     std::condition_variable _put_cond;
     std::condition_variable _get_cond;
-
-    bool _finished;
-    bool _cancelled;
 
     ByteBufferPtr _write_buf;
 };

@@ -23,8 +23,7 @@
  *
  */
 
-#ifndef RADIXSORT_H_
-#define RADIXSORT_H_
+#pragma once
 
 #include <malloc.h>
 #include <string.h>
@@ -56,7 +55,7 @@ using is_unsigned_v = typename std::is_unsigned<T>::value;
 
 template <typename To, typename From>
 decay_t<To> bit_cast(const From& from) {
-    To res{};
+    To res {};
     memcpy(static_cast<void*>(&res), &from, std::min(sizeof(res), sizeof(from)));
     return res;
 }
@@ -192,7 +191,7 @@ using RadixSortNumTraits = conditional_t<
  * To use RadixSort, you should define `Traits` to give out the information for sorting.
  * `RadixSortFloatTraits` is a good example to refer to.
  * Then you can run it as follows:
- *           RadixSort<YourTraits>::executeLSD(arr, size);
+ *           RadixSort<YourTraits>::execute_lsd(arr, size);
  *
  * In particular, if you want to sort an array of numeric, you can use it easily as follows:
  *           radixSortLSD(array_of_numeric, array_size);
@@ -303,5 +302,3 @@ void radixSortLSD(T* arr, size_t size) {
 }
 
 } // namespace doris
-
-#endif // RADIXSORT_H_

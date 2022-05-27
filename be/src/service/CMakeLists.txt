@@ -29,18 +29,29 @@ add_library(Service
     internal_service.cpp
 )
 
-add_executable(palo_be
-    doris_main.cpp
-)
+if (${MAKE_TEST} STREQUAL "OFF")
+    add_executable(palo_be
+        doris_main.cpp
+    )
 
-# This permits libraries loaded by dlopen to link to the symbols in the program.
-set_target_properties(palo_be PROPERTIES ENABLE_EXPORTS 1)
+    # This permits libraries loaded by dlopen to link to the symbols in the program.
+    set_target_properties(palo_be PROPERTIES ENABLE_EXPORTS 1)
 
-target_link_libraries(palo_be
-    ${DORIS_LINK_LIBS}
-)
+    target_link_libraries(palo_be
+        ${DORIS_LINK_LIBS}
+    )
 
-install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/)
+    install(TARGETS palo_be DESTINATION ${OUTPUT_DIR}/lib/)
 
-install(TARGETS palo_be
-    DESTINATION ${OUTPUT_DIR}/lib/)
+    if ("${STRIP_DEBUG_INFO}" STREQUAL "ON")
+        add_custom_command(TARGET palo_be POST_BUILD
+            COMMAND ${CMAKE_OBJCOPY} --only-keep-debug $<TARGET_FILE:palo_be> $<TARGET_FILE:palo_be>.dbg
+            COMMAND ${CMAKE_STRIP} --strip-debug --strip-unneeded $<TARGET_FILE:palo_be>
+            COMMAND ${CMAKE_OBJCOPY} --add-gnu-debuglink=$<TARGET_FILE:palo_be>.dbg $<TARGET_FILE:palo_be>
+            )
+
+        install(DIRECTORY DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+        install(FILES $<TARGET_FILE:palo_be>.dbg DESTINATION ${OUTPUT_DIR}/lib/debug_info/)
+    endif()
+endif()

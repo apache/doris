@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_FRAGMENT_MGR_H
-#define DORIS_BE_RUNTIME_FRAGMENT_MGR_H
+#pragma once
 
 #include <functional>
 #include <memory>
@@ -55,7 +54,7 @@ std::string to_load_error_http_path(const std::string& file_name);
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
-    typedef std::function<void(PlanFragmentExecutor*)> FinishCallback;
+    using FinishCallback = std::function<void(PlanFragmentExecutor*)>;
 
     FragmentMgr(ExecEnv* exec_env);
     virtual ~FragmentMgr();
@@ -70,7 +69,8 @@ public:
         return cancel(fragment_id, PPlanFragmentCancelReason::INTERNAL_ERROR);
     }
 
-    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason);
+    Status cancel(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
+                  const std::string& msg = "");
 
     void cancel_worker();
 
@@ -82,8 +82,6 @@ public:
     Status exec_external_plan_fragment(const TScanOpenParams& params,
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
-
-    RuntimeFilterMergeController& runtimefilter_controller() { return _runtimefilter_controller; }
 
     Status apply_filter(const PPublishFilterRequest* request, const char* attach_data);
 
@@ -100,6 +98,8 @@ private:
     ExecEnv* _exec_env;
 
     std::mutex _lock;
+
+    std::condition_variable _cv;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;
@@ -118,5 +118,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

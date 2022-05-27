@@ -47,7 +47,7 @@ public:
     /**
      * This interface is used read a whole message, For example: read a message from kafka.
      *
-     * if read eof then return Status::OK and length is set 0 and buf is set NULL,
+     * if read eof then return Status::OK and length is set 0 and buf is set nullptr,
      *  other return readed bytes.
      */
     virtual Status read_one_message(std::unique_ptr<uint8_t[]>* buf, int64_t* length) override;

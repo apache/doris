@@ -21,10 +21,14 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TTaskType;
 
+import com.google.common.base.Strings;
+
 public class StorageMediaMigrationTask extends AgentTask {
 
     private int schemaHash;
     private TStorageMedium toStorageMedium;
+    // if dataDir is specified, the toStorageMedium is meaning less
+    private String dataDir;
 
     public StorageMediaMigrationTask(long backendId, long tabletId, int schemaHash,
                                      TStorageMedium toStorageMedium) {
@@ -36,7 +40,18 @@ public class StorageMediaMigrationTask extends AgentTask {
 
     public TStorageMediumMigrateReq toThrift() {
         TStorageMediumMigrateReq request = new TStorageMediumMigrateReq(tabletId, schemaHash, toStorageMedium);
+        if (!Strings.isNullOrEmpty(dataDir)) {
+            request.setDataDir(dataDir);
+        }
         return request;
+    }
+
+    public String getDataDir() {
+        return dataDir;
+    }
+
+    public void setDataDir(String dataDir) {
+        this.dataDir = dataDir;
     }
 
     public int getSchemaHash() {

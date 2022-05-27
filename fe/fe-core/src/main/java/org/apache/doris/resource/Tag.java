@@ -34,18 +34,18 @@ import java.util.Objects;
  * A Tag consists of type and value.
  * Tag type and value are both case insensitive, and represented in lower case.
  * Tag is printed as { "type": "value" }
- * 
- * Type is mainly used to categorize a tag. For example, users can customize a certain type of tag. 
+ *
+ * Type is mainly used to categorize a tag. For example, users can customize a certain type of tag.
  * And these tags all use the same type. So user can quickly find this type of tags by the type.
  * Doris reserves several built-in types:
  *     ROLE: the role of resource, such as FRONTEND, BACKEND, BROKER
  *     FUNCTION: the function of a tag, such as STORAGE, COMPUTATION
  *     LOCATION: A type of tags representing location information.
- *     
+ *
  * Value is customized. And Doris also reserves several built-in values for built-in types:
  *     FRONTEND, BACKEND, BROKER of type ROLE.
  *     REMOTE_STORAGE, STORAGE, COMPUTATION for type FUNCTION.
- * 
+ *
  * A Tag is immutable once it being created.
  */
 public class Tag implements Writable {
@@ -61,6 +61,8 @@ public class Tag implements Writable {
     public static final String VALUE_STORE = "store";
     public static final String VALUE_COMPUTATION = "computation";
     public static final String VALUE_DEFAULT_CLUSTER = "default_cluster";
+    public static final String VALUE_DEFAULT_TAG = "default";
+    public static final String VALUE_INVALID_TAG = "invalid";
 
     public static final ImmutableSet<String> RESERVED_TAG_TYPE = ImmutableSet.of(
             TYPE_ROLE, TYPE_FUNCTION, TYPE_LOCATION);
@@ -68,6 +70,14 @@ public class Tag implements Writable {
             VALUE_FRONTEND, VALUE_BACKEND, VALUE_BROKER, VALUE_REMOTE_STORAGE, VALUE_STORE, VALUE_COMPUTATION,
             VALUE_DEFAULT_CLUSTER);
     private static final String TAG_REGEX = "^[a-z][a-z0-9_]{0,32}$";
+
+    public static final Tag DEFAULT_BACKEND_TAG;
+    public static final Tag INVALID_TAG;
+
+    static {
+        DEFAULT_BACKEND_TAG = new Tag(TYPE_LOCATION, VALUE_DEFAULT_TAG);
+        INVALID_TAG = new Tag(TYPE_LOCATION, VALUE_INVALID_TAG);
+    }
 
     @SerializedName(value = "type")
     public String type;
@@ -86,24 +96,30 @@ public class Tag implements Writable {
         return new Tag(type, value);
     }
 
+    public String toKey() {
+        return type + "_" + value;
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(type, value);
     }
-    
+
     @Override
     public boolean equals(Object other) {
-        if (other == this) return true;
+        if (other == this) {
+            return true;
+        }
         if (!(other instanceof Tag)) {
             return false;
         }
         Tag otherTag = (Tag) other;
-        return type.equalsIgnoreCase(otherTag.type) && value.equalsIgnoreCase(otherTag.value);
+        return type.equals(otherTag.type) && value.equals(otherTag.value);
     }
 
     @Override
     public String toString() {
-        return "{\"" + type.toString() + "\" : \"" + value + "\"}";
+        return "{\"" + type + "\" : \"" + value + "\"}";
     }
 
     @Override

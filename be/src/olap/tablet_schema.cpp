@@ -18,6 +18,9 @@
 #include "olap/tablet_schema.h"
 
 #include "tablet_meta.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 
@@ -60,6 +63,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_DECIMAL;
     } else if (0 == upper_type_str.compare(0, 7, "VARCHAR")) {
         type = OLAP_FIELD_TYPE_VARCHAR;
+    } else if (0 == upper_type_str.compare("STRING")) {
+        type = OLAP_FIELD_TYPE_STRING;
     } else if (0 == upper_type_str.compare("BOOLEAN")) {
         type = OLAP_FIELD_TYPE_BOOL;
     } else if (0 == upper_type_str.compare(0, 3, "HLL")) {
@@ -74,6 +79,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_OBJECT;
     } else if (0 == upper_type_str.compare("ARRAY")) {
         type = OLAP_FIELD_TYPE_ARRAY;
+    } else if (0 == upper_type_str.compare("QUANTILE_STATE")) {
+        type = OLAP_FIELD_TYPE_QUANTILE_STATE;
     } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
@@ -103,6 +110,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
     } else if (0 == upper_str.compare("BITMAP_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_BITMAP_UNION;
+    } else if (0 == upper_str.compare("QUANTILE_UNION")) {
+        aggregation_type = OLAP_FIELD_AGGREGATION_QUANTILE_UNION;
     } else {
         LOG(WARNING) << "invalid aggregation type string. [aggregation='" << str << "']";
         aggregation_type = OLAP_FIELD_AGGREGATION_UNKNOWN;
@@ -164,6 +173,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
     case OLAP_FIELD_TYPE_VARCHAR:
         return "VARCHAR";
 
+    case OLAP_FIELD_TYPE_STRING:
+        return "STRING";
+
     case OLAP_FIELD_TYPE_BOOL:
         return "BOOLEAN";
 
@@ -181,6 +193,8 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
     case OLAP_FIELD_TYPE_OBJECT:
         return "OBJECT";
+    case OLAP_FIELD_TYPE_QUANTILE_STATE:
+        return "QUANTILE_STATE";
 
     default:
         return "UNKNOWN";
@@ -213,6 +227,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
     case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
         return "BITMAP_UNION";
 
+    case OLAP_FIELD_AGGREGATION_QUANTILE_UNION:
+        return "QUANTILE_UNION";
+
     default:
         return "UNKNOWN";
     }
@@ -239,19 +256,22 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         return 4;
     case TPrimitiveType::DOUBLE:
         return 8;
+    case TPrimitiveType::QUANTILE_STATE:
     case TPrimitiveType::OBJECT:
         return 16;
     case TPrimitiveType::CHAR:
         return string_length;
     case TPrimitiveType::VARCHAR:
     case TPrimitiveType::HLL:
+        return string_length + sizeof(OLAP_VARCHAR_MAX_LENGTH);
+    case TPrimitiveType::STRING:
         return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::DECIMALV2:
         return 12; // use 12 bytes in olap engine.
     default:
-        OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
+        LOG(WARNING) << "unknown field type. [type=" << type << "]";
         return 0;
     }
 }
@@ -266,7 +286,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable) {
     _aggregation = agg;
     _type = filed_type;
-    _length = get_type_info(filed_type)->size();
+    _length = get_scalar_type_info(filed_type)->size();
     _is_nullable = is_nullable;
 }
 
@@ -357,7 +377,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
     }
     column->set_visible(_visible);
 
-    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
+    if (_type == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(_sub_columns.size() == 1) << "ARRAY type has more than 1 children types.";
         ColumnPB* child = column->add_children_columns();
         _sub_columns[0].to_schema_pb(child);
@@ -366,8 +386,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
 
 uint32_t TabletColumn::mem_size() const {
     auto size = sizeof(TabletColumn);
+    size += _col_name.size();
     if (_has_default_value) {
         size += _default_value.size();
+    }
+    if (_has_referenced_column) {
+        size += _referenced_column.size();
     }
     for (auto& sub_column : _sub_columns) {
         size += sub_column.mem_size();
@@ -415,6 +439,8 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_in_memory = schema.is_in_memory();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
+    _sort_type = schema.sort_type();
+    _sort_col_num = schema.sort_col_num();
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
@@ -433,6 +459,8 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
     tablet_meta_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_meta_pb->set_sequence_col_idx(_sequence_col_idx);
+    tablet_meta_pb->set_sort_type(_sort_type);
+    tablet_meta_pb->set_sort_col_num(_sort_col_num);
 }
 
 uint32_t TabletSchema::mem_size() const {
@@ -477,6 +505,22 @@ void TabletSchema::init_field_index_for_test() {
     for (int i = 0; i < _cols.size(); ++i) {
         _field_name_to_index[_cols[i].name()] = i;
     }
+}
+
+vectorized::Block TabletSchema::create_block(
+        const std::vector<uint32_t>& return_columns,
+        const std::unordered_set<uint32_t>* tablet_columns_need_convert_null) const {
+    vectorized::Block block;
+    for (int i = 0; i < return_columns.size(); ++i) {
+        const auto& col = _cols[return_columns[i]];
+        bool is_nullable = (tablet_columns_need_convert_null != nullptr &&
+                            tablet_columns_need_convert_null->find(return_columns[i]) !=
+                                    tablet_columns_need_convert_null->end());
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(col, is_nullable);
+        auto column = data_type->create_column();
+        block.insert({std::move(column), data_type, col.name()});
+    }
+    return block;
 }
 
 bool operator==(const TabletColumn& a, const TabletColumn& b) {

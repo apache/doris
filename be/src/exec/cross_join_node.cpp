@@ -34,6 +34,7 @@ CrossJoinNode::CrossJoinNode(ObjectPool* pool, const TPlanNode& tnode, const Des
 Status CrossJoinNode::prepare(RuntimeState* state) {
     DCHECK(_join_op == TJoinOp::CROSS_JOIN);
     RETURN_IF_ERROR(BlockingJoinNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _build_batch_pool.reset(new ObjectPool());
     return Status::OK();
 }
@@ -52,19 +53,17 @@ Status CrossJoinNode::close(RuntimeState* state) {
 Status CrossJoinNode::construct_build_side(RuntimeState* state) {
     // Do a full scan of child(1) and store all build row batches.
     RETURN_IF_ERROR(child(1)->open(state));
+    SCOPED_SWITCH_THREAD_LOCAL_MEM_TRACKER_ERR_CB("Cross join, while getting next from child 1");
 
     while (true) {
-        RowBatch* batch = _build_batch_pool->add(
-                new RowBatch(child(1)->row_desc(), state->batch_size(), mem_tracker().get()));
+        RowBatch* batch =
+                _build_batch_pool->add(new RowBatch(child(1)->row_desc(), state->batch_size()));
 
         RETURN_IF_CANCELLED(state);
         // TODO(zhaochun):
         // RETURN_IF_ERROR(state->CheckQueryState());
-        bool eos = true;
+        bool eos = false;
         RETURN_IF_ERROR(child(1)->get_next(state, batch, &eos));
-
-        // to prevent use too many memory
-        RETURN_IF_LIMIT_EXCEEDED(state, "Cross join, while getting next from the child 1.");
 
         SCOPED_TIMER(_build_timer);
         _build_batches.add_row_batch(batch);
@@ -90,6 +89,7 @@ Status CrossJoinNode::get_next(RuntimeState* state, RowBatch* output_batch, bool
     // TOOD(zhaochun)
     // RETURN_IF_ERROR(state->check_query_state());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
 
     if (reached_limit() || _eos) {
         *eos = true;

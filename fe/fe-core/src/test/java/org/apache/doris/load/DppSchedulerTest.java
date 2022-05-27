@@ -17,14 +17,14 @@
 
 package org.apache.doris.load;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.CommandResult;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.TEtlState;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Ignore;
@@ -43,18 +43,13 @@ public class DppSchedulerTest {
 
     @Mocked
     private Util util;
-    
+
     @Before
     public void setUp() {
-        // mock palo home env
-//        PowerMock.mockStatic(System.class);
-//        EasyMock.expect(System.getenv("DORIS_HOME")).andReturn(".").anyTimes();
-//        PowerMock.replay(System.class);
-
         UnitTestUtil.initDppConfig();
         dppScheduler = new DppScheduler(Load.dppDefaultConfig);
     }
-    
+
     @Ignore
     @Test
     public void testCalcReduceNumByInputSize() throws Exception {
@@ -71,11 +66,11 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         // get method
         Method calcReduceNumByInputSize = UnitTestUtil.getPrivateMethod(
                 DppScheduler.class, "calcReduceNumByInputSize", new Class[] {Set.class});
-        
+
         // normal test
         Set<String> inputPaths = new HashSet<String>();
         Config.load_input_size_limit_gb = 0;
@@ -94,7 +89,7 @@ public class DppSchedulerTest {
         }
         Config.load_input_size_limit_gb = 0;
     }
-    
+
     @Test
     public void testCalcReduceNumByTablet() throws Exception {
         Map<String, Object> jobConf = new HashMap<String, Object>();
@@ -114,16 +109,16 @@ public class DppSchedulerTest {
         }
         view2.put("key_ranges", rangeList);
         views.put("view2", view2);
-        
+
         Method calcReduceNumByTablet = UnitTestUtil.getPrivateMethod(
                 DppScheduler.class, "calcReduceNumByTablet", new Class[] {Map.class});
         Assert.assertEquals(15, calcReduceNumByTablet.invoke(dppScheduler, new Object[] {jobConf}));
     }
-    
+
     @Test
     public void testGetEtlJobStatus() {
-        String jobStatus = "Job: job_201501261830_12231\n" 
-                         + "file: hdfs://host:54310/system/mapred/job_201501261830_12231/job.xml\n" 
+        String jobStatus = "Job: job_201501261830_12231\n"
+                         + "file: hdfs://host:54310/system/mapred/job_201501261830_12231/job.xml\n"
                          + "tracking URL: http://host:8030/jobdetails.jsp?jobid=job_201501261830_12231\n"
                          + "job state: 1\n"
                          + "map() completion: 0.9036233\n"
@@ -147,13 +142,13 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         EtlStatus status = dppScheduler.getEtlJobStatus("etlJobId");
         Assert.assertEquals(TEtlState.RUNNING, status.getState());
         Assert.assertEquals("0", status.getCounters().get("dpp.abnorm.ALL"));
         Assert.assertEquals("0.9036233", status.getStats().get("map() completion"));
     }
-    
+
     @Test
     public void testGetEtlFileList() {
         String outputPath = "/label_0";
@@ -197,7 +192,7 @@ public class DppSchedulerTest {
         Assert.assertNotNull(fileMap);
         Assert.assertTrue(fileMap.isEmpty());
     }
-    
+
     @Test
     public void testKillEtlJob() {
         CommandResult commandResult = new CommandResult();
@@ -208,10 +203,10 @@ public class DppSchedulerTest {
                 result = commandResult;
             }
         };
- 
+
         dppScheduler.killEtlJob("etlJobId");
     }
-    
+
     @Test
     public void testGetEtlOutputPath() {
         DppConfig dppConfig = Load.dppDefaultConfig.getCopiedDppConfig();
@@ -225,5 +220,5 @@ public class DppSchedulerTest {
                 + "/" + loadLabel + "/" + etlOutputDir;
         Assert.assertEquals(expectedPath, actualPath);
     }
-    
+
 }

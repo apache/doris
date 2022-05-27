@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Predicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -59,8 +62,7 @@ public abstract class Predicate extends Expr {
      * This will pick up something like "col = 5", but not "2 * col = 10", which is
      * what we want.
      */
-    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef,
-      Reference<Integer> idxRef) {
+    public boolean isSingleColumnPredicate(Reference<SlotRef> slotRefRef, Reference<Integer> idxRef) {
         // find slotref
         SlotRef slotRef = null;
         int i = 0;

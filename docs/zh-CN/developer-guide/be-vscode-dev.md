@@ -119,7 +119,7 @@ brpc_port = 8060
 # If no ip match this rule, will choose one randomly.
 # use CIDR format, e.g. 10.10.10.0/
 # Default value is empty.
-priority_networks = 192.168.59.0/24 # data root path, seperate by ';'
+priority_networks = 192.168.59.0/24 # data root path, separate by ';'
 storage_root_path = /soft/be/storage 
 # sys_log_dir = ${PALO_HOME}/log
 # sys_log_roll_mode = SIZE-MB-
@@ -214,7 +214,7 @@ ps -ef | grep palo*
 
 其中的15200即为当前运行的 be 的进程 id.
 
-一个完整的 lainch.json 的例子如下：
+一个完整的 launch.json 的例子如下：
 
 ```
  {

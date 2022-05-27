@@ -17,57 +17,50 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.Collections;
 
 public class IncompleteTabletsProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("UnhealthyTablets").add("InconsistentTablets").add("CloningTablets").add("BadTablets")
+            .add("ReplicaMissingTablets").add("VersionIncompleteTablets").add("ReplicaRelocatingTablets")
+            .add("RedundantTablets").add("ReplicaMissingInClusterTablets").add("ReplicaMissingForTagTablets")
+            .add("ForceRedundantTablets").add("ColocateMismatchTablets").add("ColocateRedundantTablets")
+            .add("NeedFurtherRepairTablets").add("UnrecoverableTablets").add("ReplicaCompactionTooSlowTablets")
+            .add("InconsistentTablets").add("OversizeTablets")
             .build();
     private static final Joiner JOINER = Joiner.on(",");
 
-    Collection<Long> unhealthyTabletIds;
-    Collection<Long> inconsistentTabletIds;
-    Collection<Long> cloningTabletIds;
-    Collection<Long> unrecoverableTabletIds;
+    final Database db;
 
-    public IncompleteTabletsProcNode(Collection<Long> unhealthyTabletIds,
-                                     Collection<Long> inconsistentTabletIds,
-                                     Collection<Long> cloningTabletIds,
-                                     Collection<Long> unrecoverableTabletIds) {
-        this.unhealthyTabletIds = unhealthyTabletIds;
-        this.inconsistentTabletIds = inconsistentTabletIds;
-        this.cloningTabletIds = cloningTabletIds;
-        this.unrecoverableTabletIds = unrecoverableTabletIds;
+    public IncompleteTabletsProcNode(Database db) {
+        this.db = db;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        BaseProcResult result = new BaseProcResult();
-
-        result.setNames(TITLE_NAMES);
-
-        List<String> row = new ArrayList<String>(1);
-
-        String incompleteTablets = JOINER.join(Arrays.asList(unhealthyTabletIds));
-        String inconsistentTablets = JOINER.join(Arrays.asList(inconsistentTabletIds));
-        String cloningTablets = JOINER.join(Arrays.asList(cloningTabletIds));
-        String unrecoverableTablets = JOINER.join(Arrays.asList(unrecoverableTabletIds));
-        row.add(incompleteTablets);
-        row.add(inconsistentTablets);
-        row.add(cloningTablets);
-        row.add(unrecoverableTablets);
-
-        result.addRow(row);
-
-        return result;
+        TabletHealthProcDir.DBTabletStatistic statistic = new TabletHealthProcDir.DBTabletStatistic(db);
+        return new BaseProcResult(TITLE_NAMES, Collections.singletonList(Arrays.asList(
+                JOINER.join(statistic.replicaMissingTabletIds),
+                JOINER.join(statistic.versionIncompleteTabletIds),
+                JOINER.join(statistic.replicaRelocatingTabletIds),
+                JOINER.join(statistic.redundantTabletIds),
+                JOINER.join(statistic.replicaMissingInClusterTabletIds),
+                JOINER.join(statistic.replicaMissingForTagTabletIds),
+                JOINER.join(statistic.forceRedundantTabletIds),
+                JOINER.join(statistic.colocateMismatchTabletIds),
+                JOINER.join(statistic.colocateRedundantTabletIds),
+                JOINER.join(statistic.needFurtherRepairTabletIds),
+                JOINER.join(statistic.unrecoverableTabletIds),
+                JOINER.join(statistic.replicaCompactionTooSlowTabletIds),
+                JOINER.join(statistic.inconsistentTabletIds),
+                JOINER.join(statistic.oversizeTabletIds)
+        )));
     }
 
 }

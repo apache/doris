@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTI_TOPN_COUNTER_H
-#define DORIS_BE_SRC_UTI_TOPN_COUNTER_H
+#pragma once
 
 #include <list>
 #include <unordered_map>
@@ -31,7 +30,7 @@ namespace doris {
 
 static const uint32_t DEFAULT_SPACE_EXPAND_RATE = 50;
 
-class Slice;
+struct Slice;
 
 class Counter {
 public:
@@ -171,5 +170,3 @@ public:
     }
 };
 } // namespace doris
-
-#endif //DORIS_BE_SRC_UTI_TOPN_COUNTER_H

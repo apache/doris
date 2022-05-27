@@ -35,6 +35,7 @@
 #include "olap/push_handler.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
+#include "runtime/thread_context.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
 
@@ -46,36 +47,34 @@ using std::vector;
 namespace doris {
 
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos,
-                                         int64_t signature, AgentStatus* res_status)
+                                         int64_t signature, Status* res_status)
         : _push_req(push_req),
           _tablet_infos(tablet_infos),
           _signature(signature),
           _res_status(res_status) {
-    _download_status = DORIS_SUCCESS;
+    _download_status = Status::OK();
+    _mem_tracker = MemTracker::create_tracker(
+            -1,
+            fmt::format("EngineBatchLoadTask:pushType={}:tabletId={}", _push_req.push_type,
+                        std::to_string(_push_req.tablet_id)),
+            StorageEngine::instance()->batch_load_mem_tracker(), MemTrackerLevel::TASK);
 }
 
 EngineBatchLoadTask::~EngineBatchLoadTask() {}
 
-OLAPStatus EngineBatchLoadTask::execute() {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::execute() {
+    SCOPED_ATTACH_TASK_THREAD(ThreadContext::TaskType::STORAGE, _mem_tracker);
+    Status status = Status::OK();
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE ||
         _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
-        if (status == DORIS_SUCCESS) {
+        if (status.ok()) {
             uint32_t retry_time = 0;
             while (retry_time < PUSH_MAX_RETRY) {
                 status = _process();
-
-                if (status == DORIS_PUSH_HAD_LOADED) {
-                    OLAP_LOG_WARNING(
-                            "transaction exists when realtime push, "
-                            "but unfinished, do not report to fe, signature: %ld",
-                            _signature);
-                    break; // not retry any more
-                }
                 // Internal error, need retry
-                if (status == DORIS_ERROR) {
-                    OLAP_LOG_WARNING("push internal error, need retry.signature: %ld", _signature);
+                if (!status.ok()) {
+                    LOG(WARNING) << "push internal error, need retry.signature: " << _signature;
                     retry_time += 1;
                 } else {
                     break;
@@ -83,21 +82,21 @@ OLAPStatus EngineBatchLoadTask::execute() {
             }
         }
     } else if (_push_req.push_type == TPushType::DELETE) {
-        OLAPStatus delete_data_status = _delete_data(_push_req, _tablet_infos);
-        if (delete_data_status != OLAPStatus::OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("delete data failed. status: %d, signature: %ld", delete_data_status,
-                             _signature);
-            status = DORIS_ERROR;
+        Status delete_data_status = _delete_data(_push_req, _tablet_infos);
+        if (delete_data_status != Status::OK()) {
+            LOG(WARNING) << "delete data failed. status:" << delete_data_status
+                         << " signature:" << _signature;
+            status = delete_data_status;
         }
     } else {
-        status = DORIS_TASK_REQUEST_ERROR;
+        status = Status::InvalidArgument("Not support task type");
     }
     *_res_status = status;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-AgentStatus EngineBatchLoadTask::_init() {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_init() {
+    Status status = Status::OK();
 
     if (_is_init) {
         VLOG_NOTICE << "has been inited";
@@ -106,19 +105,19 @@ AgentStatus EngineBatchLoadTask::_init() {
 
     // Check replica exist
     TabletSharedPtr tablet;
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id,
-                                                                     _push_req.schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_push_req.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "get tables failed. "
                      << "tablet_id: " << _push_req.tablet_id
                      << ", schema_hash: " << _push_req.schema_hash;
-        return DORIS_PUSH_INVALID_TABLE;
+        return Status::InvalidArgument(
+                fmt::format("Could not find tablet {}", _push_req.tablet_id));
     }
 
     // check disk capacity
     if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
         if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
-            return DORIS_DISK_REACH_CAPACITY_LIMIT;
+            return Status::IOError("Disk does not have enough capacity");
         }
     }
 
@@ -136,7 +135,7 @@ AgentStatus EngineBatchLoadTask::_init() {
     string root_path = tablet->data_dir()->path();
     status = _get_tmp_file_dir(root_path, &tmp_file_dir);
 
-    if (status != DORIS_SUCCESS) {
+    if (!status.ok()) {
         LOG(WARNING) << "get local path failed. tmp file dir: " << tmp_file_dir;
         return status;
     }
@@ -148,8 +147,8 @@ AgentStatus EngineBatchLoadTask::_init() {
 }
 
 // Get replica root path
-AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, string* download_path) {
+    Status status = Status::OK();
     *download_path = root_path + DPP_PREFIX;
 
     // Check path exist
@@ -161,7 +160,7 @@ AgentStatus EngineBatchLoadTask::_get_tmp_file_dir(const string& root_path, stri
         std::filesystem::create_directories(*download_path, ec);
 
         if (ec) {
-            status = DORIS_ERROR;
+            status = Status::IOError("Create download dir failed " + *download_path);
             LOG(WARNING) << "create download dir failed.path: " << *download_path
                          << ", error code: " << ec;
         }
@@ -176,11 +175,11 @@ void EngineBatchLoadTask::_get_file_name_from_path(const string& file_path, stri
     *file_name = file_path.substr(found + 1) + "_" + boost::lexical_cast<string>(tid);
 }
 
-AgentStatus EngineBatchLoadTask::_process() {
-    AgentStatus status = DORIS_SUCCESS;
+Status EngineBatchLoadTask::_process() {
+    Status status = Status::OK();
     if (!_is_init) {
         LOG(WARNING) << "has not init yet. tablet_id: " << _push_req.tablet_id;
-        return DORIS_ERROR;
+        return Status::InternalError("Tablet has not init yet");
     }
     // Remote file not empty, need to download
     if (_push_req.__isset.http_file_path) {
@@ -197,7 +196,7 @@ AgentStatus EngineBatchLoadTask::_process() {
         bool is_timeout = false;
         auto download_cb = [this, estimate_time_out, file_size, &is_timeout](HttpClient* client) {
             // Check timeout and set timeout
-            time_t now = time(NULL);
+            time_t now = time(nullptr);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
                 VLOG_NOTICE << "check time out. time_out:" << _push_req.timeout << ", now:" << now;
@@ -252,20 +251,20 @@ AgentStatus EngineBatchLoadTask::_process() {
             LOG(WARNING) << "down load file failed. remote_file=" << _remote_file_path
                          << ", tablet=" << _push_req.tablet_id << ", cost=" << cost / 1000
                          << "us, errmsg=" << st.get_error_msg() << ", is_timeout=" << is_timeout;
-            status = DORIS_ERROR;
+            status = Status::InternalError("Download file failed");
         }
     }
 
-    if (status == DORIS_SUCCESS) {
+    if (status.ok()) {
         // Load delta file
-        time_t push_begin = time(NULL);
-        OLAPStatus push_status = _push(_push_req, _tablet_infos);
-        time_t push_finish = time(NULL);
+        time_t push_begin = time(nullptr);
+        Status push_status = _push(_push_req, _tablet_infos);
+        time_t push_finish = time(nullptr);
         LOG(INFO) << "Push finish, cost time: " << (push_finish - push_begin);
-        if (push_status == OLAPStatus::OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
-            status = DORIS_PUSH_HAD_LOADED;
-        } else if (push_status != OLAPStatus::OLAP_SUCCESS) {
-            status = DORIS_ERROR;
+        if (push_status.precise_code() == OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST) {
+            status = Status::OK();
+        } else if (push_status != Status::OK()) {
+            status = push_status;
         }
     }
 
@@ -279,9 +278,9 @@ AgentStatus EngineBatchLoadTask::_process() {
     return status;
 }
 
-OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
-                                      std::vector<TTabletInfo>* tablet_info_vec) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status EngineBatchLoadTask::_push(const TPushReq& request,
+                                  std::vector<TTabletInfo>* tablet_info_vec) {
+    Status res = Status::OK();
     LOG(INFO) << "begin to process push. "
               << " transaction_id=" << request.transaction_id << " tablet_id=" << request.tablet_id
               << ", version=" << request.version;
@@ -289,16 +288,16 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     if (tablet_info_vec == nullptr) {
         LOG(WARNING) << "invalid output parameter which is nullptr pointer.";
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
         DorisMetrics::instance()->push_requests_fail_total->increment(1);
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     PushType type = PUSH_NORMAL;
@@ -318,11 +317,11 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     } else {
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+            res = Status::OLAPInternalError(OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED);
         }
     }
 
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "fail to push delta, "
                      << "transaction_id=" << request.transaction_id
                      << " tablet=" << tablet->full_name()
@@ -341,25 +340,24 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     return res;
 }
 
-OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
-                                             std::vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
+Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
+                                         std::vector<TTabletInfo>* tablet_info_vec) {
+    VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
 
     if (tablet_info_vec == nullptr) {
         LOG(WARNING) << "invalid tablet info parameter which is nullptr pointer.";
-        return OLAP_ERR_CE_CMD_PARAMS_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_CE_CMD_PARAMS_ERROR);
     }
 
     // 1. Get all tablets with same tablet_id
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            request.tablet_id, request.schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id
-                     << ", schema_hash=" << request.schema_hash;
-        return OLAP_ERR_TABLE_NOT_FOUND;
+        LOG(WARNING) << "can't find tablet. tablet=" << request.tablet_id;
+        return Status::OLAPInternalError(OLAP_ERR_TABLE_NOT_FOUND);
     }
 
     // 2. Process delete data by push interface
@@ -368,14 +366,12 @@ OLAPStatus EngineBatchLoadTask::_delete_data(const TPushReq& request,
         res = push_handler.process_streaming_ingestion(tablet, request, PUSH_FOR_DELETE,
                                                        tablet_info_vec);
     } else {
-        res = OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED;
+        res = Status::OLAPInternalError(OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED);
     }
 
-    if (res != OLAP_SUCCESS) {
-        OLAP_LOG_WARNING(
-                "fail to push empty version for delete data. "
-                "[res=%d tablet='%s']",
-                res, tablet->full_name().c_str());
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to push empty version for delete data. "
+                     << "res=" << res << "tablet=" << tablet->full_name();
         DorisMetrics::instance()->delete_requests_failed->increment(1);
         return res;
     }

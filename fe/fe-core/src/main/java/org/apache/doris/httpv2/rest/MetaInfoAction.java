@@ -25,6 +25,7 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
@@ -36,22 +37,21 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RestController;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /**
  * And meta info like databases, tables and schema
@@ -70,14 +70,14 @@ public class MetaInfoAction extends RestBaseController {
     /**
      * Get all databases
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"default_cluster:db1",
-     * 		"default_cluster:doris_audit_db__",
-     * 		"default_cluster:information_schema"
-     * 	],
-     * 	"count": 0
+     *   "msg": "success",
+     *   "code": 0,
+     *   "data": [
+     *     "default_cluster:db1",
+     *     "default_cluster:doris_audit_db__",
+     *     "default_cluster:information_schema"
+     *   ],
+     *   "count": 0
      * }
      */
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES,
@@ -117,13 +117,13 @@ public class MetaInfoAction extends RestBaseController {
 
     /** Get all tables of a database
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": [
-     * 		"tbl1",
-     * 		"tbl2"
-     * 	],
-     * 	"count": 0
+     *   "msg": "success",
+     *   "code": 0,
+     *   "data": [
+     *     "tbl1",
+     *     "tbl2"
+     *   ],
+     *   "count": 0
      * }
      */
 
@@ -140,9 +140,11 @@ public class MetaInfoAction extends RestBaseController {
 
 
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> tblNames = Lists.newArrayList();
@@ -163,40 +165,40 @@ public class MetaInfoAction extends RestBaseController {
 
     /** Get schema of a table
      * {
-     * 	"msg": "success",
-     * 	"code": 0,
-     * 	"data": {
-     * 		"tbl1": {
-     * 			"schema": [{
-     * 				"Field": "k1",
-     * 				"Type": "INT",
-     * 				"Null": "Yes",
-     * 				"Extra": "",
-     * 				"Default": null,
-     * 				"Key": "true"
-     *            }, {
-     * 				"Field": "k2",
-     * 				"Type": "INT",
-     * 				"Null": "Yes",
-     * 				"Extra": "",
-     * 				"Default": null,
-     * 				"Key": "true"
-     *            }],
-     * 			"is_base": true
-     *        },
-     * 		"r1": {
-     * 			"schema": [{
-     * 				"Field": "k1",
-     * 				"Type": "INT",
-     * 				"Null": "Yes",
-     * 				"Extra": "",
-     * 				"Default": null,
-     * 				"Key": "true"
-     *            }],
-     * 			"is_base": false
-     *        }
-     *    },
-     * 	"count": 0
+     *   "msg": "success",
+     *   "code": 0,
+     *   "data": {
+     *     "tbl1": {
+     *       "schema": [{
+     *         "Field": "k1",
+     *         "Type": "INT",
+     *         "Null": "Yes",
+     *         "Extra": "",
+     *         "Default": null,
+     *         "Key": "true"
+     *       }, {
+     *         "Field": "k2",
+     *         "Type": "INT",
+     *         "Null": "Yes",
+     *         "Extra": "",
+     *         "Default": null,
+     *         "Key": "true"
+     *       }],
+     *       "is_base": true
+     *     },
+     *     "r1": {
+     *       "schema": [{
+     *         "Field": "k1",
+     *         "Type": "INT",
+     *         "Null": "Yes",
+     *         "Extra": "",
+     *         "Default": null,
+     *         "Key": "true"
+     *       }],
+     *       "is_base": false
+     *     }
+     *   },
+     *   "count": 0
      * }
      */
     @RequestMapping(path = "/api/meta/" + NAMESPACES + "/{" + NS_KEY + "}/" + DATABASES + "/{" + DB_KEY + "}/" + TABLES
@@ -215,19 +217,18 @@ public class MetaInfoAction extends RestBaseController {
         String fullDbName = getFullDbName(dbName);
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SHOW);
 
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database does not exist: " + fullDbName);
-        }
-
         String withMvPara = request.getParameter(PARAM_WITH_MV);
-        boolean withMv = Strings.isNullOrEmpty(withMvPara) ? false : withMvPara.equals("1");
+        boolean withMv = !Strings.isNullOrEmpty(withMvPara) && withMvPara.equals("1");
 
         // get all proc paths
         Map<String, Map<String, Object>> result = Maps.newHashMap();
-        Table tbl = db.getTable(tblName);
-        if (tbl == null) {
-            return ResponseEntityBuilder.okWithCommonError("Table does not exist: " + tblName);
+        Database db;
+        Table tbl;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            tbl = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
         tbl.readLock();
         try {

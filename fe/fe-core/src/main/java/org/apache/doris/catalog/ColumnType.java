@@ -17,9 +17,9 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.base.Preconditions;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+
+import com.google.common.base.Preconditions;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -49,6 +49,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.TINYINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.INT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.BIGINT.ordinal()] = true;
@@ -56,6 +57,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.SMALLINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.BIGINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.LARGEINT.ordinal()] = true;
@@ -63,23 +65,25 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.DATE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.INT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.LARGEINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.BIGINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.LARGEINT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.FLOAT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DOUBLE.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-
-        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.CHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DOUBLE.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -89,6 +93,7 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;
@@ -98,8 +103,12 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.FLOAT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.DOUBLE.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.DATE.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.CHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
+        schemaChangeMatrix[PrimitiveType.DECIMALV2.ordinal()][PrimitiveType.STRING.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.DATETIME.ordinal()][PrimitiveType.DATE.ordinal()] = true;
 
@@ -137,12 +146,9 @@ public abstract class ColumnType {
             int scale = in.readInt();
             int precision = in.readInt();
             int len = in.readInt();
-            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                // Useless, just for back compatible
-                in.readBoolean();
-            }
+            // Useless, just for back compatible
+            in.readBoolean();
             return ScalarType.createType(primitiveType, len, precision, scale);
         }
     }
 }
-

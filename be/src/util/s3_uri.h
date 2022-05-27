@@ -21,17 +21,16 @@
 
 #include "util/string_util.h"
 
-
 namespace doris {
 
 class S3URI {
 public:
     S3URI(const std::string& location) : _location(location) {}
     bool parse();
-    inline const std::string& get_bucket() const { return _bucket; }
-    inline const std::string& get_key() const { return _key; }
-    inline const std::string& get_location() const { return _location; }
-    inline const std::string& get_scheme() const { return _scheme; }
+    const std::string& get_bucket() const { return _bucket; }
+    const std::string& get_key() const { return _key; }
+    const std::string& get_location() const { return _location; }
+    const std::string& get_scheme() const { return _scheme; }
 
 private:
     static const std::string _SCHEME_DELIM;

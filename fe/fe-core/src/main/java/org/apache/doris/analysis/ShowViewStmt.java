@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
@@ -31,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -52,7 +52,7 @@ public class ShowViewStmt extends ShowStmt {
     private String db;
     private TableName tbl;
 
-    private List<View> matchViews = Lists.newArrayList();;
+    private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewStmt(String db, TableName tbl) {
         this.db = db;
@@ -93,23 +93,11 @@ public class ShowViewStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    getTbl());
+                    dbName + ": " + getTbl());
         }
 
-        Database database = Catalog.getCurrentCatalog().getDb(dbName);
-        if (database == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-
-        Table showTable = database.getTable(tbl.getTbl());
-        if (showTable == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, getTbl());
-        }
-
-        if (!(showTable instanceof OlapTable)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NOT_OLAP_TABLE, getTbl());
-        }
-
+        Database database = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
+        database.getOlapTableOrAnalysisException(tbl.getTbl());
         for (Table table : database.getViews()) {
             View view = (View) table;
             List<TableRef> tblRefs = Lists.newArrayList();

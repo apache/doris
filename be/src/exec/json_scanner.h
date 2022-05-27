@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_JSON_SCANNER_H_
-#define BE_SRC_JSON_SCANNER_H_
+#pragma once
 
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
@@ -47,7 +46,6 @@ class Tuple;
 class SlotDescriptor;
 class RuntimeState;
 class TupleDescriptor;
-class MemTracker;
 class JsonReader;
 class LineReader;
 class FileReader;
@@ -57,29 +55,33 @@ public:
     JsonScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
                 const std::vector<TBrokerRangeDesc>& ranges,
                 const std::vector<TNetworkAddress>& broker_addresses,
-                const std::vector<ExprContext*>& pre_filter_ctxs,
-                ScannerCounter* counter);
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
     ~JsonScanner();
 
     // Open this scanner, will initialize information needed
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
+
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
     void close() override;
 
-private:
+protected:
     Status open_file_reader();
     Status open_line_reader();
     Status open_json_reader();
     Status open_next_reader();
 
-private:
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
+    Status open_based_reader();
+    Status get_range_params(std::string& jsonpath, std::string& json_root, bool& strip_outer_array,
+                            bool& num_as_string, bool& fuzzy_parse);
 
+protected:
     std::string _jsonpath;
     std::string _jsonpath_file;
 
@@ -90,9 +92,7 @@ private:
     FileReader* _cur_file_reader;
     LineReader* _cur_line_reader;
     JsonReader* _cur_json_reader;
-    int _next_range;
     bool _cur_reader_eof;
-    bool _scanner_eof;
     bool _read_json_by_line;
 
     // When we fetch range doesn't start from 0,
@@ -123,17 +123,17 @@ struct JsonPath;
 class JsonReader {
 public:
     JsonReader(RuntimeState* state, ScannerCounter* counter, RuntimeProfile* profile,
-               bool strip_outer_array, bool num_as_string,bool fuzzy_parse,
+               bool strip_outer_array, bool num_as_string, bool fuzzy_parse, bool* scanner_eof,
                FileReader* file_reader = nullptr, LineReader* line_reader = nullptr);
 
     ~JsonReader();
 
     Status init(const std::string& jsonpath, const std::string& json_root); // must call before use
 
-    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                bool* is_empty_row, bool* eof);
+    Status read_json_row(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
+                         MemPool* tuple_pool, bool* is_empty_row, bool* eof);
 
-private:
+protected:
     Status (JsonReader::*_handle_json_callback)(Tuple* tuple,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
                                                 MemPool* tuple_pool, bool* is_empty_row, bool* eof);
@@ -148,21 +148,23 @@ private:
     void _fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                     const uint8_t* value, int32_t len);
     Status _parse_json_doc(size_t* size, bool* eof);
-    void _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
-                          const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
-                          bool* valid);
-    void _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
-                              Tuple* tuple, MemPool* tuple_pool, bool* valid);
-    bool _write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool, Tuple* tuple,
-                                   const std::vector<SlotDescriptor*>& slot_descs);
+    Status _set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple,
+                            const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool,
+                            bool* valid);
+    Status _write_data_to_tuple(rapidjson::Value::ConstValueIterator value, SlotDescriptor* desc,
+                                Tuple* tuple, MemPool* tuple_pool, bool* valid);
+    Status _write_values_by_jsonpath(rapidjson::Value& objectValue, MemPool* tuple_pool,
+                                     Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs,
+                                     bool* valid);
     std::string _print_json_value(const rapidjson::Value& value);
     std::string _print_jsonpath(const std::vector<JsonPath>& path);
 
     void _close();
     Status _generate_json_paths(const std::string& jsonpath,
                                 std::vector<std::vector<JsonPath>>* vect);
+    Status _parse_jsonpath_and_json_root(const std::string& jsonpath, const std::string& json_root);
 
-private:
+protected:
     int _next_line;
     int _total_lines;
     RuntimeState* _state;
@@ -184,7 +186,9 @@ private:
     rapidjson::Document _origin_json_doc; // origin json document object from parsed json string
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
+
+    // point to the _scanner_eof of JsonScanner
+    bool* _scanner_eof;
 };
 
 } // namespace doris
-#endif

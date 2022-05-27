@@ -30,7 +30,7 @@ public:
                              vector<TTabletId>* error_tablet_ids);
     ~EnginePublishVersionTask() {}
 
-    virtual OLAPStatus finish() override;
+    virtual Status finish() override;
 
 private:
     const TPublishVersionRequest& _publish_version_req;

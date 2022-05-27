@@ -36,7 +36,6 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -83,10 +82,7 @@ public class MiniLoadJob extends LoadJob {
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 

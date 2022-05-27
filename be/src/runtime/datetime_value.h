@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_DATETIME_VALUE_H
-#define DORIS_BE_RUNTIME_DATETIME_VALUE_H
+#pragma once
 
 #include <re2/re2.h>
 #include <stdint.h>
@@ -30,6 +29,7 @@
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
+#include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
 
@@ -137,6 +137,28 @@ const int TIME_MAX_SECOND = 59;
 const int TIME_MAX_VALUE = 10000 * TIME_MAX_HOUR + 100 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 const int TIME_MAX_VALUE_SECONDS = 3600 * TIME_MAX_HOUR + 60 * TIME_MAX_MINUTE + TIME_MAX_SECOND;
 
+constexpr size_t const_length(const char* str) {
+    return (str == nullptr || *str == 0) ? 0 : const_length(str + 1) + 1;
+}
+
+constexpr size_t max_char_length(const char* const* name, size_t end) {
+    size_t res = 0;
+    for (int i = 0; i < end; ++i) {
+        res = std::max(const_length(name[i]), res);
+    }
+    return res;
+}
+
+static constexpr const char* s_month_name[] = {
+        "",     "January", "February",  "March",   "April",    "May",      "June",
+        "July", "August",  "September", "October", "November", "December", nullptr};
+
+static constexpr const char* s_day_name[] = {"Monday", "Tuesday",  "Wednesday", "Thursday",
+                                             "Friday", "Saturday", "Sunday",    nullptr};
+
+static constexpr size_t MAX_DAY_NAME_LEN = max_char_length(s_day_name, std::size(s_day_name));
+static constexpr size_t MAX_MONTH_NAME_LEN = max_char_length(s_month_name, std::size(s_month_name));
+
 uint8_t mysql_week_mode(uint32_t mode);
 
 class DateTimeValue {
@@ -153,10 +175,10 @@ public:
               _day(0),
               _microsecond(0) {}
 
-    DateTimeValue(int64_t t) { from_date_int64(t); }
+    explicit DateTimeValue(int64_t t) { from_date_int64(t); }
 
-    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond);
+    void set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour, uint32_t minute,
+                  uint32_t second, uint32_t microsecond);
 
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
@@ -165,7 +187,8 @@ public:
         uint64_t date = datetime / 1000000;
         uint64_t time = datetime % 1000000;
 
-        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second, microsecond] =
+                std::tuple {0, 0, 0, 0, 0, 0, 0};
         year = date / 10000;
         date %= 10000;
         month = date / 100;
@@ -189,7 +212,8 @@ public:
         _neg = 0;
         _type = TIME_DATE;
 
-        auto [year, month, day, hour, minute, second, microsecond] = std::tuple{0,0,0,0,0,0,0};
+        auto [year, month, day, hour, minute, second, microsecond] =
+                std::tuple {0, 0, 0, 0, 0, 0, 0};
 
         day = date & 0x1f;
         date >>= 5;
@@ -241,6 +265,8 @@ public:
     // TIME:  format 'hh:mm:ss.xxxxxx'
     // DATE:  format 'YYYY-MM-DD'
     // DATETIME:  format 'YYYY-MM-DD hh:mm:ss.xxxxxx'
+    int32_t to_buffer(char* buffer) const;
+
     char* to_string(char* to) const;
 
     // Convert this datetime value to string by the format string
@@ -251,16 +277,81 @@ public:
 
     // Return true if range or date is invalid
     static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
+                            uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type);
 
     static bool check_date(uint32_t year, uint32_t month, uint32_t day);
+
+    // compute the diff between two datetime value
+    template <TimeUnit unit>
+    static int64_t datetime_diff(const DateTimeValue& ts_value1, const DateTimeValue& ts_value2) {
+        switch (unit) {
+        case YEAR: {
+            int year = (ts_value2.year() - ts_value1.year());
+            if (year > 0) {
+                year -= (ts_value2.to_datetime_int64() % 10000000000 -
+                         ts_value1.to_datetime_int64() % 10000000000) < 0;
+            } else if (year < 0) {
+                year += (ts_value2.to_datetime_int64() % 10000000000 -
+                         ts_value1.to_datetime_int64() % 10000000000) > 0;
+            }
+            return year;
+        }
+        case MONTH: {
+            int month = (ts_value2.year() - ts_value1.year()) * 12 +
+                        (ts_value2.month() - ts_value1.month());
+            if (month > 0) {
+                month -= (ts_value2.to_datetime_int64() % 100000000 -
+                          ts_value1.to_datetime_int64() % 100000000) < 0;
+            } else if (month < 0) {
+                month += (ts_value2.to_datetime_int64() % 100000000 -
+                          ts_value1.to_datetime_int64() % 100000000) > 0;
+            }
+            return month;
+        }
+        case WEEK: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day / 7;
+        }
+        case DAY: {
+            int day = ts_value2.daynr() - ts_value1.daynr();
+            if (day > 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else if (day < 0) {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
+            return day;
+        }
+        case HOUR: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t hour = second / 60 / 60;
+            return hour;
+        }
+        case MINUTE: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            int64_t minute = second / 60;
+            return minute;
+        }
+        case SECOND: {
+            int64_t second = ts_value2.second_diff(ts_value1);
+            return second;
+        }
+        }
+        // Rethink the default return value
+        return 0;
+    }
 
     // Convert this value to uint64_t
     // Will check its type
     int64_t to_int64() const;
 
     bool check_range_and_set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-        uint32_t minute, uint32_t second, uint32_t microsecond, uint16_t type) {
+                                  uint32_t minute, uint32_t second, uint32_t microsecond,
+                                  uint16_t type) {
         if (check_range(year, month, day, hour, minute, second, microsecond, type)) {
             return false;
         }
@@ -268,7 +359,7 @@ public:
         return true;
     };
 
-    inline uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
+    uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     // Calculate how many days since 0000-01-01
     // 0000-01-01 is 1st B.C.
@@ -278,11 +369,13 @@ public:
 
     int year() const { return _year; }
     int month() const { return _month; }
+    int quarter() const { return (_month - 1) / 3 + 1; }
     int day() const { return _day; }
     int hour() const { return _hour; }
     int minute() const { return _minute; }
     int second() const { return _second; }
     int microsecond() const { return _microsecond; }
+    int neg() const { return _neg; }
 
     bool check_loss_accuracy_cast_to_date() {
         auto loss_accuracy = _hour != 0 || _minute != 0 || _second != 0 || _microsecond != 0;
@@ -308,7 +401,8 @@ public:
     void to_datetime() { _type = TIME_DATETIME; }
 
     // Weekday, from 0(Mon) to 6(Sun)
-    inline uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    uint8_t weekday() const { return calc_weekday(daynr(), false); }
+    auto day_of_week() const { return (weekday() + 1) % 7 + 1; }
 
     // The bits in week_format has the following meaning:
     // WEEK_MONDAY_FIRST (0)
@@ -320,7 +414,7 @@ public:
     // WEEK_YEAR (1)
     //  If not set:
     //      Week is in range 0-53
-    //      Week 0 is returned for the the last week of the previous year (for
+    //      Week 0 is returned for the last week of the previous year (for
     //      a date at start of january) In this case one can get 53 for the
     //      first week of next year.  This flag ensures that the week is
     //      relevant for the given year. Note that this flag is only
@@ -466,12 +560,16 @@ public:
 
     int type() const { return _type; }
 
-    bool is_valid_date() const { return !check_range(_year, _month, _day,
-            _hour, _minute, _second, _microsecond, _type) && _month > 0 && _day > 0; }
+    bool is_valid_date() const {
+        return !check_range(_year, _month, _day, _hour, _minute, _second, _microsecond, _type) &&
+               _month > 0 && _day > 0;
+    }
 
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;
+    friend void doris::vectorized::VecDateTimeValue::convert_vec_dt_to_dt(DateTimeValue* dt);
+    friend void doris::vectorized::VecDateTimeValue::convert_dt_to_vec_dt(DateTimeValue* dt);
 
     void from_packed_time(int64_t packed_time) {
         _microsecond = packed_time % (1LL << 24);
@@ -513,11 +611,11 @@ private:
     int64_t standardize_timevalue(int64_t value);
 
     // Used to convert to a string.
-    char* append_date_string(char* to) const;
-    char* append_time_string(char* to) const;
-    char* to_datetime_string(char* to) const;
-    char* to_date_string(char* to) const;
-    char* to_time_string(char* to) const;
+    char* append_date_buffer(char* to) const;
+    char* append_time_buffer(char* to) const;
+    char* to_datetime_buffer(char* to) const;
+    char* to_date_buffer(char* to) const;
+    char* to_time_buffer(char* to) const;
 
     // Used to convert to uint64_t
     int64_t to_datetime_int64() const;
@@ -536,6 +634,8 @@ private:
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
 
+    // NOTICE: it's dangerous if you want to modify the memory structure of datetime
+    // which will cause problem in serialization/deserialization of RowBatch.
     // 1 bits for neg. 3 bits for type. 12bit for hour
     uint16_t _neg : 1;  // Used for time value.
     uint16_t _type : 3; // Which type of this value.
@@ -579,5 +679,3 @@ struct hash<doris::DateTimeValue> {
     size_t operator()(const doris::DateTimeValue& v) const { return doris::hash_value(v); }
 };
 } // namespace std
-
-#endif

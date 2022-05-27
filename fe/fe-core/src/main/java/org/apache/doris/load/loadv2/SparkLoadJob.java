@@ -47,7 +47,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -88,15 +87,14 @@ import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -194,14 +192,21 @@ public class SparkLoadJob extends BulkLoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException,
             QuotaExceedException, MetaNotFoundException {
-       transactionId = Catalog.getCurrentGlobalTransactionMgr()
+        transactionId = Catalog.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
-                                  LoadJobSourceType.FRONTEND, id, getTimeout());
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
     @Override
     protected void unprotectedExecuteJob() throws LoadException {
+        try {
+            beginTxn();
+        } catch (UserException e) {
+            LOG.warn("failed to begin transaction for spark load job {}", id, e);
+            throw new LoadException(e.getMessage());
+        }
+
         // create pending task
         LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
                                                  sparkResource, brokerDesc);
@@ -331,7 +336,8 @@ public class SparkLoadJob extends BulkLoadJob {
             TUniqueId dummyId = new TUniqueId(0, 0);
             long dummyBackendId = -1L;
             loadStatistic.initLoad(dummyId, Sets.newHashSet(dummyId), Lists.newArrayList(dummyBackendId));
-            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows, true);
+            loadStatistic.updateLoadProgress(dummyBackendId, dummyId, dummyId, dppResult.scannedRows,
+                    dppResult.scannedBytes, true);
 
             Map<String, String> counters = loadingStatus.getCounters();
             counters.put(DPP_NORMAL_ALL, String.valueOf(dppResult.normalRows));
@@ -445,7 +451,7 @@ public class SparkLoadJob extends BulkLoadJob {
                         }
 
                         hasLoadPartitions = true;
-                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicationNum(partitionId) / 2 + 1;
+                        int quorumReplicaNum = olapTable.getPartitionInfo().getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
 
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
@@ -491,9 +497,11 @@ public class SparkLoadJob extends BulkLoadJob {
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 
-                                        LOG.debug("push task for replica {}, broker {}:{}, backendId {}, filePath {}, fileSize {}" ,
-                                                  replicaId, fsBroker.ip, fsBroker.port, backendId, tBrokerRangeDesc.path,
-                                                  tBrokerRangeDesc.file_size);
+                                        LOG.debug("push task for replica {}, broker {}:{},"
+                                                        + " backendId {}, filePath {}, fileSize {}",
+                                                replicaId, fsBroker.ip, fsBroker.port, backendId,
+                                                tBrokerRangeDesc.path,
+                                                tBrokerRangeDesc.file_size);
 
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(), partitionId,
                                                                          indexId, tabletId, replicaId, schemaHash,
@@ -625,7 +633,7 @@ public class SparkLoadJob extends BulkLoadJob {
                          .build());
         Database db = getDb();
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(tableToLoadPartitions.keySet()));
-        MetaLockUtils.writeLockTables(tableList);
+        MetaLockUtils.writeLockTablesOrMetaException(tableList);
         try {
             Catalog.getCurrentGlobalTransactionMgr().commitTransaction(
                     dbId, tableList, transactionId, commitInfos,
@@ -755,9 +763,7 @@ public class SparkLoadJob extends BulkLoadJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         sparkResource = (SparkResource) Resource.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_91) {
-            sparkLoadAppHandle = SparkLoadAppHandle.read(in);
-        }
+        sparkLoadAppHandle = SparkLoadAppHandle.read(in);
         etlStartTimestamp = in.readLong();
         appId = Text.readString(in);
         etlOutputPath = Text.readString(in);

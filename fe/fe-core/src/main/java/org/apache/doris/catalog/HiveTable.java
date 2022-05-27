@@ -19,6 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -26,6 +29,7 @@ import com.google.common.collect.Maps;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -38,7 +42,8 @@ public class HiveTable extends Table {
 
     private static final String HIVE_DB = "database";
     private static final String HIVE_TABLE = "table";
-    private static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final String HIVE_METASTORE_URIS = "hive.metastore.uris";
+    public static final String HIVE_HDFS_PREFIX = "dfs";
 
     private String hiveDb;
     private String hiveTable;
@@ -98,6 +103,17 @@ public class HiveTable extends Table {
         hiveProperties.put(HIVE_METASTORE_URIS, hiveMetastoreUris);
 
         if (!copiedProps.isEmpty()) {
+            Iterator<Map.Entry<String, String>> iter = copiedProps.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<String, String> entry = iter.next();
+                if (entry.getKey().startsWith(HIVE_HDFS_PREFIX)) {
+                    hiveProperties.put(entry.getKey(), entry.getValue());
+                    iter.remove();
+                }
+            }
+        }
+
+        if (!copiedProps.isEmpty()) {
             throw new DdlException("Unknown table properties: " + copiedProps.toString());
         }
     }
@@ -126,5 +142,14 @@ public class HiveTable extends Table {
             String val = Text.readString(in);
             hiveProperties.put(key, val);
         }
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        THiveTable tHiveTable = new THiveTable(getHiveDb(), getHiveTable(), getHiveProperties());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE,
+                fullSchema.size(), 0, getName(), "");
+        tTableDescriptor.setHiveTable(tHiveTable);
+        return tTableDescriptor;
     }
 }

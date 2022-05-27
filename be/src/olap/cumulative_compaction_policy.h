@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef OLAP_CUMULATIVE_COMPACTION_POLICY_H
-#define OLAP_CUMULATIVE_COMPACTION_POLICY_H
+#pragma once
 
 #include <string>
 
@@ -42,7 +41,7 @@ enum CompactionPolicy {
 const static std::string CUMULATIVE_NUM_BASED_POLICY = "NUM_BASED";
 const static std::string CUMULATIVE_SIZE_BASED_POLICY = "SIZE_BASED";
 /// This class CumulativeCompactionPolicy is the base class of cumulative compaction policy.
-/// It defines the policy to do cumulative compaction. It has different derived classes, which implements
+/// It defines the policy to do cumulative compaction. It has different derived classes, which implements
 /// concrete cumulative compaction algorithm. The policy is configured by conf::cumulative_compaction_policy.
 /// The policy functions is the main steps to do cumulative compaction. For example, how to pick candidate
 /// rowsets from tablet using current policy, how to calculate the cumulative point and how to calculate
@@ -65,8 +64,8 @@ public:
     /// param current_cumulative_point, current cumulative point value.
     /// return score, the result score after calculate.
     virtual void calc_cumulative_compaction_score(
-            const std::vector<RowsetMetaSharedPtr>& all_rowsets, int64_t current_cumulative_point,
-            uint32_t* score) = 0;
+            TabletState state, const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+            int64_t current_cumulative_point, uint32_t* score) = 0;
 
     /// This function implements the policy which represents how to pick the candidate rowsets for compaction.
     /// This base class gives a unified implementation. Its derived classes also can override this function each other.
@@ -156,11 +155,12 @@ public:
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state,
+                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
-    std::string name() { return CUMULATIVE_NUM_BASED_POLICY; }
+    std::string name() override { return CUMULATIVE_NUM_BASED_POLICY; }
 };
 
 /// SizeBased cumulative compaction policy implemention. SizeBased policy which derives CumulativeCompactionPolicy is a optimized
@@ -206,15 +206,17 @@ public:
     /// Its main policy is judging the output rowset size whether satisfied the promotion size.
     /// If it satisfied, this policy will update the cumulative point.
     void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr _output_rowset, Version& last_delete_version);
+                                 RowsetSharedPtr _output_rowset,
+                                 Version& last_delete_version) override;
 
     /// Num based cumulative compaction policy implements calc cumulative compaction score function.
     /// Its main policy is calculating the accumulative compaction score after current cumulative_point in tablet.
-    void calc_cumulative_compaction_score(const std::vector<RowsetMetaSharedPtr>& all_rowsets,
+    void calc_cumulative_compaction_score(TabletState state,
+                                          const std::vector<RowsetMetaSharedPtr>& all_rowsets,
                                           int64_t current_cumulative_point,
                                           uint32_t* score) override;
 
-    std::string name() { return CUMULATIVE_SIZE_BASED_POLICY; }
+    std::string name() override { return CUMULATIVE_SIZE_BASED_POLICY; }
 
 private:
     /// calculate promotion size using current base rowset meta size and promotion configs
@@ -258,4 +260,3 @@ private:
 };
 
 } // namespace doris
-#endif // OLAP_CUMULATIVE_COMPACTION_POLICY_H

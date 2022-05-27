@@ -17,9 +17,8 @@
 
 #include <gtest/gtest.h>
 
-#include <boost/bind.hpp>
 #include <filesystem>
-#include <boost/scoped_ptr.hpp>
+#include <functional>
 #include <limits> // for std::numeric_limits<int>::max()
 #include <string>
 
@@ -38,7 +37,7 @@
 
 using std::vector;
 
-using boost::scoped_ptr;
+using std::unique_ptr;
 
 static const int BATCH_SIZE = 250;
 static const uint32_t PRIME = 479001599;
@@ -88,8 +87,8 @@ protected:
     }
 
     virtual void TearDown() {
-        _runtime_state = NULL;
-        _client = NULL;
+        _runtime_state = nullptr;
+        _client = nullptr;
         _pool.clear();
         _mem_pool->free_all();
         _test_env.reset();
@@ -99,10 +98,10 @@ protected:
     // tracked by _tracker.
     void InitBlockMgr(int64_t limit, int block_size) {
         Status status = _test_env->create_query_state(0, limit, block_size, &_runtime_state);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         status = _runtime_state->block_mgr2()->register_client(0, _tracker, _runtime_state,
                                                                &_client);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 
     // Generate the ith element of a sequence of int values.
@@ -118,7 +117,7 @@ protected:
     }
 
     virtual RowBatch* CreateIntBatch(int offset, int num_rows, bool gen_null) {
-        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows, _tracker.get()));
+        RowBatch* batch = _pool.add(new RowBatch(*_int_desc, num_rows));
         int tuple_size = _int_desc->tuple_descriptors()[0]->byte_size();
         uint8_t* tuple_mem = reinterpret_cast<uint8_t*>(
                 batch->tuple_data_pool()->allocate(tuple_size * num_rows));
@@ -137,7 +136,7 @@ protected:
                 if (!gen_null || GenBoolValue(idx)) {
                     row->set_tuple(j, int_tuple);
                 } else {
-                    row->set_tuple(j, NULL);
+                    row->set_tuple(j, nullptr);
                 }
             }
             batch->commit_last_row();
@@ -147,7 +146,7 @@ protected:
 
     virtual RowBatch* CreateStringBatch(int offset, int num_rows, bool gen_null) {
         int tuple_size = sizeof(StringValue) + 1;
-        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows, _tracker.get()));
+        RowBatch* batch = _pool.add(new RowBatch(*_string_desc, num_rows));
         uint8_t* tuple_mem = batch->tuple_data_pool()->allocate(tuple_size * num_rows);
         memset(tuple_mem, 0, tuple_size * num_rows);
         const int string_tuples = _string_desc->tuple_descriptors().size();
@@ -159,7 +158,7 @@ protected:
                 if (!gen_null || GenBoolValue(idx)) {
                     row->set_tuple(j, reinterpret_cast<Tuple*>(tuple_mem));
                 } else {
-                    row->set_tuple(j, NULL);
+                    row->set_tuple(j, nullptr);
                 }
             }
             batch->commit_last_row();
@@ -169,7 +168,7 @@ protected:
     }
 
     void AppendRowTuples(TupleRow* row, std::vector<int>* results) {
-        DCHECK(row != NULL);
+        DCHECK(row != nullptr);
         const int int_tuples = _int_desc->tuple_descriptors().size();
         for (int i = 0; i < int_tuples; ++i) {
             AppendValue(row->get_tuple(i), results);
@@ -177,7 +176,7 @@ protected:
     }
 
     void AppendRowTuples(TupleRow* row, std::vector<StringValue>* results) {
-        DCHECK(row != NULL);
+        DCHECK(row != nullptr);
         const int string_tuples = _string_desc->tuple_descriptors().size();
         for (int i = 0; i < string_tuples; ++i) {
             AppendValue(row->get_tuple(i), results);
@@ -185,7 +184,7 @@ protected:
     }
 
     void AppendValue(Tuple* t, std::vector<int>* results) {
-        if (t == NULL) {
+        if (t == nullptr) {
             // For the tests indicate null-ability using the max int value
             results->push_back(std::numeric_limits<int>::max());
         } else {
@@ -194,7 +193,7 @@ protected:
     }
 
     void AppendValue(Tuple* t, std::vector<StringValue>* results) {
-        if (t == NULL) {
+        if (t == nullptr) {
             results->push_back(StringValue());
         } else {
             uint8_t* mem = reinterpret_cast<uint8_t*>(t);
@@ -230,11 +229,11 @@ protected:
             for (int j = 0; j < int_tuples; ++j) {
                 int idx = i * int_tuples + j;
                 if (!gen_null || GenBoolValue(idx)) {
-                    ASSERT_EQ(results[idx], GenIntValue(i))
+                    EXPECT_EQ(results[idx], GenIntValue(i))
                             << " results[" << idx << "]: " << results[idx]
                             << " != " << GenIntValue(i) << " gen_null=" << gen_null;
                 } else {
-                    ASSERT_TRUE(results[idx] == std::numeric_limits<int>::max())
+                    EXPECT_TRUE(results[idx] == std::numeric_limits<int>::max())
                             << "i: " << i << " j: " << j << " results[" << idx
                             << "]: " << results[idx] << " != " << std::numeric_limits<int>::max();
                 }
@@ -250,13 +249,13 @@ protected:
             for (int j = 0; j < string_tuples; ++j) {
                 int idx = i * string_tuples + j;
                 if (!gen_null || GenBoolValue(idx)) {
-                    ASSERT_TRUE(results[idx] == STRINGS[i % NUM_STRINGS])
+                    EXPECT_TRUE(results[idx] == STRINGS[i % NUM_STRINGS])
                             << "results[" << idx << "] " << results[idx]
                             << " != " << STRINGS[i % NUM_STRINGS] << " i=" << i
                             << " gen_null=" << gen_null;
                 } else {
-                    ASSERT_TRUE(results[idx] == StringValue())
-                            << "results[" << idx << "] " << results[idx] << " not NULL";
+                    EXPECT_TRUE(results[idx] == StringValue())
+                            << "results[" << idx << "] " << results[idx] << " not nullptr";
                 }
             }
         }
@@ -267,15 +266,15 @@ protected:
     void TestValues(int num_batches, RowDescriptor* desc, bool gen_null) {
         BufferedTupleStream2 stream(_runtime_state, *desc, _runtime_state->block_mgr2(), _client,
                                     true, false);
-        Status status = stream.init(-1, NULL, true);
-        ASSERT_TRUE(status.ok()) << status.get_error_msg();
+        Status status = stream.init(-1, nullptr, true);
+        EXPECT_TRUE(status.ok()) << status.get_error_msg();
         status = stream.unpin_stream();
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         // Add rows to the stream
         int offset = 0;
         for (int i = 0; i < num_batches; ++i) {
-            RowBatch* batch = NULL;
+            RowBatch* batch = nullptr;
             if (sizeof(T) == sizeof(int)) {
                 batch = CreateIntBatch(offset, BATCH_SIZE, gen_null);
             } else if (sizeof(T) == sizeof(StringValue)) {
@@ -285,17 +284,17 @@ protected:
             }
             for (int j = 0; j < batch->num_rows(); ++j) {
                 bool b = stream.add_row(batch->get_row(j), &status);
-                ASSERT_TRUE(status.ok());
+                EXPECT_TRUE(status.ok());
                 if (!b) {
-                    ASSERT_TRUE(stream.using_small_buffers());
+                    EXPECT_TRUE(stream.using_small_buffers());
                     bool got_buffer;
                     status = stream.switch_to_io_buffers(&got_buffer);
-                    ASSERT_TRUE(status.ok());
-                    ASSERT_TRUE(got_buffer);
+                    EXPECT_TRUE(status.ok());
+                    EXPECT_TRUE(got_buffer);
                     b = stream.add_row(batch->get_row(j), &status);
-                    ASSERT_TRUE(status.ok());
+                    EXPECT_TRUE(status.ok());
                 }
-                ASSERT_TRUE(b);
+                EXPECT_TRUE(b);
             }
             offset += batch->num_rows();
             // Reset the batch to make sure the stream handles the memory correctly.
@@ -303,7 +302,7 @@ protected:
         }
 
         status = stream.prepare_for_read(false);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         // Read all the rows back
         std::vector<T> results;
@@ -320,12 +319,12 @@ protected:
             BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(),
                                         _client, small_buffers == 0, // initial small buffers
                                         true);                       // read_write
-            Status status = stream.init(-1, NULL, true);
-            ASSERT_TRUE(status.ok());
+            Status status = stream.init(-1, nullptr, true);
+            EXPECT_TRUE(status.ok());
             status = stream.prepare_for_read(true);
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
             status = stream.unpin_stream();
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
 
             std::vector<int> results;
 
@@ -333,8 +332,8 @@ protected:
                 RowBatch* batch = CreateIntBatch(i * BATCH_SIZE, BATCH_SIZE, false);
                 for (int j = 0; j < batch->num_rows(); ++j) {
                     bool b = stream.add_row(batch->get_row(j), &status);
-                    ASSERT_TRUE(b);
-                    ASSERT_TRUE(status.ok());
+                    EXPECT_TRUE(b);
+                    EXPECT_TRUE(status.ok());
                 }
                 // Reset the batch to make sure the stream handles the memory correctly.
                 batch->reset();
@@ -351,7 +350,7 @@ protected:
         }
     }
 
-    boost::scoped_ptr<TestEnv> _test_env;
+    std::unique_ptr<TestEnv> _test_env;
     RuntimeState* _runtime_state;
     BufferedBlockMgr2::Client* _client;
 
@@ -359,7 +358,7 @@ protected:
     ObjectPool _pool;
     RowDescriptor* _int_desc;
     RowDescriptor* _string_desc;
-    boost::scoped_ptr<MemPool> _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 };
 
 // Tests with a non-NULLable tuple per row.
@@ -523,8 +522,8 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
 
     BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(), _client,
                                 true, false);
-    Status status = stream.init(-1, NULL, true);
-    ASSERT_TRUE(status.ok());
+    Status status = stream.init(-1, nullptr, true);
+    EXPECT_TRUE(status.ok());
 
     int offset = 0;
     bool full = false;
@@ -533,7 +532,7 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
         int j = 0;
         for (; j < batch->num_rows(); ++j) {
             full = !stream.add_row(batch->get_row(j), &status);
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
             if (full) {
                 break;
             }
@@ -542,12 +541,12 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
     }
 
     status = stream.unpin_stream();
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     bool pinned = false;
     status = stream.pin_stream(false, &pinned);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(pinned);
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(pinned);
 
     std::vector<int> results;
 
@@ -557,7 +556,7 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
     for (int i = 0; i < read_iters; ++i) {
         bool delete_on_read = i == read_iters - 1;
         status = stream.prepare_for_read(delete_on_read);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         results.clear();
         ReadValues(&stream, _int_desc, &results);
         VerifyResults(results, offset, false);
@@ -580,8 +579,8 @@ TEST_F(SimpleTupleStreamTest, SmallBuffers) {
 
     BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(), _client,
                                 true, false);
-    Status status = stream.init(-1, NULL, false);
-    ASSERT_TRUE(status.ok());
+    Status status = stream.init(-1, nullptr, false);
+    EXPECT_TRUE(status.ok());
 
     // Initial buffer should be small.
     EXPECT_LT(stream.bytes_in_mem(false), buffer_size);
@@ -590,27 +589,27 @@ TEST_F(SimpleTupleStreamTest, SmallBuffers) {
     for (int i = 0; i < batch->num_rows(); ++i) {
         bool ret = stream.add_row(batch->get_row(i), &status);
         EXPECT_TRUE(ret);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
     EXPECT_LT(stream.bytes_in_mem(false), buffer_size);
     EXPECT_LT(stream.byte_size(), buffer_size);
-    ASSERT_TRUE(stream.using_small_buffers());
+    EXPECT_TRUE(stream.using_small_buffers());
 
     // 40 MB of ints
     batch = CreateIntBatch(0, 10 * 1024 * 1024, false);
     for (int i = 0; i < batch->num_rows(); ++i) {
         bool ret = stream.add_row(batch->get_row(i), &status);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         if (!ret) {
-            ASSERT_TRUE(stream.using_small_buffers());
+            EXPECT_TRUE(stream.using_small_buffers());
             bool got_buffer;
             status = stream.switch_to_io_buffers(&got_buffer);
-            ASSERT_TRUE(status.ok());
-            ASSERT_TRUE(got_buffer);
+            EXPECT_TRUE(status.ok());
+            EXPECT_TRUE(got_buffer);
             ret = stream.add_row(batch->get_row(i), &status);
-            ASSERT_TRUE(status.ok());
+            EXPECT_TRUE(status.ok());
         }
-        ASSERT_TRUE(ret);
+        EXPECT_TRUE(ret);
     }
     EXPECT_EQ(stream.bytes_in_mem(false), buffer_size);
 
@@ -735,11 +734,11 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
         //             malloc(tuple_descs[0]->byte_size())));
         // gscoped_ptr<Tuple, FreeDeleter> tuple1(reinterpret_cast<Tuple*>(
         //             malloc(tuple_descs[1]->byte_size())));
-        boost::scoped_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
+        std::unique_ptr<TupleRow> row(reinterpret_cast<TupleRow*>(
                     malloc(tuple_descs.size() * sizeof(Tuple*))));
-        boost::scoped_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
+        std::unique_ptr<Tuple> tuple0(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[0]->byte_size())));
-        boost::scoped_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
+        std::unique_ptr<Tuple> tuple1(reinterpret_cast<Tuple*>(
                     malloc(tuple_descs[1]->byte_size())));
         memset(tuple0.get(), 0, tuple_descs[0]->byte_size());
         memset(tuple1.get(), 0, tuple_descs[1]->byte_size());
@@ -754,7 +753,7 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
 
         int array_len = array_lens[array_len_index++ % num_array_lens];
         CollectionValue* cv = tuple0->GetCollectionSlot(array_slot_desc->tuple_offset());
-        cv->ptr = NULL;
+        cv->ptr = nullptr;
         cv->num_tuples = 0;
         CollectionValueBuilder builder(cv, *item_desc, _mem_pool.get(), array_len);
         Tuple* array_data;
@@ -774,8 +773,8 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
         // Check that internal row size computation gives correct result.
         EXPECT_EQ(expected_row_size, stream.ComputeRowSize(row.get()));
         bool b = stream.add_row(row.get(), &status);
-        ASSERT_TRUE(b);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(b);
+        EXPECT_TRUE(status.ok());
         _mem_pool->FreeAll(); // Free data as soon as possible to smoke out issues.
     }
 
@@ -788,34 +787,34 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
     RowBatch batch(*_array_desc, BATCH_SIZE, _tracker.get());
     do {
         batch.reset();
-        ASSERT_TRUE(stream.get_next(&batch, &eos).ok());
+        EXPECT_TRUE(stream.get_next(&batch, &eos).ok());
         for (int i = 0; i < batch.num_rows(); ++i) {
             TupleRow* row = batch.GetRow(i);
             Tuple* tuple0 = row->get_tuple(0);
             Tuple* tuple1 = row->get_tuple(1);
-            ASSERT_TRUE(tuple0 != NULL);
-            ASSERT_TRUE(tuple1 != NULL);
+            EXPECT_TRUE(tuple0 != nullptr);
+            EXPECT_TRUE(tuple1 != nullptr);
             const SlotDescriptor* array_slot_desc = tuple_descs[0]->slots()[0];
-            ASSERT_FALSE(tuple0->IsNull(array_slot_desc->null_indicator_offset()));
-            ASSERT_TRUE(tuple0->IsNull(tuple_descs[0]->slots()[1]->null_indicator_offset()));
-            ASSERT_TRUE(tuple1->IsNull(tuple_descs[1]->slots()[0]->null_indicator_offset()));
+            EXPECT_FALSE(tuple0->IsNull(array_slot_desc->null_indicator_offset()));
+            EXPECT_TRUE(tuple0->IsNull(tuple_descs[0]->slots()[1]->null_indicator_offset()));
+            EXPECT_TRUE(tuple1->IsNull(tuple_descs[1]->slots()[0]->null_indicator_offset()));
 
             const TupleDescriptor* item_desc = array_slot_desc->collection_item_descriptor();
             int expected_array_len = array_lens[array_len_index++ % num_array_lens];
             CollectionValue* cv = tuple0->GetCollectionSlot(array_slot_desc->tuple_offset());
-            ASSERT_EQ(expected_array_len, cv->num_tuples);
+            EXPECT_EQ(expected_array_len, cv->num_tuples);
             for (int j = 0; j < cv->num_tuples; ++j) {
                 Tuple* item = reinterpret_cast<Tuple*>(cv->ptr + j * item_desc->byte_size());
                 const SlotDescriptor* string_desc = item_desc->slots()[0];
-                ASSERT_FALSE(item->IsNull(string_desc->null_indicator_offset()));
+                EXPECT_FALSE(item->IsNull(string_desc->null_indicator_offset()));
                 const StringValue* expected = &STRINGS[strings_index++ % NUM_STRINGS];
                 const StringValue* actual = item->GetStringSlot(string_desc->tuple_offset());
-                ASSERT_EQ(*expected, *actual);
+                EXPECT_EQ(*expected, *actual);
             }
         }
         rows_read += batch.num_rows();
     } while (!eos);
-    ASSERT_EQ(NUM_ROWS, rows_read);
+    EXPECT_EQ(NUM_ROWS, rows_read);
 }
 #endif
 
@@ -823,25 +822,3 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
 //  - The stream can operate in many modes
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    // if (!doris::config::init(conffile.c_str(), false)) {
-    //     fprintf(stderr, "error read config file. \n");
-    //     return -1;
-    // }
-    doris::config::query_scratch_dirs = "/tmp";
-    // doris::config::max_free_io_buffers = 128;
-    doris::config::read_size = 8388608;
-    doris::config::min_buffer_size = 1024;
-
-    doris::config::disable_mem_pools = false;
-
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-
-    doris::CpuInfo::init();
-    doris::DiskInfo::init();
-
-    return RUN_ALL_TESTS();
-}

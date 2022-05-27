@@ -21,9 +21,9 @@ import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.ShowDataSkewStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.system.Backend;
@@ -51,20 +51,11 @@ public class MetadataViewer {
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
 
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        olapTable.readLock();
         try {
-            OlapTable olapTable = (OlapTable) tbl;
-            
             if (partitions.isEmpty()) {
                 partitions.addAll(olapTable.getPartitionNames());
             } else {
@@ -76,11 +67,11 @@ public class MetadataViewer {
                     }
                 }
             }
-            
+
             for (String partName : partitions) {
                 Partition partition = olapTable.getPartition(partName);
                 long visibleVersion = partition.getVisibleVersion();
-                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
+                short replicationNum = olapTable.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
@@ -90,23 +81,23 @@ public class MetadataViewer {
                         for (Replica replica : tablet.getReplicas()) {
                             --count;
                             List<String> row = Lists.newArrayList();
-                            
+
                             ReplicaStatus status = ReplicaStatus.OK;
                             Backend be = infoService.getBackend(replica.getBackendId());
-                            if (be == null || !be.isAvailable() || replica.isBad()) {
+                            if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
-                                    status = ReplicaStatus.VERSION_ERROR;
+                                status = ReplicaStatus.VERSION_ERROR;
 
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;
                             }
-                            
+
                             if (filterReplica(status, statusFilter, op)) {
                                 continue;
                             }
-                            
+
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
                             row.add(String.valueOf(replica.getBackendId()));
@@ -146,7 +137,7 @@ public class MetadataViewer {
                 }
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
@@ -169,28 +160,17 @@ public class MetadataViewer {
 
     private static List<List<String>> getTabletDistribution(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
-        DecimalFormat df = new DecimalFormat("##.00 %");
-        
+        DecimalFormat df = new DecimalFormat("00.00 %");
+
         List<List<String>> result = Lists.newArrayList();
 
         Catalog catalog = Catalog.getCurrentCatalog();
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
 
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
-
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-
-        tbl.readLock();
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
         try {
-
-            OlapTable olapTable = (OlapTable) tbl;
-
             List<Long> partitionIds = Lists.newArrayList();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -206,16 +186,20 @@ public class MetadataViewer {
                     partitionIds.add(partition.getId());
                 }
             }
-            
+
             // backend id -> replica count
             Map<Long, Integer> countMap = Maps.newHashMap();
+            // backend id -> replica size
+            Map<Long, Long> sizeMap = Maps.newHashMap();
             // init map
             List<Long> beIds = infoService.getBackendIds(false);
             for (long beId : beIds) {
                 countMap.put(beId, 0);
+                sizeMap.put(beId, 0L);
             }
 
             int totalReplicaNum = 0;
+            long totalReplicaSize = 0;
             for (long partId : partitionIds) {
                 Partition partition = olapTable.getPartition(partId);
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -225,7 +209,9 @@ public class MetadataViewer {
                                 continue;
                             }
                             countMap.put(replica.getBackendId(), countMap.get(replica.getBackendId()) + 1);
+                            sizeMap.put(replica.getBackendId(), sizeMap.get(replica.getBackendId()) + replica.getDataSize());
                             totalReplicaNum++;
+                            totalReplicaSize += replica.getDataSize();
                         }
                     }
                 }
@@ -237,24 +223,89 @@ public class MetadataViewer {
                 List<String> row = Lists.newArrayList();
                 row.add(String.valueOf(beId));
                 row.add(String.valueOf(countMap.get(beId)));
-                row.add(graph(countMap.get(beId), totalReplicaNum, beIds.size()));
-                row.add(df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(String.valueOf(sizeMap.get(beId)));
+                row.add(graph(countMap.get(beId), totalReplicaNum));
+                row.add(totalReplicaNum == countMap.get(beId) ? "100.00%" : df.format((double) countMap.get(beId) / totalReplicaNum));
+                row.add(graph(sizeMap.get(beId), totalReplicaSize));
+                row.add(totalReplicaSize == sizeMap.get(beId) ? "100.00%" : df.format((double) sizeMap.get(beId) / totalReplicaSize));
                 result.add(row);
             }
-            
+
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         return result;
     }
 
-    private static String graph(int num, int totalNum, int mod) {
+    private static String graph(long num, long totalNum) {
         StringBuilder sb = new StringBuilder();
-        int normalized = (int) Math.ceil(num * mod / totalNum);
+        long normalized = num == totalNum ? 100 : (int) Math.ceil(num * 100 / totalNum);
         for (int i = 0; i < normalized; ++i) {
             sb.append(">");
         }
         return sb.toString();
+    }
+
+    public static List<List<String>> getDataSkew(ShowDataSkewStmt stmt) throws DdlException {
+        return getDataSkew(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
+    }
+
+    private static List<List<String>> getDataSkew(String dbName, String tblName, PartitionNames partitionNames)
+            throws DdlException {
+        DecimalFormat df = new DecimalFormat("00.00 %");
+
+        List<List<String>> result = Lists.newArrayList();
+        Catalog catalog = Catalog.getCurrentCatalog();
+
+        if (partitionNames == null || partitionNames.getPartitionNames().size() != 1) {
+            throw new DdlException("Should specify one and only one partitions");
+        }
+
+        Database db = catalog.getDbOrDdlException(dbName);
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+
+        olapTable.readLock();
+        try {
+            Partition partition = null;
+            // check partition
+            for (String partName : partitionNames.getPartitionNames()) {
+                partition = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (partition == null) {
+                    throw new DdlException("Partition does not exist: " + partName);
+                }
+                break;
+            }
+            DistributionInfo distributionInfo = partition.getDistributionInfo();
+            List<Long> tabletInfos = Lists.newArrayListWithCapacity(distributionInfo.getBucketNum());
+            for (long i = 0; i < distributionInfo.getBucketNum(); i++) {
+                tabletInfos.add(0L);
+            }
+
+            long totalSize = 0;
+            for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                List<Long> tabletIds = mIndex.getTabletIdsInOrder();
+                for (int i = 0; i < tabletIds.size(); i++) {
+                    Tablet tablet = mIndex.getTablet(tabletIds.get(i));
+                    long dataSize = tablet.getDataSize(true);
+                    tabletInfos.set(i, tabletInfos.get(i) + dataSize);
+                    totalSize += dataSize;
+                }
+            }
+
+            // graph
+            for (int i = 0; i < tabletInfos.size(); i++) {
+                List<String> row = Lists.newArrayList();
+                row.add(String.valueOf(i));
+                row.add(tabletInfos.get(i).toString());
+                row.add(graph(tabletInfos.get(i), totalSize));
+                row.add(totalSize == tabletInfos.get(i) ? "100.00%" : df.format((double) tabletInfos.get(i) / totalSize));
+                result.add(row);
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        return result;
     }
 }

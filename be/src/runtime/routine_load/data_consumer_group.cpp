@@ -116,7 +116,6 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
 
     MonotonicStopWatch watch;
     watch.start();
-    Status st;
     bool eos = false;
     while (true) {
         if (eos || left_time <= 0 || left_rows <= 0 || left_bytes <= 0) {
@@ -127,7 +126,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                       << ", left_time: " << left_time << ", left_rows: " << left_rows
                       << ", left_bytes: " << left_bytes
                       << ", blocking get time(us): " << _queue.total_get_wait_time() / 1000
-                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000;
+                      << ", blocking put time(us): " << _queue.total_put_wait_time() / 1000 << ", "
+                      << ctx->brief();
 
             // shutdown queue
             _queue.shutdown();
@@ -139,25 +139,14 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
             // waiting all threads finished
             _thread_pool.shutdown();
             _thread_pool.join();
-
             if (!result_st.ok()) {
-                // some of consumers encounter errors, cancel this task
+                kafka_pipe->cancel(result_st.get_error_msg());
                 return result_st;
             }
-
-            if (left_bytes == ctx->max_batch_size) {
-                // nothing to be consumed, we have to cancel it, because
-                // we do not allow finishing stream load pipe without data
-                kafka_pipe->cancel();
-                return Status::Cancelled("Cancelled");
-            } else {
-                DCHECK(left_bytes < ctx->max_batch_size);
-                DCHECK(left_rows < ctx->max_batch_rows);
-                kafka_pipe->finish();
-                ctx->kafka_info->cmt_offset = std::move(cmt_offset);
-                ctx->receive_bytes = ctx->max_batch_size - left_bytes;
-                return Status::OK();
-            }
+            kafka_pipe->finish();
+            ctx->kafka_info->cmt_offset = std::move(cmt_offset);
+            ctx->receive_bytes = ctx->max_batch_size - left_bytes;
+            return Status::OK();
         }
 
         RdKafka::Message* msg;
@@ -167,9 +156,8 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                         << ", partition: " << msg->partition() << ", offset: " << msg->offset()
                         << ", len: " << msg->len();
 
-            (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
-                                             static_cast<size_t>(msg->len()));
-
+            Status st = (kafka_pipe.get()->*append_data)(static_cast<const char*>(msg->payload()),
+                                                         static_cast<size_t>(msg->len()));
             if (st.ok()) {
                 left_rows--;
                 left_bytes -= msg->len();
@@ -180,6 +168,12 @@ Status KafkaDataConsumerGroup::start_all(StreamLoadContext* ctx) {
                 // failed to append this msg, we must stop
                 LOG(WARNING) << "failed to append msg to pipe. grp: " << _grp_id;
                 eos = true;
+                {
+                    std::unique_lock<std::mutex> lock(_mutex);
+                    if (result_st.ok()) {
+                        result_st = st;
+                    }
+                }
             }
             delete msg;
         } else {

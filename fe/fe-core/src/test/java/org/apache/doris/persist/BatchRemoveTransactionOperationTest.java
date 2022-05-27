@@ -22,7 +22,6 @@ import org.apache.doris.meta.MetaContext;
 
 import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,7 +55,7 @@ public class BatchRemoveTransactionOperationTest {
 
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
         BatchRemoveTransactionsOperation op2 = BatchRemoveTransactionsOperation.read(dis);

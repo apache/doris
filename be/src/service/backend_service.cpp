@@ -19,11 +19,10 @@
 
 #include <arrow/record_batch.h>
 #include <gperftools/heap-profiler.h>
-#include <thrift/concurrency/PosixThreadFactory.h>
+#include <thrift/concurrency/ThreadFactory.h>
 #include <thrift/processor/TMultiplexedProcessor.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <boost/shared_ptr.hpp>
 #include <map>
 #include <memory>
 
@@ -65,23 +64,18 @@ using apache::thrift::TProcessor;
 using apache::thrift::TMultiplexedProcessor;
 using apache::thrift::transport::TTransportException;
 using apache::thrift::concurrency::ThreadFactory;
-using apache::thrift::concurrency::PosixThreadFactory;
 
 BackendService::BackendService(ExecEnv* exec_env)
-        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
-    char buf[64];
-    DateTimeValue value = DateTimeValue::local_time();
-    value.to_string(buf);
-}
+        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {}
 
 Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer** server) {
-    boost::shared_ptr<BackendService> handler(new BackendService(exec_env));
+    std::shared_ptr<BackendService> handler(new BackendService(exec_env));
     // TODO: do we want a BoostThreadFactory?
     // TODO: we want separate thread factories here, so that fe requests can't starve
     // be requests
-    boost::shared_ptr<ThreadFactory> thread_factory(new PosixThreadFactory());
+    std::shared_ptr<ThreadFactory> thread_factory(new ThreadFactory());
 
-    boost::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
+    std::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
 
     *server = new ThriftServer("backend", be_processor, port, config::be_service_threads);
 
@@ -210,6 +204,40 @@ void BackendService::get_tablet_stat(TTabletStatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_tablet_stat(&result);
 }
 
+int64_t BackendService::get_trash_used_capacity() {
+    int64_t result = 0;
+
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        std::string lhs_trash_path = root_path_info.path_desc.filepath + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        result += StorageEngine::instance()->get_file_or_directory_size(trash_path);
+    }
+    return result;
+}
+
+void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& diskTrashInfos) {
+    std::vector<DataDirInfo> data_dir_infos;
+    StorageEngine::instance()->get_all_data_dir_info(&data_dir_infos, false /*do not update */);
+
+    for (const auto& root_path_info : data_dir_infos) {
+        TDiskTrashInfo diskTrashInfo;
+
+        diskTrashInfo.__set_root_path(root_path_info.path_desc.filepath);
+
+        diskTrashInfo.__set_state(root_path_info.is_used ? "ONLINE" : "OFFLINE");
+
+        std::string lhs_trash_path = root_path_info.path_desc.filepath + TRASH_PREFIX;
+        std::filesystem::path trash_path(lhs_trash_path);
+        diskTrashInfo.__set_trash_used_capacity(
+                StorageEngine::instance()->get_file_or_directory_size(trash_path));
+
+        diskTrashInfos.push_back(diskTrashInfo);
+    }
+}
+
 void BackendService::submit_routine_load_task(TStatus& t_status,
                                               const std::vector<TRoutineLoadTask>& tasks) {
     for (auto& task : tasks) {
@@ -235,7 +263,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
-    p_context->last_access_time = time(NULL);
+    p_context->last_access_time = time(nullptr);
     if (params.__isset.keep_alive_min) {
         p_context->keep_alive_min = params.keep_alive_min;
     } else {
@@ -303,7 +331,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
             result_.status = t_status;
         }
     }
-    context->last_access_time = time(NULL);
+    context->last_access_time = time(nullptr);
 }
 
 void BackendService::close_scanner(TScanCloseResult& result_, const TScanCloseParams& params) {
@@ -339,4 +367,11 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
     }
 }
 
+void BackendService::clean_trash() {
+    StorageEngine::instance()->start_trash_sweep(nullptr, true);
+}
+
+void BackendService::check_storage_format(TCheckStorageFormatResult& result) {
+    StorageEngine::instance()->tablet_manager()->get_all_tablets_storage_format(&result);
+}
 } // namespace doris

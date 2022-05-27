@@ -64,12 +64,11 @@ import java.util.stream.Collectors;
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
-            .add("VisibleVersion").add("VisibleVersionTime").add("VisibleVersionHash")
+            .add("VisibleVersion").add("VisibleVersionTime")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("LastConsistencyCheckTime")
-            .add("DataSize")
-            .add("IsInMemory")
+            .add("RemoteStorageResource").add("RemoteStorageCooldownTime")
+            .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .build();
 
     private Database db;
@@ -102,7 +101,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
             } else {
                 leftVal = Long.parseLong(element.toString());
-                rightVal = ((IntLiteral)subExpr.getChild(1)).getLongValue();
+                rightVal = ((IntLiteral) subExpr.getChild(1)).getLongValue();
             }
             switch (binaryPredicate.getOp()) {
                 case EQ:
@@ -122,7 +121,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     Preconditions.checkState(false, "No defined binary operator.");
             }
         } else {
-            return like((String)element, ((StringLiteral) subExpr.getChild(1)).getValue());
+            return like((String) element, ((StringLiteral) subExpr.getChild(1)).getValue());
         }
         return true;
     }
@@ -178,7 +177,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             if (endIndex > filterPartitionInfos.size()) {
                 endIndex = filterPartitionInfos.size();
             }
-            filterPartitionInfos = filterPartitionInfos.subList(beginIndex,endIndex);
+            filterPartitionInfos = filterPartitionInfos.subList(beginIndex, endIndex);
         }
 
         return getBasicProcResult(filterPartitionInfos);
@@ -231,7 +230,6 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partitionName);
                 partitionInfo.add(partition.getVisibleVersion());
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getVisibleVersionTime()));
-                partitionInfo.add(partition.getVisibleVersionHash());
                 partitionInfo.add(partition.getState());
 
                 if (tblPartitionInfo.getType() == PartitionType.RANGE
@@ -262,17 +260,18 @@ public class PartitionsProcDir implements ProcDirInterface {
                     }
                     partitionInfo.add(sb.toString());
                 } else {
-                    partitionInfo.add("ALL KEY");
+                    partitionInfo.add("RANDOM");
                 }
 
                 partitionInfo.add(distributionInfo.getBucketNum());
-
-                short replicationNum = tblPartitionInfo.getReplicationNum(partitionId);
-                partitionInfo.add(String.valueOf(replicationNum));
+                // replica num
+                partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).getTotalReplicaNum());
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
                 partitionInfo.add(dataProperty.getStorageMedium().name());
                 partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
+                partitionInfo.add(dataProperty.getRemoteStorageResourceName());
+                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getRemoteCooldownTimeMs()));
 
                 partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
 
@@ -282,6 +281,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                         + sizePair.second;
                 partitionInfo.add(readableSize);
                 partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
+                // replica allocation
+                partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 partitionInfos.add(partitionInfo);
             }

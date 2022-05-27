@@ -14,11 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/select-node.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_SELECT_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_SELECT_NODE_H
-
-#include <boost/scoped_ptr.hpp>
+#pragma once
 
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
@@ -41,7 +41,7 @@ public:
 
 private:
     // current row batch of child
-    boost::scoped_ptr<RowBatch> _child_row_batch;
+    std::unique_ptr<RowBatch> _child_row_batch;
 
     // index of current row in _child_row_batch
     int _child_row_idx;
@@ -56,5 +56,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

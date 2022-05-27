@@ -28,9 +28,10 @@ namespace doris {
 
 static void test_parse_mem_spec(const std::string& mem_spec_str, int64_t result) {
     bool is_percent = true;
-    int64_t bytes = ParseUtil::parse_mem_spec(mem_spec_str, &is_percent);
-    ASSERT_EQ(result, bytes);
-    ASSERT_FALSE(is_percent);
+    int64_t bytes =
+            ParseUtil::parse_mem_spec(mem_spec_str, -1, MemInfo::_s_physical_mem, &is_percent);
+    EXPECT_EQ(result, bytes);
+    EXPECT_FALSE(is_percent);
 }
 
 TEST(TestParseMemSpec, Normal) {
@@ -52,15 +53,26 @@ TEST(TestParseMemSpec, Normal) {
     test_parse_mem_spec("128T", 128L * 1024 * 1024 * 1024 * 1024L);
 
     bool is_percent = false;
-    int64_t bytes = ParseUtil::parse_mem_spec("20%", &is_percent);
-    ASSERT_GT(bytes, 0);
-    ASSERT_TRUE(is_percent);
+    int64_t bytes = ParseUtil::parse_mem_spec("20%", -1, MemInfo::_s_physical_mem, &is_percent);
+    EXPECT_GT(bytes, 0);
+    EXPECT_TRUE(is_percent);
 
     MemInfo::_s_physical_mem = 1000;
     is_percent = true;
-    bytes = ParseUtil::parse_mem_spec("0.1%", &is_percent);
-    ASSERT_EQ(bytes, 1);
-    ASSERT_TRUE(is_percent);
+    bytes = ParseUtil::parse_mem_spec("0.1%", -1, MemInfo::_s_physical_mem, &is_percent);
+    EXPECT_EQ(bytes, 1);
+    EXPECT_TRUE(is_percent);
+
+    // test with parent limit
+    is_percent = false;
+    bytes = ParseUtil::parse_mem_spec("1%", 1000, MemInfo::_s_physical_mem, &is_percent);
+    EXPECT_TRUE(is_percent);
+    EXPECT_EQ(10, bytes);
+
+    is_percent = true;
+    bytes = ParseUtil::parse_mem_spec("1001", 1000, MemInfo::_s_physical_mem, &is_percent);
+    EXPECT_FALSE(is_percent);
+    EXPECT_EQ(1001, bytes);
 }
 
 TEST(TestParseMemSpec, Bad) {
@@ -80,15 +92,9 @@ TEST(TestParseMemSpec, Bad) {
     bad_values.push_back("%");
     for (const auto& value : bad_values) {
         bool is_percent = false;
-        int64_t bytes = ParseUtil::parse_mem_spec(value, &is_percent);
-        ASSERT_EQ(-1, bytes);
+        int64_t bytes = ParseUtil::parse_mem_spec(value, -1, MemInfo::_s_physical_mem, &is_percent);
+        EXPECT_EQ(-1, bytes);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::MemInfo::init();
-    return RUN_ALL_TESTS();
-}

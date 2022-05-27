@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -65,6 +64,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -75,12 +75,14 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -92,15 +94,11 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TEtlState;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.TransactionNotFoundException;
-
-import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -108,6 +106,10 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.Gson;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -121,7 +123,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -366,10 +367,7 @@ public class Load {
     public void addLoadJob(LoadStmt stmt, EtlJobType etlJobType, long timestamp) throws DdlException {
         // get db
         String dbName = stmt.getLabel().getDbName();
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database[" + dbName + "] does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
 
         // create job
         LoadJob job = createLoadJob(stmt, etlJobType, db, timestamp);
@@ -390,7 +388,7 @@ public class Load {
         readLock();
         try {
             for (Long tblId : job.getIdToTableLoadInfo().keySet()) {
-                Table tbl = db.getTable(tblId);
+                Table tbl = db.getTableNullable(tblId);
                 if (tbl != null && tbl.getType() == TableType.OLAP
                         && ((OlapTable) tbl).getState() == OlapTableState.RESTORE) {
                     throw new DdlException("Table " + tbl.getName() + " is in restore process. "
@@ -509,17 +507,14 @@ public class Load {
 
             for (DataDescription dataDescription : dataDescriptions) {
                 String tableName = dataDescription.getTableName();
-                OlapTable table = (OlapTable) db.getTable(tableName);
-                if (table == null) {
-                    throw new DdlException("Table[" + tableName + "] does not exist");
-                }
+                OlapTable table = db.getOlapTableOrDdlException(tableName);
 
                 table.readLock();
                 try {
                     TNetworkAddress beAddress = dataDescription.getBeAddr();
                     Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(beAddress.getHostname(),
                             beAddress.getPort());
-                    if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backend.getId())) {
+                    if (!Catalog.getCurrentSystemInfo().checkBackendLoadAvailable(backend.getId())) {
                         throw new DdlException("Etl backend is null or not available");
                     }
 
@@ -585,6 +580,11 @@ public class Load {
                 // set default timeout
                 job.setTimeoutSecond(Config.hadoop_load_default_timeout_second);
             }
+            for (DataDescription dataDescription : dataDescriptions) {
+                if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND) {
+                    throw new DdlException("MERGE OR DELETE is not supported in hadoop load.");
+                }
+            }
         } else if (etlJobType == EtlJobType.BROKER) {
             if (job.getTimeoutSecond() == 0) {
                 // set default timeout
@@ -617,33 +617,27 @@ public class Load {
         String tableName = dataDescription.getTableName();
         Map<String, Pair<String, List<String>>> columnToFunction = null;
 
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new DdlException("Table [" + tableName + "] does not exist");
-        }
+        OlapTable table = db.getOlapTableOrDdlException(tableName);
         tableId = table.getId();
-        if (table.getType() != TableType.OLAP) {
-            throw new DdlException("Table [" + tableName + "] is not olap table");
-        }
 
         table.readLock();
         try {
-            if (((OlapTable) table).getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
+            if (table.getPartitionInfo().isMultiColumnPartition() && jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load by hadoop cluster does not support table with multi partition columns."
                         + " Table: " + table.getName() + ". Try using broker load. See 'help broker load;'");
             }
 
             // check partition
-            if (dataDescription.getPartitionNames() != null &&
-                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+            if (dataDescription.getPartitionNames() != null
+                    && table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
-            if (((OlapTable) table).getState() == OlapTableState.RESTORE) {
+            if (table.getState() == OlapTableState.RESTORE) {
                 throw new DdlException("Table [" + tableName + "] is under restore");
             }
 
-            if (((OlapTable) table).getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
+            if (table.getKeysType() != KeysType.AGG_KEYS && dataDescription.isNegative()) {
                 throw new DdlException("Load for AGG_KEYS table should not specify NEGATIVE");
             }
 
@@ -768,6 +762,23 @@ public class Load {
                         // do nothing
                     }
 
+                } else if (!column.isVisible()) {
+                    /*
+                     *  For batch delete table add hidden column __DORIS_DELETE_SIGN__ to columns
+                     * eg:
+                     * (A, B, C)
+                     * ->
+                     * (A, B, C) SET (__DORIS_DELETE_SIGN__ = 0)
+                     */
+                    columnToHadoopFunction.put(column.getName(), Pair.create("default_value", Lists.newArrayList(column.getDefaultValue())));
+                    ImportColumnDesc importColumnDesc = null;
+                    try {
+                        importColumnDesc = new ImportColumnDesc(column.getName(),
+                                new FunctionCallExpr("default_value", Arrays.asList(column.getDefaultValueExpr())));
+                    } catch (AnalysisException e) {
+                        throw new DdlException(e.getMessage());
+                    }
+                    parsedColumnExprList.add(importColumnDesc);
                 }
             }
 
@@ -802,7 +813,7 @@ public class Load {
             }
 
             // partitions of this source
-            OlapTable olapTable = (OlapTable) table;
+            OlapTable olapTable = table;
             PartitionNames partitionNames = dataDescription.getPartitionNames();
             if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -918,7 +929,7 @@ public class Load {
      */
     public static void initColumns(Table tbl, List<ImportColumnDesc> columnExprs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction) throws UserException {
-        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, false);
+        initColumns(tbl, columnExprs, columnToHadoopFunction, null, null, null, null, null, null, false, false);
     }
 
     /*
@@ -928,10 +939,11 @@ public class Load {
     public static void initColumns(Table tbl, LoadTaskInfo.ImportColumnDescs columnDescs,
                                    Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                    Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
-                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+                                   Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                   TFileFormatType formatType, boolean useVectorizedLoad) throws UserException {
         rewriteColumns(columnDescs);
         initColumns(tbl, columnDescs.descs, columnToHadoopFunction, exprsByName, analyzer,
-                srcTupleDesc, slotDescByName, params, true);
+                srcTupleDesc, slotDescByName, params, formatType, useVectorizedLoad, true);
     }
 
     /*
@@ -946,6 +958,7 @@ public class Load {
                                     Map<String, Pair<String, List<String>>> columnToHadoopFunction,
                                     Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
                                     Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params,
+                                    TFileFormatType formatType, boolean useVectorizedLoad,
                                     boolean needInitSlotAndAnalyzeExprs) throws UserException {
         // We make a copy of the columnExprs so that our subsequent changes
         // to the columnExprs will not affect the original columnExprs.
@@ -1015,6 +1028,9 @@ public class Load {
             for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 String mappingColumnName = entry.getKey();
                 Column mappingColumn = tbl.getColumn(mappingColumnName);
+                if (mappingColumn == null) {
+                    throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+                }
                 Pair<String, List<String>> function = entry.getValue();
                 try {
                     DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
@@ -1028,26 +1044,70 @@ public class Load {
         if (!needInitSlotAndAnalyzeExprs) {
             return;
         }
-
+        Set<String> exprSrcSlotName = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
+            if (importColumnDesc.isColumn()) {
+                continue;
+            }
+            List<SlotRef> slots = Lists.newArrayList();
+            importColumnDesc.getExpr().collect(SlotRef.class, slots);
+            for (SlotRef slot : slots) {
+                String slotColumnName = slot.getColumnName();
+                exprSrcSlotName.add(slotColumnName);
+            }
+        }
+        // excludedColumns is columns that should be varchar type
+        Set<String> excludedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         // init slot desc add expr map, also transform hadoop functions
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
-            String realColName = tbl.getColumn(columnName) == null ? columnName
-                    : tbl.getColumn(columnName).getName();
+            Column tblColumn = tbl.getColumn(columnName);
+            String realColName;
+            if (tblColumn == null || tblColumn.getName() == null || importColumnDesc.getExpr() == null) {
+                realColName = columnName;
+            } else {
+                realColName = tblColumn.getName();
+            }
             if (importColumnDesc.getExpr() != null) {
                 Expr expr = transformHadoopFunctionExpr(tbl, realColName, importColumnDesc.getExpr());
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                // only support parquet format now
+                if (useVectorizedLoad  && formatType == TFileFormatType.FORMAT_PARQUET
+                        && tblColumn != null) {
+                    // in vectorized load
+                    // example: k1 is DATETIME in source file, and INT in schema, mapping exper is k1=year(k1)
+                    // we can not determine whether to use the type in the schema or the type inferred from expr
+                    // so use varchar type as before
+                    if (exprSrcSlotName.contains(columnName)) {
+                        // columns in expr args should be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        excludedColumns.add(realColName);
+                        // example k1, k2 = k1 + 1, k1 is not nullable, k2 is nullable
+                        // so we can not determine columns in expr args whether not nullable or nullable
+                        // slot in expr args use nullable as before
+                        slotDesc.setIsNullable(true);
+                    } else {
+                        // columns from files like parquet files can be parsed as the type in table schema
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        // non-nullable column is allowed in vectorized load with parquet format
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
+                    }
+                } else {
+                    // columns default be varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    // ISSUE A: src slot should be nullable even if the column is not nullable.
+                    // because src slot is what we read from file, not represent to real column value.
+                    // If column is not nullable, error will be thrown when filling the dest slot,
+                    // which is not nullable.
+                    slotDesc.setIsNullable(true);
+                }
                 slotDesc.setIsMaterialized(true);
-                // ISSUE A: src slot should be nullable even if the column is not nullable.
-                // because src slot is what we read from file, not represent to real column value.
-                // If column is not nullable, error will be thrown when filling the dest slot,
-                // which is not nullable.
-                slotDesc.setIsNullable(true);
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
                 params.addToSrcSlotIds(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
@@ -1066,7 +1126,30 @@ public class Load {
         }
 
         LOG.debug("slotDescByName: {}, exprsByName: {}, mvDefineExpr: {}", slotDescByName, exprsByName, mvDefineExpr);
+        // we only support parquet format now
+        // use implicit deduction to convert columns
+        // that are not in the doris table from varchar to a more appropriate type
+        if (useVectorizedLoad && formatType == TFileFormatType.FORMAT_PARQUET) {
+            // analyze all exprs
+            Map<String, Expr> cloneExprsByName = Maps.newHashMap(exprsByName);
+            Map<String, Expr> cloneMvDefineExpr = Maps.newHashMap(mvDefineExpr);
+            analyzeAllExprs(tbl, analyzer, cloneExprsByName, cloneMvDefineExpr, slotDescByName, useVectorizedLoad);
+            // columns that only exist in mapping expr args, replace type with inferred from exprs,
+            // if there are more than one, choose the last except varchar type
+            // for example:
+            // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME
+            replaceVarcharWithCastType(cloneExprsByName, srcTupleDesc, excludedColumns);
+        }
 
+        // in vectorized load, reanalyze exprs with castExpr type
+        // otherwise analyze exprs with varchar type
+        analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName, useVectorizedLoad);
+        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    private static void analyzeAllExprs(Table tbl, Analyzer analyzer, Map<String, Expr> exprsByName,
+                                            Map<String, Expr> mvDefineExpr, Map<String, SlotDescriptor> slotDescByName,
+                                            boolean useVectorizedLoad) throws UserException {
         // analyze all exprs
         for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
             ExprSubstitutionMap smap = new ExprSubstitutionMap();
@@ -1075,6 +1158,15 @@ public class Load {
             for (SlotRef slot : slots) {
                 SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
                 if (slotDesc == null) {
+                    if (entry.getKey() != null) {
+                        if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                            throw new UserException("unknown reference column in DELETE ON clause:"
+                                + slot.getColumnName());
+                        } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                            throw new UserException("unknown reference column in ORDER BY clause:"
+                                + slot.getColumnName());
+                        }
+                    }
                     throw new UserException("unknown reference column, column=" + entry.getKey()
                             + ", reference=" + slot.getColumnName());
                 }
@@ -1109,8 +1201,14 @@ public class Load {
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
                             exprsByName.get(slot.getColumnName())));
                 } else {
-                    throw new UserException("unknown reference column, column=" + entry.getKey()
-                            + ", reference=" + slot.getColumnName());
+                    if (entry.getKey().equalsIgnoreCase(Column.DELETE_SIGN)) {
+                        throw new UserException("unknown reference column in DELETE ON clause:" + slot.getColumnName());
+                    } else if (entry.getKey().equalsIgnoreCase(Column.SEQUENCE_COL)) {
+                        throw new UserException("unknown reference column in ORDER BY clause:" + slot.getColumnName());
+                    } else {
+                        throw new UserException("unknown reference column, column=" + entry.getKey()
+                                + ", reference=" + slot.getColumnName());
+                    }
                 }
             }
             Expr expr = entry.getValue().clone(smap);
@@ -1118,7 +1216,50 @@ public class Load {
 
             exprsByName.put(entry.getKey(), expr);
         }
-        LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    /**
+     * columns that only exist in mapping expr args, replace type with inferred from exprs.
+     *
+     * @param excludedColumns columns that the type should not be inferred from expr.
+     *                         1. column exists in both schema and expr args.
+     */
+    private static void replaceVarcharWithCastType(Map<String, Expr> exprsByName, TupleDescriptor srcTupleDesc,
+                                               Set<String> excludedColumns) throws UserException {
+        // if there are more than one, choose the last except varchar type.
+        // for example:
+        // k1 involves two mapping expr args: year(k1), t1=k1, k1's varchar type will be replaced by DATETIME.
+        for (Map.Entry<String, Expr> entry : exprsByName.entrySet()) {
+            List<CastExpr> casts = Lists.newArrayList();
+            // exclude explicit cast. for example: cast(k1 as date)
+            entry.getValue().collect(Expr.IS_VARCHAR_SLOT_REF_IMPLICIT_CAST, casts);
+            if (casts.isEmpty()) {
+                continue;
+            }
+
+            for (CastExpr cast : casts) {
+                Expr child = cast.getChild(0);
+                Type type = cast.getType();
+                if (type.isVarchar()) {
+                    continue;
+                }
+
+                SlotRef slotRef = (SlotRef) child;
+                String columnName = slotRef.getColumn().getName();
+                if (excludedColumns.contains(columnName)) {
+                    continue;
+                }
+
+                // replace src slot desc with cast return type
+                int slotId = slotRef.getSlotId().asInt();
+                SlotDescriptor srcSlotDesc = srcTupleDesc.getSlot(slotId);
+                if (srcSlotDesc == null) {
+                    throw new UserException("Unknown source slot descriptor. id: " + slotId);
+                }
+                srcSlotDesc.setType(type);
+                srcSlotDesc.setColumn(new Column(columnName, type));
+            }
+        }
     }
 
     public static void rewriteColumns(LoadTaskInfo.ImportColumnDescs columnDescs) {
@@ -1448,10 +1589,7 @@ public class Load {
     // return true if we truly register a mini load label
     // return false otherwise (eg: a retry request)
     public boolean registerMiniLabel(String fullDbName, String label, long timestamp) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1478,10 +1616,7 @@ public class Load {
     }
 
     public void deregisterMiniLabel(String fullDbName, String label) throws DdlException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + fullDbName);
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException(fullDbName);
 
         long dbId = db.getId();
         writeLock();
@@ -1589,191 +1724,6 @@ public class Load {
             }
         }
         return false;
-    }
-
-    public boolean isLabelExist(String dbName, String labelValue, boolean isAccurateMatch) throws DdlException {
-        // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                return false;
-            }
-            List<LoadJob> loadJobs = Lists.newArrayList();
-            if (isAccurateMatch) {
-                if (labelToLoadJobs.containsKey(labelValue)) {
-                    loadJobs.addAll(labelToLoadJobs.get(labelValue));
-                }
-            } else {
-                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(labelValue)) {
-                        loadJobs.addAll(entry.getValue());
-                    }
-                }
-            }
-            if (loadJobs.isEmpty()) {
-                return false;
-            }
-            if (loadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).count() == 0) {
-                return false;
-            }
-            return true;
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public boolean cancelLoadJob(CancelLoadStmt stmt, boolean isAccurateMatch) throws DdlException {
-        // get params
-        String dbName = stmt.getDbName();
-        String label = stmt.getLabel();
-
-        // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-        // List of load jobs waiting to be cancelled
-        List<LoadJob> loadJobs = Lists.newArrayList();
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-
-            // get jobs by label
-            List<LoadJob> matchLoadJobs = Lists.newArrayList();
-            if (isAccurateMatch) {
-                if (labelToLoadJobs.containsKey(label)) {
-                    matchLoadJobs.addAll(labelToLoadJobs.get(label));
-                }
-            } else {
-                for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
-                    if (entry.getKey().contains(label)) {
-                        matchLoadJobs.addAll(entry.getValue());
-                    }
-                }
-            }
-
-            if (matchLoadJobs.isEmpty()) {
-                throw new DdlException("Load job does not exist");
-            }
-
-            // check state here
-            List<LoadJob> uncompletedLoadJob = matchLoadJobs.stream().filter(job -> {
-                JobState state = job.getState();
-                return state != JobState.CANCELLED && state != JobState.QUORUM_FINISHED && state != JobState.FINISHED;
-            }).collect(Collectors.toList());
-            if (uncompletedLoadJob.isEmpty()) {
-                throw new DdlException("There is no uncompleted job which label " +
-                        (isAccurateMatch ? "is " : "like ") + stmt.getLabel());
-            }
-            loadJobs.addAll(uncompletedLoadJob);
-        } finally {
-            readUnlock();
-        }
-
-        // check auth here, cause we need table info
-        Set<String> tableNames = Sets.newHashSet();
-        for (LoadJob loadJob : loadJobs) {
-            tableNames.addAll(loadJob.getTableNames());
-        }
-
-        if (tableNames.isEmpty()) {
-            if (Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                    PrivPredicate.LOAD)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                        PrivPredicate.LOAD)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
-                }
-            }
-        }
-
-        // cancel job
-        for (LoadJob loadJob : loadJobs) {
-            List<String> failedMsg = Lists.newArrayList();
-            boolean ok = cancelLoadJob(loadJob, CancelType.USER_CANCEL, "user cancel", failedMsg);
-            if (!ok) {
-                throw new DdlException("Cancel load job [" + loadJob.getId() + "] fail, " +
-                        "label=[" + loadJob.getLabel() + "] failed msg=" +
-                        (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
-            }
-        }
-
-        return true;
-    }
-
-    public boolean cancelLoadJob(CancelLoadStmt stmt) throws DdlException {
-        // get params
-        String dbName = stmt.getDbName();
-        String label = stmt.getLabel();
-
-        // get load job and check state
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Db does not exist. name: " + dbName);
-        }
-        LoadJob job = null;
-        readLock();
-        try {
-            Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
-            if (labelToLoadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-
-            List<LoadJob> loadJobs = labelToLoadJobs.get(label);
-            if (loadJobs == null) {
-                throw new DdlException("Load job does not exist");
-            }
-            // only the last one should be running
-            job = loadJobs.get(loadJobs.size() - 1);
-            JobState state = job.getState();
-            if (state == JobState.CANCELLED) {
-                throw new DdlException("Load job has been cancelled");
-            } else if (state == JobState.QUORUM_FINISHED || state == JobState.FINISHED) {
-                throw new DdlException("Load job has been finished");
-            }
-        } finally {
-            readUnlock();
-        }
-
-        // check auth here, cause we need table info
-        Set<String> tableNames = job.getTableNames();
-        if (tableNames.isEmpty()) {
-            // forward compatibility
-            if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName,
-                    PrivPredicate.LOAD)) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CANCEL LOAD");
-            }
-        } else {
-            for (String tblName : tableNames) {
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
-                        PrivPredicate.LOAD)) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CANCEL LOAD",
-                            ConnectContext.get().getQualifiedUser(),
-                            ConnectContext.get().getRemoteIP(), tblName);
-                }
-            }
-        }
-
-        // cancel job
-        List<String> failedMsg = Lists.newArrayList();
-        if (!cancelLoadJob(job, CancelType.USER_CANCEL, "user cancel", failedMsg)) {
-            throw new DdlException("Cancel load job fail: " + (failedMsg.isEmpty() ? "Unknown reason" : failedMsg.get(0)));
-        }
-
-        return true;
     }
 
     public boolean cancelLoadJob(LoadJob job, CancelType cancelType, String msg) {
@@ -1904,7 +1854,7 @@ public class Load {
     }
 
     public LinkedList<List<Comparable>> getLoadJobInfosByDb(long dbId, String dbName, String labelValue,
-                                                            boolean accurateMatch, Set<JobState> states) {
+                                                            boolean accurateMatch, Set<JobState> states) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         readLock();
         try {
@@ -1915,6 +1865,11 @@ public class Load {
 
             long start = System.currentTimeMillis();
             LOG.debug("begin to get load job info, size: {}", loadJobs.size());
+            PatternMatcher matcher = null;
+            if (labelValue != null && !accurateMatch) {
+                matcher = PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+            }
+
             for (LoadJob loadJob : loadJobs) {
                 // filter first
                 String label = loadJob.getLabel();
@@ -1926,7 +1881,7 @@ public class Load {
                             continue;
                         }
                     } else {
-                        if (!label.contains(labelValue)) {
+                        if (!matcher.match(label)) {
                             continue;
                         }
                     }
@@ -2047,6 +2002,10 @@ public class Load {
                 jobInfo.add(status.getTrackingUrl());
                 // job detail(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // transaction id
+                jobInfo.add(loadJob.getTransactionId());
+                // error tablets(not used for hadoop load, just return an empty string)
+                jobInfo.add("");
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs
@@ -2060,7 +2019,6 @@ public class Load {
     }
 
     public long getLatestJobIdByLabel(long dbId, String labelValue) {
-        LoadJob job = null;
         long jobId = 0;
         readLock();
         try {
@@ -2082,7 +2040,6 @@ public class Load {
 
                 if (currJobId > jobId) {
                     jobId = currJobId;
-                    job = loadJob;
                 }
             }
         } finally {
@@ -2103,7 +2060,7 @@ public class Load {
         }
 
         long dbId = loadJob.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             return infos;
         }
@@ -2121,7 +2078,7 @@ public class Load {
 
                 long tableId = tabletMeta.getTableId();
 
-                OlapTable table = (OlapTable) db.getTable(tableId);
+                OlapTable table = (OlapTable) db.getTableNullable(tableId);
                 if (table == null) {
                     continue;
                 }
@@ -2146,10 +2103,9 @@ public class Load {
 
                     PartitionLoadInfo partitionLoadInfo = loadJob.getPartitionLoadInfo(tableId, partitionId);
                     long version = partitionLoadInfo.getVersion();
-                    long versionHash = partitionLoadInfo.getVersionHash();
 
                     for (Replica replica : tablet.getReplicas()) {
-                        if (replica.checkVersionCatchUp(version, versionHash, false)) {
+                        if (replica.checkVersionCatchUp(version, false)) {
                             continue;
                         }
 
@@ -2158,10 +2114,8 @@ public class Load {
                         info.add(tabletId);
                         info.add(replica.getId());
                         info.add(replica.getVersion());
-                        info.add(replica.getVersionHash());
                         info.add(partitionId);
                         info.add(version);
-                        info.add(versionHash);
 
                         infos.add(info);
                     }
@@ -2278,10 +2232,7 @@ public class Load {
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
         String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
         info.dbName = fullDbName;
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new MetaNotFoundException("Unknown database(" + info.dbName + ")");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbLabelToLoadJobs.get(db.getId());
@@ -2321,7 +2272,7 @@ public class Load {
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
                 for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTable(info.getTableId());
+                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
                     if (table == null) {
                         LOG.warn("the table[{}] is missing", info.getIndexId());
                         continue;
@@ -2347,8 +2298,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                            info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
                 }
             }
 
@@ -2357,7 +2307,10 @@ public class Load {
             if (idToTableLoadInfo != null) {
                 for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
                     long tableId = tableEntry.getKey();
-                    OlapTable table = (OlapTable) db.getTable(tableId);
+                    OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                    if (table == null) {
+                        continue;
+                    }
                     TableLoadInfo tableLoadInfo = tableEntry.getValue();
                     for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
                         long partitionId = entry.getKey();
@@ -2366,8 +2319,7 @@ public class Load {
                         if (!partitionLoadInfo.isNeedLoad()) {
                             continue;
                         }
-                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                                partitionLoadInfo.getVersionHash(), jobId);
+                        updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                         // update table row count
                         for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -2394,9 +2346,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws DdlException {
+    public void replayQuorumLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDb(job.getDbId());
+        Database db = catalog.getDbOrMetaException(job.getDbId());
 
         List<Long> tableIds = Lists.newArrayList();
         long tblId = job.getTableId();
@@ -2406,13 +2358,7 @@ public class Load {
             tableIds.addAll(job.getIdToTableLoadInfo().keySet());
         }
 
-        List<Table> tables = null;
-        try {
-            tables = db.getTablesOnIdOrderOrThrowException(tableIds);
-        } catch (MetaNotFoundException e) {
-            LOG.error("should not happen", e);
-            return;
-        }
+        List<Table> tables = db.getTablesOnIdOrderOrThrowException(tableIds);
 
         MetaLockUtils.writeLockTables(tables);
         try {
@@ -2437,7 +2383,7 @@ public class Load {
             Map<Long, ReplicaPersistInfo> replicaInfos = job.getReplicaPersistInfos();
             if (replicaInfos != null) {
                 for (ReplicaPersistInfo info : replicaInfos.values()) {
-                    OlapTable table = (OlapTable) db.getTable(info.getTableId());
+                    OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
                     if (table == null) {
                         LOG.warn("the table[{}] is missing", info.getIndexId());
                         continue;
@@ -2463,8 +2409,7 @@ public class Load {
                         LOG.warn("the replica[{}] is missing", info.getReplicaId());
                         continue;
                     }
-                    replica.updateVersionInfo(info.getVersion(), info.getVersionHash(),
-                            info.getDataSize(), info.getRowCount());
+                    replica.updateVersionInfo(info.getVersion(), info.getDataSize(), info.getRowCount());
                 }
             }
         } else {
@@ -2479,9 +2424,9 @@ public class Load {
         replaceLoadJob(job);
     }
 
-    public void replayFinishLoadJob(LoadJob job, Catalog catalog) {
+    public void replayFinishLoadJob(LoadJob job, Catalog catalog) throws MetaNotFoundException {
         // TODO: need to call this.writeLock()?
-        Database db = catalog.getDb(job.getDbId());
+        Database db = catalog.getDbOrMetaException(job.getDbId());
         // After finish, the idToTableLoadInfo in load job will be set to null.
         // We lost table info. So we have to use db lock here.
         db.writeLock();
@@ -2497,9 +2442,9 @@ public class Load {
         }
     }
 
-    public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) {
-        Database db = catalog.getDb(info.getDbId());
-        OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
+    public void replayClearRollupInfo(ReplicaPersistInfo info, Catalog catalog) throws MetaNotFoundException {
+        Database db = catalog.getDbOrMetaException(info.getDbId());
+        OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
             Partition partition = olapTable.getPartition(info.getPartitionId());
@@ -2598,7 +2543,7 @@ public class Load {
     }
 
     // Added by ljb. Remove old load jobs from idToLoadJob, dbToLoadJobs and dbLabelToLoadJobs
-    // This function is called periodically. every Configure.label_keep_max_second seconds
+    // This function is called periodically. every Configure.label_clean_interval_second seconds
     public void removeOldLoadJobs() {
         long currentTimeMs = System.currentTimeMillis();
 
@@ -2629,9 +2574,9 @@ public class Load {
                         loadJobs = mapLabelToJobs.get(label);
                         if (loadJobs != null) {
                             loadJobs.remove(job);
-                            if (loadJobs.size() == 0) {
+                            if (loadJobs.isEmpty()) {
                                 mapLabelToJobs.remove(label);
-                                if (mapLabelToJobs.size() == 0) {
+                                if (mapLabelToJobs.isEmpty()) {
                                     dbLabelToLoadJobs.remove(dbId);
                                 }
                             }
@@ -2686,7 +2631,7 @@ public class Load {
                     }
 
                     long dbId = job.getDbId();
-                    Database db = Catalog.getCurrentCatalog().getDb(dbId);
+                    Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
                     if (db == null) {
                         LOG.warn("db does not exist. id: {}", dbId);
                         break;
@@ -2715,11 +2660,11 @@ public class Load {
     public boolean updateLoadJobState(LoadJob job, JobState destState, CancelType cancelType, String msg,
                                       List<String> failedMsg) {
         boolean result = true;
-        JobState srcState = null;
+        JobState srcState;
 
         long jobId = job.getId();
         long dbId = job.getDbId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         String errMsg = msg;
         if (db == null) {
             // if db is null, update job to cancelled
@@ -2793,7 +2738,7 @@ public class Load {
                             // clear push tasks
                             for (PushTask pushTask : job.getPushTasks()) {
                                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                                        pushTask.getVersion(), pushTask.getVersionHash(),
+                                        pushTask.getVersion(),
                                         pushTask.getPushType(), pushTask.getTaskType());
                             }
                             // Clear the Map and Set in this job, reduce the memory cost for finished load job.
@@ -2835,7 +2780,7 @@ public class Load {
         Map<Long, TableLoadInfo> idToTableLoadInfo = job.getIdToTableLoadInfo();
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
             if (table == null) {
                 LOG.warn("table does not exist, id: {}", tableId);
                 return false;
@@ -2860,7 +2805,10 @@ public class Load {
         // update partition version and index row count
         for (Entry<Long, TableLoadInfo> tableEntry : idToTableLoadInfo.entrySet()) {
             long tableId = tableEntry.getKey();
-            OlapTable table = (OlapTable) db.getTable(tableId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            if (table == null) {
+                continue;
+            }
 
             TableLoadInfo tableLoadInfo = tableEntry.getValue();
             for (Entry<Long, PartitionLoadInfo> entry : tableLoadInfo.getIdToPartitionLoadInfo().entrySet()) {
@@ -2871,8 +2819,7 @@ public class Load {
                     continue;
                 }
 
-                updatePartitionVersion(partition, partitionLoadInfo.getVersion(),
-                        partitionLoadInfo.getVersionHash(), jobId);
+                updatePartitionVersion(partition, partitionLoadInfo.getVersion(), jobId);
 
                 for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     long tableRowCount = 0L;
@@ -2902,11 +2849,11 @@ public class Load {
         return true;
     }
 
-    private void updatePartitionVersion(Partition partition, long version, long versionHash, long jobId) {
+    private void updatePartitionVersion(Partition partition, long version, long jobId) {
         long partitionId = partition.getId();
-        partition.updateVisibleVersionAndVersionHash(version, versionHash);
-        LOG.info("update partition version success. version: {}, version hash: {}, job id: {}, partition id: {}",
-                version, versionHash, jobId, partitionId);
+        partition.updateVisibleVersion(version);
+        LOG.info("update partition version success. version: {}, job id: {}, partition id: {}",
+                version, jobId, partitionId);
     }
 
     private boolean processCancelled(LoadJob job, CancelType cancelType, String msg, List<String> failedMsg) {
@@ -2978,7 +2925,7 @@ public class Load {
         if (srcState == JobState.LOADING || srcState == JobState.QUORUM_FINISHED) {
             for (PushTask pushTask : job.getPushTasks()) {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getVersion(),
                         pushTask.getPushType(), pushTask.getTaskType());
             }
         }

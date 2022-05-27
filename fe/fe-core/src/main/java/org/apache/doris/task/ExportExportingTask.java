@@ -44,7 +44,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -205,7 +204,7 @@ public class ExportExportingTask extends MasterTask {
             onTimeout();
             return;
         }
-        
+
         try {
             coord.setTimeout(leftTimeSecond);
             coord.exec();
@@ -252,7 +251,7 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private void initProfile() {
-        profile = new RuntimeProfile("Query");
+        profile = new RuntimeProfile("ExportJob");
         RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
         summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(job.getId()));
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
@@ -262,7 +261,7 @@ public class ExportExportingTask extends MasterTask {
         summaryProfile.addInfoString(ProfileManager.END_TIME, TimeUtils.longToTimeString(currentTimestamp));
         summaryProfile.addInfoString(ProfileManager.TOTAL_TIME, DebugUtil.getPrettyStringMs(totalTimeMs));
 
-        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
+        summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Export");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
         summaryProfile.addInfoString(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");

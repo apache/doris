@@ -41,12 +41,13 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
@@ -61,11 +62,10 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import mockit.Expectations;
 
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
 
 public class CatalogMocker {
     // user
@@ -82,7 +82,7 @@ public class CatalogMocker {
     // db
     public static final String TEST_DB_NAME = "test_db";
     public static final long TEST_DB_ID = 20000;
-    
+
     // single partition olap table
     public static final String TEST_TBL_NAME = "test_tbl";
     public static final long TEST_TBL_ID = 30000;
@@ -103,7 +103,7 @@ public class CatalogMocker {
     public static final String MYSQL_PWD = "mysql-pwd";
     public static final String MYSQL_DB = "mysql-db";
     public static final String MYSQL_TBL = "mysql-tbl";
-    
+
     // partition olap table with a rollup
     public static final String TEST_TBL2_NAME = "test_tbl2";
     public static final long TEST_TBL2_ID = 30002;
@@ -228,7 +228,7 @@ public class CatalogMocker {
         return clusterInfo;
     }
 
-    public static Database mockDb() throws AnalysisException {
+    public static Database mockDb() throws UserException {
         // mock all meta obj
         Database db = new Database(TEST_DB_ID, TEST_DB_NAME);
 
@@ -238,7 +238,7 @@ public class CatalogMocker {
         Partition partition =
                 new Partition(TEST_SINGLE_PARTITION_ID, TEST_SINGLE_PARTITION_NAME, baseIndex, distributionInfo);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setReplicationNum(TEST_SINGLE_PARTITION_ID, (short) 3);
+        partitionInfo.setReplicaAllocation(TEST_SINGLE_PARTITION_ID, new ReplicaAllocation((short) 3));
         partitionInfo.setIsInMemory(TEST_SINGLE_PARTITION_ID, false);
         DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
@@ -289,7 +289,7 @@ public class CatalogMocker {
         Partition partition2 =
                 new Partition(TEST_PARTITION2_ID, TEST_PARTITION2_NAME, baseIndexP2, distributionInfo2);
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
-        
+
         PartitionKey rangeP1Lower =
                 PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
@@ -301,23 +301,23 @@ public class CatalogMocker {
 
         PartitionKey rangeP2Lower =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         PartitionKey rangeP2Upper =
                 PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
-                                                Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
+                        Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
         PartitionItem item2 = new RangePartitionItem(rangeP2);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item2);
 
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION1_ID, (short) 3);
-        rangePartitionInfo.setReplicationNum(TEST_PARTITION2_ID, (short) 3);
+        rangePartitionInfo.setReplicaAllocation(TEST_PARTITION1_ID, new ReplicaAllocation((short) 3));
+        rangePartitionInfo.setReplicaAllocation(TEST_PARTITION2_ID, new ReplicaAllocation((short) 3));
         DataProperty dataPropertyP1 = new DataProperty(TStorageMedium.HDD);
         DataProperty dataPropertyP2 = new DataProperty(TStorageMedium.HDD);
         rangePartitionInfo.setDataProperty(TEST_PARTITION1_ID, dataPropertyP1);
         rangePartitionInfo.setDataProperty(TEST_PARTITION2_ID, dataPropertyP2);
 
         OlapTable olapTable2 = new OlapTable(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA,
-                                             KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
+                KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
         Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
@@ -360,11 +360,11 @@ public class CatalogMocker {
         Replica replica9 = new Replica(TEST_REPLICA9_ID, BACKEND1_ID, 0, ReplicaState.NORMAL);
         Replica replica10 = new Replica(TEST_REPLICA10_ID, BACKEND2_ID, 0, ReplicaState.NORMAL);
         Replica replica11 = new Replica(TEST_REPLICA11_ID, BACKEND3_ID, 0, ReplicaState.NORMAL);
-        
+
         rollupTabletP1.addReplica(replica9);
         rollupTabletP1.addReplica(replica10);
         rollupTabletP1.addReplica(replica11);
-        
+
         partition1.createRollupIndex(rollupIndexP1);
 
         // rollup index p2
@@ -392,7 +392,7 @@ public class CatalogMocker {
 
     public static Catalog fetchAdminCatalog() {
         try {
-            FakeEditLog fakeEditLog = new FakeEditLog();
+            FakeEditLog fakeEditLog = new FakeEditLog(); // CHECKSTYLE IGNORE THIS LINE
 
             Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
@@ -405,19 +405,19 @@ public class CatalogMocker {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(TEST_DB_NAME);
+                    catalog.getDbNullable(TEST_DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb(WRONG_DB);
+                    catalog.getDbNullable(WRONG_DB);
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(TEST_DB_ID);
+                    catalog.getDbNullable(TEST_DB_ID);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 

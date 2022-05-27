@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_FRAME_OF_REFERENCE_CODING_H
-#define DORIS_FRAME_OF_REFERENCE_CODING_H
+#pragma once
 
 #include <cstdlib>
 #include <iostream>
@@ -151,7 +150,7 @@ public:
 private:
     void bit_unpack(const uint8_t* input, uint8_t in_num, int bit_width, T* output);
 
-    inline uint32_t frame_size(uint32_t frame_index) {
+    uint32_t frame_size(uint32_t frame_index) {
         return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
     }
 
@@ -188,5 +187,3 @@ private:
     std::vector<T> _out_buffer; // store values of decoded frame
 };
 } // namespace doris
-
-#endif //DORIS_FRAME_OF_REFERENCE_CODING_H

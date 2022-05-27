@@ -27,7 +27,6 @@
 #include "runtime/routine_load/data_consumer_group.h"
 #include "runtime/routine_load/kafka_consumer_pipe.h"
 #include "runtime/stream_load/stream_load_context.h"
-#include "runtime/stream_load/stream_load_executor.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -39,7 +38,7 @@ RoutineLoadTaskExecutor::RoutineLoadTaskExecutor(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _thread_pool(config::routine_load_thread_pool_size,
                        config::routine_load_thread_pool_size),
-          _data_consumer_pool(10) {
+          _data_consumer_pool(config::routine_load_consumer_pool_size) {
     REGISTER_HOOK_METRIC(routine_load_task_count, [this]() {
         std::lock_guard<std::mutex> l(_lock);
         return _task_map.size();
@@ -106,8 +105,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
     return st;
 }
 
-Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(const PKafkaMetaProxyRequest& request,
-        std::vector<PIntegerPair>* partition_offsets) {
+Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
@@ -120,6 +119,29 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(const PKaf
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
             std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
             partition_offsets);
+    if (st.ok()) {
+        _data_consumer_pool.return_consumer(consumer);
+    }
+    return st;
+}
+
+Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
+        const PKafkaMetaProxyRequest& request, std::vector<PIntegerPair>* partition_offsets) {
+    CHECK(request.has_kafka_info());
+
+    // This context is meaningless, just for unifing the interface
+    StreamLoadContext ctx(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+
+    std::shared_ptr<DataConsumer> consumer;
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+
+    Status st =
+            std::static_pointer_cast<KafkaDataConsumer>(consumer)
+                    ->get_latest_offsets_for_partitions(
+                            std::vector<int32_t>(request.partition_id_for_latest_offsets().begin(),
+                                                 request.partition_id_for_latest_offsets().end()),
+                            partition_offsets);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -139,7 +161,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                   << ", job id: " << task.job_id
                   << ", queue size: " << _thread_pool.get_queue_size()
                   << ", current tasks num: " << _task_map.size();
-        return Status::TooManyTasks(UniqueId(task.id).to_string());
+        return Status::TooManyTasks(UniqueId(task.id).to_string() + "_" +
+                                    BackendOptions::get_localhost());
     }
 
     // create the context
@@ -321,27 +344,28 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
         _data_consumer_pool.return_consumer(consumer);
 
         // delete TopicPartition finally
-        Defer delete_tp{[&topic_partitions]() {
+        Defer delete_tp {[&topic_partitions]() {
             std::for_each(topic_partitions.begin(), topic_partitions.end(),
                           [](RdKafka::TopicPartition* tp1) { delete tp1; });
         }};
-    } break;
+        break;
+    }
     default:
-        return;
+        break;
     }
     cb(ctx);
 }
 
 void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& st,
                                           const std::string& err_msg) {
-    LOG(WARNING) << err_msg;
+    LOG(WARNING) << err_msg << ", routine load task: " << ctx->brief(true);
     ctx->status = st;
     if (ctx->need_rollback) {
         _exec_env->stream_load_executor()->rollback_txn(ctx);
         ctx->need_rollback = false;
     }
     if (ctx->body_sink.get() != nullptr) {
-        ctx->body_sink->cancel();
+        ctx->body_sink->cancel(err_msg);
     }
 
     return;
@@ -350,6 +374,7 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
 // for test only
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
     auto mock_consumer = [this, ctx]() {
+        ctx->ref();
         std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
         bool eof = false;
         std::stringstream ss;
@@ -376,6 +401,9 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             } else {
                 ss << one;
             }
+        }
+        if (ctx->unref()) {
+            delete ctx;
         }
     };
 

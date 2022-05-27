@@ -37,48 +37,49 @@ class BetaRowset : public Rowset {
 public:
     virtual ~BetaRowset();
 
-    OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
+    Status create_reader(RowsetReaderSharedPtr* result) override;
 
-    OLAPStatus create_reader(const std::shared_ptr<MemTracker>& parent_tracker,
-                             std::shared_ptr<RowsetReader>* result) override;
+    static FilePathDesc segment_file_path(const FilePathDesc& segment_dir_desc,
+                                          const RowsetId& rowset_id, int segment_id);
 
-    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id,
-                                         int segment_id);
+    Status split_range(const RowCursor& start_key, const RowCursor& end_key,
+                       uint64_t request_block_row_count, size_t key_num,
+                       std::vector<OlapTuple>* ranges) override;
 
-    OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
-                           uint64_t request_block_row_count,
-                           std::vector<OlapTuple>* ranges) override;
+    Status remove() override;
 
-    OLAPStatus remove() override;
+    Status link_files_to(const FilePathDesc& dir_desc, RowsetId new_rowset_id) override;
 
-    OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) override;
+    Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    OLAPStatus copy_files_to(const std::string& dir) override;
+    Status upload_files_to(const FilePathDesc& dir_desc, const RowsetId& new_rowset_id,
+                           bool delete_src = false) override;
 
     // only applicable to alpha rowset, no op here
-    OLAPStatus remove_old_files(std::vector<std::string>* files_to_remove) override {
-        return OLAP_SUCCESS;
+    Status remove_old_files(std::vector<std::string>* files_to_remove) override {
+        return Status::OK();
     };
 
     bool check_path(const std::string& path) override;
 
     bool check_file_exist() override;
 
+    Status load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments);
+
 protected:
-    BetaRowset(const TabletSchema* schema, std::string rowset_path,
+    BetaRowset(const TabletSchema* schema, const FilePathDesc& rowset_path_desc,
                RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups
-    OLAPStatus init() override;
+    Status init() override;
 
-    OLAPStatus do_load(bool use_cache, std::shared_ptr<MemTracker> parent) override;
+    Status do_load(bool use_cache) override;
 
     void do_close() override;
 
 private:
     friend class RowsetFactory;
     friend class BetaRowsetReader;
-    std::vector<segment_v2::SegmentSharedPtr> _segments;
 };
 
 } // namespace doris

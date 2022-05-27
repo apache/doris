@@ -19,6 +19,7 @@
 
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
+#include "olap/data_dir.h"
 #include "olap/fs/block_manager.h"
 #include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
@@ -37,18 +38,32 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(fs::WritableBlock* wblock, uint32_t segment_id,
-                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts, std::shared_ptr<MemTracker> parent)
-        : _segment_id(segment_id), _tablet_schema(tablet_schema), _opts(opts), _wblock(wblock), _mem_tracker(MemTracker::CreateTracker(
-                -1, "Segment-" + std::to_string(segment_id), parent, false)) {
+                             const TabletSchema* tablet_schema, DataDir* data_dir,
+                             uint32_t max_row_per_segment, const SegmentWriterOptions& opts)
+        : _segment_id(segment_id),
+          _tablet_schema(tablet_schema),
+          _data_dir(data_dir),
+          _max_row_per_segment(max_row_per_segment),
+          _opts(opts),
+          _wblock(wblock),
+          _mem_tracker(MemTracker::create_virtual_tracker(
+                  -1, "SegmentWriter:Segment-" + std::to_string(segment_id))),
+          _olap_data_convertor(tablet_schema) {
     CHECK_NOTNULL(_wblock);
+    size_t num_short_key_column = _tablet_schema->num_short_key_columns();
+    for (size_t cid = 0; cid < num_short_key_column; ++cid) {
+        const auto& column = _tablet_schema->column(cid);
+        _short_key_coders.push_back(get_key_coder(column.type()));
+        _short_key_index_size.push_back(column.index_length());
+    }
 }
 
 SegmentWriter::~SegmentWriter() {
-    _mem_tracker->Release(_mem_tracker->consumption());
+    _mem_tracker->release(_mem_tracker->consumption());
 };
 
 void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
-                                      const TabletColumn& column) {
+                                     const TabletColumn& column) {
     // TODO(zc): Do we need this column_id??
     meta->set_column_id((*column_id)++);
     meta->set_unique_id(column.unique_id());
@@ -57,10 +72,8 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t* column_id,
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(LZ4F);
     meta->set_is_nullable(column.is_nullable());
-    if (column.get_subtype_count() > 0) {
-        for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
-            init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
-        }
+    for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
+        init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
 }
 
@@ -87,7 +100,6 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
                 return Status::NotSupported("Do not support bitmap index for array type");
             }
         }
-        opts.parent = _mem_tracker;
 
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));
@@ -96,6 +108,90 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
     }
     _index_builder.reset(new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
     return Status::OK();
+}
+
+Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
+                                   size_t num_rows) {
+    assert(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
+           block->columns() == _column_writers.size());
+    _olap_data_convertor.set_source_content(block, row_pos, num_rows);
+
+    // find all row pos for short key indexes
+    std::vector<size_t> short_key_pos;
+    // We build a short key index every `_opts.num_rows_per_block` rows. Specifically, we
+    // build a short key index using 1st rows for first block and `_short_key_row_pos - _row_count`
+    // for next blocks.
+    // Ensure we build a short key index using 1st rows only for the first block (ISSUE-9766).
+    if (UNLIKELY(_short_key_row_pos == 0 && _row_count == 0)) {
+        short_key_pos.push_back(0);
+    }
+    while (_short_key_row_pos + _opts.num_rows_per_block < _row_count + num_rows) {
+        _short_key_row_pos += _opts.num_rows_per_block;
+        short_key_pos.push_back(_short_key_row_pos - _row_count);
+    }
+
+    // convert column data from engine format to storage layer format
+    std::vector<vectorized::IOlapColumnDataAccessor*> short_key_columns;
+    size_t num_key_columns = _tablet_schema->num_short_key_columns();
+    for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
+        auto converted_result = _olap_data_convertor.convert_column_data(cid);
+        if (converted_result.first != Status::OK()) {
+            return converted_result.first;
+        }
+        if (cid < num_key_columns) {
+            short_key_columns.push_back(converted_result.second);
+        }
+        RETURN_IF_ERROR(_column_writers[cid]->append(converted_result.second->get_nullmap(),
+                                                     converted_result.second->get_data(),
+                                                     num_rows));
+    }
+
+    // create short key indexes
+    std::vector<const void*> key_column_fields;
+    for (const auto pos : short_key_pos) {
+        for (const auto& column : short_key_columns) {
+            key_column_fields.push_back(column->get_data_at(pos));
+        }
+        std::string encoded_key = encode_short_keys(key_column_fields);
+        RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
+        key_column_fields.clear();
+    }
+
+    _row_count += num_rows;
+    _olap_data_convertor.clear_source_content();
+    return Status::OK();
+}
+
+int64_t SegmentWriter::max_row_to_add(size_t row_avg_size_in_bytes) {
+    int64_t size_rows =
+            ((int64_t)MAX_SEGMENT_SIZE - (int64_t)estimate_segment_size()) / row_avg_size_in_bytes;
+    int64_t count_rows = (int64_t)_max_row_per_segment - _row_count;
+
+    return std::min(size_rows, count_rows);
+}
+
+std::string SegmentWriter::encode_short_keys(const std::vector<const void*> key_column_fields,
+                                             bool null_first) {
+    size_t num_key_columns = _tablet_schema->num_short_key_columns();
+    assert(key_column_fields.size() == num_key_columns &&
+           _short_key_coders.size() == num_key_columns &&
+           _short_key_index_size.size() == num_key_columns);
+
+    std::string encoded_keys;
+    for (size_t cid = 0; cid < num_key_columns; ++cid) {
+        auto field = key_column_fields[cid];
+        if (UNLIKELY(!field)) {
+            if (null_first) {
+                encoded_keys.push_back(KEY_NULL_FIRST_MARKER);
+            } else {
+                encoded_keys.push_back(KEY_NULL_LAST_MARKER);
+            }
+            continue;
+        }
+        encoded_keys.push_back(KEY_NORMAL_MARKER);
+        _short_key_coders[cid]->encode_ascending(field, _short_key_index_size[cid], &encoded_keys);
+    }
+    return encoded_keys;
 }
 
 template <typename RowType>
@@ -131,11 +227,16 @@ uint64_t SegmentWriter::estimate_segment_size() {
     size += _index_builder->size();
 
     // update the mem_tracker of segment size
-    _mem_tracker->Consume(size - _mem_tracker->consumption());
+    _mem_tracker->consume(size - _mem_tracker->consumption());
     return size;
 }
 
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
+    // check disk capacity
+    if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
+        return Status::InternalError(
+                fmt::format("disk {} exceed capacity limit.", _data_dir->path_hash()));
+    }
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
@@ -220,7 +321,7 @@ Status SegmentWriter::_write_footer() {
     // that will need an extra seek when reading
     fixed_buf.append(k_segment_magic, k_segment_magic_length);
 
-    std::vector<Slice> slices{footer_buf, fixed_buf};
+    std::vector<Slice> slices {footer_buf, fixed_buf};
     return _write_raw_data(slices);
 }
 

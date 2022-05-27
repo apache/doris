@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COMPACTION_H
-#define DORIS_BE_SRC_OLAP_COMPACTION_H
+#pragma once
 
 #include <vector>
 
@@ -44,35 +43,36 @@ class Merger;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label,
-               const std::shared_ptr<MemTracker>& parent_tracker);
+    Compaction(TabletSharedPtr tablet, const std::string& label);
     virtual ~Compaction();
 
     // This is only for http CompactionAction
-    OLAPStatus compact();
+    Status compact();
 
-    virtual OLAPStatus prepare_compact() = 0;
-    OLAPStatus execute_compact();
-    virtual OLAPStatus execute_compact_impl() = 0;
+    virtual Status prepare_compact() = 0;
+    Status execute_compact();
+    virtual Status execute_compact_impl() = 0;
+
+    std::shared_ptr<MemTracker>& get_mem_tracker() { return _mem_tracker; }
 
 protected:
-    virtual OLAPStatus pick_rowsets_to_compact() = 0;
+    virtual Status pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction(int64_t permits);
-    OLAPStatus do_compaction_impl(int64_t permits);
+    Status do_compaction(int64_t permits);
+    Status do_compaction_impl(int64_t permits);
 
     void modify_rowsets();
     void gc_output_rowset();
 
-    OLAPStatus construct_output_rowset_writer();
-    OLAPStatus construct_input_rowset_readers();
+    Status construct_output_rowset_writer();
+    Status construct_input_rowset_readers();
 
-    OLAPStatus check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
-    OLAPStatus check_correctness(const Merger::Statistics& stats);
-    OLAPStatus find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                std::vector<Version>* missing_version);
+    Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
+    Status check_correctness(const Merger::Statistics& stats);
+    Status find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                            std::vector<Version>* missing_version);
     int64_t get_compaction_permits();
 
 private:
@@ -80,15 +80,13 @@ private:
     // return -1 if these are not alpha rowsets.
     int64_t _get_input_num_rows_from_seg_grps();
 
+    // check whether we should enable vectorized compaction.
+    bool _should_use_vectorized_compaction();
+
 protected:
     // the root tracker for this compaction
     std::shared_ptr<MemTracker> _mem_tracker;
 
-    // the child of root, only track rowset readers mem
-    std::shared_ptr<MemTracker> _readers_tracker;
-
-    // the child of root, only track rowset writer mem
-    std::shared_ptr<MemTracker> _writer_tracker;
     TabletSharedPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
@@ -103,11 +101,8 @@ protected:
     CompactionState _state;
 
     Version _output_version;
-    VersionHash _output_version_hash;
 
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_COMPACTION_H

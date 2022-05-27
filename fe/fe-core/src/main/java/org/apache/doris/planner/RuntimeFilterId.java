@@ -30,12 +30,12 @@ public class RuntimeFilterId extends Id<RuntimeFilterId> {
         return new IdGenerator<RuntimeFilterId>() {
             @Override
             public RuntimeFilterId getNextId() {
-                return new RuntimeFilterId(nextId_++);
+                return new RuntimeFilterId(nextId++);
             }
 
             @Override
             public RuntimeFilterId getMaxId() {
-                return new RuntimeFilterId(nextId_ - 1);
+                return new RuntimeFilterId(nextId - 1);
             }
         };
     }

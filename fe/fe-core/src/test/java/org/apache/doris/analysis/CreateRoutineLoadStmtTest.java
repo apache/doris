@@ -24,10 +24,16 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,12 +44,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 public class CreateRoutineLoadStmtTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(CreateRoutineLoadStmtTest.class);
@@ -52,6 +52,9 @@ public class CreateRoutineLoadStmtTest {
 
     @Mocked
     private Catalog catalog;
+
+    @Mocked
+    private ConnectContext ctx;
 
     @Mocked
     OlapTable table;
@@ -66,17 +69,21 @@ public class CreateRoutineLoadStmtTest {
         };
         new Expectations() {
             {
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
 
-                database.getTable(anyString);
+                database.getTableNullable(anyString);
                 minTimes = 0;
                 result = table;
 
                 table.hasDeleteSign();
                 minTimes = 0;
                 result = false;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
             }
         };
 
@@ -91,9 +98,6 @@ public class CreateRoutineLoadStmtTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         String kafkaPartitionString = "1,2,3";
-        List<String> partitionNameString = Lists.newArrayList();
-        partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
@@ -130,7 +134,8 @@ public class CreateRoutineLoadStmtTest {
     }
 
     @Test
-    public void testAnalyze(@Injectable Analyzer analyzer) throws UserException {
+    public void testAnalyze(@Injectable Analyzer analyzer,
+                            @Injectable SessionVariable sessionVariable) throws UserException {
         String jobName = "job1";
         String dbName = "db1";
         LabelName labelName = new LabelName(dbName, jobName);
@@ -145,7 +150,6 @@ public class CreateRoutineLoadStmtTest {
         Separator columnSeparator = new Separator(",");
 
         // duplicate load property
-        TableName tableName = new TableName(dbName, tableNameString);
         List<ParseNode> loadPropertyList = new ArrayList<>();
         loadPropertyList.add(columnSeparator);
         loadPropertyList.add(partitionNames);
@@ -167,6 +171,15 @@ public class CreateRoutineLoadStmtTest {
             @Mock
             public void analyze(Analyzer analyzer1) {
                 return;
+            }
+        };
+
+        new Expectations() {
+            {
+                ctx.getSessionVariable();
+                result = sessionVariable;
+                sessionVariable.getSendBatchParallelism();
+                result = 1;
             }
         };
 

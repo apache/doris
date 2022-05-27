@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_ODBC_TABLE_SINK_H
-#define DORIS_BE_RUNTIME_ODBC_TABLE_SINK_H
+#pragma once
 
 #include <vector>
 
@@ -32,13 +31,12 @@ class TOdbcTableSink;
 class RuntimeState;
 class RuntimeProfile;
 class ExprContext;
-class MemTracker;
 
 //This class is a sinker, which put input data to odbc table
 class OdbcTableSink : public DataSink {
 public:
     OdbcTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs);
+                  const std::vector<TExpr>& t_exprs);
 
     virtual ~OdbcTableSink();
 
@@ -56,9 +54,7 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status);
 
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
 private:
     ObjectPool* _pool;
@@ -73,9 +69,6 @@ private:
     bool _use_transaction;
 
     RuntimeProfile* _profile;
-    std::shared_ptr<MemTracker> _mem_tracker;
 };
 
-}
-
-#endif
+} // namespace doris

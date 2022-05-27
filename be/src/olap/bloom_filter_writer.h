@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_WRITER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_WRITER_H
+#pragma once
 
 #include <vector>
 
@@ -30,10 +29,10 @@ public:
     BloomFilterIndexWriter() {}
     ~BloomFilterIndexWriter();
 
-    OLAPStatus add_bloom_filter(BloomFilter* bf);
+    Status add_bloom_filter(BloomFilter* bf);
     uint64_t estimate_buffered_memory();
-    OLAPStatus write_to_buffer(OutStream* out_stream);
-    OLAPStatus write_to_buffer(char* buffer, size_t buffer_size);
+    Status write_to_buffer(OutStream* out_stream);
+    Status write_to_buffer(char* buffer, size_t buffer_size);
 
 private:
     std::vector<BloomFilter*> _bloom_filters;
@@ -41,4 +40,3 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BLOOM_FILTER_WRITER_H

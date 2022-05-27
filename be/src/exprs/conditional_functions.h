@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/conditional-functions.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_CONDITIONAL_FUNCTIONS_H
+#pragma once
 
 #include <stdint.h>
 
@@ -41,19 +43,19 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new IfNullExpr(*this));
     }
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row);
-    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row);
-    virtual IntVal get_int_val(ExprContext* context, TupleRow* row);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row);
-    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row);
-    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
-    virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
-    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row) override;
+    virtual IntVal get_int_val(ExprContext* context, TupleRow* row) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row) override;
+    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row) override;
+    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
+    virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row) override;
 
-    virtual std::string debug_string() const { return Expr::debug_string("IfNullExpr"); }
+    virtual std::string debug_string() const override { return Expr::debug_string("IfNullExpr"); }
 
 protected:
     friend class Expr;
@@ -66,19 +68,19 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NullIfExpr(*this));
     }
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row);
-    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row);
-    virtual IntVal get_int_val(ExprContext* context, TupleRow* row);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row);
-    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row);
-    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
-    virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
-    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row) override;
+    virtual IntVal get_int_val(ExprContext* context, TupleRow* row) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row) override;
+    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row) override;
+    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
+    virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row) override;
 
-    virtual std::string debug_string() const { return Expr::debug_string("NullIfExpr"); }
+    virtual std::string debug_string() const override { return Expr::debug_string("NullIfExpr"); }
 
 protected:
     friend class Expr;
@@ -89,45 +91,45 @@ class IfExpr : public Expr {
 public:
     virtual ~IfExpr();
     virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new IfExpr(*this)); }
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row);
-    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row);
-    virtual IntVal get_int_val(ExprContext* context, TupleRow* row);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row);
-    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row);
-    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
-    virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
-    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row) override;
+    virtual IntVal get_int_val(ExprContext* context, TupleRow* row) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row) override;
+    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row) override;
+    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
+    virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row) override;
 
-    virtual std::string debug_string() const { return Expr::debug_string("IfExpr"); }
+    virtual std::string debug_string() const override { return Expr::debug_string("IfExpr"); }
 
 protected:
     friend class Expr;
     IfExpr(const TExprNode& node);
 };
 
-// Returns the first non-NULL value in the list, or NULL if there are no non-NULL values.
+// Returns the first non-nullptr value in the list, or nullptr if there are no non-nullptr values.
 class CoalesceExpr : public Expr {
 public:
     virtual ~CoalesceExpr();
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new CoalesceExpr(*this));
     }
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
-    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row);
-    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row);
-    virtual IntVal get_int_val(ExprContext* context, TupleRow* row);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row);
-    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row);
-    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row);
-    virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row);
-    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
-    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
+    virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow* row) override;
+    virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow* row) override;
+    virtual IntVal get_int_val(ExprContext* context, TupleRow* row) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow* row) override;
+    virtual FloatVal get_float_val(ExprContext* context, TupleRow* row) override;
+    virtual DoubleVal get_double_val(ExprContext* context, TupleRow* row) override;
+    virtual StringVal get_string_val(ExprContext* context, TupleRow* row) override;
+    virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow* row) override;
+    virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row) override;
+    virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row) override;
 
-    virtual std::string debug_string() const { return Expr::debug_string("CoalesceExpr"); }
+    virtual std::string debug_string() const override { return Expr::debug_string("CoalesceExpr"); }
 
 protected:
     friend class Expr;
@@ -135,5 +137,3 @@ protected:
 };
 
 } // namespace doris
-
-#endif

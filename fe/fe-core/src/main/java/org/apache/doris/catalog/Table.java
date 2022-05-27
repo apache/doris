@@ -17,21 +17,24 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.AlterCancelException;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.external.hudi.HudiTable;
 import org.apache.doris.thrift.TTableDescriptor;
-
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang.NotImplementedException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -53,6 +56,8 @@ public class Table extends MetaObject implements Writable {
     // assume that the time a lock is held by thread is less then 100ms
     public static final long TRY_LOCK_TIMEOUT_MS = 100L;
 
+    public volatile boolean isDropped = false;
+
     public enum TableType {
         MYSQL,
         ODBC,
@@ -62,7 +67,9 @@ public class Table extends MetaObject implements Writable {
         VIEW,
         BROKER,
         ELASTICSEARCH,
-        HIVE
+        HIVE,
+        ICEBERG,
+        HUDI
     }
 
     protected long id;
@@ -77,7 +84,7 @@ public class Table extends MetaObject implements Writable {
      *      to query but visible to load process.
      *  If you want to get all visible columns, you should call getBaseSchema() method, which is override in
      *  sub classes.
-     *  
+     *
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
     /**
@@ -133,6 +140,14 @@ public class Table extends MetaObject implements Writable {
         this.createTime = Instant.now().getEpochSecond();
     }
 
+    public void markDropped() {
+        isDropped = true;
+    }
+
+    public void unmarkDropped() {
+        isDropped = false;
+    }
+
     public void readLock() {
         this.rwLock.readLock().lock();
     }
@@ -154,9 +169,18 @@ public class Table extends MetaObject implements Writable {
         this.rwLock.writeLock().lock();
     }
 
+    public boolean writeLockIfExist() {
+        this.rwLock.writeLock().lock();
+        if (isDropped) {
+            this.rwLock.writeLock().unlock();
+            return false;
+        }
+        return true;
+    }
+
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-           return this.rwLock.writeLock().tryLock(timeout, unit);
+            return this.rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
@@ -169,6 +193,52 @@ public class Table extends MetaObject implements Writable {
 
     public boolean isWriteLockHeldByCurrentThread() {
         return this.rwLock.writeLock().isHeldByCurrentThread();
+    }
+
+    public <E extends Exception> void writeLockOrException(E e) throws E {
+        writeLock();
+        if (isDropped) {
+            writeUnlock();
+            throw e;
+        }
+    }
+
+    public void writeLockOrDdlException() throws DdlException {
+        writeLockOrException(new DdlException("unknown table, tableName=" + name));
+    }
+
+    public void writeLockOrMetaException() throws MetaNotFoundException {
+        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
+    }
+
+    public void writeLockOrAlterCancelException() throws AlterCancelException {
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
+    }
+
+    public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
+        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
+    }
+
+    public <E extends Exception> boolean tryWriteLockOrException(long timeout, TimeUnit unit, E e) throws E {
+        if (tryWriteLock(timeout, unit)) {
+            if (isDropped) {
+                writeUnlock();
+                throw e;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    public boolean tryWriteLockIfExist(long timeout, TimeUnit unit) {
+        if (tryWriteLock(timeout, unit)) {
+            if (isDropped) {
+                writeUnlock();
+                return false;
+            }
+            return true;
+        }
+        return false;
     }
 
     public boolean isTypeRead() {
@@ -270,6 +340,10 @@ public class Table extends MetaObject implements Writable {
             table = new EsTable();
         } else if (type == TableType.HIVE) {
             table = new HiveTable();
+        } else if (type == TableType.ICEBERG) {
+            table = new IcebergTable();
+        } else if (type == TableType.HUDI) {
+            table = new HudiTable();
         } else {
             throw new IOException("Unknown table type: " + type.name());
         }
@@ -322,18 +396,10 @@ public class Table extends MetaObject implements Writable {
             this.nameToColumn.put(column.getName(), column);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_63) {
-            comment = Text.readString(in);
-        } else {
-            comment = "";
-        }
+        comment = Text.readString(in);
 
         // read create time
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_64) {
-            this.createTime = in.readLong();
-        } else {
-            this.createTime = -1L;
-        }
+        this.createTime = in.readLong();
     }
 
     public boolean equals(Table table) {
@@ -370,6 +436,8 @@ public class Table extends MetaObject implements Writable {
                 return "ElasticSearch";
             case HIVE:
                 return "Hive";
+            case HUDI:
+                return "Hudi";
             default:
                 return null;
         }
@@ -389,6 +457,7 @@ public class Table extends MetaObject implements Writable {
             case BROKER:
             case ELASTICSEARCH:
             case HIVE:
+            case HUDI:
                 return "EXTERNAL TABLE";
             default:
                 return null;
@@ -396,8 +465,15 @@ public class Table extends MetaObject implements Writable {
     }
 
     public String getComment() {
+        return getComment(false);
+    }
+
+    public String getComment(boolean escapeQuota) {
         if (!Strings.isNullOrEmpty(comment)) {
-            return comment;
+            if (!escapeQuota) {
+                return comment;
+            }
+            return SqlUtils.escapeQuota(comment);
         }
         return type.name();
     }

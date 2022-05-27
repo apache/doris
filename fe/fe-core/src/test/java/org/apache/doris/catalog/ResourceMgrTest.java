@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
@@ -36,35 +37,67 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public class ResourceMgrTest {
-    private String name;
-    private String type;
+    // spark resource
     private String master;
+    private String sparkResName;
+    private String sparkRestype;
     private String workingDir;
     private String broker;
-    private Map<String, String> properties;
+    private Map<String, String> sparkProperties;
+    // s3 resource
+    private String s3ResName;
+    private String s3ResType;
+    private String s3Endpoint;
+    private String s3Region;
+    private String s3RootPath;
+    private String s3AccessKey;
+    private String s3SecretKey;
+    private String s3MaxConnections;
+    private String s3ReqTimeoutMs;
+    private String s3ConnTimeoutMs;
+    private Map<String, String> s3Properties;
     private Analyzer analyzer;
 
     @Before
     public void setUp() {
-        name = "spark0";
-        type = "spark";
+        sparkResName = "spark0";
+        sparkRestype = "spark";
         master = "spark://127.0.0.1:7077";
         workingDir = "hdfs://127.0.0.1/tmp/doris";
         broker = "broker0";
-        properties = Maps.newHashMap();
-        properties.put("type", type);
-        properties.put("spark.master", master);
-        properties.put("spark.submit.deployMode", "cluster");
-        properties.put("working_dir", workingDir);
-        properties.put("broker", broker);
+        sparkProperties = Maps.newHashMap();
+        sparkProperties.put("type", sparkRestype);
+        sparkProperties.put("spark.master", master);
+        sparkProperties.put("spark.submit.deployMode", "cluster");
+        sparkProperties.put("working_dir", workingDir);
+        sparkProperties.put("broker", broker);
+
+        s3ResName = "s30";
+        s3ResType = "s3";
+        s3Endpoint = "aaa";
+        s3Region = "bj";
+        s3RootPath = "/path/to/root";
+        s3AccessKey = "xxx";
+        s3SecretKey = "yyy";
+        s3MaxConnections = "50";
+        s3ReqTimeoutMs = "3000";
+        s3ConnTimeoutMs = "1000";
+        s3Properties = new HashMap<>();
+        s3Properties.put("type", s3ResType);
+        s3Properties.put("s3_endpoint", s3Endpoint);
+        s3Properties.put("s3_region", s3Region);
+        s3Properties.put("s3_root_path", s3RootPath);
+        s3Properties.put("s3_access_key", s3AccessKey);
+        s3Properties.put("s3_secret_key", s3SecretKey);
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
-    public void testAddDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
+    public void testAddAlterDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
                                     @Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
@@ -81,22 +114,54 @@ public class ResourceMgrTest {
             }
         };
 
+        // spark resource
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
         Assert.assertEquals(1, mgr.getResourceNum());
-        Assert.assertTrue(mgr.containsResource(name));
-        SparkResource resource = (SparkResource) mgr.getResource(name);
+        Assert.assertTrue(mgr.containsResource(sparkResName));
+        SparkResource resource = (SparkResource) mgr.getResource(sparkResName);
         Assert.assertNotNull(resource);
         Assert.assertEquals(broker, resource.getBroker());
 
+        // alter
+        workingDir = "hdfs://127.0.0.1/tmp/doris_new";
+        Map<String, String> copiedSparkProperties = Maps.newHashMap(sparkProperties);
+        copiedSparkProperties.put("working_dir", workingDir);
+        copiedSparkProperties.remove("spark.master");
+        AlterResourceStmt alterResourceStmt = new AlterResourceStmt(sparkResName, copiedSparkProperties);
+        mgr.alterResource(alterResourceStmt);
+        Assert.assertEquals(workingDir, ((SparkResource) mgr.getResource(sparkResName)).getWorkingDir());
+
         // drop
-        DropResourceStmt dropStmt = new DropResourceStmt(name);
+        DropResourceStmt dropStmt = new DropResourceStmt(sparkResName);
         mgr.dropResource(dropStmt);
         Assert.assertEquals(0, mgr.getResourceNum());
+
+        // s3 resource
+        stmt = new CreateResourceStmt(true, s3ResName, s3Properties);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(0, mgr.getResourceNum());
+        mgr.createResource(stmt);
+        Assert.assertEquals(1, mgr.getResourceNum());
+
+        // alter
+        s3Region = "sh";
+        Map<String, String> copiedS3Properties = Maps.newHashMap(s3Properties);
+        copiedS3Properties.put("s3_region", s3Region);
+        copiedS3Properties.remove("type");
+        alterResourceStmt = new AlterResourceStmt(s3ResName, copiedS3Properties);
+        mgr.alterResource(alterResourceStmt);
+        Assert.assertEquals(s3Region, ((S3Resource) mgr.getResource(s3ResName)).getProperty("s3_region"));
+
+        // drop
+        dropStmt = new DropResourceStmt(s3ResName);
+        mgr.dropResource(dropStmt);
+        Assert.assertEquals(0, mgr.getResourceNum());
+
     }
 
     @Test(expected = DdlException.class)
@@ -117,7 +182,7 @@ public class ResourceMgrTest {
 
         // add
         ResourceMgr mgr = new ResourceMgr();
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        CreateResourceStmt stmt = new CreateResourceStmt(true, sparkResName, sparkProperties);
         stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
@@ -132,7 +197,7 @@ public class ResourceMgrTest {
         // drop
         ResourceMgr mgr = new ResourceMgr();
         Assert.assertEquals(0, mgr.getResourceNum());
-        DropResourceStmt stmt = new DropResourceStmt(name);
+        DropResourceStmt stmt = new DropResourceStmt(sparkResName);
         mgr.dropResource(stmt);
     }
 }

@@ -14,20 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/DateLiteral.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.InvalidFormatException;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
@@ -36,17 +38,11 @@ import org.joda.time.LocalDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Year;
-import java.util.Date;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TimeZone;
@@ -70,8 +66,8 @@ public class DateLiteral extends LiteralExpr {
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     private static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     private static DateTimeFormatter DATE_FORMATTER = null;
-    /* 
-     * Dates containing two-digit year values are ambiguous because the century is unknown. 
+    /*
+     * Dates containing two-digit year values are ambiguous because the century is unknown.
      * MySQL interprets two-digit year values using these rules:
      * Year values in the range 70-99 are converted to 1970-1999.
      * Year values in the range 00-69 are converted to 2000-2069.
@@ -88,8 +84,10 @@ public class DateLiteral extends LiteralExpr {
     private static Map<String, Integer> MONTH_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> MONTH_ABBR_NAME_DICT = Maps.newHashMap();
     private static Map<String, Integer> WEEK_DAY_NAME_DICT = Maps.newHashMap();
-    private static Map<String, Integer> WEEK_DAY_ABBR_NAME_DICT = Maps.newHashMap();
-    private static List<Integer> DAYS_IN_MONTH = Lists.newArrayList(0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31);
+    private final static int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    private final static int ALLOW_SPACE_MASK = 4 | 64;
+    private final static int MAX_DATE_PARTS = 8;
+    private final static int YY_PART_YEAR = 70;
 
     static {
         try {
@@ -209,7 +207,7 @@ public class DateLiteral extends LiteralExpr {
             this.type = Type.DATE;
         } else {
             this.type = Type.DATETIME;
-        }            
+        }
     }
 
     public DateLiteral(long year, long month, long day) {
@@ -239,7 +237,7 @@ public class DateLiteral extends LiteralExpr {
         this.hour = dateTime.getHourOfDay();
         this.minute = dateTime.getMinuteOfHour();
         this.second = dateTime.getSecondOfMinute();
-        this.type = type;                                                            
+        this.type = type;
     }
 
     public DateLiteral(DateLiteral other) {
@@ -430,8 +428,8 @@ public class DateLiteral extends LiteralExpr {
     private long makePackedDatetime() {
         long ymd = ((year * 13 + month) << 5) | day;
         long hms = (hour << 12) | (minute << 6) | second;
-        long packed_datetime = ((ymd << 17) | hms) << 24 + microsecond;
-        return packed_datetime;
+        long packedDatetime = ((ymd << 17) | hms) << 24 + microsecond;
+        return packedDatetime;
     }
 
     @Override
@@ -448,9 +446,9 @@ public class DateLiteral extends LiteralExpr {
         out.writeLong(makePackedDatetime());
     }
 
-    private void fromPackedDatetime(long packed_time) {
-        microsecond = (packed_time % (1L << 24));
-        long ymdhms = (packed_time >> 24);
+    private void fromPackedDatetime(long packedTime) {
+        microsecond = (packedTime % (1L << 24));
+        long ymdhms = (packedTime >> 24);
         long ymd = ymdhms >> 17;
         long hms = ymdhms % (1 << 17);
 
@@ -469,24 +467,14 @@ public class DateLiteral extends LiteralExpr {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
-            short date_literal_type = in.readShort();
-            fromPackedDatetime(in.readLong());
-            if (date_literal_type == DateLiteralType.DATETIME.value()) {
-                this.type = Type.DATETIME;
-            } else if (date_literal_type == DateLiteralType.DATE.value()) {
-                this.type = Type.DATE;
-            } else {
-                throw new IOException("Error date literal type : " + type);
-            }
+        short dateLiteralType = in.readShort();
+        fromPackedDatetime(in.readLong());
+        if (dateLiteralType == DateLiteralType.DATETIME.value()) {
+            this.type = Type.DATETIME;
+        } else if (dateLiteralType == DateLiteralType.DATE.value()) {
+            this.type = Type.DATE;
         } else {
-            Date date = new Date(in.readLong());
-            String date_str = TimeUtils.format(date, Type.DATETIME);
-            try {
-                init(date_str, Type.DATETIME);
-            } catch (AnalysisException ex) {
-                throw new IOException(ex.getMessage());
-            }
+            throw new IOException("Error date literal type : " + type);
         }
     }
 
@@ -648,12 +636,12 @@ public class DateLiteral extends LiteralExpr {
 
     public LocalDateTime getTimeFormatter() throws AnalysisException {
         if (type.equals(Type.DATE)) {
-            return DATE_FORMATTER.parseLocalDateTime(getStringValue());                        
+            return DATE_FORMATTER.parseLocalDateTime(getStringValue());
         } else if (type.equals(Type.DATETIME)) {
             return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue());
         } else {
             throw new AnalysisException("Not support date literal type");
-        }        
+        }
     }
 
     public DateLiteral plusYears(int year) throws AnalysisException {
@@ -827,8 +815,7 @@ public class DateLiteral extends LiteralExpr {
                     case 'I':
                     case 'l':
                         usaTime = true;
-                        // Fall through
-                    case 'k':
+                    case 'k': // CHECKSTYLE IGNORE THIS LINE: Fall through
                     case 'H':
                         tmp = findNumber(value, vp, 2);
                         intValue = strToLong(value.substring(vp, tmp));
@@ -1036,12 +1023,12 @@ public class DateLiteral extends LiteralExpr {
             }
             long days = calcDaynr(strictWeekNumber ? strictWeekNumberYear : this.year, 1, 1);
 
-            long weekday_b = calcWeekday(days, sundayFirst);
+            long weekdayB = calcWeekday(days, sundayFirst);
 
             if (sundayFirst) {
-                days += ((weekday_b == 0) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday % 7;
+                days += ((weekdayB == 0) ? 0 : 7) - weekdayB + (weekNum - 1) * 7 + weekday % 7;
             } else {
-                days += ((weekday_b <= 3) ? 0 : 7) - weekday_b + (weekNum - 1) * 7 + weekday - 1;
+                days += ((weekdayB <= 3) ? 0 : 7) - weekdayB + (weekNum - 1) * 7 + weekday - 1;
             }
             getDateFromDaynr(days);
         }
@@ -1067,7 +1054,7 @@ public class DateLiteral extends LiteralExpr {
                 || microsecond > MAX_MICROSECOND;
     }
     private boolean checkDate() {
-        if (month != 0 && day > DAYS_IN_MONTH.get((int)month)){
+        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
             if (month == 2 && day == 29 && Year.isLeap(year)) {
                 return false;
             }
@@ -1136,8 +1123,8 @@ public class DateLiteral extends LiteralExpr {
             }
         }
         this.month = 1;
-        while (daysOfYear > DAYS_IN_MONTH.get((int) this.month)) {
-            daysOfYear -= DAYS_IN_MONTH.get((int) this.month);
+        while (daysOfYear > DAYS_IN_MONTH[(int) this.month]) {
+            daysOfYear -= DAYS_IN_MONTH[(int) this.month];
             this.month++;
         }
         this.day = daysOfYear + leapDay;
@@ -1170,5 +1157,123 @@ public class DateLiteral extends LiteralExpr {
             return i;
         }
         throw new InvalidFormatException("'" + value + "' is invalid");
+    }
+
+    // The interval format is that with no delimiters
+    // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format, and now doris will skip part 7
+    // 0    1  2  3  4  5  6      7
+    public void fromDateStr(String dateStr) throws AnalysisException {
+        dateStr = dateStr.trim();
+        if (dateStr.isEmpty()) {
+            throw new AnalysisException("parse datetime value failed: " + dateStr);
+        }
+        int[] dateVal = new int[MAX_DATE_PARTS];
+        int[] dateLen = new int[MAX_DATE_PARTS];
+
+        // Fix year length
+        int pre = 0;
+        int pos = 0;
+        while (pos < dateStr.length() && (Character.isDigit(dateStr.charAt(pos)) || dateStr.charAt(pos) == 'T')) {
+            pos++;
+        }
+        int yearLen = 4;
+        int digits = pos - pre;
+        boolean isIntervalFormat = false;
+        // For YYYYMMDD/YYYYMMDDHHMMSS is 4 digits years
+        if (pos == dateStr.length() || dateStr.charAt(pos) == '.') {
+            if (digits == 4 || digits == 8 || digits >= 14) {
+                yearLen = 4;
+            } else {
+                yearLen = 2;
+            }
+            isIntervalFormat = true;
+        }
+
+        int fieldIdx = 0;
+        int fieldLen = yearLen;
+        while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && fieldIdx < MAX_DATE_PARTS - 1) {
+            int start = pre;
+            int tempVal = 0;
+            boolean scanToDelim = (!isIntervalFormat) && (fieldIdx != 6);
+            while (pre < dateStr.length() && Character.isDigit(dateStr.charAt(pre)) && (scanToDelim || fieldLen-- != 0)) {
+                tempVal = tempVal * 10 + (dateStr.charAt(pre++) - '0');
+            }
+            dateVal[fieldIdx] = tempVal;
+            dateLen[fieldIdx] = pre - start;
+            fieldLen = 2;
+
+            if (pre == dateStr.length()) {
+                fieldIdx++;
+                break;
+            }
+
+            if (fieldIdx == 2 && dateStr.charAt(pre) == 'T') {
+                // YYYYMMDDTHHMMDD, skip 'T' and continue
+                pre++;
+                fieldIdx++;
+                continue;
+            }
+
+            // Second part
+            if (fieldIdx == 5) {
+                if (dateStr.charAt(pre) == '.') {
+                    pre++;
+                    fieldLen = 6;
+                } else if (Character.isDigit(dateStr.charAt(pre))) {
+                    fieldIdx++;
+                    break;
+                }
+                fieldIdx++;
+                continue;
+            }
+            // escape separator
+            while (pre < dateStr.length() && (Character.toString(dateStr.charAt(pre)).matches("\\p{Punct}"))
+                    || Character.isSpaceChar(dateStr.charAt(pre))) {
+                if (Character.isSpaceChar(dateStr.charAt(pre))) {
+                    if (((1 << fieldIdx) & ALLOW_SPACE_MASK) == 0) {
+                        throw new AnalysisException("parse datetime value failed: " + dateStr);
+                    }
+                }
+                pre++;
+            }
+            fieldIdx++;
+        }
+        int numField = fieldIdx;
+        if (!isIntervalFormat) {
+            yearLen = dateLen[0];
+        }
+        for (; fieldIdx < MAX_DATE_PARTS; ++fieldIdx) {
+            dateLen[fieldIdx] = 0;
+            dateVal[fieldIdx] = 0;
+        }
+        if (yearLen == 2) {
+            if (dateVal[0] < YY_PART_YEAR) {
+                dateVal[0] += 2000;
+            } else {
+                dateVal[0] += 1900;
+            }
+        }
+
+        if (numField < 3) {
+            throw new AnalysisException("parse datetime value failed: " + dateStr);
+        }
+
+        year = dateVal[0];
+        month = dateVal[1];
+        day = dateVal[2];
+        hour = dateVal[3];
+        minute = dateVal[4];
+        second = dateVal[5];
+        microsecond = dateVal[6];
+
+        if (numField == 3) {
+            type = Type.DATE;
+        } else {
+            type = Type.DATETIME;
+        }
+
+        if (checkRange() || checkDate()) {
+            throw new AnalysisException("Datetime value is out of range: " + dateStr);
+        }
     }
 }

@@ -15,17 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
-#define DORIS_BE_RUNTIME_MYSQL_TABLE_WRITER_H
+#pragma once
+
+#include <mysql/mysql.h>
 
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-
-#ifndef __DorisMysql
-#define __DorisMysql void
-#endif
 
 namespace doris {
 
@@ -35,6 +32,7 @@ struct MysqlConnInfo {
     std::string passwd;
     std::string db;
     int port;
+    std::string charset;
 
     std::string debug_string() const;
 };
@@ -64,9 +62,7 @@ private:
 
     const std::vector<ExprContext*>& _output_expr_ctxs;
     std::string _mysql_tbl;
-    __DorisMysql* _mysql_conn;
+    MYSQL* _mysql_conn;
 };
 
 } // namespace doris
-
-#endif

@@ -47,7 +47,7 @@ public:
 TEST_F(ArrayFunctionsTest, array) {
     // Int array
     {
-        FunctionContext::TypeDesc childTypeDesc;
+        FunctionContext::TypeDesc childTypeDesc {};
         childTypeDesc.type = FunctionContext::TYPE_INT;
 
         _context->impl()->_return_type.type = FunctionContext::TYPE_ARRAY;
@@ -68,15 +68,10 @@ TEST_F(ArrayFunctionsTest, array) {
         for (auto&& iter = value.iterator(TYPE_INT); iter.has_next(); iter.next()) {
             i++;
             IntVal a;
-            iter.value(&a);
+            iter.get(&a);
             EXPECT_EQ(i, a.val);
         }
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

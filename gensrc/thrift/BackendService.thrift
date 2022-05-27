@@ -33,10 +33,12 @@ struct TTabletStat {
     1: required i64 tablet_id
     2: optional i64 data_size
     3: optional i64 row_num
+    4: optional i64 version_count
 }
 
 struct TTabletStatResult {
     1: required map<i64, TTabletStat> tablets_stats
+    2: optional list<TTabletStat> tablet_stat_list
 }
 
 struct TKafkaLoadInfo {
@@ -105,6 +107,17 @@ struct TStreamLoadRecordResult {
     1: required map<string, TStreamLoadRecord> stream_load_record
 }
 
+struct TDiskTrashInfo {
+    1: required string root_path
+    2: required string state
+    3: required i64 trash_used_capacity
+}
+
+struct TCheckStorageFormatResult {
+    1: optional list<i64> v1_tablets;
+    2: optional list<i64> v2_tablets;
+}
+
 service BackendService {
     // Called by coord to start asynchronous execution of plan fragment in backend.
     // Returns as soon as all incoming data streams have been set up.
@@ -147,6 +160,10 @@ service BackendService {
     Status.TStatus erase_export_task(1:Types.TUniqueId task_id);
 
     TTabletStatResult get_tablet_stat();
+    
+    i64 get_trash_used_capacity();
+    
+    list<TDiskTrashInfo> get_disk_trash_used_capacity();
 
     Status.TStatus submit_routine_load_task(1:list<TRoutineLoadTask> tasks);
 
@@ -161,4 +178,8 @@ service BackendService {
 
     TStreamLoadRecordResult get_stream_load_record(1: i64 last_stream_record_time);
 
+    oneway void clean_trash();
+
+    // check tablet rowset type
+    TCheckStorageFormatResult check_storage_format();
 }

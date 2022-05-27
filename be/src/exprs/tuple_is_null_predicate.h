@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/tuple-is-null-predicate.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_TUPLE_IS_NULL_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_TUPLE_IS_NULL_PREDICATE_H
+#pragma once
 
 #include "common/object_pool.h"
 #include "exprs/predicate.h"
@@ -31,15 +33,18 @@ public:
         return pool->add(new TupleIsNullPredicate(*this));
     }
 
+    bool is_constant() const override { return false; }
+
 protected:
     friend class Expr;
 
     TupleIsNullPredicate(const TExprNode& node);
 
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                           ExprContext* ctx) override;
 
-    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
-    virtual std::string debug_string() const;
+    virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row) override;
+    virtual std::string debug_string() const override;
 
 private:
     std::vector<TupleId> _tuple_ids;
@@ -47,5 +52,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

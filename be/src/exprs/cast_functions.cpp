@@ -14,8 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/cast-functions.cpp
+// and modified by Doris
 
 #include "exprs/cast_functions.h"
+
+#include <fmt/format.h>
 
 #include <cmath>
 
@@ -24,6 +29,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/string_value.h"
 #include "string_functions.h"
+#include "util/array_parser.h"
 #include "util/mysql_global.h"
 #include "util/string_parser.hpp"
 
@@ -131,23 +137,15 @@ CAST_FUNCTION(FloatVal, DoubleVal, double_val)
 
 CAST_FROM_STRINGS();
 
-// Special-case tinyint because boost thinks it's a char and handles it differently.
-// e.g. '0' is written as an empty string.
-StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const TinyIntVal& val) {
-    if (val.is_null) {
-        return StringVal::null();
-    }
-    int64_t tmp_val = val.val;
-    return AnyValUtil::from_string_temp(ctx, std::to_string(tmp_val));
-}
-
 #define CAST_TO_STRING(num_type)                                                             \
     StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const num_type& val) { \
         if (val.is_null) return StringVal::null();                                           \
-        return AnyValUtil::from_string_temp(ctx, std::to_string(val.val));                   \
+        auto f = fmt::format_int(val.val);                                                   \
+        return AnyValUtil::from_buffer_temp(ctx, f.data(), f.size());                        \
     }
 
 CAST_TO_STRING(BooleanVal);
+CAST_TO_STRING(TinyIntVal);
 CAST_TO_STRING(SmallIntVal);
 CAST_TO_STRING(IntVal);
 CAST_TO_STRING(BigIntVal);
@@ -156,10 +154,9 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     if (val.is_null) {
         return StringVal::null();
     }
-    char buf[64];
-    int len = 64;
-    char* d = LargeIntValue::to_string(val.val, buf, &len);
-    return AnyValUtil::from_buffer_temp(ctx, d, len);
+
+    auto string_value = LargeIntValue::to_string(val.val);
+    return AnyValUtil::from_buffer_temp(ctx, string_value.data(), string_value.size());
 }
 
 template <typename T>
@@ -249,28 +246,6 @@ BooleanVal CastFunctions::cast_to_boolean_val(FunctionContext* ctx, const String
     }
     return ret;
 }
-
-#if 0
-StringVal CastFunctions::CastToChar(FunctionContext* ctx, const StringVal& val) {
-  if (val.is_null) return StringVal::null();
-
-  const FunctionContext::TypeDesc& type = ctx->GetReturnType();
-  DCHECK(type.type == FunctionContext::TYPE_FIXED_BUFFER);
-  DCHECK_GE(type.len, 1);
-  char* cptr;
-  if (type.len > val.len) {
-    cptr = reinterpret_cast<char*>(ctx->impl()->AllocateLocal(type.len));
-    memcpy(cptr, val.ptr, min(type.len, val.len));
-    StringValue::PadWithSpaces(cptr, type.len, val.len);
-  } else {
-    cptr = reinterpret_cast<char*>(val.ptr);
-  }
-  StringVal sv;
-  sv.ptr = reinterpret_cast<uint8_t*>(cptr);
-  sv.len = type.len;
-  return sv;
-}
-#endif
 
 #define CAST_FROM_DATETIME(to_type, type_name)                                                 \
     to_type CastFunctions::cast_to_##type_name(FunctionContext* ctx, const DateTimeVal& val) { \
@@ -384,6 +359,12 @@ DateTimeVal CastFunctions::cast_to_date_val(FunctionContext* ctx, const StringVa
     DateTimeVal result;
     date_value.to_datetime_val(&result);
     return result;
+}
+
+CollectionVal CastFunctions::cast_to_array_val(FunctionContext* context, const StringVal& val) {
+    CollectionVal array_val;
+    Status status = ArrayParser::parse(array_val, context, val);
+    return status.ok() ? array_val : CollectionVal::null();
 }
 
 } // namespace doris

@@ -45,7 +45,7 @@ public class CreateTableTest {
     @BeforeClass
     public static void beforeClass() throws Exception {
         Config.disable_storage_medium_check = true;
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
@@ -67,15 +67,15 @@ public class CreateTableTest {
     }
 
     @Test
-    public void testDuplicateCreateTable() throws Exception{
+    public void testDuplicateCreateTable() throws Exception {
         // test
         Catalog catalog = Catalog.getCurrentCatalog();
         String sql = "create table if not exists test.tbl1_colocate\n" + "(k1 int, k2 int)\n" + "duplicate key(k1)\n"
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1','colocate_with'='test'); ";
         createTable(sql);
         Set<Long> tabletIdSetAfterCreateFirstTable = catalog.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
-        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable = new HashSet<>();
-        catalog.getTabletInvertedIndex().getTabletMetaTable().values().forEach(tabletMeta -> {tabletMetaSetBeforeCreateFirstTable.add(tabletMeta);});
+        Set<TabletMeta> tabletMetaSetBeforeCreateFirstTable =
+                new HashSet<>(catalog.getTabletInvertedIndex().getTabletMetaTable().values());
         Set<Long> colocateTableIdBeforeCreateFirstTable = catalog.getColocateTableIndex().getTable2Group().keySet();
         Assert.assertTrue(colocateTableIdBeforeCreateFirstTable.size() > 0);
         Assert.assertTrue(tabletIdSetAfterCreateFirstTable.size() > 0);
@@ -85,8 +85,8 @@ public class CreateTableTest {
         Set<Long> tabletIdSetAfterDuplicateCreateTable1 = catalog.getTabletInvertedIndex().getReplicaMetaTable().rowKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable2 = catalog.getTabletInvertedIndex().getBackingReplicaMetaTable().columnKeySet();
         Set<Long> tabletIdSetAfterDuplicateCreateTable3 = catalog.getTabletInvertedIndex().getTabletMetaMap().keySet();
-        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 = new HashSet<>();
-        catalog.getTabletInvertedIndex().getTabletMetaTable().values().forEach(tabletMeta -> {tabletIdSetAfterDuplicateCreateTable4.add(tabletMeta);});
+        Set<TabletMeta> tabletIdSetAfterDuplicateCreateTable4 =
+                new HashSet<>(catalog.getTabletInvertedIndex().getTabletMetaTable().values());
 
         Assert.assertTrue(tabletIdSetAfterCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable1));
         Assert.assertTrue(tabletIdSetAfterCreateFirstTable.equals(tabletIdSetAfterDuplicateCreateTable2));
@@ -198,18 +198,18 @@ public class CreateTableTest {
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');"));
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
-        OlapTable tbl6 = (OlapTable) db.getTable("tbl6");
+        Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
+        OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
         Assert.assertTrue(tbl6.getColumn("k3").isKey());
 
-        OlapTable tbl7 = (OlapTable) db.getTable("tbl7");
+        OlapTable tbl7 = (OlapTable) db.getTableOrDdlException("tbl7");
         Assert.assertTrue(tbl7.getColumn("k1").isKey());
         Assert.assertFalse(tbl7.getColumn("k2").isKey());
         Assert.assertTrue(tbl7.getColumn("k2").getAggregationType() == AggregateType.NONE);
 
-        OlapTable tbl8 = (OlapTable) db.getTable("tbl8");
+        OlapTable tbl8 = (OlapTable) db.getTableOrDdlException("tbl8");
         Assert.assertTrue(tbl8.getColumn("k1").isKey());
         Assert.assertTrue(tbl8.getColumn("k2").isKey());
         Assert.assertFalse(tbl8.getColumn("v1").isKey());
@@ -241,7 +241,7 @@ public class CreateTableTest {
                         + "properties('replication_num' = '1', 'short_key' = '4');"));
 
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host in all backends. need: 3",
+                .expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy",
                         () -> createTable("create table test.atbl5\n" + "(k1 int, k2 int, k3 int)\n"
                                 + "duplicate key(k1, k2, k3)\n" + "distributed by hash(k1) buckets 1\n"
                                 + "properties('replication_num' = '3');"));
@@ -258,7 +258,7 @@ public class CreateTableTest {
 
         ConfigBase.setMutableConfig("disable_storage_medium_check", "false");
         ExceptionChecker
-                .expectThrowsWithMsg(DdlException.class, "Failed to find enough host with storage medium is SSD in all backends. need: 1",
+                .expectThrowsWithMsg(DdlException.class, " Failed to find 1 backends for policy:",
                         () -> createTable("create table test.tb7(key1 int, key2 varchar(10)) distributed by hash(key1) \n"
                                 + "buckets 1 properties('replication_num' = '1', 'storage_medium' = 'ssd');"));
 
@@ -354,86 +354,86 @@ public class CreateTableTest {
         // list contain less than
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
-                        () -> createTable("CREATE TABLE test.tbl14 (\n" +
-                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY LIST(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES less than (\"1\"),\n" +
-                                "    PARTITION p2 VALUES less than (\"2\"),\n" +
-                                "    partition p3 values less than (\"5\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl14 (\n"
+                                + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY LIST(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES less than (\"1\"),\n"
+                                + "    PARTITION p2 VALUES less than (\"2\"),\n"
+                                + "    partition p3 values less than (\"5\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain in
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
-                        () -> createTable("CREATE TABLE test.tbl15 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY range(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES in (\"1\"),\n" +
-                                "    PARTITION p2 VALUES in (\"2\"),\n" +
-                                "    partition p3 values in (\"5\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl15 (\n"
+                                + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY range(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES in (\"1\"),\n"
+                                + "    PARTITION p2 VALUES in (\"2\"),\n"
+                                + "    partition p3 values in (\"5\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list contain both
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use in values to create list partitions",
-                        () -> createTable("CREATE TABLE test.tbl15 (\n" +
-                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY LIST(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES in (\"1\"),\n" +
-                                "    PARTITION p2 VALUES in (\"2\"),\n" +
-                                "    partition p3 values less than (\"5\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl15 (\n"
+                                + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY LIST(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES in (\"1\"),\n"
+                                + "    PARTITION p2 VALUES in (\"2\"),\n"
+                                + "    partition p3 values less than (\"5\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range contain both
         ExceptionChecker
                 .expectThrowsWithMsg(AnalysisException.class, "You can only use fixed or less than values to create range partitions",
-                        () -> createTable("CREATE TABLE test.tbl16 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY RANGE(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES less than (\"1\"),\n" +
-                                "    PARTITION p2 VALUES less than (\"2\"),\n" +
-                                "    partition p3 values in (\"5\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl16 (\n"
+                                + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY RANGE(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES less than (\"1\"),\n"
+                                + "    PARTITION p2 VALUES less than (\"2\"),\n"
+                                + "    partition p3 values in (\"5\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range: partition content != partition key type
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Invalid number format: beijing",
-                        () -> createTable("CREATE TABLE test.tbl17 (\n" +
-                                "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY range(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES less than (\"beijing\"),\n" +
-                                "    PARTITION p2 VALUES less than (\"shanghai\"),\n" +
-                                "    partition p3 values less than (\"tianjin\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl17 (\n"
+                                + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY range(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES less than (\"beijing\"),\n"
+                                + "    PARTITION p2 VALUES less than (\"shanghai\"),\n"
+                                + "    partition p3 values less than (\"tianjin\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list: partition content != partition key type
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Invalid number format: beijing",
-                        () -> createTable("CREATE TABLE test.tbl18 (\n" +
-                                "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n" +
-                                ")\n" +
-                                "PARTITION BY list(k1)\n" +
-                                "(\n" +
-                                "    PARTITION p1 VALUES in (\"beijing\"),\n" +
-                                "    PARTITION p2 VALUES in (\"shanghai\"),\n" +
-                                "    partition p3 values in (\"tianjin\")\n" +
-                                ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n" +
-                                "PROPERTIES(\"replication_num\" = \"1\");"));
+                        () -> createTable("CREATE TABLE test.tbl18 (\n"
+                                + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
+                                + ")\n"
+                                + "PARTITION BY list(k1)\n"
+                                + "(\n"
+                                + "    PARTITION p1 VALUES in (\"beijing\"),\n"
+                                + "    PARTITION p2 VALUES in (\"shanghai\"),\n"
+                                + "    partition p3 values in (\"tianjin\")\n"
+                                + ")DISTRIBUTED BY HASH(k2) BUCKETS 10\n"
+                                + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         /**
          * dynamic partition table
@@ -441,39 +441,93 @@ public class CreateTableTest {
         // list partition with dynamic properties
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Only support dynamic partition properties on range partition table",
-                        () -> createTable("CREATE TABLE test.tbl19\n" +
-                                "(\n" +
-                                "    k1 DATE not null\n" +
-                                ")\n" +
-                                "PARTITION BY LIST(k1) ()\n" +
-                                "DISTRIBUTED BY HASH(k1)\n" +
-                                "PROPERTIES\n" +
-                                "(\n" +
-                                "    \"dynamic_partition.enable\" = \"true\",\n" +
-                                "    \"dynamic_partition.time_unit\" = \"MONTH\",\n" +
-                                "    \"dynamic_partition.end\" = \"2\",\n" +
-                                "    \"dynamic_partition.prefix\" = \"p\",\n" +
-                                "    \"dynamic_partition.buckets\" = \"8\",\n" +
-                                "    \"dynamic_partition.start_day_of_month\" = \"3\"\n" +
-                                ");\n"));
+                        () -> createTable("CREATE TABLE test.tbl19\n"
+                                + "(\n"
+                                + "    k1 DATE not null\n"
+                                + ")\n"
+                                + "PARTITION BY LIST(k1) ()\n"
+                                + "DISTRIBUTED BY HASH(k1)\n"
+                                + "PROPERTIES\n"
+                                + "(\n"
+                                + "    \"dynamic_partition.enable\" = \"true\",\n"
+                                + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+                                + "    \"dynamic_partition.end\" = \"2\",\n"
+                                + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                                + "    \"dynamic_partition.buckets\" = \"8\",\n"
+                                + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+                                + ");\n"));
 
         // no partition table with dynamic properties
         ExceptionChecker
                 .expectThrowsWithMsg(DdlException.class, "Only support dynamic partition properties on range partition table",
-                        () -> createTable("CREATE TABLE test.tbl20\n" +
-                                "(\n" +
-                                "    k1 DATE\n" +
-                                ")\n" +
-                                "DISTRIBUTED BY HASH(k1)\n" +
-                                "PROPERTIES\n" +
-                                "(\n" +
-                                "    \"dynamic_partition.enable\" = \"true\",\n" +
-                                "    \"dynamic_partition.time_unit\" = \"MONTH\",\n" +
-                                "    \"dynamic_partition.end\" = \"2\",\n" +
-                                "    \"dynamic_partition.prefix\" = \"p\",\n" +
-                                "    \"dynamic_partition.buckets\" = \"8\",\n" +
-                                "    \"dynamic_partition.start_day_of_month\" = \"3\"\n" +
-                                ");"));
+                        () -> createTable("CREATE TABLE test.tbl20\n"
+                                + "(\n"
+                                + "    k1 DATE\n"
+                                + ")\n"
+                                + "DISTRIBUTED BY HASH(k1)\n"
+                                + "PROPERTIES\n"
+                                + "(\n"
+                                + "    \"dynamic_partition.enable\" = \"true\",\n"
+                                + "    \"dynamic_partition.time_unit\" = \"MONTH\",\n"
+                                + "    \"dynamic_partition.end\" = \"2\",\n"
+                                + "    \"dynamic_partition.prefix\" = \"p\",\n"
+                                + "    \"dynamic_partition.buckets\" = \"8\",\n"
+                                + "    \"dynamic_partition.start_day_of_month\" = \"3\"\n"
+                                + ");"));
 
+    }
+
+    @Test
+    public void testZOrderTable() {
+        // create lexically sort table
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl1\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
+                        + " 'data_sort.sort_type' = 'lexical');"));
+
+        // create z-order sort table, default col_num
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl2\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
+                        + " 'data_sort.sort_type' = 'zorder');"));
+
+        // create z-order sort table, define sort_col_num
+        ExceptionChecker.expectThrowsNoException(() -> createTable(
+                "create table test.zorder_tbl3\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                        + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                        + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
+                        + " 'data_sort.sort_type' = 'zorder',"
+                        + " 'data_sort.col_num' = '2');"));
+        // create z-order sort table, only 1 sort column
+        ExceptionChecker
+                .expectThrowsWithMsg(AnalysisException.class, "z-order needs 2 columns at least, 3 columns at most",
+                        () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
+                                + " 'data_sort.sort_type' = 'zorder',"
+                                + " 'data_sort.col_num' = '1');"));
+        // create z-order sort table, sort column is empty
+        ExceptionChecker
+                .expectThrowsWithMsg(AnalysisException.class, "param data_sort.col_num error",
+                        () -> createTable("create table test.zorder_tbl4\n" + "(k1 varchar(40), k2 int, k3 int)\n" + "duplicate key(k1, k2, k3)\n"
+                                + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
+                                + "distributed by hash(k1) buckets 1\n" + "properties('replication_num' = '1',"
+                                + " 'data_sort.sort_type' = 'zorder',"
+                                + " 'data_sort.col_num' = '');"));
+    }
+
+    @Test
+    public void testCreateTableWithArrayType() throws Exception {
+        Config.enable_complex_type_support = true;
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.table1(k1 INT, k2 Array<int>) duplicate key (k1) "
+                    + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
+        ExceptionChecker.expectThrowsNoException(() -> {
+            createTable("create table test.table2(k1 INT, k2 Array<Array<int>>) duplicate key (k1) "
+                    + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+        });
     }
 }

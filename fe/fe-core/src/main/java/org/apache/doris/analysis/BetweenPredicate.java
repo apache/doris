@@ -14,11 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/BetweenPredicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,13 +49,6 @@ public class BetweenPredicate extends Predicate {
         isNotBetween = other.isNotBetween;
     }
 
-//    @Override
-//    public Expr reset() {
-//      super.reset();
-//      originalChildren = Expr.resetList(originalChildren);
-//      return this;
-//    }
-
     @Override
     public Expr clone() {
         return new BetweenPredicate(this);
@@ -64,10 +61,10 @@ public class BetweenPredicate extends Predicate {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        if (children.get(0) instanceof Subquery &&
-                (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
-            throw new AnalysisException("Comparison between subqueries is not " +
-                    "supported in a BETWEEN predicate: " + toSql());
+        if (children.get(0) instanceof Subquery
+                && (children.get(1) instanceof Subquery || children.get(2) instanceof Subquery)) {
+            throw new AnalysisException("Comparison between subqueries is not "
+                    + "supported in a BETWEEN predicate: " + toSql());
         }
         // if children has subquery, it will be written and reanalyzed in the future.
         if (children.get(0) instanceof Subquery
@@ -78,10 +75,10 @@ public class BetweenPredicate extends Predicate {
         analyzer.castAllToCompatibleType(children);
     }
 
-   @Override
-   public boolean isVectorized() {
-       return false;
-   }
+    @Override
+    public boolean isVectorized() {
+        return false;
+    }
 
     @Override
     protected void toThrift(TExprNode msg) {
@@ -92,12 +89,36 @@ public class BetweenPredicate extends Predicate {
     @Override
     public String toSqlImpl() {
         String notStr = (isNotBetween) ? "NOT " : "";
-        return children.get(0).toSql() + " " + notStr + "BETWEEN " +
-          children.get(1).toSql() + " AND " + children.get(2).toSql();
+        return children.get(0).toSql() + " " + notStr + "BETWEEN "
+                + children.get(1).toSql() + " AND " + children.get(2).toSql();
     }
 
     @Override
-    public Expr clone(ExprSubstitutionMap sMap) { return new BetweenPredicate(this); }
+    public String toDigestImpl() {
+        String notStr = (isNotBetween) ? "NOT " : "";
+        return children.get(0).toDigest() + " " + notStr + "BETWEEN "
+                + children.get(1).toDigest() + " AND " + children.get(2).toDigest();
+    }
+
+    @Override
+    public Expr clone(ExprSubstitutionMap sMap) {
+        return new BetweenPredicate(this);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        BetweenPredicate that = (BetweenPredicate) o;
+        return isNotBetween == that.isNotBetween;
+    }
 
     @Override
     public int hashCode() {

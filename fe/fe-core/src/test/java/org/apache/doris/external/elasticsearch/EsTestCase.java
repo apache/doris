@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
 
-import org.junit.Before;
 import org.junit.BeforeClass;
 
 import java.io.BufferedReader;
@@ -55,9 +54,8 @@ public class EsTestCase {
         fakeCatalog = new FakeCatalog();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_CURRENT);
         metaContext.setThreadLocalInfo();
-        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);
     }
 

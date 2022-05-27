@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/descriptors.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
-#define DORIS_BE_RUNTIME_DESCRIPTORS_H
+#pragma once
 
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
@@ -31,6 +33,11 @@
 #include "gen_cpp/FrontendService_types.h" // for TTupleId
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
+#include "vec/data_types/data_type.h"
+
+namespace doris::vectorized {
+struct ColumnWithTypeAndName;
+}
 
 namespace doris {
 
@@ -52,13 +59,16 @@ class PSlotDescriptor;
 // This is more efficient than branching to check if the slot is non-nullable.
 struct NullIndicatorOffset {
     int byte_offset;
-    uint8_t bit_mask;   // to extract null indicator
-    uint8_t bit_offset; // only used to serialize, from 1 to 8
+    uint8_t bit_mask;  // to extract null indicator
+    int8_t bit_offset; // only used to serialize, from 1 to 8, invalid null value
+                       // bit_offset is -1.
 
     NullIndicatorOffset(int byte_offset, int bit_offset_)
             : byte_offset(byte_offset),
               bit_mask(bit_offset_ == -1 ? 0 : 1 << (7 - bit_offset_)),
-              bit_offset(bit_offset_) {}
+              bit_offset(bit_offset_) {
+        DCHECK_LE(bit_offset_, 8);
+    }
 
     bool equals(const NullIndicatorOffset& o) const {
         return this->byte_offset == o.byte_offset && this->bit_mask == o.bit_mask;
@@ -99,12 +109,15 @@ public:
 
     std::string debug_string() const;
 
+    vectorized::MutableColumnPtr get_empty_mutable_column() const;
+
+    doris::vectorized::DataTypePtr get_data_type_ptr() const;
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
-    friend class TupleDescriptor;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -153,7 +166,6 @@ public:
 private:
     std::string _name;
     std::string _database;
-    TableId _id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -184,6 +196,24 @@ public:
 private:
 };
 
+class HiveTableDescriptor : public TableDescriptor {
+public:
+    HiveTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~HiveTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
+class IcebergTableDescriptor : public TableDescriptor {
+public:
+    IcebergTableDescriptor(const TTableDescriptor& tdesc);
+    virtual ~IcebergTableDescriptor();
+    virtual std::string debug_string() const;
+
+private:
+};
+
 class EsTableDescriptor : public TableDescriptor {
 public:
     EsTableDescriptor(const TTableDescriptor& tdesc);
@@ -203,6 +233,7 @@ public:
     const std::string port() const { return _port; }
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
+    const std::string charset() const { return _charset; }
 
 private:
     std::string _mysql_db;
@@ -211,6 +242,7 @@ private:
     std::string _port;
     std::string _user;
     std::string _passwd;
+    std::string _charset;
 };
 
 class ODBCTableDescriptor : public TableDescriptor {
@@ -240,7 +272,8 @@ private:
 class TupleDescriptor {
 public:
     // virtual ~TupleDescriptor() {}
-    int byte_size() const { return _byte_size; }
+    int64_t byte_size() const { return _byte_size; }
+    int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
     int num_null_bytes() const { return _num_null_bytes; }
     const std::vector<SlotDescriptor*>& slots() const { return _slots; }
@@ -282,7 +315,7 @@ private:
 
     const TupleId _id;
     TableDescriptor* _table_desc;
-    int _byte_size;
+    int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;
     int _num_materialized_slots;
@@ -351,9 +384,11 @@ public:
               _tuple_idx_nullable_map(desc._tuple_idx_nullable_map),
               _tuple_idx_map(desc._tuple_idx_map),
               _has_varlen_slots(desc._has_varlen_slots) {
+        _num_materialized_slots = 0;
         _num_null_slots = 0;
         std::vector<TupleDescriptor*>::const_iterator it = desc._tuple_desc_map.begin();
         for (; it != desc._tuple_desc_map.end(); ++it) {
+            _num_materialized_slots += (*it)->num_materialized_slots();
             _num_null_slots += (*it)->num_null_slots();
         }
         _num_null_bytes = (_num_null_slots + 7) / 8;
@@ -370,6 +405,8 @@ public:
     // TODO: also take avg string lengths into account, ie, change this
     // to GetAvgRowSize()
     int get_row_size() const;
+
+    int num_materialized_slots() const { return _num_materialized_slots; }
 
     int num_null_slots() const { return _num_null_slots; }
 
@@ -394,7 +431,7 @@ public:
 
     // Populate row_tuple_ids with our ids.
     void to_thrift(std::vector<TTupleId>* row_tuple_ids);
-    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids);
+    void to_protobuf(google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) const;
 
     // Return true if the tuple ids of this descriptor are a prefix
     // of the tuple ids of other_desc.
@@ -412,6 +449,8 @@ public:
     bool layout_is_prefix_of(const RowDescriptor& other_desc) const;
 
     std::string debug_string() const;
+
+    int get_column_id(int slot_id) const;
 
 private:
     // Initializes tupleIdxMap during c'tor using the _tuple_desc_map.
@@ -432,10 +471,9 @@ private:
     // Provide quick way to check if there are variable length slots.
     bool _has_varlen_slots;
 
+    int _num_materialized_slots;
     int _num_null_slots;
     int _num_null_bytes;
 };
 
 } // namespace doris
-
-#endif

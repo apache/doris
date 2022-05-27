@@ -27,7 +27,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -91,7 +90,10 @@ public class EsRepository extends MasterDaemon {
         }
         List<Long> dbIds = Catalog.getCurrentCatalog().getDbIds();
         for (Long dbId : dbIds) {
-            Database database = Catalog.getCurrentCatalog().getDb(dbId);
+            Database database = Catalog.getCurrentCatalog().getDbNullable(dbId);
+            if (database == null) {
+                continue;
+            }
 
             List<Table> tables = database.getTables();
             for (Table table : tables) {

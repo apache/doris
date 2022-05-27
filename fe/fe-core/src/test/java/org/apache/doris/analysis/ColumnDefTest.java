@@ -19,9 +19,13 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -39,7 +43,6 @@ public class ColumnDefTest {
         stringCol = new TypeDef(ScalarType.createChar(10));
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
-
     }
 
     @Test
@@ -70,20 +73,20 @@ public class ColumnDefTest {
 
     @Test
     public void testReplaceIfNotNull() throws AnalysisException {
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
             ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, DefaultValue.NOT_SET, "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
             Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             // not allow null
             ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, new DefaultValue(true, "10"), "");
             column.analyze(true);
             Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
             Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
     }
 
     @Test(expected = AnalysisException.class)
@@ -100,7 +103,7 @@ public class ColumnDefTest {
     }
 
     @Test
-    public void testBooleanDefaultValue() throws AnalysisException{
+    public void testBooleanDefaultValue() throws AnalysisException {
         ColumnDef column1 = new ColumnDef("col", booleanCol, true, null, true, new DefaultValue(true, "1"), "");
         column1.analyze(true);
         Assert.assertEquals("1", column1.getDefaultValue());
@@ -117,5 +120,16 @@ public class ColumnDefTest {
         }
     }
 
-
+    @Test
+    public void testArray() throws AnalysisException {
+        Config.enable_complex_type_support = true;
+        TypeDef typeDef = new TypeDef(new ArrayType(Type.INT));
+        ColumnDef columnDef = new ColumnDef("array", typeDef, false, null, true, DefaultValue.NOT_SET, "");
+        Column column = columnDef.toColumn();
+        Assert.assertEquals(1, column.getChildren().size());
+        Column childColumn = column.getChildren().get(0);
+        Assert.assertEquals("item", childColumn.getName());
+        Assert.assertEquals(Type.INT, childColumn.getType());
+        Assert.assertTrue(childColumn.isAllowNull());
+    }
 }

@@ -34,7 +34,7 @@ enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP };
 
 class Decompressor {
 public:
-    virtual ~Decompressor();
+    virtual ~Decompressor() = default;
 
     // implement in derived class
     // input(in):               buf where decompress begin
@@ -71,19 +71,18 @@ protected:
 
 class GzipDecompressor : public Decompressor {
 public:
-    virtual ~GzipDecompressor();
+    ~GzipDecompressor() override;
 
-    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
-                              bool* stream_end, size_t* more_input_bytes,
-                              size_t* more_output_bytes) override;
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
 
-    virtual std::string debug_info() override;
+    std::string debug_info() override;
 
 private:
     friend class Decompressor;
     GzipDecompressor(bool is_deflate);
-    virtual Status init() override;
+    Status init() override;
 
 private:
     bool _is_deflate;
@@ -97,19 +96,18 @@ private:
 
 class Bzip2Decompressor : public Decompressor {
 public:
-    virtual ~Bzip2Decompressor();
+    ~Bzip2Decompressor() override;
 
-    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
-                              bool* stream_end, size_t* more_input_bytes,
-                              size_t* more_output_bytes) override;
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
 
-    virtual std::string debug_info() override;
+    std::string debug_info() override;
 
 private:
     friend class Decompressor;
     Bzip2Decompressor() : Decompressor(CompressType::BZIP2) {}
-    virtual Status init() override;
+    Status init() override;
 
 private:
     bz_stream _bz_strm;
@@ -117,19 +115,18 @@ private:
 
 class Lz4FrameDecompressor : public Decompressor {
 public:
-    virtual ~Lz4FrameDecompressor();
+    ~Lz4FrameDecompressor() override;
 
-    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
-                              bool* stream_end, size_t* more_input_bytes,
-                              size_t* more_output_bytes) override;
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
 
-    virtual std::string debug_info() override;
+    std::string debug_info() override;
 
 private:
     friend class Decompressor;
     Lz4FrameDecompressor() : Decompressor(CompressType::LZ4FRAME) {}
-    virtual Status init() override;
+    Status init() override;
 
     size_t get_block_size(const LZ4F_frameInfo_t* info);
 
@@ -142,49 +139,46 @@ private:
 #ifdef DORIS_WITH_LZO
 class LzopDecompressor : public Decompressor {
 public:
-    virtual ~LzopDecompressor();
+    ~LzopDecompressor() override = default;
 
-    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
-                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
-                              bool* stream_end, size_t* more_input_bytes,
-                              size_t* more_output_bytes) override;
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
 
-    virtual std::string debug_info() override;
+    std::string debug_info() override;
 
 private:
     friend class Decompressor;
     LzopDecompressor()
             : Decompressor(CompressType::LZOP), _header_info({0}), _is_header_loaded(false) {}
-    virtual Status init() override;
+    Status init() override;
 
 private:
     enum LzoChecksum { CHECK_NONE, CHECK_CRC32, CHECK_ADLER };
 
 private:
-    inline uint8_t* get_uint8(uint8_t* ptr, uint8_t* value) {
+    uint8_t* get_uint8(uint8_t* ptr, uint8_t* value) {
         *value = *ptr;
         return ptr + sizeof(uint8_t);
     }
 
-    inline uint8_t* get_uint16(uint8_t* ptr, uint16_t* value) {
+    uint8_t* get_uint16(uint8_t* ptr, uint16_t* value) {
         *value = *ptr << 8 | *(ptr + 1);
         return ptr + sizeof(uint16_t);
     }
 
-    inline uint8_t* get_uint32(uint8_t* ptr, uint32_t* value) {
+    uint8_t* get_uint32(uint8_t* ptr, uint32_t* value) {
         *value = (*ptr << 24) | (*(ptr + 1) << 16) | (*(ptr + 2) << 8) | *(ptr + 3);
         return ptr + sizeof(uint32_t);
     }
 
-    inline LzoChecksum header_type(int flags) {
-        return (flags & F_H_CRC32) ? CHECK_CRC32 : CHECK_ADLER;
-    }
+    LzoChecksum header_type(int flags) { return (flags & F_H_CRC32) ? CHECK_CRC32 : CHECK_ADLER; }
 
-    inline LzoChecksum input_type(int flags) {
+    LzoChecksum input_type(int flags) {
         return (flags & F_CRC32_C) ? CHECK_CRC32 : (flags & F_ADLER32_C) ? CHECK_ADLER : CHECK_NONE;
     }
 
-    inline LzoChecksum output_type(int flags) {
+    LzoChecksum output_type(int flags) {
         return (flags & F_CRC32_D) ? CHECK_CRC32 : (flags & F_ADLER32_D) ? CHECK_ADLER : CHECK_NONE;
     }
 

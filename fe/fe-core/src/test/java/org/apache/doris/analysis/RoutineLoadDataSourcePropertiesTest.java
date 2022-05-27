@@ -24,7 +24,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.KafkaProgress;
 
 import com.google.common.collect.Maps;
-
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -183,8 +182,9 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
-                    "and the offset at the same time"));
+            Assert.assertTrue(e.getMessage().contains(
+                    "The offset of the partition cannot be specified by the timestamp "
+                            + "and the offset at the same time"));
         }
 
         // no partitions but has offset
@@ -291,7 +291,7 @@ public class RoutineLoadDataSourcePropertiesTest {
 
     @Test
     public void testAlterAbnormal() {
-        // can not set KAFKA_BROKER_LIST_PROPERTY
+        // now support set KAFKA_BROKER_LIST_PROPERTY
         Map<String, String> properties = Maps.newHashMap();
         properties.put(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY, "127.0.0.1:8080");
         properties.put("property." + CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS, "-1");
@@ -301,7 +301,7 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("kafka_broker_list is invalid kafka property"));
+            Assert.assertTrue(e.getMessage().contains("kafka_default_offsets can only be set to OFFSET_BEGINNING, OFFSET_END or date time"));
         }
 
         // can not set datetime formatted offset and integer offset together
@@ -315,8 +315,9 @@ public class RoutineLoadDataSourcePropertiesTest {
             dsProperties.analyze();
             Assert.fail();
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("The offset of the partition cannot be specified by the timestamp " +
-                    "and the offset at the same time"));
+            Assert.assertTrue(e.getMessage().contains(
+                    "The offset of the partition cannot be specified by the timestamp "
+                            + "and the offset at the same time"));
         }
 
         // no partitions but has offset

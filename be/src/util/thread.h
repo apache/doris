@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/thread.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_UTIL_THREAD_H
-#define DORIS_BE_SRC_UTIL_THREAD_H
+#pragma once
 
 #include <pthread.h>
 #include <syscall.h>
@@ -85,6 +87,8 @@ public:
         return start_thread(category, name, std::bind(f, a1, a2, a3, a4, a5, a6), NO_FLAGS, holder);
     }
 
+    static void set_self_name(const std::string& name);
+
     ~Thread();
 
     // Blocks until this thread finishes execution. Once this method returns, the thread
@@ -105,7 +109,7 @@ public:
     const std::string& category() const;
     std::string to_string() const;
 
-    // The current thread of execution, or NULL if the current thread isn't a doris::Thread.
+    // The current thread of execution, or nullptr if the current thread isn't a doris::Thread.
     // This call is signal-safe.
     static Thread* current_thread();
 
@@ -181,7 +185,7 @@ private:
 
     bool _joinable;
 
-    // Thread local pointer to the current thread of execution. Will be NULL if the current
+    // Thread local pointer to the current thread of execution. Will be nullptr if the current
     // thread is not a Thread.
     static __thread Thread* _tls;
 
@@ -200,7 +204,7 @@ private:
     // with the Thread as its only argument. Executes _functor, but before
     // doing so registers with the global ThreadMgr and reads the thread's
     // system ID. After _functor terminates, unregisters with the ThreadMgr.
-    // Always returns NULL.
+    // Always returns nullptr.
     //
     // supervise_thread() notifies start_thread() when thread initialisation is
     // completed via the _tid, which is set to the new thread's system ID.
@@ -280,5 +284,3 @@ private:
 void register_thread_display_page(WebPageHandler* web_page_handler);
 
 } //namespace doris
-
-#endif //DORIS_BE_SRC_UTIL_THREAD_H

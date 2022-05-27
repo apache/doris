@@ -30,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -44,7 +45,7 @@ public class CreateEncryptKeyTest {
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         FeConstants.runningUnitTest = true;
     }
 
@@ -64,7 +65,7 @@ public class CreateEncryptKeyTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
 
         String createFuncStr = "create encryptkey db1.my_key as \"beijing\";";
@@ -85,8 +86,8 @@ public class CreateEncryptKeyTest {
         Assert.assertEquals(1, planner.getFragments().size());
         PlanFragment fragment = planner.getFragments().get(0);
         Assert.assertTrue(fragment.getPlanRoot() instanceof UnionNode);
-        UnionNode unionNode =  (UnionNode)fragment.getPlanRoot();
-        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists_");
+        UnionNode unionNode =  (UnionNode) fragment.getPlanRoot();
+        List<List<Expr>> constExprLists = Deencapsulation.getField(unionNode, "constExprLists");
         Assert.assertEquals(1, constExprLists.size());
         Assert.assertEquals(1, constExprLists.get(0).size());
         Assert.assertTrue(constExprLists.get(0).get(0) instanceof FunctionCallExpr);

@@ -17,9 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -30,6 +27,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.joda.time.DateTime;
 import org.junit.Assert;
 import org.junit.Before;
@@ -40,8 +39,6 @@ import org.junit.rules.ExpectedException;
 import java.time.ZoneId;
 import java.util.Locale;
 import java.util.TimeZone;
-
-import static org.junit.Assert.fail;
 
 public class FEFunctionsTest {
 
@@ -94,7 +91,7 @@ public class FEFunctionsTest {
         expectedResult = new IntLiteral(-30);
         Assert.assertEquals(expectedResult, actualResult);
     }
-    
+
     @Test
     public void dateAddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.dateAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
@@ -105,7 +102,7 @@ public class FEFunctionsTest {
         expectedResult = new DateLiteral("2018-08-07 00:00:00", Type.DATETIME);
         Assert.assertEquals(expectedResult, actualResult);
     }
-    
+
     @Test
     public void addDateTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.addDate(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
@@ -117,7 +114,7 @@ public class FEFunctionsTest {
         Assert.assertEquals(expectedResult, actualResult);
 
     }
-    
+
     @Test
     public void daysAddTest() throws AnalysisException {
         DateLiteral actualResult = FEFunctions.daysAdd(new DateLiteral("2018-08-08", Type.DATE), new IntLiteral(1));
@@ -128,7 +125,7 @@ public class FEFunctionsTest {
         expectedResult = new DateLiteral("2018-08-07", Type.DATE);
         Assert.assertEquals(expectedResult, actualResult);
     }
-    
+
     @Test
     public void fromUnixTimeTest() throws AnalysisException {
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
@@ -169,7 +166,7 @@ public class FEFunctionsTest {
             Assert.assertEquals("13", FEFunctions.dateFormat(testDate, new StringLiteral("%k")).getStringValue());
             Assert.assertEquals("1", FEFunctions.dateFormat(testDate, new StringLiteral("%l")).getStringValue());
             Assert.assertEquals("January", FEFunctions.dateFormat(testDate, new StringLiteral("%M")).getStringValue());
-            Assert.assertEquals( "01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
+            Assert.assertEquals("01", FEFunctions.dateFormat(testDate, new StringLiteral("%m")).getStringValue());
             Assert.assertEquals("PM", FEFunctions.dateFormat(testDate, new StringLiteral("%p")).getStringValue());
             Assert.assertEquals("01:04:05 PM", FEFunctions.dateFormat(testDate, new StringLiteral("%r")).getStringValue());
             Assert.assertEquals("05", FEFunctions.dateFormat(testDate, new StringLiteral("%S")).getStringValue());
@@ -183,7 +180,7 @@ public class FEFunctionsTest {
             Assert.assertEquals("foo", FEFunctions.dateFormat(testDate, new StringLiteral("foo")).getStringValue());
             Assert.assertEquals("g", FEFunctions.dateFormat(testDate, new StringLiteral("%g")).getStringValue());
             Assert.assertEquals("4", FEFunctions.dateFormat(testDate, new StringLiteral("%4")).getStringValue());
-            Assert.assertEquals("2001 02" ,FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
+            Assert.assertEquals("2001 02", FEFunctions.dateFormat(testDate, new StringLiteral("%x %v")).getStringValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
         }
@@ -216,12 +213,12 @@ public class FEFunctionsTest {
             Assert.assertEquals("2013-05-17 08:07:05", FEFunctions.dateParse(new StringLiteral("2013-05-17 08:07:05"), new StringLiteral("%Y-%m-%d %T")).getStringValue());
         } catch (AnalysisException e) {
             e.printStackTrace();
-            fail("Junit test dateParse fail");
+            Assert.fail("Junit test dateParse fail");
         }
 
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%W"));
-            fail("Junit test dateParse fail");
+            Assert.fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
             Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = '' is invalid");
         }

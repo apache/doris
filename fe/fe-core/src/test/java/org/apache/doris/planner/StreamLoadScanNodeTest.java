@@ -20,9 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -35,13 +33,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -51,17 +45,15 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class StreamLoadScanNodeTest {
     private static final Logger LOG = LogManager.getLogger(StreamLoadScanNodeTest.class);
@@ -171,7 +163,7 @@ public class StreamLoadScanNodeTest {
 
         return columns;
     }
-    
+
     private StreamLoadScanNode getStreamLoadScanNode(TupleDescriptor dstDesc, TStreamLoadPutRequest request)
             throws UserException {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
@@ -199,15 +191,24 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-        new Expectations() {{
-            dstTable.getBaseSchema(); result = columns;
-            dstTable.getBaseSchema(anyBoolean); result = columns;
-            dstTable.getFullSchema(); result = columns;
-            dstTable.getColumn("k1"); result = columns.get(0);
-            dstTable.getColumn("k2"); result = columns.get(1);
-            dstTable.getColumn("v1"); result = columns.get(2);
-            dstTable.getColumn("v2"); result = columns.get(3);
-        }};
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                result = columns;
+                dstTable.getFullSchema();
+                result = columns;
+                dstTable.getColumn("k1");
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                result = columns.get(3);
+            }
+        };
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -338,13 +339,11 @@ public class StreamLoadScanNodeTest {
             }
         }
 
-        new Expectations() {{
-            catalog.getFunction((Function) any, (Function.CompareMode) any);
-            result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false);
-        }};
-        
         new Expectations() {
             {
+                catalog.getFunction((Function) any, (Function.CompareMode) any);
+                result = new ScalarFunction(new FunctionName(FunctionSet.HLL_HASH), Lists.newArrayList(), Type.BIGINT, false, true);
+
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
 
@@ -390,7 +389,7 @@ public class StreamLoadScanNodeTest {
         new Expectations() {
             {
                 catalog.getFunction((Function) any, (Function.CompareMode) any);
-                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false);
+                result = new ScalarFunction(new FunctionName("hll_hash1"), Lists.newArrayList(), Type.BIGINT, false, true);
                 minTimes = 0;
             }
         };
@@ -414,7 +413,7 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2, v1=hll_hash1(k2)");
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+        StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
@@ -502,10 +501,35 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k3");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -629,11 +653,36 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k5 = 1");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -642,7 +691,7 @@ public class StreamLoadScanNodeTest {
     }
 
     @Test(expected = UserException.class)
-    public void testWhereNotBool() throws UserException, UserException {
+    public void testWhereNotBool() throws UserException {
         Analyzer analyzer = new Analyzer(catalog, connectContext);
         DescriptorTable descTbl = analyzer.getDescTbl();
 
@@ -659,11 +708,36 @@ public class StreamLoadScanNodeTest {
             }
         }
 
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
+
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
         request.setWhere("k1 + v2");
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -692,16 +766,12 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                db.getTable(anyInt);
+                db.getTableNullable(anyInt);
                 result = dstTable;
                 minTimes = 0;
                 dstTable.hasSequenceCol();
                 result = true;
-            }
-        };
 
-        new Expectations() {
-            {
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();
                 minTimes = 0;
@@ -762,18 +832,16 @@ public class StreamLoadScanNodeTest {
 
         new Expectations() {
             {
-                db.getTable(anyInt);
+                db.getTableNullable(anyInt);
                 result = dstTable;
                 minTimes = 0;
                 dstTable.hasSequenceCol();
                 result = true;
-            }
-        };
 
-        new Expectations() {
-            {
-                dstTable.getBaseSchema(anyBoolean); result = columns;
-                dstTable.getFullSchema(); result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                result = columns;
+                dstTable.getFullSchema();
+                result = columns;
 
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();

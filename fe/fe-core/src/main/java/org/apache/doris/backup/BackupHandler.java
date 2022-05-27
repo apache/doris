@@ -56,7 +56,6 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -80,7 +79,7 @@ import java.util.stream.Collectors;
 
 public class BackupHandler extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupHandler.class);
-    
+
     public static final int SIGNATURE_VERSION = 1;
     public static final Path BACKUP_ROOT_DIR = Paths.get(Config.tmp_dir, "backup").normalize();
     public static final Path RESTORE_ROOT_DIR = Paths.get(Config.tmp_dir, "restore").normalize();
@@ -192,11 +191,11 @@ public class BackupHandler extends MasterDaemon implements Writable {
     // handle create repository stmt
     public void createRepository(CreateRepositoryStmt stmt) throws DdlException {
         if (!catalog.getBrokerMgr().containsBroker(stmt.getBrokerName())
-            && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
+                && stmt.getStorageType() == StorageBackend.StorageType.BROKER) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "broker does not exist: " + stmt.getBrokerName());
         }
 
-        BlobStorage storage = BlobStorage.create(stmt.getBrokerName(),stmt.getStorageType(), stmt.getProperties());
+        BlobStorage storage = BlobStorage.create(stmt.getBrokerName(), stmt.getStorageType(), stmt.getProperties());
         long repoId = catalog.getNextId();
         Repository repo = new Repository(repoId, stmt.getName(), stmt.isReadOnly(), stmt.getLocation(), storage);
 
@@ -223,7 +222,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                                                            + " Can not drop it");
                 }
             }
-            
+
             Status st = repoMgr.removeRepo(repo.getName(), false /* not replay */);
             if (!st.ok()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -245,10 +244,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // check if db exist
         String dbName = stmt.getDbName();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
 
         // Try to get sequence lock.
         // We expect at most one operation on a repo at same time.
@@ -320,10 +316,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // Also calculate the signature for incremental backup check.
         for (TableRef tblRef : tblRefs) {
             String tblName = tblRef.getName().getTbl();
-            Table tbl = db.getTable(tblName);
-            if (tbl == null) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-            }
+            Table tbl = db.getTableOrDdlException(tblName);
             if (tbl.getType() == TableType.VIEW || tbl.getType() == TableType.ODBC) {
                 continue;
             }
@@ -405,7 +398,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // Create a restore job
         RestoreJob restoreJob = new RestoreJob(stmt.getLabel(), stmt.getBackupTimestamp(),
-                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicationNum(),
+                db.getId(), db.getFullName(), jobInfo, stmt.allowLoad(), stmt.getReplicaAlloc(),
                 stmt.getTimeoutMs(), stmt.getMetaVersion(), catalog, repository.getId());
         catalog.getEditLog().logRestoreJob(restoreJob);
 
@@ -544,11 +537,8 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     public void cancel(CancelBackupStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
-        
+        Database db = catalog.getDbOrDdlException(dbName);
+
         AbstractJob job = getCurrentJob(db.getId());
         if (job == null || (job instanceof BackupJob && stmt.isRestore())
                 || (job instanceof RestoreJob && !stmt.isRestore())) {
@@ -561,7 +551,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!status.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
         }
-        
+
         LOG.info("finished to cancel {} job: {}", (stmt.isRestore() ? "restore" : "backup"), job);
     }
 
@@ -698,5 +688,3 @@ public class BackupHandler extends MasterDaemon implements Writable {
         }
     }
 }
-
-

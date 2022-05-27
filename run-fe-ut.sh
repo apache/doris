@@ -63,12 +63,12 @@ if [ $# == 1 ] ; then
 else
     RUN=0
     COVERAGE=0
-    while true; do 
+    while true; do
         case "$1" in
             --coverage) COVERAGE=1 ; shift ;;
             --run) RUN=1 ; shift ;;
             --) shift ;  break ;;
-            *) ehco "Internal error" ; exit 1 ;;
+            *) echo "Internal error" ; exit 1 ;;
         esac
     done
 fi
@@ -98,8 +98,8 @@ else
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
         # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
         ${MVN_CMD} test -DfailIfNoTests=false -D test=$1
-    else    
+    else
         echo "Run Frontend UT"
-        ${MVN_CMD} test -DfailIfNoTests=false 
-    fi 
+        ${MVN_CMD} test -DfailIfNoTests=false
+    fi
 fi

@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
-#define DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
+#pragma once
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -59,5 +58,3 @@ void escape_for_html(const std::string& in, std::stringstream* out);
 // Same as above, but returns a string.
 std::string escape_for_html_to_string(const std::string& in);
 } // namespace doris
-
-#endif

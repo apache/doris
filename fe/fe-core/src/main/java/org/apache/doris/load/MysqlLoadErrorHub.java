@@ -26,7 +26,6 @@ import org.apache.doris.thrift.TMysqlErrorHubInfo;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,7 +115,7 @@ public class MysqlLoadErrorHub extends LoadErrorHub {
         public void write(DataOutput out) throws IOException {
             Text.writeString(out, host);
             out.writeInt(port);
-            Text.writeString(out, user) ;
+            Text.writeString(out, user);
             Text.writeString(out, passwd);
             Text.writeString(out, db);
             Text.writeString(out, table);

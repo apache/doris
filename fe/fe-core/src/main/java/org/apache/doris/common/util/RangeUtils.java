@@ -36,9 +36,9 @@ import java.util.List;
 import java.util.Map;
 
 public class RangeUtils {
-    
+
     public static final Comparator<Map.Entry<Long, PartitionItem>> RANGE_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> (((RangePartitionItem)o.getValue()).getItems()).lowerEndpoint());
+            Comparator.comparing(o -> (((RangePartitionItem) o.getValue()).getItems()).lowerEndpoint());
 
     public static final Comparator<PartitionItem> RANGE_COMPARATOR =
             Comparator.comparing(o -> ((RangePartitionItem) o).getItems().lowerEndpoint());
@@ -51,6 +51,12 @@ public class RangeUtils {
         }
     }
 
+    public static boolean checkIsTwoRangesIntersect(Range<PartitionKey> range1, Range<PartitionKey> range2) {
+        if (range2.isConnected(range1) && !range2.intersection(range1).isEmpty()) {
+            return true;
+        }
+        return false;
+    }
     /*
      * Pass only if the 2 range lists are exactly same
      * What is "exactly same"?
@@ -58,15 +64,15 @@ public class RangeUtils {
      *      2. {[0, 10), [15, 20)} exactly same as {[0, 10), [15, 18), [18, 20)}
      *      3. {[0, 10), [15, 20)} exactly same as {[0, 10), [15, 20)}
      *      4. {[0, 10), [15, 20)} NOT exactly same as {[0, 20)}
-     *      
+     *
      *  Here I will use an example to explain the algorithm:
      *      list1: {[0, 10), [15, 20)}
      *      list2: {[0, 10), [15, 18), [18, 20)}
-     *  
+     *
      *  1. sort 2 lists first (the above 2 lists are already sorted)
      *  2. Begin to compare ranges from index 0: [0, 10) and [0, 10)
      *      2.1 lower bounds (0 and 0) are equal.
-     *      2.2 upper bounds (10 and 10) are equal. 
+     *      2.2 upper bounds (10 and 10) are equal.
      *  3. Begin to compare next 2 ranges [15, 20) and [15, 18)
      *      3.1 lower bounds (15 and 15) are equal.
      *      3.2 upper bounds (20 and 18) are not equal. and 20 > 18
@@ -89,7 +95,7 @@ public class RangeUtils {
                 throw new DdlException("2 range lists are not stricly matched. "
                         + range1.lowerEndpoint() + " vs. " + range2.lowerEndpoint());
             }
-            
+
             int res = range1.upperEndpoint().compareTo(range2.upperEndpoint());
             if (res == 0) {
                 ++idx1;

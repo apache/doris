@@ -14,11 +14,15 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FoldConstantsRule.java
+// and modified by Doris
 
 package org.apache.doris.rewrite;
 
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
@@ -32,6 +36,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
@@ -45,7 +50,6 @@ import org.apache.doris.thrift.TQueryGlobals;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -81,7 +85,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
     public static ExprRewriteRule INSTANCE = new FoldConstantsRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         // evaluate `case when expr` when possible
         if (expr instanceof CaseExpr) {
             return CaseExpr.computeCaseExpr((CaseExpr) expr);
@@ -139,7 +143,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         Map<String, Map<String, Expr>> sysVarsMap = new HashMap<>();
         // map to collect InformationFunction
         Map<String, Map<String, Expr>> infoFnsMap = new HashMap<>();
-        for (Map.Entry<String, Expr> entry : exprMap.entrySet()){
+        for (Map.Entry<String, Expr> entry : exprMap.entrySet()) {
             Map<String, TExpr> constMap = new HashMap<>();
             Map<String, Expr> oriConstMap = new HashMap<>();
             Map<String, Expr> sysVarMap = new HashMap<>();
@@ -188,14 +192,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
      * @param analyzer
      * @throws AnalysisException
      */
-    private void getConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    // public only for unit test
+    public void getConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
                               Analyzer analyzer, Map<String, Expr> sysVarMap, Map<String, Expr> infoFnMap)
             throws AnalysisException {
-        // Analyze constant exprs, if necessary. Note that the 'expr' may become non-constant
-        // after analysis (e.g., aggregate functions).
-        if (!expr.isAnalyzed()) {
-            expr.analyze(analyzer);
-        }
         if (expr.isConstant()) {
             // Do not constant fold cast(null as dataType) because we cannot preserve the
             // cast-to-types and that can lead to query failures, e.g., CTAS
@@ -209,6 +209,10 @@ public class FoldConstantsRule implements ExprRewriteRule {
             if (expr instanceof LiteralExpr) {
                 return;
             }
+            // skip BetweenPredicate need to be rewrite to CompoundPredicate
+            if (expr instanceof BetweenPredicate) {
+                return;
+            }
             // collect sysVariableDesc expr
             if (expr.contains(Predicates.instanceOf(SysVariableDesc.class))) {
                 getSysVarDescExpr(expr, sysVarMap);
@@ -219,7 +223,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 getInfoFnExpr(expr, infoFnMap);
                 return;
             }
-            constExprMap.put(expr.getId().toString(),expr.treeToThrift());
+            constExprMap.put(expr.getId().toString(), expr.treeToThrift());
             oriConstMap.put(expr.getId().toString(), expr);
         } else {
             recursiveGetChildrenConstExpr(expr, constExprMap, oriConstMap, analyzer, sysVarMap, infoFnMap);
@@ -227,7 +231,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
         }
     }
 
-    private void recursiveGetChildrenConstExpr(Expr expr, Map<String,TExpr> constExprMap, Map<String, Expr> oriConstMap,
+    private void recursiveGetChildrenConstExpr(Expr expr, Map<String, TExpr> constExprMap, Map<String, Expr> oriConstMap,
                                                Analyzer analyzer, Map<String, Expr> sysVarMap,
                                                Map<String, Expr> infoFnMap)throws AnalysisException {
         for (int i = 0; i < expr.getChildren().size(); i++) {
@@ -348,7 +352,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(new Date()));
-            queryGlobals.setTimestampMs(new Date().getTime());
+            queryGlobals.setTimestampMs(System.currentTimeMillis());
             queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
             if (context.getSessionVariable().getTimeZone().equals("CST")) {
                 queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
@@ -357,6 +361,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
 
             TFoldConstantParams tParams = new TFoldConstantParams(map, queryGlobals);
+            tParams.setVecExec(VectorizedUtil.isVectorized());
 
             Future<InternalService.PConstantExprResult> future = BackendServiceProxy.getInstance().foldConstantExpr(brpcAddress, tParams);
             InternalService.PConstantExprResult result = future.get(5, TimeUnit.SECONDS);
@@ -387,7 +392,5 @@ public class FoldConstantsRule implements ExprRewriteRule {
             LOG.warn("failed to get const expr value from be: {}", e.getMessage());
         }
         return resultMap;
-
     }
 }
-

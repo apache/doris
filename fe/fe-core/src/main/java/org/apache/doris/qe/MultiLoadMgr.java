@@ -19,13 +19,13 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -41,6 +41,8 @@ import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 
@@ -49,7 +51,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -90,12 +91,13 @@ public class MultiLoadMgr {
             if (infoMap.containsKey(multiLabel)) {
                 throw new LabelAlreadyUsedException(label);
             }
-            MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
-            List<Long> backendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(1,
-                    true, false, ConnectContext.get().getClusterName());
-            if (backendIds == null) {
-                throw new DdlException("No backend alive.");
+            BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(ConnectContext.get().getClusterName())
+                    .needLoadAvailable().build();
+            List<Long> backendIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            if (backendIds.isEmpty()) {
+                throw new DdlException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + " policy: " + policy);
             }
+            MultiLoadDesc multiLoadDesc = new MultiLoadDesc(multiLabel, properties);
             multiLoadDesc.setBackendId(backendIds.get(0));
             infoMap.put(multiLabel, multiLoadDesc);
         } finally {
@@ -109,7 +111,7 @@ public class MultiLoadMgr {
         if (CollectionUtils.isNotEmpty(request.getFileSize())
                 && request.getFileSize().size() != request.getFiles().size()) {
             throw new DdlException("files count and file size count not match: [" + request.getFileSize().size()
-                    + "!=" + request.getFiles().size()+"]");
+                    + "!=" + request.getFiles().size() + "]");
         }
         List<Pair<String, Long>> files = Streams.zip(request.getFiles().stream(), request.getFileSize().stream(), Pair::create)
                 .collect(Collectors.toList());
@@ -265,7 +267,7 @@ public class MultiLoadMgr {
         }
 
         public void addFile(String subLabel, String table, List<Pair<String, Long>> files,
-                            TNetworkAddress fileAddr, 
+                            TNetworkAddress fileAddr,
                             Map<String, String> properties,
                             long timestamp) throws DdlException {
 
@@ -368,7 +370,7 @@ public class MultiLoadMgr {
             try {
                 loadStmt.analyze(analyzer);
             } catch (UserException e) {
-               throw new DdlException(e.getMessage());
+                throw new DdlException(e.getMessage());
             }
             return loadStmt;
         }
@@ -436,7 +438,7 @@ public class MultiLoadMgr {
             List<String> files = Lists.newArrayList();
             List<Long> fileSizes = Lists.newArrayList();
             Iterator<Map.Entry<String, List<Pair<String, Long>>>> it = filesByLabel.entrySet().iterator();
-            while(it.hasNext()) {
+            while (it.hasNext()) {
                 List<Pair<String, Long>> value = it.next().getValue();
                 value.stream().forEach(pair -> {
                     files.add(pair.first);
@@ -447,7 +449,7 @@ public class MultiLoadMgr {
             PartitionNames partitionNames = null;
             String fileFormat = properties.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
             boolean isNegative = properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE) == null ? false :
-                    Boolean.valueOf(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
+                    Boolean.parseBoolean(properties.get(LoadStmt.KEY_IN_PARAM_NEGATIVE));
             Expr whereExpr = null;
             LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
             Expr deleteCondition = null;
@@ -538,4 +540,3 @@ public class MultiLoadMgr {
         }
     }
 }
-

@@ -25,7 +25,8 @@ import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
-
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,12 +37,8 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-
-import lombok.Getter;
-import lombok.Setter;
 
 @RestController
 @RequestMapping("/rest/v2")
@@ -210,19 +207,4 @@ public class ImportAction {
         private List<String> colNames;
         private List<List<String>> sampleFileLines;
     }
-
-
-    public static void main(String[] args) {
-        ImportAction importAction = new ImportAction();
-        String str = "1,2,3\n4,5,6\n,7,8,9,中国";
-        byte[] fileContentBytes = str.getBytes();
-        System.out.println(fileContentBytes.length);
-        String newStr = new String(fileContentBytes, 0,fileContentBytes.length - 2);
-        System.out.println(newStr);
-
-        FileSample fileSample = new FileSample();
-        importAction.parseContent(",", "\n", newStr.getBytes(), fileSample);
-        System.out.println(fileSample.sampleFileLines);
-    }
-
 }

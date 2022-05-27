@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fstream>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -43,8 +43,6 @@ using std::string;
 
 namespace doris {
 
-static StorageEngine* k_engine = nullptr;
-
 class TabletMgrTest : public testing::Test {
 public:
     virtual void SetUp() {
@@ -59,21 +57,24 @@ public:
         EngineOptions options;
         // won't open engine, options.path is needless
         options.backend_uid = UniqueId::gen_uid();
-        if (k_engine == nullptr) {
-            k_engine = new StorageEngine(options);
-        }
-
+        k_engine = new StorageEngine(options);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _tablet_mgr = k_engine->tablet_manager();
     }
 
     virtual void TearDown() {
-        delete _data_dir;
+        SAFE_DELETE(_data_dir);
         if (std::filesystem::exists(_engine_data_path)) {
-            ASSERT_TRUE(std::filesystem::remove_all(_engine_data_path));
+            EXPECT_TRUE(std::filesystem::remove_all(_engine_data_path));
         }
+        if (k_engine != nullptr) {
+            k_engine->stop();
+        }
+        SAFE_DELETE(k_engine);
+        _tablet_mgr = nullptr;
     }
+    StorageEngine* k_engine = nullptr;
 
 private:
     DataDir* _data_dir = nullptr;
@@ -100,36 +101,29 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_SUCCESS);
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
-    ASSERT_TRUE(tablet != nullptr);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist);
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    EXPECT_TRUE(dir_exist);
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
-    OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
-    ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
+    Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
+    EXPECT_TRUE(check_meta_st == Status::OK());
 
     // retry create should be successfully
     create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_SUCCESS);
+    EXPECT_TRUE(create_st == Status::OK());
 
-    // create tablet with different schema hash should be error
-    tablet_schema.__set_schema_hash(4444);
-    create_tablet_req.__set_tablet_schema(tablet_schema);
-    create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
-
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
-    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    Status drop_st = _tablet_mgr->drop_tablet(111, false);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
-    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
+    Status trash_st = _tablet_mgr->start_trash_sweep();
+    EXPECT_TRUE(trash_st == Status::OK());
 }
 
 TEST_F(TabletMgrTest, CreateTabletWithSequence) {
@@ -165,27 +159,26 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_SUCCESS);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    EXPECT_TRUE(create_st == Status::OK());
 
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
-    ASSERT_TRUE(tablet != nullptr);
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
     // check dir exist
-    bool dir_exist = FileUtils::check_exist(tablet->tablet_path());
-    ASSERT_TRUE(dir_exist) << tablet->tablet_path();
+    bool dir_exist = FileUtils::check_exist(tablet->tablet_path_desc().filepath);
+    EXPECT_TRUE(dir_exist) << tablet->tablet_path_desc().filepath;
     // check meta has this tablet
     TabletMetaSharedPtr new_tablet_meta(new TabletMeta());
-    OLAPStatus check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
-    ASSERT_TRUE(check_meta_st == OLAP_SUCCESS);
+    Status check_meta_st = TabletMetaManager::get_meta(_data_dir, 111, 3333, new_tablet_meta);
+    EXPECT_TRUE(check_meta_st == Status::OK());
 
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
-    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
+    Status drop_st = _tablet_mgr->drop_tablet(111, false);
+    EXPECT_TRUE(drop_st == Status::OK());
     tablet.reset();
-    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
+    Status trash_st = _tablet_mgr->start_trash_sweep();
+    EXPECT_TRUE(trash_st == Status::OK());
 }
 
 TEST_F(TabletMgrTest, DropTablet) {
@@ -207,50 +200,49 @@ TEST_F(TabletMgrTest, DropTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
-    create_tablet_req.__set_version_hash(3333);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
-    OLAPStatus create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
-    ASSERT_TRUE(create_st == OLAP_SUCCESS);
-    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111, 3333);
-    ASSERT_TRUE(tablet != nullptr);
+    Status create_st = _tablet_mgr->create_tablet(create_tablet_req, data_dirs);
+    EXPECT_TRUE(create_st == Status::OK());
+    TabletSharedPtr tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
 
     // drop unexist tablet will be success
-    OLAPStatus drop_st = _tablet_mgr->drop_tablet(111, 4444, false);
-    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333);
-    ASSERT_TRUE(tablet != nullptr);
+    Status drop_st = _tablet_mgr->drop_tablet(1121, false);
+    EXPECT_TRUE(drop_st == Status::OK());
+    tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet != nullptr);
 
     // drop exist tablet will be success
-    drop_st = _tablet_mgr->drop_tablet(111, 3333, false);
-    ASSERT_TRUE(drop_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333);
-    ASSERT_TRUE(tablet == nullptr);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
-    ASSERT_TRUE(tablet != nullptr);
+    drop_st = _tablet_mgr->drop_tablet(111, false);
+    EXPECT_TRUE(drop_st == Status::OK());
+    tablet = _tablet_mgr->get_tablet(111);
+    EXPECT_TRUE(tablet == nullptr);
+    tablet = _tablet_mgr->get_tablet(111, true);
+    EXPECT_TRUE(tablet != nullptr);
 
     // check dir exist
-    std::string tablet_path = tablet->tablet_path();
+    std::string tablet_path = tablet->tablet_path_desc().filepath;
     bool dir_exist = FileUtils::check_exist(tablet_path);
-    ASSERT_TRUE(dir_exist);
+    EXPECT_TRUE(dir_exist);
 
     // do trash sweep, tablet will not be garbage collected
     // because tablet ptr referenced it
-    OLAPStatus trash_st = _tablet_mgr->start_trash_sweep();
-    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
-    ASSERT_TRUE(tablet != nullptr);
+    Status trash_st = _tablet_mgr->start_trash_sweep();
+    EXPECT_TRUE(trash_st == Status::OK());
+    tablet = _tablet_mgr->get_tablet(111, true);
+    EXPECT_TRUE(tablet != nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);
-    ASSERT_TRUE(dir_exist);
+    EXPECT_TRUE(dir_exist);
 
     // reset tablet ptr
     tablet.reset();
     trash_st = _tablet_mgr->start_trash_sweep();
-    ASSERT_TRUE(trash_st == OLAP_SUCCESS);
-    tablet = _tablet_mgr->get_tablet(111, 3333, true);
-    ASSERT_TRUE(tablet == nullptr);
+    EXPECT_TRUE(trash_st == Status::OK());
+    tablet = _tablet_mgr->get_tablet(111, true);
+    EXPECT_TRUE(tablet == nullptr);
     dir_exist = FileUtils::check_exist(tablet_path);
-    ASSERT_TRUE(!dir_exist);
+    EXPECT_TRUE(!dir_exist);
 }
 
 TEST_F(TabletMgrTest, GetRowsetId) {
@@ -259,17 +251,17 @@ TEST_F(TabletMgrTest, GetRowsetId) {
         std::string path = _engine_data_path + "/data/0/15007/368169781";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-        ASSERT_EQ(15007, tid);
-        ASSERT_EQ(368169781, schema_hash);
+        EXPECT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        EXPECT_EQ(15007, tid);
+        EXPECT_EQ(368169781, schema_hash);
     }
     {
         std::string path = _engine_data_path + "/data/0/15007/368169781/";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-        ASSERT_EQ(15007, tid);
-        ASSERT_EQ(368169781, schema_hash);
+        EXPECT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        EXPECT_EQ(15007, tid);
+        EXPECT_EQ(368169781, schema_hash);
     }
     // normal case
     {
@@ -278,43 +270,43 @@ TEST_F(TabletMgrTest, GetRowsetId) {
                 "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-        ASSERT_EQ(15007, tid);
-        ASSERT_EQ(368169781, schema_hash);
+        EXPECT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        EXPECT_EQ(15007, tid);
+        EXPECT_EQ(368169781, schema_hash);
 
         RowsetId id;
-        ASSERT_TRUE(_tablet_mgr->get_rowset_id_from_path(path, &id));
+        EXPECT_TRUE(_tablet_mgr->get_rowset_id_from_path(path, &id));
         EXPECT_EQ(2UL << 56 | 1, id.hi);
-        ASSERT_EQ(2, id.mi);
-        ASSERT_EQ(3, id.lo);
+        EXPECT_EQ(2, id.mi);
+        EXPECT_EQ(3, id.lo);
     }
     // empty tablet directory
     {
         std::string path = _engine_data_path + "/data/0/15007";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-        ASSERT_EQ(15007, tid);
-        ASSERT_EQ(0, schema_hash);
+        EXPECT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        EXPECT_EQ(15007, tid);
+        EXPECT_EQ(0, schema_hash);
 
         RowsetId id;
-        ASSERT_FALSE(_tablet_mgr->get_rowset_id_from_path(path, &id));
+        EXPECT_FALSE(_tablet_mgr->get_rowset_id_from_path(path, &id));
     }
     // empty tablet directory
     {
         std::string path = _engine_data_path + "/data/0/15007/";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
-        ASSERT_EQ(15007, tid);
-        ASSERT_EQ(0, schema_hash);
+        EXPECT_TRUE(_tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
+        EXPECT_EQ(15007, tid);
+        EXPECT_EQ(0, schema_hash);
     }
     // empty tablet directory
     {
         std::string path = _engine_data_path + "/data/0/15007abc";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_FALSE(
+        EXPECT_FALSE(
                 _tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
     }
     // not match pattern
@@ -324,17 +316,12 @@ TEST_F(TabletMgrTest, GetRowsetId) {
                 "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
-        ASSERT_FALSE(
+        EXPECT_FALSE(
                 _tablet_mgr->get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
 
         RowsetId id;
-        ASSERT_FALSE(_tablet_mgr->get_rowset_id_from_path(path, &id));
+        EXPECT_FALSE(_tablet_mgr->get_rowset_id_from_path(path, &id));
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

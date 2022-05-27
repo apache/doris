@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SlotId.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -28,9 +31,14 @@ public class SlotId extends Id<SlotId> {
     public static IdGenerator<SlotId> createGenerator() {
         return new IdGenerator<SlotId>() {
             @Override
-            public SlotId getNextId() { return new SlotId(nextId_++); }
+            public SlotId getNextId() {
+                return new SlotId(nextId++);
+            }
+
             @Override
-            public SlotId getMaxId() { return new SlotId(nextId_ - 1); }
+            public SlotId getMaxId() {
+                return new SlotId(nextId - 1);
+            }
         };
     }
 }

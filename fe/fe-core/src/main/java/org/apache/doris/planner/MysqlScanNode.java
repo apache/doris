@@ -32,12 +32,11 @@ import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -56,7 +55,7 @@ public class MysqlScanNode extends ScanNode {
      * Constructs node to scan given data files of table 'tbl'.
      */
     public MysqlScanNode(PlanNodeId id, TupleDescriptor desc, MysqlTable tbl) {
-        super(id, desc, "SCAN MYSQL");
+        super(id, desc, "SCAN MYSQL", NodeType.MYSQL_SCAN_NODE);
         tblName = "`" + tbl.getMysqlTableName() + "`";
     }
 

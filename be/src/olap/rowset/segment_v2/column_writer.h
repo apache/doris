@@ -59,7 +59,6 @@ struct ColumnWriterOptions {
            << ", need_bloom_filter" << need_bloom_filter;
         return ss.str();
     }
-    std::shared_ptr<MemTracker> parent = nullptr;
 };
 
 class BitmapIndexWriter;
@@ -102,7 +101,12 @@ public:
         return append_nullable(&nullmap, data, 1);
     }
 
+    Status append(const uint8_t* nullmap, const void* data, size_t num_rows);
+
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
+
+    // use only in vectorized load
+    Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows);
 
     virtual Status append_nulls(size_t num_rows) = 0;
 
@@ -142,6 +146,7 @@ public:
 private:
     std::unique_ptr<Field> _field;
     bool _is_nullable;
+    std::vector<uint8_t> _null_bitmap;
 
 protected:
     std::shared_ptr<MemTracker> _mem_tracker;
@@ -165,7 +170,7 @@ public:
 
     Status init() override;
 
-    inline Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -244,7 +249,7 @@ private:
     PageHead _pages;
     ordinal_t _first_rowid = 0;
 
-    const BlockCompressionCodec* _compress_codec = nullptr;
+    std::unique_ptr<BlockCompressionCodec> _compress_codec;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
@@ -279,7 +284,7 @@ public:
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    inline Status append_nulls(size_t num_rows) override;
+    Status append_nulls(size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -306,7 +311,8 @@ public:
 
 private:
     Status put_extra_info_in_page(DataPageFooterPB* header) override;
-    inline Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
     std::unique_ptr<ScalarColumnWriter> _length_writer;
@@ -314,7 +320,7 @@ private:
     std::unique_ptr<ColumnWriter> _item_writer;
     ColumnWriterOptions _opts;
     ordinal_t _current_length_page_first_ordinal = 0;
-    ordinal_t _lengh_sum_in_cur_page = 0;
+    ordinal_t _length_sum_in_cur_page = 0;
 };
 
 } // namespace segment_v2

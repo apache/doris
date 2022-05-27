@@ -37,10 +37,8 @@ using std::vector;
 
 namespace doris {
 
-RowBlock::RowBlock(const TabletSchema* schema, const std::shared_ptr<MemTracker>& parent_tracker)
-        : _capacity(0), _schema(schema) {
-    _tracker = MemTracker::CreateTracker(-1, "RowBlock", parent_tracker);
-    _mem_pool.reset(new MemPool(_tracker.get()));
+RowBlock::RowBlock(const TabletSchema* schema) : _capacity(0), _schema(schema) {
+    _mem_pool.reset(new MemPool());
 }
 
 RowBlock::~RowBlock() {
@@ -55,16 +53,15 @@ void RowBlock::init(const RowBlockInfo& block_info) {
     _mem_buf = new char[_mem_buf_bytes];
 }
 
-OLAPStatus RowBlock::finalize(uint32_t row_num) {
+Status RowBlock::finalize(uint32_t row_num) {
     if (row_num > _capacity) {
-        OLAP_LOG_WARNING(
-                "Input row num is larger than internal row num."
-                "[row_num=%u; _info.row_num=%u]",
-                row_num, _info.row_num);
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        LOG(WARNING) << "Input row num is larger than internal row num."
+                        "[row_num="
+                     << row_num << "; _info.row_num=" << _info.row_num << "]";
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     _info.row_num = row_num;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void RowBlock::clear() {
@@ -89,8 +86,7 @@ void RowBlock::_compute_layout() {
         _field_offset_in_memory.push_back(memory_size);
 
         // All field has a nullbyte in memory
-        if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL ||
-            column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_OBJECT) {
+        if (column.is_length_variable_type()) {
             // 变长部分额外计算下实际最大的字符串长度（此处length已经包括记录Length的2个字节）
             memory_size += sizeof(Slice) + sizeof(char);
         } else {

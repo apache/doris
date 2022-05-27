@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -102,7 +101,7 @@ public class CurrentQueryInfoProvider {
     private Map<String, RuntimeProfile> collectInstanceProfile(RuntimeProfile queryProfile) {
         final Map<String, RuntimeProfile> instanceProfiles = Maps.newHashMap();
         for (RuntimeProfile fragmentProfile : queryProfile.getChildMap().values()) {
-            for (Map.Entry<String, RuntimeProfile> entry: fragmentProfile.getChildMap().entrySet()) {
+            for (Map.Entry<String, RuntimeProfile> entry : fragmentProfile.getChildMap().entrySet()) {
                 Preconditions.checkState(instanceProfiles.put(parseInstanceId(entry.getKey()), entry.getValue()) == null);
             }
         }

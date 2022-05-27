@@ -58,7 +58,6 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
     @SerializedName(value = "keysType")
     private KeysType keysType;
     @SerializedName(value = "defineStmt")
-
     private OriginStatement defineStmt;
 
     public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int schemaHash,
@@ -137,6 +136,10 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return null;
     }
 
+    public OriginStatement getDefineStmt() {
+        return defineStmt;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof MaterializedIndexMeta)) {
@@ -189,6 +192,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         CreateMaterializedViewStmt stmt;
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
+            stmt.setIsReplay(true);
             Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
             setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {

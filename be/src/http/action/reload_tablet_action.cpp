@@ -95,9 +95,9 @@ void ReloadTabletAction::reload(const std::string& path, int64_t tablet_id, int3
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
 
-    OLAPStatus res = OLAPStatus::OLAP_SUCCESS;
+    Status res = Status::OK();
     res = _exec_env->storage_engine()->load_header(path, clone_req);
-    if (res != OLAPStatus::OLAP_SUCCESS) {
+    if (!res.ok()) {
         LOG(WARNING) << "load header failed. status: " << res << ", signature: " << tablet_id;
         std::string error_msg = std::string("load header failed");
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, error_msg);

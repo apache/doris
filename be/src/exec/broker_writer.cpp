@@ -80,7 +80,8 @@ Status BrokerWriter::open() {
     TBrokerOpenWriterResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker writer client failed. "
                          << "broker=" << broker_addr << ", status=" << status.get_error_msg();
@@ -134,7 +135,8 @@ Status BrokerWriter::write(const uint8_t* buf, size_t buf_len, size_t* written_l
     TBrokerOperationStatus response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker write client failed. "
                          << "broker=" << broker_addr << ", status=" << status.get_error_msg();

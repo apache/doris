@@ -125,7 +125,7 @@ public class UserResource implements Writable {
     public void write(DataOutput out) throws IOException {
         resource.write(out);
         out.writeInt(shareByGroup.size());
-        for (Map.Entry<String , AtomicInteger> entry : shareByGroup.entrySet()) {
+        for (Map.Entry<String, AtomicInteger> entry : shareByGroup.entrySet()) {
             Text.writeString(out, entry.getKey());
             out.writeInt(entry.getValue().get());
         }

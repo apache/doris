@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetNamesVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetStmt;
@@ -44,6 +45,9 @@ public class SetExecutor {
             // Set password
             SetPassVar setPassVar = (SetPassVar) var;
             ctx.getCatalog().getAuth().setPassword(setPassVar);
+        } else if (var instanceof SetLdapPassVar) {
+            SetLdapPassVar setLdapPassVar = (SetLdapPassVar) var;
+            ctx.getCatalog().getAuth().setLdapPassword(setLdapPassVar);
         } else if (var instanceof SetNamesVar) {
             // do nothing
             return;

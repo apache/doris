@@ -26,7 +26,6 @@ public class SnapshotTask extends AgentTask {
     private long jobId;
 
     private long version;
-    private long versionHash;
 
     private int schemaHash;
 
@@ -36,14 +35,13 @@ public class SnapshotTask extends AgentTask {
 
     public SnapshotTask(TResourceInfo resourceInfo, long backendId, long signature, long jobId,
             long dbId, long tableId, long partitionId, long indexId, long tabletId,
-            long version, long versionHash, int schemaHash, long timeoutMs, boolean isRestoreTask) {
+            long version, int schemaHash, long timeoutMs, boolean isRestoreTask) {
         super(resourceInfo, backendId, TTaskType.MAKE_SNAPSHOT, dbId, tableId, partitionId, indexId, tabletId,
                 signature);
 
         this.jobId = jobId;
 
         this.version = version;
-        this.versionHash = versionHash;
         this.schemaHash = schemaHash;
 
         this.timeoutMs = timeoutMs;
@@ -57,10 +55,6 @@ public class SnapshotTask extends AgentTask {
 
     public long getVersion() {
         return version;
-    }
-
-    public long getVersionHash() {
-        return versionHash;
     }
 
     public int getSchemaHash() {
@@ -78,7 +72,6 @@ public class SnapshotTask extends AgentTask {
     public TSnapshotRequest toThrift() {
         TSnapshotRequest request = new TSnapshotRequest(tabletId, schemaHash);
         request.setVersion(version);
-        request.setVersionHash(versionHash);
         request.setListFiles(true);
         request.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
         request.setTimeout(timeoutMs / 1000);

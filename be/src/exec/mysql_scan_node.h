@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_MYSQL_SCAN_NODE_H
+#pragma once
 
 #include <memory>
 
@@ -64,6 +63,7 @@ private:
     Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
                            RuntimeState* state);
 
+protected:
     bool _is_init;
     MysqlScannerParam _my_param;
     // Name of Mysql table
@@ -92,5 +92,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

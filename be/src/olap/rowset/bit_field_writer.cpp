@@ -24,28 +24,28 @@
 namespace doris {
 
 BitFieldWriter::BitFieldWriter(OutStream* output)
-        : _output(output), _byte_writer(NULL), _current(0), _bits_left(8) {}
+        : _output(output), _byte_writer(nullptr), _current(0), _bits_left(8) {}
 
 BitFieldWriter::~BitFieldWriter() {
     SAFE_DELETE(_byte_writer);
 }
 
-OLAPStatus BitFieldWriter::init() {
+Status BitFieldWriter::init() {
     _byte_writer = new (std::nothrow) RunLengthByteWriter(_output);
 
-    if (NULL == _byte_writer) {
-        OLAP_LOG_WARNING("fail to create RunLengthByteWriter");
-        return OLAP_ERR_MALLOC_ERROR;
+    if (nullptr == _byte_writer) {
+        LOG(WARNING) << "fail to create RunLengthByteWriter";
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus BitFieldWriter::_write_byte() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldWriter::_write_byte() {
+    Status res = Status::OK();
 
-    if (OLAP_SUCCESS != (res = _byte_writer->write(_current))) {
-        OLAP_LOG_WARNING("fail to write byte to byte writer");
+    if (!(res = _byte_writer->write(_current))) {
+        LOG(WARNING) << "fail to write byte to byte writer";
         return res;
     }
 
@@ -54,8 +54,8 @@ OLAPStatus BitFieldWriter::_write_byte() {
     return res;
 }
 
-OLAPStatus BitFieldWriter::write(bool bit_value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldWriter::write(bool bit_value) {
+    Status res = Status::OK();
 
     _bits_left--;
 
@@ -70,11 +70,11 @@ OLAPStatus BitFieldWriter::write(bool bit_value) {
     return res;
 }
 
-OLAPStatus BitFieldWriter::flush() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status BitFieldWriter::flush() {
+    Status res = Status::OK();
 
     if (_bits_left != 8) {
-        if (OLAP_SUCCESS != (res = _write_byte())) {
+        if (!(res = _write_byte())) {
             return res;
         }
     }
@@ -83,7 +83,7 @@ OLAPStatus BitFieldWriter::flush() {
 }
 
 void BitFieldWriter::get_position(PositionEntryWriter* index_entry) const {
-    if (NULL != _byte_writer) {
+    if (nullptr != _byte_writer) {
         _byte_writer->get_position(index_entry);
     } else {
         // for stream

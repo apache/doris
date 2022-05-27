@@ -34,7 +34,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -61,13 +60,10 @@ public class TableRowCountAction extends RestBaseController {
             String fullDbName = getFullDbName(dbName);
             // check privilege for select, otherwise return HTTP 401
             checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SELECT);
-            Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-            if (db == null) {
-                return ResponseEntityBuilder.okWithCommonError("Database [" + dbName + "] " + "does not exists");
-            }
-            OlapTable olapTable = null;
+            OlapTable olapTable;
             try {
-                olapTable = (OlapTable) db.getTableOrThrowException(tblName, Table.TableType.OLAP);
+                Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+                olapTable = db.getTableOrMetaException(tblName, Table.TableType.OLAP);
             } catch (MetaNotFoundException e) {
                 return ResponseEntityBuilder.okWithCommonError(e.getMessage());
             }
@@ -77,7 +73,7 @@ public class TableRowCountAction extends RestBaseController {
                 resultMap.put("status", 200);
                 resultMap.put("size", olapTable.proximateRowCount());
             } finally {
-                olapTable.readLock();
+                olapTable.readUnlock();
             }
         } catch (DorisHttpException e) {
             // status code  should conforms to HTTP semantic

@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -50,9 +52,9 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import com.google.common.base.Strings;
-
+import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -83,14 +85,14 @@ public class ConnectProcessor {
     private void handleInitDb() {
         String dbName = new String(packetBuf.array(), 1, packetBuf.limit() - 1);
         if (Strings.isNullOrEmpty(ctx.getClusterName())) {
-            ctx.getState().setError("Please enter cluster");
+            ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
             return;
         }
         dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
         try {
             ctx.getCatalog().changeDb(ctx, dbName);
         } catch (DdlException e) {
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
 
@@ -112,15 +114,16 @@ public class ConnectProcessor {
         // slow query
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
-        
+
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
-            .setState(ctx.getState().toString()).setQueryTime(elapseMs)
-            .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
-            .setScanRows(statistics == null ? 0 : statistics.getScanRows())
-            .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
-            .setReturnRows(ctx.getReturnRows())
-            .setStmtId(ctx.getStmtId())
-            .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+                .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+                .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
+                .setScanRows(statistics == null ? 0 : statistics.getScanRows())
+                .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
+                .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
+                .setReturnRows(ctx.getReturnRows())
+                .setStmtId(ctx.getStmtId())
+                .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -131,6 +134,10 @@ public class ConnectProcessor {
             } else {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                if (elapseMs > Config.qe_slow_log_ms) {
+                    String sqlDigest = DigestUtils.md5Hex(((QueryStmt) parsedStmt).toDigest());
+                    ctx.getAuditEventBuilder().setSqlDigest(sqlDigest);
+                }
             }
             ctx.getAuditEventBuilder().setIsQuery(true);
             ctx.getQueryDetail().setEventTime(endTime);
@@ -141,14 +148,14 @@ public class ConnectProcessor {
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
         }
-        
+
         ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
 
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
             ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            if (parsedStmt instanceof InsertStmt && ((InsertStmt)parsedStmt).isValuesOrConstantSelect()) {
+            if (parsedStmt instanceof InsertStmt && ((InsertStmt) parsedStmt).isValuesOrConstantSelect()) {
                 // INSERT INTO VALUES may be very long, so we only log at most 1K bytes.
                 int length = Math.min(1024, origStmt.length());
                 ctx.getAuditEventBuilder().setStmt(origStmt.substring(0, length));
@@ -156,12 +163,12 @@ public class ConnectProcessor {
                 ctx.getAuditEventBuilder().setStmt(origStmt);
             }
         }
-        
+
         Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
-    // process COM_QUERY statement,
-    // 只有在与请求客户端交互出现问题时候才抛出异常
+    // Process COM_QUERY statement,
+    // only throw an exception when there is a problem interacting with the requesting client
     private void handleQuery() {
         MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         // convert statement to Java string
@@ -176,15 +183,18 @@ public class ConnectProcessor {
         } catch (UnsupportedEncodingException e) {
             // impossible
             LOG.error("UTF8 is not supported in this environment.");
-            ctx.getState().setError("Unsupported character set(UTF-8)");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_CHARACTER_SET, "Unsupported character set(UTF-8)");
             return;
         }
+        String sqlHash = DigestUtils.md5Hex(originStmt);
+        ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
-            .setTimestamp(System.currentTimeMillis())
-            .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
-            .setUser(ctx.getQualifiedUser())
-            .setDb(ctx.getDatabase());
+                .setTimestamp(System.currentTimeMillis())
+                .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+                .setUser(ctx.getQualifiedUser())
+                .setDb(ctx.getDatabase())
+                .setSqlHash(ctx.getSqlHash());
 
         // execute this query.
         StatementBase parsedStmt = null;
@@ -215,17 +225,18 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed");
         } catch (UserException e) {
             LOG.warn("Process one query failed because.", e);
-            ctx.getState().setError(e.getMessage());
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             // set is as ANALYSIS_ERR so that it won't be treated as a query failure.
             ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError("Unexpected exception: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 ctx.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
@@ -277,27 +288,25 @@ public class ConnectProcessor {
     private void handleFieldList() throws IOException {
         // Already get command code.
         String tableName = null;
-        String pattern = null;
         try {
             tableName = new String(MysqlProto.readNulTerminateString(packetBuf), "UTF-8");
-            pattern = new String(MysqlProto.readEofString(packetBuf), "UTF-8");
         } catch (UnsupportedEncodingException e) {
             // Impossible!!!
             LOG.error("Unknown UTF-8 character set.");
             return;
         }
         if (Strings.isNullOrEmpty(tableName)) {
-            ctx.getState().setError("Empty tableName");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Empty tableName");
             return;
         }
-        Database db = ctx.getCatalog().getDb(ctx.getDatabase());
+        Database db = ctx.getCatalog().getDbNullable(ctx.getDatabase());
         if (db == null) {
-            ctx.getState().setError("Unknown database(" + ctx.getDatabase() + ")");
+            ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Unknown database(" + ctx.getDatabase() + ")");
             return;
         }
-        Table table = db.getTable(tableName);
+        Table table = db.getTableNullable(tableName);
         if (table == null) {
-            ctx.getState().setError("Unknown table(" + tableName + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_TABLE, "Unknown table(" + tableName + ")");
             return;
         }
 
@@ -326,8 +335,8 @@ public class ConnectProcessor {
         MysqlCommand command = MysqlCommand.fromCode(code);
         if (command == null) {
             ErrorReport.report(ErrorCode.ERR_UNKNOWN_COM_ERROR);
-            ctx.getState().setError("Unknown command(" + command + ")");
-            LOG.warn("Unknown command(" + command + ")");
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unknown command(" + code + ")");
+            LOG.warn("Unknown command(" + code + ")");
             return;
         }
         ctx.setCommand(command);
@@ -350,7 +359,7 @@ public class ConnectProcessor {
                 handlePing();
                 break;
             default:
-                ctx.getState().setError("Unsupported command(" + command + ")");
+                ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
                 break;
         }
@@ -359,9 +368,9 @@ public class ConnectProcessor {
     private ByteBuffer getResultPacket() {
         MysqlPacket packet = ctx.getState().toResponsePacket();
         if (packet == null) {
-            // 当出现此种情况可能有两种可能
-            // 1. 处理函数已经发送请求
-            // 2. 这个协议不需要发送任何响应包
+            // possible two cases:
+            // 1. handler has send request
+            // 2. this command need not to send response
             return null;
         }
 
@@ -371,8 +380,8 @@ public class ConnectProcessor {
         return serializer.toByteBuffer();
     }
 
-    // 当任何一个请求完成后，一般都会需要发送一个响应包给客户端
-    // 这个函数用于发送响应包给客户端
+    // When any request is completed, it will generally need to send a response packet to the client
+    // This method is used to send a response packet to the client
     private void finalizeCommand() throws IOException {
         ByteBuffer packet = null;
         if (executor != null && executor.isForwardToMaster()
@@ -381,7 +390,7 @@ public class ConnectProcessor {
             if (resultSet == null) {
                 packet = executor.getOutputPacket();
             } else {
-                executor.sendShowResult(resultSet);
+                executor.sendResult(resultSet);
                 packet = getResultPacket();
                 if (packet == null) {
                     LOG.debug("packet == null");
@@ -465,23 +474,12 @@ public class ConnectProcessor {
         }
 
         ctx.setThreadLocalInfo();
-
-        if (ctx.getCurrentUserIdentity() == null) {
-            // if we upgrade Master FE first, the request from old FE does not set "current_user_ident".
-            // so ctx.getCurrentUserIdentity() will get null, and causing NullPointerException after using it.
-            // return error directly.
-            TMasterOpResult result = new TMasterOpResult();
-            ctx.getState().setError("Missing current user identity. You need to upgrade this Frontend to the same version as Master Frontend.");
-            result.setMaxJournalId(Catalog.getCurrentCatalog().getMaxJournalId().longValue());
-            result.setPacket(getResultPacket());
-            return result;
-        }
-
         StmtExecutor executor = null;
         try {
             // 0 for compatibility.
             int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
             executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
+            ctx.setExecutor(executor);
             TUniqueId queryId; // This query id will be set in ctx
             if (request.isSetQueryId()) {
                 queryId = request.getQueryId();
@@ -493,20 +491,20 @@ public class ConnectProcessor {
         } catch (IOException e) {
             // Client failed.
             LOG.warn("Process one query failed because IOException: ", e);
-            ctx.getState().setError("Doris process failed: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Doris process failed: " + e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe Doris bug.
             LOG.warn("Process one query failed because unknown reason: ", e);
-            ctx.getState().setError("Unexpected exception: " + e.getMessage());
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
         }
         // no matter the master execute success or fail, the master must transfer the result to follower
         // and tell the follower the current journalID.
         TMasterOpResult result = new TMasterOpResult();
-        if (ctx.queryId() != null &&
+        if (ctx.queryId() != null
                 // If none master FE not set query id or query id was reset in StmtExecutor when a query exec more than once,
                 // return it to none master FE.
-                (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
+                && (!request.isSetQueryId() || !request.getQueryId().equals(ctx.queryId()))
         ) {
             result.setQueryId(ctx.queryId());
         }
@@ -518,7 +516,7 @@ public class ConnectProcessor {
         return result;
     }
 
-    // 处理一个MySQL请求，接收，处理，返回
+    // Process a MySQL request
     public void processOnce() throws IOException {
         // set status of query to OK.
         ctx.getState().reset();

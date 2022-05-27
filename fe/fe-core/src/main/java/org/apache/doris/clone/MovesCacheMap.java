@@ -17,11 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.thrift.TStorageMedium;
+
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Maps;
-import org.apache.doris.common.Pair;
-import org.apache.doris.thrift.TStorageMedium;
+import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,8 +45,8 @@ import java.util.stream.Collectors;
 public class MovesCacheMap {
     private static final Logger LOG = LogManager.getLogger(MovesCacheMap.class);
 
-    // cluster -> medium -> MovesCache
-    private final Map<String, Map<TStorageMedium, MovesCache>> cacheMap = Maps.newHashMap();
+    // cluster -> tag -> medium -> MovesCache
+    private final Table<String, Tag, Map<TStorageMedium, MovesCache>> cacheMap = HashBasedTable.create();
     private long lastExpireConfig = -1L;
 
     // TabletId -> Pair<Move, ToDeleteReplicaId>, 'ToDeleteReplicaId == -1' means this move haven't been scheduled successfully.
@@ -59,30 +63,50 @@ public class MovesCacheMap {
     }
 
     // Cyclical update the cache mapping, cuz the cluster may be deleted, we should delete the corresponding cache too.
-    public void updateMapping(Map<String, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
+    public void updateMapping(Table<String, Tag, ClusterLoadStatistic> statisticMap, long expireAfterAccessSecond) {
         if (expireAfterAccessSecond > 0 && lastExpireConfig != expireAfterAccessSecond) {
-            LOG.debug("Reset expireAfterAccess, last {}s, now {}s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
+            LOG.debug("Reset expireAfterAccess, last {} s, now {} s. Moves will be cleared.", lastExpireConfig, expireAfterAccessSecond);
             cacheMap.clear();
             lastExpireConfig = expireAfterAccessSecond;
         }
 
-        cacheMap.keySet().stream().filter(k -> !statisticMap.containsKey(k)).forEach(cacheMap::remove);
+        cacheMap.cellSet().stream().filter(c -> !statisticMap.contains(c.getRowKey(), c.getColumnKey())).forEach(
+                c -> cacheMap.remove(c.getRowKey(), c.getColumnKey()));
 
-        List<String> toAdd = statisticMap.keySet().stream().filter(k -> !cacheMap.containsKey(k)).collect(Collectors.toList());
-        for (String cluster : toAdd) {
-            Map<TStorageMedium, MovesCache> cacheMap = Maps.newHashMap();
-            Arrays.stream(TStorageMedium.values()).forEach(m -> cacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
-            this.cacheMap.put(cluster, cacheMap);
+        List<Table.Cell<String, Tag, ClusterLoadStatistic>> toAdd = statisticMap.cellSet().stream()
+                .filter(c -> !cacheMap.contains(c.getRowKey(), c.getColumnKey()))
+                .collect(Collectors.toList());
+        for (Table.Cell<String, Tag, ClusterLoadStatistic> cell : toAdd) {
+            Map<TStorageMedium, MovesCache> newCacheMap = Maps.newHashMap();
+            Arrays.stream(TStorageMedium.values()).forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
+            this.cacheMap.put(cell.getRowKey(), cell.getColumnKey(), newCacheMap);
         }
     }
 
-    public MovesCache getCache(String clusterName, TStorageMedium medium) {
-        Map<TStorageMedium, MovesCache> clusterMoves = cacheMap.get(clusterName);
+    public MovesCache getCache(String clusterName, Tag tag, TStorageMedium medium) {
+        Map<TStorageMedium, MovesCache> clusterMoves = cacheMap.get(clusterName, tag);
         if (clusterMoves != null) {
             return clusterMoves.get(medium);
         }
         return null;
     }
+
+    // For given tablet ctx, find it in cacheMap
+    public Pair<PartitionRebalancer.TabletMove, Long> getTabletMove(TabletSchedCtx tabletCtx) {
+        Map<Tag, Map<TStorageMedium, MovesCache>> tagMap = cacheMap.row(tabletCtx.getCluster());
+        if (tagMap == null) {
+            return null;
+        }
+        for (Map<TStorageMedium, MovesCache> mediumMap : tagMap.values()) {
+            MovesCache cache = mediumMap.get(tabletCtx.getStorageMedium());
+            if (cache == null) {
+                continue;
+            }
+            return cache.get().getIfPresent(tabletCtx.getTabletId());
+        }
+        return null;
+    }
+
 
     // For each MovesCache, performs any pending maintenance operations needed by the cache.
     public void maintain() {
@@ -96,7 +120,8 @@ public class MovesCacheMap {
     @Override
     public String toString() {
         StringJoiner sj = new StringJoiner("\n", "MovesInProgress detail:\n", "");
-        cacheMap.forEach((key, value) -> value.forEach((k, v) -> sj.add("(" + key + "-" + k + ": " + v.get().asMap() + ")")));
+        cacheMap.cellSet().forEach(c -> c.getValue().forEach((k, v)
+                -> sj.add("(" + c.getRowKey() + "-" + c.getColumnKey() + "-" + k + ": " + v.get().asMap() + ")")));
         return sj.toString();
     }
 }

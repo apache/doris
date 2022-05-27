@@ -14,12 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/FromClause.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
 
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -43,27 +45,33 @@ import java.util.List;
  */
 public class FromClause implements ParseNode, Iterable<TableRef> {
 
-    private final ArrayList<TableRef> tableRefs_;
+    private final ArrayList<TableRef> tablerefs;
 
-    private boolean analyzed_ = false;
+    private boolean analyzed = false;
     private boolean needToSql = false;
 
     public FromClause(List<TableRef> tableRefs) {
-        tableRefs_ = Lists.newArrayList(tableRefs);
+        tablerefs = Lists.newArrayList(tableRefs);
         // Set left table refs to ensure correct toSql() before analysis.
-        for (int i = 1; i < tableRefs_.size(); ++i) {
-            tableRefs_.get(i).setLeftTblRef(tableRefs_.get(i - 1));
+        for (int i = 1; i < tablerefs.size(); ++i) {
+            tablerefs.get(i).setLeftTblRef(tablerefs.get(i - 1));
         }
     }
 
-    public FromClause() { tableRefs_ = Lists.newArrayList(); }
-    public List<TableRef> getTableRefs() { return tableRefs_; }
+    public FromClause() {
+        tablerefs = Lists.newArrayList();
+    }
+
+    public List<TableRef> getTableRefs() {
+        return tablerefs;
+    }
+
     public void setNeedToSql(boolean needToSql) {
         this.needToSql = needToSql;
     }
 
     private void checkFromHiveTable(Analyzer analyzer) throws AnalysisException {
-        for (TableRef tblRef : tableRefs_) {
+        for (TableRef tblRef : tablerefs) {
             if (!(tblRef instanceof BaseTableRef)) {
                 continue;
             }
@@ -79,19 +87,9 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
 
-            Database db = analyzer.getCatalog().getDb(dbName);
-            if (db == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-            }
-
+            Database db = analyzer.getCatalog().getDbOrAnalysisException(dbName);
             String tblName = tableName.getTbl();
-            Table table = db.getTable(tblName);
-            if (table == null) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, tblName);
-            }
-            if (table.getType() == Table.TableType.HIVE) {
-                throw new AnalysisException("Query from hive table is not supported, table: " + tblName);
-            }
+            db.getTableOrAnalysisException(tblName);
         }
     }
 
@@ -106,15 +104,15 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
      * because the table t1 in the on clause cannot be recognized.
      */
     private void sortTableRefKeepSequenceOfOnClause() {
-        Collections.sort(this.tableRefs_, new Comparator<TableRef>() {
+        Collections.sort(this.tablerefs, new Comparator<TableRef>() {
             @Override
             public int compare(TableRef tableref1, TableRef tableref2) {
                 int i1 = 0;
                 int i2 = 0;
-                if (tableref1.getOnClause() != null) {
+                if (tableref1.getOnClause() != null || tableref1.getUsingClause() != null) {
                     i1 = 1;
                 }
-                if (tableref2.getOnClause() != null) {
+                if (tableref2.getOnClause() != null || tableref2.getUsingClause() != null) {
                     i2 = 1;
                 }
                 return i1 - i2;
@@ -124,10 +122,12 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (analyzed_) return;
+        if (analyzed) {
+            return;
+        }
 
-        if (tableRefs_.isEmpty()) {
-            analyzed_ = true;
+        if (tablerefs.isEmpty()) {
+            analyzed = true;
             return;
         }
 
@@ -136,17 +136,17 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         // This change will cause the predicate in on clause be adjusted to the front of the association table,
         // causing semantic analysis to fail. Unknown column 'column1' in 'table1'
         // So we need to readjust the order of the tables here.
-        if (!analyzer.safeIsEnableJoinReorderBasedCost()) {
+        if (analyzer.enableStarJoinReorder()) {
             sortTableRefKeepSequenceOfOnClause();
         }
 
         // Start out with table refs to establish aliases.
         TableRef leftTblRef = null;  // the one to the left of tblRef
-        for (int i = 0; i < tableRefs_.size(); ++i) {
+        for (int i = 0; i < tablerefs.size(); ++i) {
             // Resolve and replace non-InlineViewRef table refs with a BaseTableRef or ViewRef.
-            TableRef tblRef = tableRefs_.get(i);
+            TableRef tblRef = tablerefs.get(i);
             tblRef = analyzer.resolveTableRef(tblRef);
-            tableRefs_.set(i, Preconditions.checkNotNull(tblRef));
+            tablerefs.set(i, Preconditions.checkNotNull(tblRef));
             tblRef.setLeftTblRef(leftTblRef);
             if (tblRef instanceof InlineViewRef) {
                 ((InlineViewRef) tblRef).setNeedToSql(needToSql);
@@ -158,56 +158,77 @@ public class FromClause implements ParseNode, Iterable<TableRef> {
         // TODO: remove when query from hive table is supported
         checkFromHiveTable(analyzer);
 
-        analyzed_ = true;
+        analyzed = true;
     }
 
     public FromClause clone() {
         ArrayList<TableRef> clone = Lists.newArrayList();
-        for (TableRef tblRef: tableRefs_) clone.add(tblRef.clone());
+        for (TableRef tblRef : tablerefs) {
+            clone.add(tblRef.clone());
+        }
         return new FromClause(clone);
     }
 
     public void reset() {
         for (int i = 0; i < size(); ++i) {
-            TableRef origTblRef = get(i);
-            // TODO(zc):
-            // if (origTblRef.isResolved() && !(origTblRef instanceof InlineViewRef)) {
-            //     // Replace resolved table refs with unresolved ones.
-            //     TableRef newTblRef = new TableRef(origTblRef);
-            //     // Use the fully qualified raw path to preserve the original resolution.
-            //     // Otherwise, non-fully qualified paths might incorrectly match a local view.
-            //     // TODO for 2.3: This full qualification preserves analysis state which is
-            //     // contrary to the intended semantics of reset(). We could address this issue by
-            //     // changing the WITH-clause analysis to register local views that have
-            //     // fully-qualified table refs, and then remove the full qualification here.
-            //     newTblRef.rawPath_ = origTblRef.getResolvedPath().getFullyQualifiedRawPath();
-            //     set(i, newTblRef);
-            // }
             get(i).reset();
         }
-        this.analyzed_ = false;
+        this.analyzed = false;
     }
 
     @Override
     public String toSql() {
         StringBuilder builder = new StringBuilder();
-        if (!tableRefs_.isEmpty()) {
+        if (!tablerefs.isEmpty()) {
             builder.append(" FROM");
-            for (int i = 0; i < tableRefs_.size(); ++i) {
-                builder.append(" " + tableRefs_.get(i).toSql());
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toSql());
             }
         }
         return builder.toString();
     }
 
-    public boolean isEmpty() { return tableRefs_.isEmpty(); }
+    public String toDigest() {
+        StringBuilder builder = new StringBuilder();
+        if (!tablerefs.isEmpty()) {
+            builder.append(" FROM");
+            for (int i = 0; i < tablerefs.size(); ++i) {
+                builder.append(" " + tablerefs.get(i).toDigest());
+            }
+        }
+        return builder.toString();
+    }
+
+    public boolean isEmpty() {
+        return tablerefs.isEmpty();
+    }
 
     @Override
-    public Iterator<TableRef> iterator() { return tableRefs_.iterator(); }
-    public int size() { return tableRefs_.size(); }
-    public TableRef get(int i) { return tableRefs_.get(i); }
-    public void set(int i, TableRef tableRef) { tableRefs_.set(i, tableRef); }
-    public void add(TableRef t) { tableRefs_.add(t); }
-    public void addAll(List<TableRef> t) { tableRefs_.addAll(t); }
-    public void clear() { tableRefs_.clear(); }
+    public Iterator<TableRef> iterator() {
+        return tablerefs.iterator();
+    }
+
+    public int size() {
+        return tablerefs.size();
+    }
+
+    public TableRef get(int i) {
+        return tablerefs.get(i);
+    }
+
+    public void set(int i, TableRef tableRef) {
+        tablerefs.set(i, tableRef);
+    }
+
+    public void add(TableRef t) {
+        tablerefs.add(t);
+    }
+
+    public void addAll(List<TableRef> t) {
+        tablerefs.addAll(t);
+    }
+
+    public void clear() {
+        tablerefs.clear();
+    }
 }

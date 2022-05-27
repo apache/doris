@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/exprs/agg-fn-evaluator.cc
+// and modified by Doris
 
 #include "exprs/new_agg_fn_evaluator.h"
 
@@ -88,21 +91,13 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
-
-NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool,
-                                     const std::shared_ptr<MemTracker>& tracker, bool is_clone)
-        : _total_mem_consumption(0),
-          _accumulated_mem_consumption(0),
+NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, bool is_clone)
+        : _accumulated_mem_consumption(0),
           is_clone_(is_clone),
           agg_fn_(agg_fn),
-          mem_pool_(mem_pool),
-          _mem_tracker(tracker) {}
+          mem_pool_(mem_pool) {}
 
 NewAggFnEvaluator::~NewAggFnEvaluator() {
-    if (UNLIKELY(_total_mem_consumption > 0)) {
-        _mem_tracker->Release(_total_mem_consumption);
-    }
     DCHECK(closed_);
 }
 
@@ -121,11 +116,10 @@ Status NewAggFnEvaluator::Create(const AggFn& agg_fn, RuntimeState* state, Objec
     *result = nullptr;
 
     // Create a new AggFn evaluator.
-    NewAggFnEvaluator* agg_fn_eval =
-            pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, tracker, false));
+    NewAggFnEvaluator* agg_fn_eval = pool->add(new NewAggFnEvaluator(agg_fn, mem_pool, false));
 
     agg_fn_eval->agg_fn_ctx_.reset(FunctionContextImpl::create_context(
-            state, mem_pool, agg_fn.GetIntermediateTypeDesc(), agg_fn.GetOutputTypeDesc(),
+            state, mem_pool, agg_fn.get_intermediate_type_desc(), agg_fn.get_output_type_desc(),
             agg_fn.arg_type_descs(), 0, false));
 
     Status status;
@@ -229,7 +223,7 @@ void NewAggFnEvaluator::Close(const vector<NewAggFnEvaluator*>& evals, RuntimeSt
 
 void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_slot_desc,
                                    Tuple* dst) {
-    if (src->is_null) {
+    if (src->is_null && dst_slot_desc.is_nullable()) {
         dst->set_null(dst_slot_desc.null_indicator_offset());
         return;
     }
@@ -267,6 +261,8 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_STRING:
         *reinterpret_cast<StringValue*>(slot) =
                 StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
         return;
@@ -287,7 +283,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
 // This function would be replaced in codegen.
 void NewAggFnEvaluator::Init(Tuple* dst) {
     DCHECK(opened_);
-    DCHECK(agg_fn_.init_fn_ != nullptr);
+    DCHECK(agg_fn_._init_fn != nullptr);
     for (ExprContext* input_eval : input_evals_) {
         DCHECK(input_eval->opened());
     }
@@ -304,7 +300,7 @@ void NewAggFnEvaluator::Init(Tuple* dst) {
         sv->ptr = reinterpret_cast<uint8_t*>(slot);
         sv->len = type.len;
     }
-    reinterpret_cast<InitFn>(agg_fn_.init_fn_)(agg_fn_ctx_.get(), staging_intermediate_val_);
+    reinterpret_cast<InitFn>(agg_fn_._init_fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
     SetDstSlot(staging_intermediate_val_, slot_desc, dst);
     agg_fn_ctx_->impl()->set_num_updates(0);
     agg_fn_ctx_->impl()->set_num_removes(0);
@@ -320,7 +316,7 @@ static void SetAnyVal(const SlotDescriptor& desc, Tuple* tuple, AnyVal* dst) {
 // Utility to put val into an AnyVal struct
 inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& type,
                                            AnyVal* dst) {
-    if (slot == NULL) {
+    if (slot == nullptr) {
         dst->is_null = true;
         return;
     }
@@ -363,6 +359,8 @@ inline void NewAggFnEvaluator::set_any_val(const void* slot, const TypeDescripto
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_STRING:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -520,25 +518,25 @@ void NewAggFnEvaluator::Update(const TupleRow* row, Tuple* dst, void* fn) {
 }
 
 void NewAggFnEvaluator::Merge(Tuple* src, Tuple* dst) {
-    DCHECK(agg_fn_.merge_fn_ != nullptr);
+    DCHECK(agg_fn_._merge_fn != nullptr);
     const SlotDescriptor& slot_desc = intermediate_slot_desc();
     SetAnyVal(slot_desc, dst, staging_intermediate_val_);
     SetAnyVal(slot_desc, src, staging_merge_input_val_);
     // The merge fn always takes one input argument.
-    reinterpret_cast<UpdateFn1>(agg_fn_.merge_fn_)(agg_fn_ctx_.get(), *staging_merge_input_val_,
+    reinterpret_cast<UpdateFn1>(agg_fn_._merge_fn)(agg_fn_ctx_.get(), *staging_merge_input_val_,
                                                    staging_intermediate_val_);
     SetDstSlot(staging_intermediate_val_, slot_desc, dst);
 }
 
 void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& dst_slot_desc,
-                                            Tuple* dst, void* fn) {
+                                            Tuple* dst, void* fn, bool add_null) {
     // No fn was given and the src and dst are identical. Nothing to be done.
     if (fn == nullptr && src == dst) return;
     // src != dst means we are performing a Finalize(), so even if fn == null we
     // still must copy the value of the src slot into dst.
 
     const SlotDescriptor& slot_desc = intermediate_slot_desc();
-    bool src_slot_null = src->is_null(slot_desc.null_indicator_offset());
+    bool src_slot_null = add_null || src->is_null(slot_desc.null_indicator_offset());
     void* src_slot = nullptr;
     if (!src_slot_null) src_slot = src->get_slot(slot_desc.tuple_offset());
 
@@ -603,7 +601,9 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
-    case TYPE_OBJECT: {
+    case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_STRING: {
         typedef StringVal (*Fn)(FunctionContext*, AnyVal*);
         StringVal v = reinterpret_cast<Fn>(fn)(agg_fn_ctx_.get(), staging_intermediate_val_);
         SetDstSlot(&v, dst_slot_desc, dst);
@@ -630,7 +630,7 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src, const SlotDescriptor& ds
 void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
                                      NewAggFnEvaluator** cloned_eval) const {
     DCHECK(opened_);
-    *cloned_eval = pool->add(new NewAggFnEvaluator(agg_fn_, mem_pool, _mem_tracker, true));
+    *cloned_eval = pool->add(new NewAggFnEvaluator(agg_fn_, mem_pool, true));
     (*cloned_eval)->agg_fn_ctx_.reset(agg_fn_ctx_->impl()->clone(mem_pool));
     DCHECK_EQ((*cloned_eval)->input_evals_.size(), 0);
     (*cloned_eval)->input_evals_ = input_evals_;
@@ -649,13 +649,3 @@ void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
         cloned_evals->push_back(cloned_eval);
     }
 }
-
-//
-//void NewAggFnEvaluator::FreeLocalAllocations() {
-//  ExprContext::FreeLocalAllocations(input_evals_);
-//  agg_fn_ctx_->impl()->FreeLocalAllocations();
-//}
-
-//void NewAggFnEvaluator::FreeLocalAllocations(const vector<NewAggFnEvaluator*>& evals) {
-//  for (NewAggFnEvaluator* eval : evals) eval->FreeLocalAllocations();
-//}

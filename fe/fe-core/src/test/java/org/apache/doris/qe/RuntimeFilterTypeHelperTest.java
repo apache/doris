@@ -50,6 +50,30 @@ public class RuntimeFilterTypeHelperTest {
         runtimeFilterType = "IN,BLOOM_FILTER,MIN_MAX";
         Assert.assertEquals(new Long(7L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
 
+        runtimeFilterType = "IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(8L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "IN,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(9L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "BLOOM_FILTER,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(10L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "IN,BLOOM_FILTER,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(11L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "MIN_MAX,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(12L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "IN,MIN_MAX,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(13L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "BLOOM_FILTER,MIN_MAX,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(14L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
+        runtimeFilterType = "IN,BLOOM_FILTER,MIN_MAX,IN_OR_BLOOM_FILTER";
+        Assert.assertEquals(new Long(15L), RuntimeFilterTypeHelper.encode(runtimeFilterType));
+
         long runtimeFilterTypeValue = 0L;
         Assert.assertEquals("", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue));
 
@@ -61,6 +85,9 @@ public class RuntimeFilterTypeHelperTest {
 
         runtimeFilterTypeValue = 7L;
         Assert.assertEquals("BLOOM_FILTER,IN,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
+
+        runtimeFilterTypeValue = 15L;
+        Assert.assertEquals("BLOOM_FILTER,IN,IN_OR_BLOOM_FILTER,MIN_MAX", RuntimeFilterTypeHelper.decode(runtimeFilterTypeValue)); // Orderly
     }
 
     @Test(expected = DdlException.class)
@@ -71,7 +98,7 @@ public class RuntimeFilterTypeHelperTest {
 
     @Test(expected = DdlException.class)
     public void testInvalidDecode() throws DdlException {
-        RuntimeFilterTypeHelper.decode(10L);
+        RuntimeFilterTypeHelper.decode(16L);
         Assert.fail("No exception throws");
     }
 }

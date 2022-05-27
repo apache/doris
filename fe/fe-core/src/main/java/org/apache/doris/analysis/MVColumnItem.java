@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.base.Preconditions;
@@ -114,7 +114,7 @@ public class MVColumnItem {
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily test will core.
             // So, I comment this line firstly.
-//            result.setType(type);
+            // result.setType(type);
             result.setAggregationType(aggregationType, isAggregationTypeImplicit);
             return result;
         }

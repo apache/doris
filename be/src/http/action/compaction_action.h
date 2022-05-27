@@ -39,10 +39,11 @@ const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 /// See compaction-action.md for details.
 class CompactionAction : public HttpHandler {
 public:
-    CompactionAction(CompactionActionType type)
-            : _type(type) {
-              _compaction_mem_tracker = type == RUN_COMPACTION ?
-                  MemTracker::CreateTracker(-1, "ManualCompaction", nullptr, false, false, MemTrackerLevel::TASK) : nullptr;
+    CompactionAction(CompactionActionType type) : _type(type) {
+        _compaction_mem_tracker =
+                type == RUN_COMPACTION ? MemTracker::create_tracker(-1, "ManualCompaction", nullptr,
+                                                                    MemTrackerLevel::VERBOSE)
+                                       : nullptr;
     }
 
     virtual ~CompactionAction() {}
@@ -57,14 +58,15 @@ private:
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
-    OLAPStatus _execute_compaction_callback(TabletSharedPtr tablet,
-                                            const std::string& compaction_type);
+    Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
 
     /// fetch compaction running status
     Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
 
-    /// check param and fetch tablet_id and schema_hash from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id, uint32_t* schema_hash);
+    /// check param and fetch tablet_id from req
+    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
+
+    std::shared_ptr<CumulativeCompactionPolicy> _create_cumulative_compaction_policy();
 
 private:
     CompactionActionType _type;

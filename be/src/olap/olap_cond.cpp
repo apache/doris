@@ -35,25 +35,25 @@ using std::vector;
 
 using doris::ColumnStatistics;
 
-//此文件主要用于对用户发送的查询条件和删除条件进行处理，逻辑上二者都可以分为三层
+//This file is mainly used to process query conditions and delete conditions sent by users. Logically, both can be divided into three layers
 //Condition->Condcolumn->Cond
-//Condition表示用户发的单个条件
-//Condcolumn表示一列上所有条件的集合。
-//Conds表示一列上的单个条件.
-//对于查询条件而言，各层级的条件之间都是逻辑与的关系
-//对于delete条件则有不同。Cond和Condcolumn之间是逻辑与的关系，而Condtion之间是逻辑或的关系。
+//Condition represents a single condition sent by the user
+//Condcolumn represents the collection of all conditions on a column.
+//Conds represents a single condition on a column.
+//For query conditions, the conditions of each level are logical AND relationships
+//There are different conditions for delete. The relationship between Cond and Condcolumn is logical AND, and the relationship between Condtion is logical OR.
 
-//具体到实现。
-//eval是用来过滤查询条件，包括堆row、block、version的过滤，具体使用哪一层看具体的调用地方。
-//  1. 没有单独过滤行的过滤条件，这部分在查询层进行。
-//  2. 过滤block在SegmentReader里面。
-//  3. 过滤version在Reader里面。调用delta_pruing_filter
+//Specific to the realization.
+//eval is used to filter query conditions, including the filtering of heap row, block, and version. Which layer is used depends on the specific calling place.
+// 1. There is no filter condition to filter rows separately, this part is carried out in the query layer.
+// 2. The filter block is in the SegmentReader.
+// 3. Filter version in Reader. Call delta_pruing_filter
 //
-//del_eval用来过滤删除条件，包括堆block和version的过滤，但是这个过滤比eval多了一个状态，即部分过滤。
-//  1. 对行的过滤在DeleteHandler。
-//     这部分直接调用delete_condition_eval实现,内部调用eval函数，因为对row的过滤不涉及部分过滤这种状态。
-//  2. 过滤block是在SegmentReader里面,直接调用del_eval
-//  3. 过滤version实在Reader里面,调用rowset_pruning_filter
+//del_eval is used to filter deletion conditions, including the filtering of heap block and version, but this filtering has one more state than eval, that is, partial filtering.
+// 1. The filtering of rows is in DeleteHandler.
+// This part directly calls delete_condition_eval to achieve, and internally calls the eval function, because the filtering of row does not involve partial filtering.
+// 2. The filter block is in the SegmentReader, call del_eval directly
+// 3. The filter version is actually in Reader, call rowset_pruning_filter
 
 namespace doris {
 
@@ -96,13 +96,13 @@ Cond::~Cond() {
     max_value_field = nullptr;
 }
 
-OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
+Status Cond::init(const TCondition& tcond, const TabletColumn& column) {
     // Parse op type
     op = parse_op_type(tcond.condition_op);
     if (op == OP_NULL || (op != OP_IN && op != OP_NOT_IN && tcond.condition_values.size() != 1)) {
-        OLAP_LOG_WARNING("Condition op type is invalid. [name=%s, op=%d, size=%d]",
-                         tcond.column_name.c_str(), op, tcond.condition_values.size());
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        LOG(WARNING) << "Condition op type is invalid. [name=" << tcond.column_name << ", op=" << op
+                     << ", size=" << tcond.condition_values.size() << "]";
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
     if (op == OP_IS) {
         // 'is null' or 'is not null'
@@ -110,9 +110,9 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
-            OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
         if (strcasecmp(operand->c_str(), "NULL") == 0) {
             f->set_null();
@@ -125,14 +125,14 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         auto operand = tcond.condition_values.begin();
         std::unique_ptr<WrapperField> f(WrapperField::create(column, operand->length()));
         if (f == nullptr) {
-            OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
-        OLAPStatus res = f->from_string(*operand);
-        if (res != OLAP_SUCCESS) {
-            OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
-                             tcond.column_name.c_str(), operand->c_str(), op);
+        Status res = f->from_string(*operand);
+        if (!res.ok()) {
+            LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
+                         << ", operand=" << operand->c_str() << ", op_type=" << op << "]";
             return res;
         }
         operand_field = f.release();
@@ -142,14 +142,14 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         for (auto& operand : tcond.condition_values) {
             std::unique_ptr<WrapperField> f(WrapperField::create(column, operand.length()));
             if (f == nullptr) {
-                OLAP_LOG_WARNING("Create field failed. [name=%s, operand=%s, op_type=%d]",
-                                 tcond.column_name.c_str(), operand.c_str(), op);
-                return OLAP_ERR_INPUT_PARAMETER_ERROR;
+                LOG(WARNING) << "Create field failed. [name=" << tcond.column_name
+                             << ", operand=" << operand.c_str() << ", op_type=" << op << "]";
+                return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
             }
-            OLAPStatus res = f->from_string(operand);
-            if (res != OLAP_SUCCESS) {
-                OLAP_LOG_WARNING("Convert from string failed. [name=%s, operand=%s, op_type=%d]",
-                                 tcond.column_name.c_str(), operand.c_str(), op);
+            Status res = f->from_string(operand);
+            if (!res.ok()) {
+                LOG(WARNING) << "Convert from string failed. [name=" << tcond.column_name
+                             << ", operand=" << operand.c_str() << ", op_type=" << op << "]";
                 return res;
             }
             if (min_value_field == nullptr || f->cmp(min_value_field) < 0) {
@@ -171,12 +171,12 @@ OLAPStatus Cond::init(const TCondition& tcond, const TabletColumn& column) {
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool Cond::eval(const RowCursorCell& cell) const {
     if (cell.is_null() && op != OP_IS) {
-        //任何非OP_IS operand和NULL的运算都是false
+        //Any operation other than OP_IS operand and NULL is false
         return false;
     }
 
@@ -215,7 +215,7 @@ bool Cond::eval(const RowCursorCell& cell) const {
 }
 
 bool Cond::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-    //通过单列上的单个查询条件对version进行过滤
+    //A single query condition filtered by a single column
     // When we apply column statistic, Field can be NULL when type is Varchar,
     // we just ignore this cond
     if (statistic.first == nullptr || statistic.second == nullptr) {
@@ -386,20 +386,22 @@ int Cond::del_eval(const std::pair<WrapperField*, WrapperField*>& stat) const {
                 ret = DEL_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
-            } else if (!stat.first->is_null() && !stat.second->is_null()){
+            } else if (!stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
+                CHECK(false)
+                        << "It will not happen when the stat's min is not null and max is null";
             }
         } else {
             if (stat.first->is_null() && stat.second->is_null()) {
                 ret = DEL_NOT_SATISFIED;
             } else if (stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_PARTIAL_SATISFIED;
-            } else if (!stat.first->is_null() && !stat.second->is_null()){
+            } else if (!stat.first->is_null() && !stat.second->is_null()) {
                 ret = DEL_SATISFIED;
             } else {
-                CHECK(false) << "It will not happen when the stat's min is not null and max is null";
+                CHECK(false)
+                        << "It will not happen when the stat's min is not null and max is null";
             }
         }
         return ret;
@@ -440,7 +442,7 @@ bool Cond::eval(const BloomFilter& bf) const {
         return false;
     }
     case OP_IS: {
-        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        // IS [NOT] nullptr can only used in to filter IS nullptr predicate.
         if (operand_field->is_null()) {
             return bf.test_bytes(nullptr, 0);
         }
@@ -481,7 +483,7 @@ bool Cond::eval(const segment_v2::BloomFilter* bf) const {
         return false;
     }
     case OP_IS: {
-        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        // IS [NOT] nullptr can only used in to filter IS nullptr predicate.
         return operand_field->is_null() == bf->test_bytes(nullptr, 0);
     }
     default:
@@ -498,14 +500,14 @@ CondColumn::~CondColumn() {
 }
 
 // PRECONDITION 1. index is valid; 2. at least has one operand
-OLAPStatus CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
+Status CondColumn::add_cond(const TCondition& tcond, const TabletColumn& column) {
     std::unique_ptr<Cond> cond(new Cond());
     auto res = cond->init(tcond, column);
-    if (res != OLAP_SUCCESS) {
+    if (!res.ok()) {
         return res;
     }
     _conds.push_back(cond.release());
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 bool CondColumn::eval(const RowCursor& row) const {
@@ -520,7 +522,7 @@ bool CondColumn::eval(const RowCursor& row) const {
     return true;
 }
 
-bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*> &statistic) const {
+bool CondColumn::eval(const std::pair<WrapperField*, WrapperField*>& statistic) const {
     for (auto& each_cond : _conds) {
         // As long as there is one condition not satisfied, we can return false
         if (!each_cond->eval(statistic)) {
@@ -585,18 +587,18 @@ bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
     return true;
 }
 
-OLAPStatus Conditions::append_condition(const TCondition& tcond) {
+Status Conditions::append_condition(const TCondition& tcond) {
     DCHECK(_schema != nullptr);
     int32_t index = _schema->field_index(tcond.column_name);
     if (index < 0) {
         LOG(WARNING) << "fail to get field index, field name=" << tcond.column_name;
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     // Skip column which is non-key, or whose type is string or float
     const TabletColumn& column = _schema->column(index);
     if (column.type() == OLAP_FIELD_TYPE_DOUBLE || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     CondColumn* cond_col = nullptr;
@@ -623,7 +625,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
 
     VLOG_NOTICE << "Row meets the delete conditions. "
-            << "condition_count=" << _columns.size() << ", row=" << row.to_string();
+                << "condition_count=" << _columns.size() << ", row=" << row.to_string();
     return true;
 }
 

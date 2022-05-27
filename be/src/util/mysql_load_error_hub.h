@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
-#define DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H
+#pragma once
 
+#include <array>
 #include <mutex>
 #include <queue>
 #include <sstream>
@@ -100,5 +100,3 @@ private:
 }; // end class MysqlLoadErrorHub
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_UTIL_MYSQL_LOAD_ERROR_HUB_H

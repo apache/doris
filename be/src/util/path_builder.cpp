@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/path-builder.cc
+// and modified by Doris
 
 #include "util/path_builder.h"
 
@@ -26,7 +29,7 @@ namespace doris {
 const char* PathBuilder::_s_doris_home;
 
 void PathBuilder::load_doris_home() {
-    if (_s_doris_home != NULL) {
+    if (_s_doris_home != nullptr) {
         return;
     }
 

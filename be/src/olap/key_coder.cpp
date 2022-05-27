@@ -71,6 +71,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_DECIMAL>();
         add_mapping<OLAP_FIELD_TYPE_CHAR>();
         add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
+        add_mapping<OLAP_FIELD_TYPE_STRING>();
         add_mapping<OLAP_FIELD_TYPE_BOOL>();
     }
 

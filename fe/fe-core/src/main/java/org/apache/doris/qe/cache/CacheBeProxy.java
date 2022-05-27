@@ -53,7 +53,7 @@ public class CacheBeProxy extends CacheProxy {
         try {
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance()
                     .updateCache(address, request);
-            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
             } else {
@@ -109,6 +109,7 @@ public class CacheBeProxy extends CacheProxy {
                 try {
                     Thread.sleep(1000); //sleep 1 second
                 } catch (Exception e) {
+                    // CHECKSTYLE IGNORE THIS LINE
                 }
             }
             if (retry >= 3) {
@@ -125,7 +126,7 @@ public class CacheBeProxy extends CacheProxy {
             request = request.toBuilder().setClearType(InternalService.PClearType.CLEAR_ALL).build();
             LOG.info("clear all backend cache, backendId {}", backend.getId());
             Future<InternalService.PCacheResponse> future = BackendServiceProxy.getInstance().clearCache(address, request);
-            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
+            InternalService.PCacheResponse response = future.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (response.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
                 return true;
@@ -135,7 +136,6 @@ public class CacheBeProxy extends CacheProxy {
             }
         } catch (Exception e) {
             LOG.warn("clear cache exception, backendId {}", backend.getId(), e);
-        } finally {
         }
         return false;
     }

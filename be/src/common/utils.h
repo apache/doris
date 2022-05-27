@@ -21,6 +21,10 @@
 
 namespace doris {
 
+#ifndef ARRAY_SIZE
+#define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
 struct AuthInfo {
     std::string user;
     std::string passwd;
@@ -51,6 +55,24 @@ void set_request_auth(T* req, const AuthInfo& auth) {
         }
         req->__set_user_ip(auth.user_ip);
     }
+}
+
+// This is the threshold used to periodically release the memory occupied by the expression.
+// RELEASE_CONTEXT_COUNTER should be power of 2
+// GCC will optimize the modulo operation to &(release_context_counter - 1)
+// _conjunct_ctxs will free local alloc after this probe calculations
+static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 7;
+static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
+              "should be power of 2");
+
+template <typename To, typename From>
+static inline To convert_to(From from) {
+    union {
+        From _from;
+        To _to;
+    };
+    _from = from;
+    return _to;
 }
 
 } // namespace doris

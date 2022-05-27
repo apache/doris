@@ -22,7 +22,6 @@ import org.apache.doris.common.util.Util;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.multipart.MultipartFile;
@@ -96,7 +95,7 @@ public class TmpFileMgr {
             throw new TmpFileException("Total file size will exceed limit " + MAX_TOTAL_FILE_SIZE_BYTES);
         }
 
-        if(fileMap.size() > MAX_TOTAL_FILE_NUM) {
+        if (fileMap.size() > MAX_TOTAL_FILE_NUM) {
             throw new TmpFileException("Number of temp file " + fileMap.size() + " exceed limit " + MAX_TOTAL_FILE_NUM);
         }
 
@@ -187,7 +186,7 @@ public class TmpFileMgr {
             lines = Lists.newArrayList();
             String escapedColSep = Util.escapeSingleRegex(columnSeparator);
             try (FileReader fr = new FileReader(absPath);
-                 BufferedReader bf = new BufferedReader(fr)) {
+                    BufferedReader bf = new BufferedReader(fr)) {
                 String str;
                 while ((str = bf.readLine()) != null) {
                     String[] cols = str.split(escapedColSep, -1); // -1 to keep the last empty column
@@ -304,4 +303,3 @@ public class TmpFileMgr {
         }
     }
 }
-

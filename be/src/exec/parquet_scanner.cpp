@@ -17,34 +17,19 @@
 
 #include "exec/parquet_scanner.h"
 
+#include "exec/arrow/parquet_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
+#include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
-#include "exec/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exprs/expr.h"
-#include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/raw_value.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_pipe.h"
 #include "runtime/tuple.h"
-#include "exec/parquet_reader.h"
-#include "exprs/expr.h"
-#include "exec/text_converter.h"
-#include "exec/text_converter.hpp"
-#include "exec/local_file_reader.h"
-#include "exec/broker_reader.h"
-#include "exec/buffered_reader.h"
-#include "exec/decompressor.h"
-#include "exec/parquet_reader.h"
-
-#if defined(__x86_64__)
-    #include "exec/hdfs_file_reader.h"
-#endif
 
 namespace doris {
 
@@ -52,16 +37,11 @@ ParquetScanner::ParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                                const TBrokerScanRangeParams& params,
                                const std::vector<TBrokerRangeDesc>& ranges,
                                const std::vector<TNetworkAddress>& broker_addresses,
-                               const std::vector<ExprContext*>& pre_filter_ctxs,
-                               ScannerCounter* counter)
-        : BaseScanner(state, profile, params, pre_filter_ctxs, counter),
-          _ranges(ranges),
-          _broker_addresses(broker_addresses),
+                               const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter)
+        : BaseScanner(state, profile, params, ranges, broker_addresses, pre_filter_texprs, counter),
           // _splittable(params.splittable),
           _cur_file_reader(nullptr),
-          _next_range(0),
-          _cur_file_eof(false),
-          _scanner_eof(false) {}
+          _cur_file_eof(false) {}
 
 ParquetScanner::~ParquetScanner() {
     close();
@@ -71,7 +51,7 @@ Status ParquetScanner::open() {
     return BaseScanner::open();
 }
 
-Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
+Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
     SCOPED_TIMER(_read_timer);
     // Get one line
     while (!_scanner_eof) {
@@ -94,15 +74,11 @@ Status ParquetScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        if (fill_dest_tuple(tuple, tuple_pool)) {
-            break; // break if true
-        }
+        RETURN_IF_ERROR(fill_dest_tuple(tuple, tuple_pool, fill_tuple));
+        break; // break always
     }
-    if (_scanner_eof) {
-        *eof = true;
-    } else {
-        *eof = false;
-    }
+
+    *eof = _scanner_eof;
     return Status::OK();
 }
 
@@ -131,13 +107,11 @@ Status ParquetScanner::open_next_reader() {
             break;
         }
         case TFileType::FILE_HDFS: {
-#if defined(__x86_64__)
-            file_reader.reset(new HdfsFileReader(
-                    range.hdfs_params, range.path, range.start_offset));
+            FileReader* reader;
+            RETURN_IF_ERROR(HdfsReaderWriter::create_reader(range.hdfs_params, range.path,
+                                                            range.start_offset, &reader));
+            file_reader.reset(reader);
             break;
-#else
-            return Status::InternalError("HdfsFileReader do not support on non x86 platform");
-#endif
         }
         case TFileType::FILE_BROKER: {
             int64_t file_size = 0;
@@ -146,26 +120,16 @@ Status ParquetScanner::open_next_reader() {
                 file_size = range.file_size;
             }
             file_reader.reset(new BufferedReader(
+                    _profile,
                     new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
                                      range.path, range.start_offset, file_size)));
             break;
         }
         case TFileType::FILE_S3: {
             file_reader.reset(new BufferedReader(
-                    new S3Reader(_params.properties, range.path, range.start_offset)));
+                    _profile, new S3Reader(_params.properties, range.path, range.start_offset)));
             break;
         }
-#if 0
-            case TFileType::FILE_STREAM:
-        {
-            _stream_load_pipe = _state->exec_env()->load_stream_mgr()->get(range.load_id);
-            if (_stream_load_pipe == nullptr) {
-                return Status::InternalError("unknown stream load id");
-            }
-            _cur_file_reader = _stream_load_pipe.get();
-            break;
-        }
-#endif
         default: {
             std::stringstream ss;
             ss << "Unknown file type, type=" << range.file_type;
@@ -177,14 +141,14 @@ Status ParquetScanner::open_next_reader() {
             file_reader->close();
             continue;
         }
+        int32_t num_of_columns_from_file = _src_slot_descs.size();
         if (range.__isset.num_of_columns_from_file) {
-            _cur_file_reader =
-                    new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
-        } else {
-            _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _src_slot_descs.size());
+            num_of_columns_from_file = range.num_of_columns_from_file;
         }
+        _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _state->batch_size(),
+                                                 num_of_columns_from_file);
 
-        Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs, _state->timezone());
+        Status status = _cur_file_reader->init_reader(_src_slot_descs, _state->timezone());
 
         if (status.is_end_of_file()) {
             continue;
@@ -201,6 +165,7 @@ Status ParquetScanner::open_next_reader() {
 }
 
 void ParquetScanner::close() {
+    BaseScanner::close();
     if (_cur_file_reader != nullptr) {
         if (_stream_load_pipe != nullptr) {
             _stream_load_pipe.reset();

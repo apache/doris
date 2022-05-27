@@ -17,8 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.gson.Gson;
-import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
+import org.apache.doris.alter.DecommissionType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.AnalysisException;
@@ -35,7 +34,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-
+import com.google.gson.Gson;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,7 +51,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg").add("Version").add("Status")
+            .add("MaxDiskUsedPct").add("Tag").add("ErrMsg").add("Version").add("Status")
             .build();
 
     public static final int HOSTNAME_INDEX = 3;
@@ -78,12 +77,12 @@ public class BackendsProcDir implements ProcDirInterface {
         }
         return result;
     }
-   
+
     /**
      * get backends of cluster
      * @param clusterName
      * @return
-     */ 
+     */
     public static List<List<String>> getClusterBackendInfos(String clusterName) {
         final SystemInfoService clusterInfoService = Catalog.getCurrentSystemInfo();
         List<List<String>> backendInfos = new LinkedList<>();
@@ -164,18 +163,22 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfo.add(String.format("%.2f", used) + " %");
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
-
+            // tag
+            backendInfo.add(backend.getTag().toString());
+            // err msg
             backendInfo.add(backend.getHeartbeatErrMsg());
+            // version
             backendInfo.add(backend.getVersion());
+            // status
             backendInfo.add(new Gson().toJson(backend.getBackendStatus()));
 
             comparableBackendInfos.add(backendInfo);
         }
 
         // backends proc node get result too slow, add log to observer.
-        LOG.info("backends proc get tablet num cost: {}, total cost: {}",
-                 watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
-         
+        LOG.debug("backends proc get tablet num cost: {}, total cost: {}",
+                watch.elapsed(TimeUnit.MILLISECONDS), (System.currentTimeMillis() - start));
+
         // sort by cluster name, host name
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(1, 3);
         comparableBackendInfos.sort(comparator);
@@ -187,7 +190,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
             backendInfos.add(oneInfo);
         }
-        
+
         return backendInfos;
     }
 
@@ -218,5 +221,3 @@ public class BackendsProcDir implements ProcDirInterface {
     }
 
 }
-
-

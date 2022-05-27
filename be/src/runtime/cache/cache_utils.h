@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_CACHE_UTILS_H
-#define DORIS_BE_SRC_RUNTIME_CACHE_UTILS_H
+#pragma once
 
 #include <gutil/integral_types.h>
 #include <sys/time.h>
 
 #include <algorithm>
-#include <boost/thread.hpp>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -31,6 +29,7 @@
 #include <list>
 #include <map>
 #include <shared_mutex>
+#include <thread>
 
 namespace doris {
 
@@ -49,9 +48,9 @@ struct CacheStat {
     uint32 read_count;
     CacheStat() { init(); }
 
-    inline long cache_time_second() {
+    long cache_time_second() {
         struct timeval tv;
-        gettimeofday(&tv, NULL);
+        gettimeofday(&tv, nullptr);
         return tv.tv_sec;
     }
 
@@ -84,4 +83,3 @@ struct CacheStat {
 };
 
 } // namespace doris
-#endif

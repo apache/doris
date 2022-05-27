@@ -17,12 +17,9 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-
-import org.json.JSONException;
-import org.json.JSONObject;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
+import org.junit.Assert;
 import org.junit.Test;
 
 public class EsUtilTest {
@@ -47,21 +44,21 @@ public class EsUtilTest {
 
     @Test
     public void testGetJsonObject() {
-        JSONObject json = new JSONObject(jsonStr);
+        JSONObject json = (JSONObject) JSONValue.parse(jsonStr);
         JSONObject upperBoundSetting = EsUtil.getJsonObject(json, "settings.index.bpack.partition", 0);
-        assertTrue(upperBoundSetting.has("upperbound"));
-        assertEquals("12", upperBoundSetting.getString("upperbound"));
+        Assert.assertTrue(upperBoundSetting.containsKey("upperbound"));
+        Assert.assertEquals("12", (String) upperBoundSetting.get("upperbound"));
 
         JSONObject unExistKey = EsUtil.getJsonObject(json, "set", 0);
-        assertNull(unExistKey);
+        Assert.assertNull(unExistKey);
 
         JSONObject singleKey = EsUtil.getJsonObject(json, "settings", 0);
-        assertTrue(singleKey.has("index"));
+        Assert.assertTrue(singleKey.containsKey("index"));
     }
 
-    @Test(expected = JSONException.class)
+    @Test(expected = ClassCastException.class)
     public void testGetJsonObjectWithException() {
-        JSONObject json = new JSONObject(jsonStr);
+        JSONObject json = (JSONObject) JSONValue.parse(jsonStr);
         // only support json object could not get string value directly from this api, exception will be threw
         EsUtil.getJsonObject(json, "settings.index.bpack.partition.upperbound", 0);
     }

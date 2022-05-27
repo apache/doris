@@ -18,8 +18,6 @@
 #include "runtime/message_body_sink.h"
 
 #include <fcntl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 #include <algorithm>
 
@@ -67,7 +65,7 @@ Status MessageBodyFileSink::finish() {
     return Status::OK();
 }
 
-void MessageBodyFileSink::cancel() {
+void MessageBodyFileSink::cancel(const std::string& reason) {
     unlink(_path.data());
 }
 

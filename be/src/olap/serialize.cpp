@@ -23,10 +23,10 @@
 namespace doris {
 namespace ser {
 
-OLAPStatus write_var_unsigned(OutStream* stream, int64_t value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status write_var_unsigned(OutStream* stream, int64_t value) {
+    Status res = Status::OK();
 
-    while (res == OLAP_SUCCESS) {
+    while (res.ok()) {
         if ((value & ~0x7f) == 0) {
             return stream->write((char)value);
         } else {
@@ -38,8 +38,8 @@ OLAPStatus write_var_unsigned(OutStream* stream, int64_t value) {
     return res;
 }
 
-OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
-    OLAPStatus res;
+Status read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
+    Status res;
     int64_t result = 0;
     uint32_t offset = 0;
     char byte = 0;
@@ -47,9 +47,9 @@ OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
     do {
         res = stream->read(&byte);
 
-        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-            OLAP_LOG_WARNING("fail to read stream. [res=%d]", res);
-            return OLAP_ERR_COLUMN_DATA_READ_VAR_INT;
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to read stream. res = " << res;
+            return Status::OLAPInternalError(OLAP_ERR_COLUMN_DATA_READ_VAR_INT);
         }
 
         result |= ((int64_t)(0x7f & byte)) << offset;
@@ -57,7 +57,7 @@ OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
     } while (byte & 0x80);
 
     *value = result;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 uint32_t find_closet_num_bits(int64_t value) {
@@ -70,19 +70,19 @@ uint32_t find_closet_num_bits(int64_t value) {
     return get_closet_fixed_bits(count);
 }
 
-OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value) {
+    Status res = Status::OK();
     int64_t out = 0;
 
     // TODO(lijiao) : 为什么不直接用switch-case(会更快)
     while (n > 0) {
         --n;
         // store it in a long and then shift else integer overflow will occur
-        uint8_t byte;
+        // TODO(yiguolei): why not init it before
+        uint8_t byte = 0;
         res = stream->read((char*)&byte);
 
-        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-            OLAP_LOG_WARNING("fail to read stream. [res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
             return res;
         }
 
@@ -91,7 +91,7 @@ OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* valu
     }
 
     *value = out;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 uint32_t encode_bit_width(uint32_t n) {
@@ -208,8 +208,8 @@ uint32_t percentile_bits(int64_t* data, uint16_t count, double p) {
     return 0;
 }
 
-OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width) {
+    Status res = Status::OK();
     uint32_t bits_left = 8;
     char current = 0;
 
@@ -226,8 +226,8 @@ OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t
             value &= (1UL << bits_to_write) - 1;
             res = output->write(current);
 
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-                OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
+            if (OLAP_UNLIKELY(!res.ok())) {
+                LOG(WARNING) << "fail to write byte to stream.res = " << res;
                 return res;
             }
 
@@ -241,8 +241,8 @@ OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t
         if (bits_left == 0) {
             res = output->write(current);
 
-            if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-                OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
+            if (OLAP_UNLIKELY(!res.ok())) {
+                LOG(WARNING) << "fail to write byte to stream.res = " << res;
                 return res;
             }
 
@@ -254,17 +254,17 @@ OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t
     if (bits_left != 8) {
         res = output->write(current);
 
-        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-            OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to write byte to stream.res = " << res;
             return res;
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width) {
+    Status res = Status::OK();
     uint32_t bits_left = 0;
     char current = '\0';
 
@@ -308,8 +308,8 @@ OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, u
                 bits_left_to_read -= bits_left;
                 res = input->read(&current);
 
-                if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-                    OLAP_LOG_WARNING("fail to write byte to stream.[res=%d]", res);
+                if (OLAP_UNLIKELY(!res.ok())) {
+                    LOG(WARNING) << "fail to write byte to stream.res = " << res;
                     return res;
                 }
 

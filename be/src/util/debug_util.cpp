@@ -41,41 +41,6 @@
 
 namespace doris {
 
-#define THRIFT_ENUM_OUTPUT_FN_IMPL(E, MAP)                         \
-    std::ostream& operator<<(std::ostream& os, const E::type& e) { \
-        std::map<int, const char*>::const_iterator i;              \
-        i = MAP.find(e);                                           \
-        if (i != MAP.end()) {                                      \
-            os << i->second;                                       \
-        }                                                          \
-        return os;                                                 \
-    }
-
-// Macro to stamp out operator<< for thrift enums.  Why doesn't thrift do this?
-#define THRIFT_ENUM_OUTPUT_FN(E) THRIFT_ENUM_OUTPUT_FN_IMPL(E, _##E##_VALUES_TO_NAMES)
-
-// Macro to implement Print function that returns string for thrift enums
-#define THRIFT_ENUM_PRINT_FN(E)              \
-    std::string Print##E(const E::type& e) { \
-        std::stringstream ss;                \
-        ss << e;                             \
-        return ss.str();                     \
-    }
-
-THRIFT_ENUM_OUTPUT_FN(TExprOpcode);
-THRIFT_ENUM_OUTPUT_FN(TAggregationOp);
-THRIFT_ENUM_OUTPUT_FN(THdfsFileFormat);
-THRIFT_ENUM_OUTPUT_FN(THdfsCompression);
-THRIFT_ENUM_OUTPUT_FN(TStmtType);
-THRIFT_ENUM_OUTPUT_FN(QueryState);
-THRIFT_ENUM_OUTPUT_FN(TAgentServiceVersion);
-
-THRIFT_ENUM_PRINT_FN(TStmtType);
-THRIFT_ENUM_PRINT_FN(QueryState);
-
-THRIFT_ENUM_PRINT_FN(TMetricKind);
-THRIFT_ENUM_PRINT_FN(TUnit);
-
 std::string print_plan_node_type(const TPlanNodeType::type& type) {
     std::map<int, const char*>::const_iterator i;
     i = _TPlanNodeType_VALUES_TO_NAMES.find(type);

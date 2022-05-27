@@ -19,12 +19,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.mysql.nio.NMysqlServer;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.IOException;
-
-// 这是整个前端服务的包装，包括创建支持MySQL协议的服务
+/**
+ * This is the encapsulation of the entire front-end service,
+ * including the creation of services that support the MySQL protocol
+ */
 public class QeService {
     private static final Logger LOG = LogManager.getLogger(QeService.class);
 
@@ -38,12 +40,7 @@ public class QeService {
     }
 
     public QeService(int port, boolean nioEnabled, ConnectScheduler scheduler) {
-        // Set up help module
-        try {
-            HelpModule.getInstance().setUpModule();
-        } catch (Exception e) {
-            LOG.error("Help module failed, because:", e);
-        }
+
         this.port = port;
         if (nioEnabled) {
             mysqlServer = new NMysqlServer(port, scheduler);
@@ -52,7 +49,15 @@ public class QeService {
         }
     }
 
-    public void start() throws IOException {
+    public void start() throws Exception {
+        // Set up help module
+        try {
+            HelpModule.getInstance().setUpModule();
+        } catch (Exception e) {
+            LOG.warn("Help module failed, because:", e);
+            throw e;
+        }
+
         if (!mysqlServer.start()) {
             LOG.error("mysql server start failed");
             System.exit(-1);
@@ -69,4 +74,3 @@ public class QeService {
     }
 
 }
-

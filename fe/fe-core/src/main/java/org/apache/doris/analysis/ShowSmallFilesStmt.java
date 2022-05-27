@@ -48,7 +48,9 @@ public class ShowSmallFilesStmt extends ShowStmt {
         this.dbName = dbName;
     }
 
-    public String getDbName() { return dbName; }
+    public String getDbName() {
+        return dbName;
+    }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
@@ -64,7 +66,7 @@ public class ShowSmallFilesStmt extends ShowStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DB_ACCESS_DENIED, ConnectContext.get().getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
     }
 

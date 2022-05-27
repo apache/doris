@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/CaseExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -29,6 +32,7 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * CASE and DECODE are represented using this class. The backend implementation is
@@ -96,6 +100,11 @@ public class CaseExpr extends Expr {
     }
 
     @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), hasCaseExpr, hasElseExpr);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (!super.equals(obj)) {
             return false;
@@ -124,6 +133,24 @@ public class CaseExpr extends Expr {
         }
         output.append(" END");
         return output.toString();
+    }
+
+    @Override
+    public String toDigestImpl() {
+        StringBuilder sb = new StringBuilder("CASE");
+        int childIdx = 0;
+        if (hasCaseExpr) {
+            sb.append(" ").append(children.get(childIdx++).toDigest());
+        }
+        while (childIdx + 2 <= children.size()) {
+            sb.append(" WHEN ").append(children.get(childIdx++).toDigest());
+            sb.append(" THEN ").append(children.get(childIdx++).toDigest());
+        }
+        if (hasElseExpr) {
+            sb.append(" ELSE ").append(children.get(children.size() - 1).toDigest());
+        }
+        sb.append(" END");
+        return sb.toString();
     }
 
     @Override
@@ -214,25 +241,25 @@ public class CaseExpr extends Expr {
         // Add casts to case expr to compatible type.
         if (hasCaseExpr) {
             // Cast case expr.
-            if (children.get(0).type != whenType) {
+            if (!children.get(0).getType().equals(whenType)) {
                 castChild(whenType, 0);
             }
             // Add casts to when exprs to compatible type.
             for (int i = loopStart; i < loopEnd; i += 2) {
-                if (children.get(i).type != whenType) {
+                if (!children.get(i).getType().equals(whenType)) {
                     castChild(whenType, i);
                 }
             }
         }
         // Cast then exprs to compatible type.
         for (int i = loopStart + 1; i < children.size(); i += 2) {
-            if (children.get(i).type != returnType) {
+            if (!children.get(i).getType().equals(returnType)) {
                 castChild(returnType, i);
             }
         }
         // Cast else expr to compatible type.
         if (hasElseExpr) {
-            if (children.get(children.size() - 1).type != returnType) {
+            if (!children.get(children.size() - 1).getType().equals(returnType)) {
                 castChild(returnType, children.size() - 1);
             }
         }
@@ -375,4 +402,31 @@ public class CaseExpr extends Expr {
         return false;
     }
 
+    @Override
+    public boolean isNullable() {
+        int loopStart;
+        int loopEnd = children.size();
+        if (hasCaseExpr) {
+            loopStart = 2;
+        } else {
+            loopStart = 1;
+        }
+        if (hasElseExpr) {
+            --loopEnd;
+        }
+        for (int i = loopStart; i < loopEnd; i += 2) {
+            Expr thenExpr = children.get(i);
+            if (thenExpr.isNullable()) {
+                return true;
+            }
+        }
+        if (hasElseExpr) {
+            if (children.get(children.size() - 1).isNullable()) {
+                return true;
+            }
+        } else {
+            return true;
+        }
+        return false;
+    }
 }

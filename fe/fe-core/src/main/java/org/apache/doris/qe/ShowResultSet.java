@@ -17,40 +17,31 @@
 
 package org.apache.doris.qe;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.TColumnDefinition;
 import org.apache.doris.thrift.TShowResultSet;
 import org.apache.doris.thrift.TShowResultSetMetaData;
 
 import com.google.common.collect.Lists;
 
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
+import java.util.ArrayList;
+import java.util.List;
 
 // Result set of show statement.
 // Redefine ResultSet now, because JDBC is too complicated.
 // TODO(zhaochun): Maybe interface is better.
-public class ShowResultSet {
-    private static final Logger LOG = LogManager.getLogger(ShowResultSet.class);
-    private ShowResultSetMetaData metaData;
-    private List<List<String>> resultRows;
-    int rowIdx;
+public class ShowResultSet extends AbstractResultSet {
 
-    // now only support static result.
-    public ShowResultSet(ShowResultSetMetaData metaData, List<List<String>> resultRows) {
-        this.metaData = metaData;
-        this.resultRows = resultRows;
-        rowIdx = -1;
+    public ShowResultSet(ResultSetMetaData metaData, List<List<String>> resultRows) {
+        super(metaData, resultRows);
     }
-     
+
     public ShowResultSet(TShowResultSet resultSet) {
         List<Column> columns = Lists.newArrayList();
-        for (int i = 0; i < resultSet.getMetaData().getColumnsSize(); i ++) {
+        for (int i = 0; i < resultSet.getMetaData().getColumnsSize(); i++) {
             TColumnDefinition definition = (TColumnDefinition) resultSet.getMetaData().getColumns().get(i);
             columns.add(new Column(
                             definition.getColumnName(),
@@ -60,63 +51,26 @@ public class ShowResultSet {
         this.metaData = new ShowResultSetMetaData(columns);
         this.resultRows = resultSet.getResultRows();
         this.rowIdx = -1;
-        
     }
 
-    public boolean next() {
-        if (rowIdx + 1 >= resultRows.size()) {
-            return false;
-        }
-        rowIdx++;
-        return true;
-    }
-
-    public List<List<String>> getResultRows() {
-        return resultRows;
-    }
-
-    public ShowResultSetMetaData getMetaData() {
-        return metaData;
-    }
-
-    public String getString(int col) {
-        return resultRows.get(rowIdx).get(col);
-    }
-
-    public byte getByte(int col) {
-        return Byte.valueOf(getString(col));
-    }
-
-    public int getInt(int col) {
-        return Integer.valueOf(getString(col));
-    }
-
-    public long getLong(int col) {
-        return Long.valueOf(getString(col));
-    }
-
-    public short getShort(int col) {
-        return Short.valueOf(getString(col));
-    }
-    
     public TShowResultSet tothrift() {
         TShowResultSet set = new TShowResultSet();
         set.metaData = new TShowResultSetMetaData();
-        for (int i = 0; i < metaData.getColumnCount(); i ++) {
+        for (int i = 0; i < metaData.getColumnCount(); i++) {
             Column definition = metaData.getColumn(i);
             set.metaData.addToColumns(new TColumnDefinition(
                     definition.getName(), definition.getOriginType().toColumnTypeThrift())
             );
         }
-         
+
         set.resultRows = Lists.newArrayList();
-        for (int i = 0; i < resultRows.size(); i ++) {
+        for (int i = 0; i < resultRows.size(); i++) {
             ArrayList<String> list = Lists.newArrayList();
-            for (int j = 0; j < resultRows.get(i).size(); j ++) {
-                list.add(resultRows.get(i).get(j));
+            for (int j = 0; j < resultRows.get(i).size(); j++) {
+                list.add(resultRows.get(i).get(j) == null ? FeConstants.null_string : resultRows.get(i).get(j));
             }
             set.resultRows.add(list);
-        }    
+        }
         return set;
     }
 }

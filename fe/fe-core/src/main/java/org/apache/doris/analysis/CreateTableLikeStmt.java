@@ -18,14 +18,20 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Joiner;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
 
 /**
  * @author wangcong
@@ -38,11 +44,18 @@ public class CreateTableLikeStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final TableName tableName;
     private final TableName existedTableName;
+    private final ArrayList<String> rollupNames;
+    private final boolean withAllRollup;
 
-    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName) {
+    public CreateTableLikeStmt(boolean ifNotExists, TableName tableName, TableName existedTableName, ArrayList<String> rollupNames, boolean withAllRollup) throws DdlException {
         this.ifNotExists = ifNotExists;
         this.tableName = tableName;
         this.existedTableName = existedTableName;
+        if (!CollectionUtils.isEmpty(rollupNames) && withAllRollup) {
+            throw new DdlException("Either all or part of the rollup can be copied, not both");
+        }
+        this.rollupNames = rollupNames;
+        this.withAllRollup = withAllRollup;
     }
 
     public boolean isIfNotExists() {
@@ -65,6 +78,14 @@ public class CreateTableLikeStmt extends DdlStmt {
         return existedTableName.getTbl();
     }
 
+    public ArrayList<String> getRollupNames() {
+        return rollupNames;
+    }
+
+    public boolean isWithAllRollup() {
+        return withAllRollup;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -85,7 +106,15 @@ public class CreateTableLikeStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return String.format("CREATE TABLE %s LIKE %s", tableName.toSql(), existedTableName.toSql());
+        StringBuilder sb = new StringBuilder();
+        sb.append("CREATE TABLE ").append(tableName.toSql()).append(" LIKE ").append(existedTableName.toSql());
+        if (withAllRollup && CollectionUtils.isEmpty(rollupNames)) {
+            sb.append(" WITH ROLLUP");
+        }
+        if (!withAllRollup && !CollectionUtils.isEmpty(rollupNames)) {
+            sb.append(" WITH ROLLUP (").append(Joiner.on(",").join(rollupNames)).append(")");
+        }
+        return sb.toString();
     }
 
     @Override

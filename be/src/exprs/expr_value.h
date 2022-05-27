@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/expr-value.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_EXPR_VALUE_H
+#pragma once
 
 #include "runtime/collection_value.h"
 #include "runtime/datetime_value.h"
@@ -57,7 +59,7 @@ struct ExprValue {
               float_val(0.0),
               double_val(0.0),
               string_data(),
-              string_val(NULL, 0),
+              string_val(),
               datetime_val(),
               decimalv2_val(0),
               array_val() {}
@@ -100,7 +102,7 @@ struct ExprValue {
     void* set_to_zero(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -140,7 +142,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -148,7 +150,7 @@ struct ExprValue {
     void* set_to_min(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = false;
@@ -175,11 +177,11 @@ struct ExprValue {
             return &large_int_val;
 
         case TYPE_FLOAT:
-            float_val = std::numeric_limits<float>::min();
+            float_val = std::numeric_limits<float>::lowest();
             return &float_val;
 
         case TYPE_DOUBLE:
-            double_val = std::numeric_limits<double>::min();
+            double_val = std::numeric_limits<double>::lowest();
             return &double_val;
 
         case TYPE_DECIMALV2:
@@ -188,7 +190,7 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 
@@ -196,7 +198,7 @@ struct ExprValue {
     void* set_to_max(const TypeDescriptor& type) {
         switch (type.type) {
         case TYPE_NULL:
-            return NULL;
+            return nullptr;
 
         case TYPE_BOOLEAN:
             bool_val = true;
@@ -236,11 +238,9 @@ struct ExprValue {
 
         default:
             DCHECK(false);
-            return NULL;
+            return nullptr;
         }
     }
 };
 
 } // namespace doris
-
-#endif

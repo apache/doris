@@ -22,12 +22,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -126,6 +126,47 @@ public class KafkaProgress extends RoutineLoadProgress {
         for (Pair<Integer, Long> pair : kafkaPartitionOffsets) {
             partitionIdToOffset.put(pair.first, pair.second);
         }
+    }
+
+    public List<Pair<Integer, String>> getPartitionOffsetPairs(boolean alreadyConsumed) {
+        List<Pair<Integer, String>> pairs = Lists.newArrayList();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (entry.getValue() == 0) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_ZERO));
+            } else if (entry.getValue() == -1) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_END));
+            } else if (entry.getValue() == -2) {
+                pairs.add(Pair.create(entry.getKey(), OFFSET_BEGINNING));
+            } else {
+                long offset = entry.getValue();
+                if (alreadyConsumed) {
+                    offset -= 1;
+                }
+                pairs.add(Pair.create(entry.getKey(), "" + offset));
+            }
+        }
+        return pairs;
+    }
+
+    // Get the lag of each kafka partition.
+    // the `partitionIdWithLatestOffsets` is the cached latest offsets of each partition,
+    // which is periodically updated as job is running.
+    // The latest offset saved in `partitionIdWithLatestOffsets` is the next offset of the partition,
+    // And offset saved in `partitionIdToOffset` is the next offset to be consumed.
+    // For example, if a partition has 4 msg with offsets: 0,1,2,3
+    // The latest offset is 4, and offset to be consumed is 2,
+    // so the lag should be (4-2=)2.
+    public Map<Integer, Long> getLag(Map<Integer, Long> partitionIdWithLatestOffsets) {
+        Map<Integer, Long> lagMap = Maps.newHashMap();
+        for (Map.Entry<Integer, Long> entry : partitionIdToOffset.entrySet()) {
+            if (partitionIdWithLatestOffsets.containsKey(entry.getKey())) {
+                long lag = partitionIdWithLatestOffsets.get(entry.getKey()) - entry.getValue();
+                lagMap.put(entry.getKey(), lag);
+            } else {
+                lagMap.put(entry.getKey(), -1L);
+            }
+        }
+        return lagMap;
     }
 
     @Override

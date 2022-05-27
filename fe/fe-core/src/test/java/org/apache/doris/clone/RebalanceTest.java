@@ -17,11 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -33,13 +28,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -50,6 +47,14 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletInfo;
+
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.MoreCollectors;
+import com.google.common.collect.Table;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,12 +65,10 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
-
-import static com.google.common.collect.MoreCollectors.onlyElement;
 
 public class RebalanceTest {
     private static final Logger LOG = LogManager.getLogger(RebalanceTest.class);
@@ -80,10 +83,10 @@ public class RebalanceTest {
 
     private final SystemInfoService systemInfoService = new SystemInfoService();
     private final TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
-    private Map<String, ClusterLoadStatistic> statisticMap;
+    private Table<String, Tag, ClusterLoadStatistic> statisticMap;
 
     @Before
-    public void setUp() throws AnalysisException {
+    public void setUp() throws Exception {
         db = new Database(1, "test db");
         db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         new Expectations() {
@@ -92,7 +95,11 @@ public class RebalanceTest {
                 minTimes = 0;
                 result = db.getId();
 
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
+                minTimes = 0;
+                result = db;
+
+                catalog.getDbOrException(anyLong, (Function<Long, SchedException>) any);
                 minTimes = 0;
                 result = db;
 
@@ -103,7 +110,7 @@ public class RebalanceTest {
                 catalog.getNextId();
                 minTimes = 0;
                 result = new Delegate() {
-                    long a() {
+                    long ignored() {
                         return id++;
                     }
                 };
@@ -157,10 +164,10 @@ public class RebalanceTest {
 
     private void generateStatisticMap() {
         ClusterLoadStatistic loadStatistic = new ClusterLoadStatistic(SystemInfoService.DEFAULT_CLUSTER,
-                systemInfoService, invertedIndex);
+                Tag.DEFAULT_BACKEND_TAG, systemInfoService, invertedIndex);
         loadStatistic.init();
-        statisticMap = Maps.newConcurrentMap();
-        statisticMap.put(SystemInfoService.DEFAULT_CLUSTER, loadStatistic);
+        statisticMap = HashBasedTable.create();
+        statisticMap.put(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, loadStatistic);
     }
 
     private void createPartitionsForTable(OlapTable olapTable, MaterializedIndex index, Long partitionCount) {
@@ -169,9 +176,34 @@ public class RebalanceTest {
             long id = 31 + idx;
             Partition partition = new Partition(id, "p" + idx, index, new HashDistributionInfo());
             olapTable.addPartition(partition);
-            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD), (short) 3, false);
+            olapTable.getPartitionInfo().addPartition(id, new DataProperty(TStorageMedium.HDD),
+                    ReplicaAllocation.DEFAULT_ALLOCATION, false);
         });
+    }
 
+    @Test
+    public void testPrioBackends() {
+        Rebalancer rebalancer = new DiskRebalancer(Catalog.getCurrentSystemInfo(), Catalog.getCurrentInvertedIndex());
+        // add
+        { // CHECKSTYLE IGNORE THIS LINE
+            List<Backend> backends = Lists.newArrayList();
+            for (int i = 0; i < 3; i++) {
+                backends.add(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            }
+            rebalancer.addPrioBackends(backends, 1000);
+            Assert.assertTrue(rebalancer.hasPrioBackends());
+        } // CHECKSTYLE IGNORE THIS LINE
+
+        // remove
+        for (int i = 0; i < 3; i++) {
+            List<Backend> backends = Lists.newArrayList(RebalancerTestUtil.createBackend(10086 + i, 2048, 0));
+            rebalancer.removePrioBackends(backends);
+            if (i == 2) {
+                Assert.assertFalse(rebalancer.hasPrioBackends());
+            } else {
+                Assert.assertTrue(rebalancer.hasPrioBackends());
+            }
+        }
     }
 
     @Test
@@ -180,6 +212,9 @@ public class RebalanceTest {
 
         // Disable scheduler's rebalancer adding balance task, add balance tasks manually
         Config.disable_balance = true;
+        // generate statistic map again to create skewmap
+        Config.tablet_rebalancer_type = "partition";
+        generateStatisticMap();
         // Create a new scheduler & checker for redundant tablets handling
         // Call runAfterCatalogReady manually instead of starting daemon thread
         TabletSchedulerStat stat = new TabletSchedulerStat();
@@ -202,12 +237,13 @@ public class RebalanceTest {
             try {
                 tabletCtx.setStorageMedium(TStorageMedium.HDD);
                 tabletCtx.setTablet(olapTable.getPartition(tabletCtx.getPartitionId()).getIndex(tabletCtx.getIndexId()).getTablet(tabletCtx.getTabletId()));
-                tabletCtx.setVersionInfo(1, 0, 1, 0);
+                tabletCtx.setVersionInfo(1, 1);
                 tabletCtx.setSchemaHash(olapTable.getSchemaHashByIndexId(tabletCtx.getIndexId()));
                 tabletCtx.setTabletStatus(Tablet.TabletStatus.HEALTHY); // rebalance tablet should be healthy first
 
                 // createCloneReplicaAndTask, create replica will change invertedIndex too.
-                rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots(), batchTask);
+                AgentTask task = rebalancer.createBalanceTask(tabletCtx, tabletScheduler.getBackendsWorkingSlots());
+                batchTask.addTask(task);
             } catch (SchedException e) {
                 LOG.warn("schedule tablet {} failed: {}", tabletCtx.getTabletId(), e.getMessage());
             }
@@ -223,15 +259,13 @@ public class RebalanceTest {
         LOG.info("created tasks for tablet: {}", needCheckTablets);
         needCheckTablets.forEach(t -> Assert.assertEquals(4, invertedIndex.getReplicasByTabletId(t).size()));
 
-//        // If clone task execution is too slow, tabletChecker may want to delete the CLONE replica.
-//        tabletChecker.runAfterCatalogReady();
-//        Assert.assertTrue(tabletScheduler.containsTablet(50000));
-//        // tabletScheduler handle redundant
-//        tabletScheduler.runAfterCatalogReady();
-
         for (Long tabletId : needCheckTablets) {
-            TabletSchedCtx tabletSchedCtx = alternativeTablets.stream().filter(ctx -> ctx.getTabletId() == tabletId).collect(onlyElement());
-            AgentTask task = tasks.stream().filter(t -> t.getTabletId() == tabletId).collect(onlyElement());
+            TabletSchedCtx tabletSchedCtx = alternativeTablets.stream()
+                    .filter(ctx -> ctx.getTabletId() == tabletId)
+                    .collect(MoreCollectors.onlyElement());
+            AgentTask task = tasks.stream()
+                    .filter(t -> t.getTabletId() == tabletId)
+                    .collect(MoreCollectors.onlyElement());
 
             LOG.info("try to finish tabletCtx {}", tabletId);
             try {
@@ -256,7 +290,9 @@ public class RebalanceTest {
         needCheckTablets.forEach(t -> {
             List<Replica> replicas = invertedIndex.getReplicasByTabletId(t);
             Assert.assertEquals(4, replicas.size());
-            Replica decommissionedReplica = replicas.stream().filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION).collect(onlyElement());
+            Replica decommissionedReplica = replicas.stream()
+                    .filter(r -> r.getState() == Replica.ReplicaState.DECOMMISSION)
+                    .collect(MoreCollectors.onlyElement());
             // expected watermarkTxnId is 111
             Assert.assertEquals(111, decommissionedReplica.getWatermarkTxnId());
         });
@@ -277,9 +313,9 @@ public class RebalanceTest {
         Configurator.setLevel("org.apache.doris.clone.MovesInProgressCache", Level.DEBUG);
         MovesCacheMap m = new MovesCacheMap();
         m.updateMapping(statisticMap, 3);
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.HDD).get().put(1L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(2L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
         // Maintenance won't clean up the entries of cache
         m.maintain();
         Assert.assertEquals(3, m.size());
@@ -288,7 +324,7 @@ public class RebalanceTest {
         m.updateMapping(statisticMap, 1);
         Assert.assertEquals(0, m.size());
 
-        m.getCache(SystemInfoService.DEFAULT_CLUSTER, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
+        m.getCache(SystemInfoService.DEFAULT_CLUSTER, Tag.DEFAULT_BACKEND_TAG, TStorageMedium.SSD).get().put(3L, new Pair<>(null, -1L));
         try {
             Thread.sleep(1000);
             m.maintain();
@@ -298,4 +334,3 @@ public class RebalanceTest {
         }
     }
 }
-

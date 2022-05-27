@@ -14,23 +14,22 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/agg-fn-evaluator.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
-#define DORIS_BE_SRC_QUERY_EXPRS_AGG_FN_EVALUATOR_H
+#pragma once
 
-#include <boost/scoped_array.hpp>
-#include <boost/scoped_ptr.hpp>
 #include <string>
 #include <vector>
 
-#include "gen_cpp/Exprs_types.h"
-#include "udf/udf.h"
-//#include "exprs/opcode_registry.h"
 #include "exprs/expr_context.h"
 #include "exprs/hybrid_map.h"
+#include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
+#include "udf/udf.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -39,7 +38,7 @@ class AggregationNode;
 class TExprNode;
 
 // This class evaluates aggregate functions. Aggregate functions can either be
-// builtins or external UDAs. For both of types types, they can either use codegen
+// builtins or external UDAs. For both of types, they can either use codegen
 // or not.
 // This class provides an interface that's 1:1 with the UDA interface and serves
 // as glue code between the TupleRow/Tuple signature used by the AggregationNode
@@ -98,7 +97,7 @@ public:
         return _agg_op == AggregationOp::COUNT && _input_exprs_ctxs.empty();
     }
     bool is_builtin() const { return _function_type == TFunctionBinaryType::BUILTIN; }
-    bool supports_serialize() const { return _serialize_fn != NULL; }
+    bool supports_serialize() const { return _serialize_fn != nullptr; }
 
     static std::string debug_string(const std::vector<AggFnEvaluator*>& exprs);
     std::string debug_string() const;
@@ -126,7 +125,7 @@ public:
     // In the non-spilling case, this node would normally not merge.
     void merge(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
     void serialize(FunctionContext* agg_fn_ctx, Tuple* dst);
-    void finalize(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst);
+    void finalize(FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst, bool add_null = false);
 
     // TODO: implement codegen path. These functions would return IR functions with
     // the same signature as the interpreted ones above.
@@ -148,8 +147,8 @@ public:
     // Indicate which type of this value : int type;
     static const size_t DATETIME_SIZE = 16;
 
-    inline void update_mem_limlits(int len);
-    inline void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
+    void update_mem_limlits(int len);
+    void update_mem_trackers(bool is_filter, bool is_add_buckets, int len);
     bool count_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool sum_distinct_data_filter(TupleRow* row, Tuple* dst);
     bool is_multi_distinct() { return _is_multi_distinct; }
@@ -167,7 +166,7 @@ public:
                           Tuple* dst);
     static void finalize(const std::vector<AggFnEvaluator*>& evaluators,
                          const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* src,
-                         Tuple* dst);
+                         Tuple* dst, bool add_null = false);
     static void init(const std::vector<AggFnEvaluator*>& evaluators,
                      const std::vector<doris_udf::FunctionContext*>& fn_ctxs, Tuple* dst);
     static void serialize(const std::vector<AggFnEvaluator*>& evaluators,
@@ -184,10 +183,10 @@ private:
     const bool _is_merge;
     /// Indicates which functions must be loaded.
     const bool _is_analytic_fn;
-    boost::scoped_ptr<HybridMap> _hybrid_map;
+    std::unique_ptr<HybridMap> _hybrid_map;
     bool _is_multi_distinct;
     std::vector<ExprContext*> _input_exprs_ctxs;
-    boost::scoped_array<char> _string_buffer; //for count distinct
+    std::unique_ptr<char[]> _string_buffer;   //for count distinct
     int _string_buffer_len;                   //for count distinct
     std::shared_ptr<MemTracker> _mem_tracker; // saved c'tor param
 
@@ -210,7 +209,7 @@ private:
     // Context to run the aggregate functions.
     // TODO: this and _pool make this not thread safe but they are easy to duplicate
     // per thread.
-    // boost::scoped_ptr<doris_udf::FunctionContext> _ctx;
+    // std::unique_ptr<doris_udf::FunctionContext> _ctx;
 
     // Created to a subclass of AnyVal for type(). We use this to convert values
     // from the UDA interface to the Expr interface.
@@ -260,7 +259,8 @@ private:
     // taking TupleRow to the UDA signature taking AnvVals.
     // void serialize_or_finalize(FunctionContext* agg_fn_ctx, const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn);
     void serialize_or_finalize(FunctionContext* agg_fn_ctx, Tuple* src,
-                               const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn);
+                               const SlotDescriptor* dst_slot_desc, Tuple* dst, void* fn,
+                               bool add_null = false);
 
     // Writes the result in src into dst pointed to by _output_slot_desc
     void set_output_slot(const doris_udf::AnyVal* src, const SlotDescriptor* dst_slot_desc,
@@ -271,17 +271,17 @@ private:
 
 inline void AggFnEvaluator::add(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row, Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_updates();
-    update(agg_fn_ctx, row, dst, _is_merge ? _merge_fn : _update_fn, NULL);
+    update(agg_fn_ctx, row, dst, _is_merge ? _merge_fn : _update_fn, nullptr);
 }
 inline void AggFnEvaluator::remove(doris_udf::FunctionContext* agg_fn_ctx, TupleRow* row,
                                    Tuple* dst) {
     agg_fn_ctx->impl()->increment_num_removes();
-    update(agg_fn_ctx, row, dst, _remove_fn, NULL);
+    update(agg_fn_ctx, row, dst, _remove_fn, nullptr);
 }
 
-inline void AggFnEvaluator::finalize(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src,
-                                     Tuple* dst) {
-    serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _finalize_fn);
+inline void AggFnEvaluator::finalize(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src, Tuple* dst,
+                                     bool add_null) {
+    serialize_or_finalize(agg_fn_ctx, src, _output_slot_desc, dst, _finalize_fn, add_null);
 }
 inline void AggFnEvaluator::get_value(doris_udf::FunctionContext* agg_fn_ctx, Tuple* src,
                                       Tuple* dst) {
@@ -335,14 +335,12 @@ inline void AggFnEvaluator::get_value(const std::vector<AggFnEvaluator*>& evalua
 }
 inline void AggFnEvaluator::finalize(const std::vector<AggFnEvaluator*>& evaluators,
                                      const std::vector<doris_udf::FunctionContext*>& fn_ctxs,
-                                     Tuple* src, Tuple* dst) {
+                                     Tuple* src, Tuple* dst, bool add_null) {
     DCHECK_EQ(evaluators.size(), fn_ctxs.size());
 
     for (int i = 0; i < evaluators.size(); ++i) {
-        evaluators[i]->finalize(fn_ctxs[i], src, dst);
+        evaluators[i]->finalize(fn_ctxs[i], src, dst, add_null);
     }
 }
 
 } // namespace doris
-
-#endif

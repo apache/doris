@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
-#define DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -99,13 +98,13 @@ private:
     DISALLOW_COPY_AND_ASSIGN(FreeList);
 
     /// Compare function that orders by memory address.
-    inline static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
+    static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
         return b1.data() < b2.data();
     }
 
     /// Compare function that orders by memory address. Needs to be inverse of SortCompare()
     /// because C++ provides a max-heap.
-    inline static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
+    static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
         return SortCompare(b2, b1);
     }
 
@@ -114,5 +113,3 @@ private:
     std::vector<BufferHandle> free_list_;
 };
 } // namespace doris
-
-#endif

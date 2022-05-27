@@ -41,7 +41,7 @@ public class AlterViewStmt extends BaseViewStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (tableName == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
@@ -49,7 +49,7 @@ public class AlterViewStmt extends BaseViewStmt {
         tableName.analyze(analyzer);
 
 
-        Table table = analyzer.getTable(tableName);
+        Table table = analyzer.getTableOrAnalysisException(tableName);
         if (!(table instanceof View)) {
             throw new AnalysisException(String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
         }
@@ -59,7 +59,7 @@ public class AlterViewStmt extends BaseViewStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
                     ConnectContext.get().getQualifiedUser(),
                     ConnectContext.get().getRemoteIP(),
-                    tableName.getTbl());
+                    tableName.getDb() + ": " + tableName.getTbl());
         }
 
         if (cols != null) {
@@ -80,7 +80,7 @@ public class AlterViewStmt extends BaseViewStmt {
         sb.append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
-            for (int i = 0 ; i < cols.size(); i++) {
+            for (int i = 0; i < cols.size(); i++) {
                 if (i != 0) {
                     sb.append(",\n");
                 }

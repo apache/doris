@@ -77,6 +77,10 @@ struct TLoadErrorHubInfo {
     3: optional TBrokerErrorHubInfo broker_info;
 }
 
+struct TResourceLimit {
+    1: optional i32 cpu_limit
+}
+
 // Query options that correspond to PaloService.PaloQueryOptions,
 // with their respective defaults
 struct TQueryOptions {
@@ -146,6 +150,19 @@ struct TQueryOptions {
 
   // if the right table is greater than this value in the hash join,  we will ignore IN filter
   34: optional i32 runtime_filter_max_in_num = 1024;
+
+  // whether enable vectorized engine 
+  41: optional bool enable_vectorized_engine = false
+
+  // the resource limitation of this query
+  42: optional TResourceLimit resource_limit
+
+  // show bitmap data in result, if use this in mysql cli may make the terminal
+  // output corrupted character
+  43: optional bool return_object_data_as_binary = false
+
+  // trim tailing spaces while querying external table and stream load
+  44: optional bool trim_tailing_spaces_for_external_table_query = false
 }
     
 
@@ -235,6 +252,9 @@ struct TQueryGlobals {
   // time_zone is the timezone this query used.
   // If this value is set, BE will ignore now_string
   3: optional string time_zone
+
+  // Set to true if in a load plan, the max_filter_ratio is 0.0
+  4: optional bool load_zero_tolerance = false;
 }
 
 
@@ -257,8 +277,18 @@ struct TTxnParams {
   10: optional double max_filter_ratio
 }
 
-// ExecPlanFragment
+// Definition of global dict, global dict is used to accelerate query performance of low cardinality data
+struct TColumnDict {
+  1: optional Types.TPrimitiveType type
+  2: list<string> str_dict  // map one string to a integer, using offset as id
+}
 
+struct TGlobalDict {
+  1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
+  2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
+}
+
+// ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
 
@@ -306,12 +336,14 @@ struct TExecPlanFragmentParams {
   14: optional TLoadErrorHubInfo load_error_hub_info
 
   // The total number of fragments on same BE host
-  15: optional i32 fragment_num_on_host;
+  15: optional i32 fragment_num_on_host
 
   // If true, all @Common components is unset and should be got from BE's cache
   // If this field is unset or it set to false, all @Common components is set.
   16: optional bool is_simplified_param
   17: optional TTxnParams txn_conf
+  18: optional i64 backend_id
+  19: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
 }
 
 struct TExecPlanFragmentResult {
@@ -340,6 +372,7 @@ struct TExprMap {
 struct TFoldConstantParams {
   1: required map<string, map<string, Exprs.TExpr>> expr_map
   2: required TQueryGlobals query_globals
+  3: optional bool vec_exec
 }
 
 // TransmitData

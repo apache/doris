@@ -32,20 +32,20 @@ public:
                         Decompressor* decompressor, size_t length,
                         const std::string& line_delimiter, size_t line_delimiter_length);
 
-    virtual ~PlainTextLineReader();
+    ~PlainTextLineReader() override;
 
-    virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+    Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
 
-    virtual void close() override;
+    void close() override;
 
 private:
     bool update_eof();
 
-    inline size_t output_buf_read_remaining() { return _output_buf_limit - _output_buf_pos; }
+    size_t output_buf_read_remaining() const { return _output_buf_limit - _output_buf_pos; }
 
-    inline size_t input_buf_read_remaining() { return _input_buf_limit - _input_buf_pos; }
+    size_t input_buf_read_remaining() const { return _input_buf_limit - _input_buf_pos; }
 
-    inline bool done() { return _file_eof && output_buf_read_remaining() == 0; }
+    bool done() { return _file_eof && output_buf_read_remaining() == 0; }
 
     // find line delimiter from 'start' to 'start' + len,
     // return line delimiter pos if found, otherwise return nullptr.

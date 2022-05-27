@@ -17,11 +17,10 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -36,7 +35,7 @@ import java.util.Map.Entry;
 public class Source implements Writable {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    
+
     private List<String> fileUrls;
     private List<String> columnNames;
     private String columnSeparator;
@@ -132,7 +131,7 @@ public class Source implements Writable {
                 Text.writeString(out, url);
             }
         }
-        
+
         if (columnNames == null) {
             out.writeBoolean(false);
         } else {
@@ -143,11 +142,11 @@ public class Source implements Writable {
                 Text.writeString(out, name);
             }
         }
-        
+
         Text.writeString(out, columnSeparator);
         Text.writeString(out, lineDelimiter);
         out.writeBoolean(isNegative);
-        
+
         if (columnToFunction == null) {
             out.writeBoolean(false);
         } else {
@@ -173,14 +172,14 @@ public class Source implements Writable {
     }
     public void readFields(DataInput in) throws IOException {
         int count = 0;
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             for (int i = 0; i < count; i++) {
                 fileUrls.add(Text.readString(in).intern());
             }
         }
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             for (int i = 0; i < count; i++) {
@@ -191,7 +190,7 @@ public class Source implements Writable {
         columnSeparator = Text.readString(in).intern();
         lineDelimiter = Text.readString(in).intern();
         isNegative = in.readBoolean();
-        
+
         if (in.readBoolean()) {
             count = in.readInt();
             for (int i = 0; i < count; i++) {
@@ -200,11 +199,7 @@ public class Source implements Writable {
                 int argsNum = in.readInt();
                 List<String> args = Lists.newArrayList();
                 for (int j = 0; j < argsNum; j++) {
-                    if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_22) {
-                        if (in.readBoolean()) {
-                            args.add(Text.readString(in));
-                        }
-                    } else {
+                    if (in.readBoolean()) {
                         args.add(Text.readString(in));
                     }
                 }
@@ -212,18 +207,18 @@ public class Source implements Writable {
             }
         }
     }
-    
+
     public boolean equals(Object obj) {
         if (obj == this) {
             return true;
         }
-        
+
         if (!(obj instanceof Source)) {
             return false;
         }
-        
+
         Source source = (Source) obj;
-        
+
         // Check fileUrls
         if (fileUrls != source.fileUrls) {
             if (fileUrls == null || source.fileUrls == null) {
@@ -238,7 +233,7 @@ public class Source implements Writable {
                 }
             }
         }
-        
+
         // Check columnNames
         if (columnNames != source.columnNames) {
             if (columnNames == null || source.columnNames == null) {
@@ -253,7 +248,7 @@ public class Source implements Writable {
                 }
             }
         }
-        
+
         // columnToFunction
         if (columnToFunction != source.columnToFunction) {
             if (columnToFunction == null || source.columnToFunction == null) {
@@ -272,17 +267,17 @@ public class Source implements Writable {
                 }
             }
         }
-        
+
         return columnSeparator.equals(source.columnSeparator)
                 && lineDelimiter.equals(source.lineDelimiter)
                 && isNegative == source.isNegative;
     }
-    
+
     public int hashCode() {
         if (fileUrls == null || columnNames == null) {
             return -1;
         }
-        
+
         int ret = fileUrls.size() ^ columnNames.size() ^ columnToFunction.size();
         ret ^= columnSeparator.length();
         ret ^= lineDelimiter.length();

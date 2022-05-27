@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -27,7 +28,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,7 +36,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -63,19 +62,17 @@ public class GetDdlStmtAction extends RestBaseController {
         }
 
         String fullDbName = getFullDbName(dbName);
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("Database[" + dbName + "] does not exist");
+        Table table;
+        try {
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+            table = db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         List<String> createTableStmt = Lists.newArrayList();
         List<String> addPartitionStmt = Lists.newArrayList();
         List<String> createRollupStmt = Lists.newArrayList();
-
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            return ResponseEntityBuilder.okWithCommonError("Table[" + tableName + "] does not exist");
-        }
 
         table.readLock();
         try {

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.RangeUtils;
@@ -41,15 +42,15 @@ public class PartitionPersistInfo implements Writable {
     private Range<PartitionKey> range;
     private PartitionItem listPartitionItem;
     private DataProperty dataProperty;
-    private short replicationNum;
+    private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private boolean isTempPartition = false;
-    
+
     public PartitionPersistInfo() {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                PartitionItem listPartitionItem, DataProperty dataProperty, short replicationNum,
+                                PartitionItem listPartitionItem, DataProperty dataProperty, ReplicaAllocation replicaAlloc,
                                 boolean isInMemory, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
@@ -59,15 +60,15 @@ public class PartitionPersistInfo implements Writable {
         this.listPartitionItem = listPartitionItem;
         this.dataProperty = dataProperty;
 
-        this.replicationNum = replicationNum;
+        this.replicaAlloc = replicaAlloc;
         this.isInMemory = isInMemory;
         this.isTempPartition = isTempPartition;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -87,9 +88,9 @@ public class PartitionPersistInfo implements Writable {
     public DataProperty getDataProperty() {
         return dataProperty;
     }
-    
-    public short getReplicationNum() {
-        return replicationNum;
+
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     public boolean isInMemory() {
@@ -108,7 +109,7 @@ public class PartitionPersistInfo implements Writable {
         RangeUtils.writeRange(out, range);
         listPartitionItem.write(out);
         dataProperty.write(out);
-        out.writeShort(replicationNum);
+        replicaAlloc.write(out);
         out.writeBoolean(isInMemory);
         out.writeBoolean(isTempPartition);
     }
@@ -119,23 +120,18 @@ public class PartitionPersistInfo implements Writable {
         partition = Partition.read(in);
 
         range = RangeUtils.readRange(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_98) {
-            listPartitionItem = ListPartitionItem.read(in);
-        } else {
-            listPartitionItem = ListPartitionItem.DUMMY_ITEM;
-        }
-
+        listPartitionItem = ListPartitionItem.read(in);
         dataProperty = DataProperty.read(in);
-        replicationNum = in.readShort();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            isInMemory = in.readBoolean();
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_105) {
+            this.replicaAlloc = new ReplicaAllocation(in.readShort());
+        } else {
+            this.replicaAlloc = ReplicaAllocation.read(in);
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
-            isTempPartition = in.readBoolean();
-        }
+        isInMemory = in.readBoolean();
+        isTempPartition = in.readBoolean();
     }
-    
+
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -143,9 +139,9 @@ public class PartitionPersistInfo implements Writable {
         if (!(obj instanceof PartitionPersistInfo)) {
             return false;
         }
-        
+
         PartitionPersistInfo info = (PartitionPersistInfo) obj;
-        
+
         return dbId.equals(info.dbId)
                    && tableId.equals(info.tableId)
                    && partition.equals(info.partition);

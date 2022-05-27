@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_BHP_LIB_H
-#define DORIS_BE_SRC_OLAP_BHP_LIB_H
+#pragma once
 
 #include <stddef.h>
 
@@ -752,5 +751,3 @@ inline int baidu_crc32_qw(char const* src, int crc, unsigned int length) {
 }
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_BHP_LIB_H

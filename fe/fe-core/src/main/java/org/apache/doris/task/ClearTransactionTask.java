@@ -33,10 +33,10 @@ public class ClearTransactionTask extends AgentTask {
         this.partitionIds = partitionIds;
         this.isFinished = false;
     }
-    
+
     public TClearTransactionTaskRequest toThrift() {
         TClearTransactionTaskRequest clearTransactionTaskRequest = new TClearTransactionTaskRequest(
-            transactionId, partitionIds);
+                transactionId, partitionIds);
         return clearTransactionTaskRequest;
     }
 }

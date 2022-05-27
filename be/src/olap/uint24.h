@@ -22,6 +22,8 @@
 #include <iostream>
 #include <string>
 
+#include "olap/olap_common.h"
+
 namespace doris {
 
 // 24bit int type, used to store date type in storage

@@ -24,6 +24,11 @@ import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -32,20 +37,24 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -58,7 +67,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -124,14 +132,14 @@ public class RoutineLoadManager implements Writable {
             throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                createRoutineLoadStmt.getDBName(),
-                                                                createRoutineLoadStmt.getTableName(),
-                                                                PrivPredicate.LOAD)) {
+                createRoutineLoadStmt.getDBName(),
+                createRoutineLoadStmt.getTableName(),
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                createRoutineLoadStmt.getDBName(),
-                                                createRoutineLoadStmt.getTableName());
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    createRoutineLoadStmt.getDBName(),
+                    createRoutineLoadStmt.getDBName() + ": " + createRoutineLoadStmt.getTableName());
         }
 
         RoutineLoadJob routineLoadJob = null;
@@ -221,45 +229,111 @@ public class RoutineLoadManager implements Writable {
             throw new DdlException("The metadata of job has been changed. The job will be cancelled automatically", e);
         }
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
-                                                                dbFullName,
-                                                                tableName,
-                                                                PrivPredicate.LOAD)) {
+                dbFullName,
+                tableName,
+                PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tableName);
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbFullName + ": " + tableName);
         }
         return routineLoadJob;
     }
 
+    // get all jobs which state is not in final state from specified database
+    public List<RoutineLoadJob> checkPrivAndGetAllJobs(String dbName)
+            throws MetaNotFoundException, DdlException, AnalysisException {
+
+        List<RoutineLoadJob> result = Lists.newArrayList();
+        Database database = Catalog.getCurrentCatalog().getDbOrDdlException(dbName);
+        long dbId = database.getId();
+        Map<String, List<RoutineLoadJob>> jobMap = dbToNameToRoutineLoadJob.get(dbId);
+        if (jobMap == null) {
+            // return empty result
+            return result;
+        }
+
+        for (List<RoutineLoadJob> jobs : jobMap.values()) {
+            for (RoutineLoadJob job : jobs) {
+                if (!job.getState().isFinalState()) {
+                    String tableName = job.getTableName();
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                            dbName, tableName, PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    result.add(job);
+                }
+            }
+        }
+
+        return result;
+    }
+
     public void pauseRoutineLoadJob(PauseRoutineLoadStmt pauseRoutineLoadStmt)
             throws UserException {
-        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
-                pauseRoutineLoadStmt.getName());
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        if (pauseRoutineLoadStmt.isAll()) {
+            jobs = checkPrivAndGetAllJobs(pauseRoutineLoadStmt.getDbFullName());
+        } else {
+            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(pauseRoutineLoadStmt.getDbFullName(),
+                    pauseRoutineLoadStmt.getName());
+            jobs.add(routineLoadJob);
+        }
 
-        routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
-                        "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
-                false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
-                routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
+                        new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                                "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
+                        false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId()).add("current_state",
+                        routineLoadJob.getState()).add("user", ConnectContext.get().getQualifiedUser()).add("msg",
                         "routine load job has been paused by user").build());
+            } catch (UserException e) {
+                LOG.warn("failed to pause routine load job {}", routineLoadJob.getName(), e);
+                // if user want to pause a certain job and failed, return error.
+                // if user want to pause all possible jobs, skip error jobs.
+                if (!pauseRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
+                continue;
+            }
+        }
     }
 
     public void resumeRoutineLoadJob(ResumeRoutineLoadStmt resumeRoutineLoadStmt) throws UserException {
-        RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
-                resumeRoutineLoadStmt.getName());
 
-        routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
-        routineLoadJob.autoResumeCount = 0;
-        routineLoadJob.firstResumeTimestamp = 0;
-        routineLoadJob.autoResumeLock = false;
-        routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
-        LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("current_state", routineLoadJob.getState())
-                         .add("user", ConnectContext.get().getQualifiedUser())
-                         .add("msg", "routine load job has been resumed by user")
-                         .build());
+        List<RoutineLoadJob> jobs = Lists.newArrayList();
+        if (resumeRoutineLoadStmt.isAll()) {
+            jobs = checkPrivAndGetAllJobs(resumeRoutineLoadStmt.getDbFullName());
+        } else {
+            RoutineLoadJob routineLoadJob = checkPrivAndGetJob(resumeRoutineLoadStmt.getDbFullName(),
+                    resumeRoutineLoadStmt.getName());
+            jobs.add(routineLoadJob);
+        }
+
+        for (RoutineLoadJob routineLoadJob : jobs) {
+            try {
+                routineLoadJob.jobStatistic.errorRowsAfterResumed = 0;
+                routineLoadJob.autoResumeCount = 0;
+                routineLoadJob.firstResumeTimestamp = 0;
+                routineLoadJob.autoResumeLock = false;
+                routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
+                LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
+                        .add("current_state", routineLoadJob.getState())
+                        .add("user", ConnectContext.get().getQualifiedUser())
+                        .add("msg", "routine load job has been resumed by user")
+                        .build());
+            } catch (UserException e) {
+                LOG.warn("failed to resume routine load job {}", routineLoadJob.getName(), e);
+                // if user want to resume a certain job and failed, return error.
+                // if user want to resume all possible jobs, skip error jobs.
+                if (!resumeRoutineLoadStmt.isAll()) {
+                    throw e;
+                }
+                continue;
+            }
+        }
     }
 
     public void stopRoutineLoadJob(StopRoutineLoadStmt stopRoutineLoadStmt)
@@ -271,10 +345,10 @@ public class RoutineLoadManager implements Writable {
                         "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
                 false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("current_state", routineLoadJob.getState())
-                         .add("user", ConnectContext.get().getQualifiedUser())
-                         .add("msg", "routine load job has been stopped by user")
-                         .build());
+                .add("current_state", routineLoadJob.getState())
+                .add("user", ConnectContext.get().getQualifiedUser())
+                .add("msg", "routine load job has been stopped by user")
+                .build());
     }
 
     public int getSizeOfIdToRoutineLoadTask() {
@@ -289,7 +363,6 @@ public class RoutineLoadManager implements Writable {
         readLock();
         try {
             int result = 0;
-            updateBeIdToMaxConcurrentTasks();
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
             for (Map.Entry<Long, Integer> entry : beIdToMaxConcurrentTasks.entrySet()) {
                 if (beIdToConcurrentTasks.containsKey(entry.getKey())) {
@@ -307,6 +380,7 @@ public class RoutineLoadManager implements Writable {
     // get the BE id with minimum running task on it
     // return -1 if no BE is available.
     // throw exception if unrecoverable errors happen.
+    // ATTN: this is only used for unit test now.
     public long getMinTaskBeId(String clusterName) throws LoadException {
         List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         if (beIdsInCluster == null) {
@@ -329,7 +403,7 @@ public class RoutineLoadManager implements Writable {
                     }
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
-                                  beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                                beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
                     }
                     result = maxIdleSlotNum < idleTaskNum ? beId : result;
                     maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
@@ -344,32 +418,111 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public boolean checkBeToTask(long beId, String clusterName) throws LoadException {
-        List<Long> beIdsInCluster = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
-        if (beIdsInCluster == null) {
-            throw new LoadException("The " + clusterName + " has been deleted");
-        }
-
-        if (!beIdsInCluster.contains(beId)) {
-            return false;
-        }
+    public long getAvailableBeForTask(long jobId, long previousBeId, String clusterName) throws LoadException {
+        List<Long> availableBeIds = getAvailableBackendIds(jobId, clusterName);
 
         // check if be has idle slot
         readLock();
         try {
-            int idleTaskNum = 0;
             Map<Long, Integer> beIdToConcurrentTasks = getBeCurrentTasksNumMap();
-            if (beIdToConcurrentTasks.containsKey(beId)) {
-                idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
-            } else {
-                idleTaskNum = Config.max_routine_load_task_num_per_be;
+
+            // 1. Find if the given BE id has available slots
+            if (previousBeId != -1L && availableBeIds.contains(previousBeId)) {
+                // get the previousBackend info
+                Backend previousBackend = Catalog.getCurrentSystemInfo().getBackend(previousBeId);
+                // check previousBackend is not null && load available
+                if (previousBackend != null && previousBackend.isLoadAvailable()) {
+                    int idleTaskNum = 0;
+                    if (!beIdToMaxConcurrentTasks.containsKey(previousBeId)) {
+                        idleTaskNum = 0;
+                    } else if (beIdToConcurrentTasks.containsKey(previousBeId)) {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId) - beIdToConcurrentTasks.get(previousBeId);
+                    } else {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(previousBeId);
+                    }
+                    if (idleTaskNum > 0) {
+                        return previousBeId;
+                    }
+                }
             }
-            if (idleTaskNum > 0) {
-                return true;
+
+            // 2. The given BE id does not have available slots, find a BE with min tasks
+            // 3. The previos BE is not in cluster && is not load available, find a new BE with min tasks
+            int idleTaskNum = 0;
+            long resultBeId = -1L;
+            int maxIdleSlotNum = 0;
+            for (Long beId : availableBeIds) {
+                if (beIdToMaxConcurrentTasks.containsKey(beId)) {
+                    if (beIdToConcurrentTasks.containsKey(beId)) {
+                        idleTaskNum = beIdToMaxConcurrentTasks.get(beId) - beIdToConcurrentTasks.get(beId);
+                    } else {
+                        idleTaskNum = Config.max_routine_load_task_num_per_be;
+                    }
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("be {} has idle {}, concurrent task {}, max concurrent task {}", beId, idleTaskNum,
+                                beIdToConcurrentTasks.get(beId), beIdToMaxConcurrentTasks.get(beId));
+                    }
+                    resultBeId = maxIdleSlotNum < idleTaskNum ? beId : resultBeId;
+                    maxIdleSlotNum = Math.max(maxIdleSlotNum, idleTaskNum);
+                }
             }
-            return false;
+            return resultBeId;
         } finally {
             readUnlock();
+        }
+    }
+
+    /**
+     * The routine load task can only be scheduled on backends which has proper resource tags.
+     * The tags should be got from user property.
+     * But in the old version, the routine load job does not have user info, so for compatibility,
+     * if there is no user info, we will get tags from replica allocation of the first partition of the table.
+     *
+     * @param jobId
+     * @param cluster
+     * @return
+     * @throws LoadException
+     */
+    private List<Long> getAvailableBackendIds(long jobId, String cluster) throws LoadException {
+        RoutineLoadJob job = getJob(jobId);
+        if (job == null) {
+            throw new LoadException("job " + jobId + " does not exist");
+        }
+        Set<Tag> tags;
+        if (job.getUserIdentity() == null) {
+            // For old job, there may be no user info. So we have to use tags from replica allocation
+            tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+        } else {
+            tags = Catalog.getCurrentCatalog().getAuth().getResourceTags(job.getUserIdentity().getQualifiedUser());
+            if (tags == UserProperty.INVALID_RESOURCE_TAGS) {
+                // user may be dropped. Here we fall back to use replica tag
+                tags = getTagsFromReplicaAllocation(job.getDbId(), job.getTableId());
+            }
+        }
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().setCluster(cluster)
+                .addTags(tags).build();
+        return Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 20000);
+    }
+
+    private Set<Tag> getTagsFromReplicaAllocation(long dbId, long tblId) throws LoadException {
+        try {
+            Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+            OlapTable tbl = db.getTableOrMetaException(tblId, Table.TableType.OLAP);
+            tbl.readLock();
+            try {
+                PartitionInfo partitionInfo = tbl.getPartitionInfo();
+                for (Partition partition : tbl.getPartitions()) {
+                    ReplicaAllocation replicaAlloc = partitionInfo.getReplicaAllocation(partition.getId());
+                    // just use the first one
+                    return replicaAlloc.getAllocMap().keySet();
+                }
+                // Should not run into here. Just make compiler happy.
+                return Sets.newHashSet();
+            } finally {
+                tbl.readUnlock();
+            }
+        } catch (MetaNotFoundException e) {
+            throw new LoadException(e.getMessage());
         }
     }
 
@@ -378,7 +531,7 @@ public class RoutineLoadManager implements Writable {
     }
 
     public RoutineLoadJob getJob(String dbFullName, String jobName) throws MetaNotFoundException {
-        List<RoutineLoadJob> routineLoadJobList = getJob(dbFullName, jobName, false);
+        List<RoutineLoadJob> routineLoadJobList = getJob(dbFullName, jobName, false, null);
         if (routineLoadJobList == null || routineLoadJobList.size() == 0) {
             return null;
         } else {
@@ -393,24 +546,22 @@ public class RoutineLoadManager implements Writable {
       if includeHistory is false, filter not running job in result
       else return all of result
      */
-    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory)
+    public List<RoutineLoadJob> getJob(String dbFullName, String jobName, boolean includeHistory, PatternMatcher matcher)
             throws MetaNotFoundException {
+        Preconditions.checkArgument(jobName == null || matcher == null,
+                "jobName and matcher cannot be not null at the same time");
         // return all of routine load job
         List<RoutineLoadJob> result;
         RESULT:
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             if (dbFullName == null) {
                 result = new ArrayList<>(idToRoutineLoadJob.values());
                 sortRoutineLoadJob(result);
                 break RESULT;
             }
 
-            long dbId = 0L;
-            Database database = Catalog.getCurrentCatalog().getDb(dbFullName);
-            if (database == null) {
-                throw new MetaNotFoundException("failed to find database by dbFullName " + dbFullName);
-            }
-            dbId = database.getId();
+            Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbFullName);
+            long dbId = database.getId();
             if (!dbToNameToRoutineLoadJob.containsKey(dbId)) {
                 result = new ArrayList<>();
                 break RESULT;
@@ -430,10 +581,13 @@ public class RoutineLoadManager implements Writable {
                 break RESULT;
             }
             return null;
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         if (!includeHistory) {
             result = result.stream().filter(entity -> !entity.getState().isFinalState()).collect(Collectors.toList());
+        }
+        if (matcher != null) {
+            result = result.stream().filter(entity -> matcher.match(entity.getName())).collect(Collectors.toList());
         }
         return result;
     }
@@ -459,10 +613,12 @@ public class RoutineLoadManager implements Writable {
         int i = 0;
         int j = routineLoadJobList.size() - 1;
         while (i < j) {
-            while (!routineLoadJobList.get(i).isFinal() && (i < j))
+            while (!routineLoadJobList.get(i).isFinal() && (i < j)) {
                 i++;
-            while (routineLoadJobList.get(j).isFinal() && (i < j))
+            }
+            while (routineLoadJobList.get(j).isFinal() && (i < j)) {
                 j--;
+            }
             if (i < j) {
                 RoutineLoadJob routineLoadJob = routineLoadJobList.get(i);
                 routineLoadJobList.set(i, routineLoadJobList.get(j));
@@ -471,13 +627,12 @@ public class RoutineLoadManager implements Writable {
         }
     }
 
-    public boolean checkTaskInJob(UUID taskId) {
-        for (RoutineLoadJob routineLoadJob : idToRoutineLoadJob.values()) {
-            if (routineLoadJob.containsTask(taskId)) {
-                return true;
-            }
+    public boolean checkTaskInJob(RoutineLoadTaskInfo task) {
+        RoutineLoadJob routineLoadJob = idToRoutineLoadJob.get(task.getJobId());
+        if (routineLoadJob == null) {
+            return false;
         }
-        return false;
+        return routineLoadJob.containsTask(task.getId());
     }
 
     public List<RoutineLoadJob> getRoutineLoadJobByState(Set<RoutineLoadJob.JobState> desiredStates) {
@@ -509,7 +664,7 @@ public class RoutineLoadManager implements Writable {
                     iterator.remove();
 
                     RoutineLoadOperation operation = new RoutineLoadOperation(routineLoadJob.getId(),
-                                                                              routineLoadJob.getState());
+                            routineLoadJob.getState());
                     Catalog.getCurrentCatalog().getEditLog().logRemoveRoutineLoadJob(operation);
                     LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                             .add("end_timestamp", routineLoadJob.getEndTimestamp())
@@ -558,8 +713,8 @@ public class RoutineLoadManager implements Writable {
     public void replayCreateRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         unprotectedAddJob(routineLoadJob);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                         .add("msg", "replay create routine load job")
-                         .build());
+                .add("msg", "replay create routine load job")
+                .build());
     }
 
     public void replayChangeRoutineLoadJob(RoutineLoadOperation operation) {
@@ -570,11 +725,11 @@ public class RoutineLoadManager implements Writable {
             LOG.error("should not happened", e);
         }
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, operation.getId())
-                 .add("current_state", operation.getJobState())
-                 .add("msg", "replay change routine load job")
-                 .build());
+                .add("current_state", operation.getJobState())
+                .add("msg", "replay change routine load job")
+                .build());
     }
-    
+
     /**
      * Enter of altering a routine load job
      */

@@ -15,16 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIGBASE_H
-#define DORIS_BE_SRC_COMMON_CONFIGBASE_H
+#pragma once
 
 #include <cstdint>
-
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
 #include <vector>
-#include <functional>
 
 namespace doris {
 class Status;
@@ -60,7 +58,6 @@ public:
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
         _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
-
 };
 
 // RegisterConfValidator class is used to store validator function of registered config fields in
@@ -90,10 +87,10 @@ public:
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
-#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)                                            \
-    static auto validator_##FIELD_NAME = VALIDATOR;                                        \
-    static RegisterConfValidator reg_validator_##FIELD_NAME(#FIELD_NAME,                   \
-            []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
+#define DEFINE_VALIDATOR(FIELD_NAME, VALIDATOR)              \
+    static auto validator_##FIELD_NAME = VALIDATOR;          \
+    static RegisterConfValidator reg_validator_##FIELD_NAME( \
+            #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
 #define DECLARE_VALIDATOR(FIELD_NAME) ;
 
@@ -156,6 +153,8 @@ public:
 
     void set(const std::string& key, const std::string& val);
 
+    void set_force(const std::string& key, const std::string& val);
+
     // dump props to conf file
     bool dump(const std::string& conffile);
 
@@ -181,7 +180,7 @@ bool persist_config(const std::string& field, const std::string& value);
 
 std::mutex* get_mutable_string_config_lock();
 
+std::vector<std::vector<std::string>> get_config_info();
+
 } // namespace config
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIGBASE_H

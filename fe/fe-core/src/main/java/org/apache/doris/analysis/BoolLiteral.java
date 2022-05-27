@@ -14,22 +14,28 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/BoolLiteral.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TBoolLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+
 public class BoolLiteral extends LiteralExpr {
     private boolean value;
-    
+
     private BoolLiteral() {
     }
 
@@ -100,6 +106,16 @@ public class BoolLiteral extends LiteralExpr {
     }
 
     @Override
+    public ByteBuffer getHashValue(PrimitiveType type) {
+        byte v = (byte) (value ? 1 : 0);
+        ByteBuffer buffer = ByteBuffer.allocate(1);
+        buffer.order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put(v);
+        buffer.flip();
+        return buffer;
+    }
+
+    @Override
     public long getLongValue() {
         return value ? 1 : 0;
     }
@@ -125,7 +141,7 @@ public class BoolLiteral extends LiteralExpr {
         super.readFields(in);
         this.setValue(in.readBoolean());
     }
-    
+
     public static BoolLiteral read(DataInput in) throws IOException {
         BoolLiteral literal = new BoolLiteral();
         literal.readFields(in);
@@ -135,5 +151,20 @@ public class BoolLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Boolean.hashCode(value);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        BoolLiteral that = (BoolLiteral) o;
+        return value == that.value;
     }
 }

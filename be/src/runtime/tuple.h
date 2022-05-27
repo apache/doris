@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/tuple.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TUPLE_H
-#define DORIS_BE_RUNTIME_TUPLE_H
+#pragma once
 
 #include <cstring>
 
@@ -27,7 +29,7 @@
 namespace doris {
 
 struct StringValue;
-struct CollectionValue;
+class CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
 class TupleRow;
@@ -58,7 +60,7 @@ public:
         return result;
     }
 
-    void init(int size) { bzero(this, size); }
+    void init(int size) { bzero(_data, size); }
 
     // The total size of all data represented in this tuple (tuple data and referenced
     // string and collection data).
@@ -99,15 +101,15 @@ public:
     // If 'convert_ptrs' is true, converts pointers that are part of the tuple
     // into offsets in data, based on the provided offset. Otherwise they will be
     // pointers directly into data.
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset, bool convert_ptrs);
-    void deep_copy(const TupleDescriptor& desc, char** data, int* offset) {
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset, bool convert_ptrs);
+    void deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset) {
         deep_copy(desc, data, offset, false);
     }
 
     // Materialize this by evaluating the expressions in materialize_exprs
     // over the specified 'row'. 'pool' is used to allocate var-length data.
     // (Memory for this tuple itself must already be allocated.)
-    // If collect_string_vals is true, the materialized non-NULL string value
+    // If collect_string_vals is true, the materialized non-nullptr string value
     // slots and the total length of the string slots are returned in var_values
     // and total_var_len.
     template <bool collect_string_vals>
@@ -120,71 +122,68 @@ public:
     // this is a no-op (but we don't have to branch to check is slots are nulalble).
     void set_null(const NullIndicatorOffset& offset) {
         //DCHECK(offset.bit_mask != 0);
-        char* null_indicator_byte = reinterpret_cast<char*>(this) + offset.byte_offset;
+        char* null_indicator_byte = &_data[offset.byte_offset];
         *null_indicator_byte |= offset.bit_mask;
     }
 
     // Turn null indicator bit off.
     void set_not_null(const NullIndicatorOffset& offset) {
-        char* null_indicator_byte = reinterpret_cast<char*>(this) + offset.byte_offset;
+        char* null_indicator_byte = &_data[offset.byte_offset];
         *null_indicator_byte &= ~offset.bit_mask;
     }
 
     bool is_null(const NullIndicatorOffset& offset) const {
-        const char* null_indicator_byte = reinterpret_cast<const char*>(this) + offset.byte_offset;
+        const char* null_indicator_byte = &_data[offset.byte_offset];
         return (*null_indicator_byte & offset.bit_mask) != 0;
     }
 
     void* get_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<char*>(this) + offset;
+        return &_data[offset];
     }
 
     const void* get_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const char*>(this) + offset;
+        return &_data[offset];
     }
 
     StringValue* get_string_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<StringValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<StringValue*>(&_data[offset]);
     }
 
     const StringValue* get_string_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const StringValue*>(reinterpret_cast<const char*>(this) + offset);
+        return reinterpret_cast<const StringValue*>(&_data[offset]);
     }
 
     CollectionValue* get_collection_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<CollectionValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<CollectionValue*>(&_data[offset]);
     }
 
     const CollectionValue* get_collection_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const CollectionValue*>(reinterpret_cast<const char*>(this) +
-                                                        offset);
+        return reinterpret_cast<const CollectionValue*>(&_data[offset]);
     }
 
     DateTimeValue* get_datetime_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DateTimeValue*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<DateTimeValue*>(&_data[offset]);
     }
 
     DecimalV2Value* get_decimalv2_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);
+        return reinterpret_cast<DecimalV2Value*>(&_data[offset]);
     }
 
-    void* get_data() { return this; }
+    void* get_data() { return _data; }
 
     std::string to_string(const TupleDescriptor& d) const;
     static std::string to_string(const Tuple* t, const TupleDescriptor& d);
 
 private:
-    void* _data;
+    char _data[0];
 };
 
 } // namespace doris
-
-#endif

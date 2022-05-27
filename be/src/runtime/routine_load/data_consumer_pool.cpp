@@ -68,11 +68,16 @@ Status DataConsumerPool::get_consumer_grp(StreamLoadContext* ctx,
     }
     DCHECK(ctx->kafka_info);
 
+    if (ctx->kafka_info->begin_offset.size() == 0) {
+        return Status::InternalError("PAUSE: The size of begin_offset of task should not be 0.");
+    }
+
     std::shared_ptr<KafkaDataConsumerGroup> grp = std::make_shared<KafkaDataConsumerGroup>();
 
     // one data consumer group contains at least one data consumers.
     int max_consumer_num = config::max_consumer_num_per_group;
     size_t consumer_num = std::min((size_t)max_consumer_num, ctx->kafka_info->begin_offset.size());
+
     for (int i = 0; i < consumer_num; ++i) {
         std::shared_ptr<DataConsumer> consumer;
         RETURN_IF_ERROR(get_consumer(ctx, &consumer));
@@ -89,14 +94,14 @@ void DataConsumerPool::return_consumer(std::shared_ptr<DataConsumer> consumer) {
 
     if (_pool.size() == _max_pool_size) {
         VLOG_NOTICE << "data consumer pool is full: " << _pool.size() << "-" << _max_pool_size
-                << ", discard the returned consumer: " << consumer->id();
+                    << ", discard the returned consumer: " << consumer->id();
         return;
     }
 
     consumer->reset();
     _pool.push_back(consumer);
     VLOG_NOTICE << "return the data consumer: " << consumer->id()
-            << ", current pool size: " << _pool.size();
+                << ", current pool size: " << _pool.size();
     return;
 }
 
@@ -115,7 +120,7 @@ Status DataConsumerPool::start_bg_worker() {
 #endif
                 do {
                     _clean_idle_consumer_bg();
-                } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(60)));
+                } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(60)));
             },
             &_clean_idle_consumer_thread));
     return Status::OK();

@@ -30,13 +30,15 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -45,10 +47,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class LoadManagerTest {
     private LoadManager loadManager;
@@ -91,7 +89,7 @@ public class LoadManagerTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = "label1";
-                catalog.getDb(anyString);
+                catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = database;
                 database.getId();
@@ -115,12 +113,12 @@ public class LoadManagerTest {
     public void testSerializationNormal(@Mocked Catalog catalog,
                                         @Injectable Database database,
                                         @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
@@ -133,7 +131,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         File file = serializeToFile(loadManager);
@@ -150,12 +148,12 @@ public class LoadManagerTest {
                                                 @Mocked Catalog catalog,
                                                 @Injectable Database database,
                                                 @Injectable Table table) throws Exception {
-        new Expectations(){
+        new Expectations() {
             {
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = table;
                 table.getName();
@@ -168,7 +166,7 @@ public class LoadManagerTest {
         };
 
         loadManager = new LoadManager(new LoadJobScheduler());
-        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, System.currentTimeMillis(), "", "");
+        LoadJob job1 = new InsertLoadJob("job1", 1L, 1L, 1L, System.currentTimeMillis(), "", "");
         Deencapsulation.invoke(loadManager, "addLoadJob", job1);
 
         //make job1 don't serialize

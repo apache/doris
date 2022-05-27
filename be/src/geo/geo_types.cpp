@@ -17,9 +17,12 @@
 
 #include "geo/geo_types.h"
 
+#include <s2/s2cap.h>
 #include <s2/s2cell.h>
 #include <s2/s2earth.h>
 #include <s2/s2latlng.h>
+#include <s2/s2polygon.h>
+#include <s2/s2polyline.h>
 #include <s2/util/coding/coder.h>
 #include <s2/util/units/length-units.h>
 #include <stdio.h>
@@ -30,6 +33,18 @@
 #include "geo/wkt_parse.h"
 
 namespace doris {
+
+GeoPoint::GeoPoint() : _point(new S2Point()) {}
+GeoPoint::~GeoPoint() = default;
+
+GeoLine::GeoLine() = default;
+GeoLine::~GeoLine() = default;
+
+GeoPolygon::GeoPolygon() = default;
+GeoPolygon::~GeoPolygon() = default;
+
+GeoCircle::GeoCircle() = default;
+GeoCircle::~GeoCircle() = default;
 
 void print_s2point(std::ostream& os, const S2Point& point) {
     S2LatLng coord(point);
@@ -206,11 +221,11 @@ GeoShape* GeoShape::from_encoded(const void* ptr, size_t size) {
 }
 
 GeoParseStatus GeoPoint::from_coord(double x, double y) {
-    return to_s2point(x, y, &_point);
+    return to_s2point(x, y, _point.get());
 }
 
 GeoParseStatus GeoPoint::from_coord(const GeoCoordinate& coord) {
-    return to_s2point(coord, &_point);
+    return to_s2point(coord, _point.get());
 }
 
 std::string GeoPoint::to_string() const {
@@ -218,31 +233,45 @@ std::string GeoPoint::to_string() const {
 }
 
 void GeoPoint::encode(std::string* buf) {
-    buf->append((const char*)&_point, sizeof(_point));
+    buf->append((const char*)_point.get(), sizeof(*_point));
 }
 
 bool GeoPoint::decode(const void* data, size_t size) {
-    if (size < sizeof(_point)) {
+    if (size < sizeof(*_point)) {
         return false;
     }
-    memcpy(&_point, data, size);
+    memcpy(_point.get(), data, size);
     return true;
 }
 
 double GeoPoint::x() const {
-    return S2LatLng(_point).lng().degrees();
+    return S2LatLng(*_point).lng().degrees();
 }
 
 double GeoPoint::y() const {
-    return S2LatLng(_point).lat().degrees();
+    return S2LatLng(*_point).lat().degrees();
 }
 
 std::string GeoPoint::as_wkt() const {
     std::stringstream ss;
     ss << "POINT (";
-    print_s2point(ss, _point);
+    print_s2point(ss, *_point);
     ss << ")";
     return ss.str();
+}
+
+bool GeoPoint::ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
+                               double* distance) {
+    S2LatLng x = S2LatLng::FromDegrees(x_lat, x_lng);
+    if (!x.is_valid()) {
+        return false;
+    }
+    S2LatLng y = S2LatLng::FromDegrees(y_lat, y_lng);
+    if (!y.is_valid()) {
+        return false;
+    }
+    *distance = S2Earth::ToMeters(x.GetDistance(y));
+    return true;
 }
 
 GeoParseStatus GeoLine::from_coords(const GeoCoordinateList& list) {
@@ -318,13 +347,7 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        return _polygon->Contains(point->point());
-#if 0
-        if (_polygon->Contains(point->point())) {
-            return true;
-        }
-        return _polygon->MayIntersect(S2Cell(point->point()));
-#endif
+        return _polygon->Contains(*point->point());
     }
     case GEO_SHAPE_LINE_STRING: {
         const GeoLine* line = (const GeoLine*)rhs;
@@ -334,35 +357,6 @@ bool GeoPolygon::contains(const GeoShape* rhs) const {
         const GeoPolygon* other = (const GeoPolygon*)rhs;
         return _polygon->Contains(other->polygon());
     }
-#if 0
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto& point : multi_point->points()) {
-            if (!_polygon.Contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_polygon.Contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_polygon.Contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-#endif
     default:
         return false;
     }
@@ -386,51 +380,8 @@ bool GeoCircle::contains(const GeoShape* rhs) const {
     switch (rhs->type()) {
     case GEO_SHAPE_POINT: {
         const GeoPoint* point = (const GeoPoint*)rhs;
-        return _cap->Contains(point->point());
-#if 0
-        if (_polygon->Contains(point->point())) {
-            return true;
-        }
-        return _polygon->MayIntersect(S2Cell(point->point()));
-#endif
+        return _cap->Contains(*point->point());
     }
-#if 0
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
-        return _polygon->Contains(*line->polyline());
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* other = (const GeoPolygon*)rhs;
-        return _polygon->Contains(other->polygon());
-    }
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto& point : multi_point->points()) {
-            if (!_polygon.Contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_polygon.Contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_MULTI_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_polygon.Contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-#endif
     default:
         return false;
     }
@@ -455,63 +406,5 @@ std::string GeoCircle::as_wkt() const {
     ss << "), " << S2Earth::ToMeters(_cap->radius()) << ")";
     return ss.str();
 }
-
-#if 0
-
-template<typename T>
-bool GeoMultiPolygon::_contains(const T rhs) {
-    for (auto polygon : _polygons) {
-        if (polygon->Contains(point->point())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-bool GeoMultiPolygon::contains(const GeoShape* rhs) {
-    switch (rhs->type()) {
-    case GEO_SHAPE_POINT: {
-        const GeoPoint* point = (const GeoPoint*)rhs;
-        return _contains(point->point());
-    }
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoLine* line = (const GeoLine*)rhs;
-        return _contains(line->polyline());
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoPolygon* polygon = (const GeoPolygon*)rhs;
-        return _contains(line->polygon());
-    }
-    case GEO_SHAPE_MULTI_POINT: {
-        const GeoMultiPoint* multi_point = (const GeoMultiPoint*)rhs;
-        for (auto point : multi_point->points()) {
-            if (!_contains(point)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_LINE_STRING: {
-        const GeoMultiLine* multi_line = (const GeoMultiLine*)rhs;
-        for (auto line : multi_line->lines()) {
-            if (!_contains(line)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    case GEO_SHAPE_POLYGON: {
-        const GeoMultiPolygon* multi_polygon = (const GeoMultiPolygon*)rhs;
-        for (auto polygon : multi_polygon->polygons()) {
-            if (!_contains(polygon)) {
-                return false;
-            }
-        }
-        return true;
-    }
-    }
-    return false;
-}
-#endif
 
 } // namespace doris

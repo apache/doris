@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
@@ -52,18 +53,16 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.List;
-import java.util.Map;
-
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
 
 public class SparkLoadPendingTaskTest {
 
@@ -73,8 +72,7 @@ public class SparkLoadPendingTaskTest {
                                 @Injectable BrokerDesc brokerDesc,
                                 @Mocked Catalog catalog, @Injectable SparkLoadAppHandle handle,
                                 @Injectable Database database,
-                                @Injectable OlapTable table) throws LoadException {
-        long dbId = 0L;
+                                @Injectable OlapTable table) throws UserException {
         long tableId = 1L;
 
         // columns
@@ -97,7 +95,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
+                null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
@@ -105,12 +103,8 @@ public class SparkLoadPendingTaskTest {
 
         new Expectations() {
             {
-                catalog.getDb(dbId);
-                result = database;
                 sparkLoadJob.getHandle();
                 result = handle;
-                database.getTable(tableId);
-                result = table;
                 table.getPartitions();
                 result = partitions;
                 table.getIndexIdToSchema();
@@ -148,55 +142,6 @@ public class SparkLoadPendingTaskTest {
         Assert.assertEquals(appId, attachment.getAppId());
     }
 
-    @Test(expected = LoadException.class)
-    public void testNoDb(@Injectable SparkLoadJob sparkLoadJob,
-                         @Injectable SparkResource resource,
-                         @Injectable BrokerDesc brokerDesc,
-                         @Mocked Catalog catalog) throws LoadException {
-        long dbId = 0L;
-
-        new Expectations() {
-            {
-                catalog.getDb(dbId);
-                result = null;
-            }
-        };
-
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, null, resource, brokerDesc);
-        task.init();
-    }
-
-    @Test(expected = LoadException.class)
-    public void testNoTable(@Injectable SparkLoadJob sparkLoadJob,
-                            @Injectable SparkResource resource,
-                            @Injectable BrokerDesc brokerDesc,
-                            @Mocked Catalog catalog,
-                            @Injectable Database database) throws LoadException {
-        long dbId = 0L;
-        long tableId = 1L;
-
-        Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
-        List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
-        DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
-        BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
-        brokerFileGroups.add(brokerFileGroup);
-        BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
-        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
-
-        new Expectations() {
-            {
-                catalog.getDb(dbId);
-                result = database;
-                database.getTable(tableId);
-                result = null;
-            }
-        };
-
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, resource, brokerDesc);
-        task.init();
-    }
-
     @Test
     public void testRangePartitionHashDistribution(@Injectable SparkLoadJob sparkLoadJob,
                                                    @Injectable SparkResource resource,
@@ -204,7 +149,6 @@ public class SparkLoadPendingTaskTest {
                                                    @Mocked Catalog catalog,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
-        long dbId = 0L;
         long tableId = 1L;
 
         // c1 is partition column, c2 is distribution column
@@ -226,9 +170,9 @@ public class SparkLoadPendingTaskTest {
         int distributionColumnIndex = 1;
         DistributionInfo distributionInfo = new HashDistributionInfo(3, Lists.newArrayList(columns.get(distributionColumnIndex)));
         Partition partition1 = new Partition(partition1Id, "p1", null,
-                                             distributionInfo);
+                distributionInfo);
         Partition partition2 = new Partition(partition2Id, "p2", null,
-                                             new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
+                new HashDistributionInfo(4, Lists.newArrayList(columns.get(distributionColumnIndex))));
         int partitionColumnIndex = 0;
         List<Partition> partitions = Lists.newArrayList(partition1, partition2);
         RangePartitionInfo partitionInfo = new RangePartitionInfo(Lists.newArrayList(columns.get(partitionColumnIndex)));
@@ -245,7 +189,7 @@ public class SparkLoadPendingTaskTest {
         Map<BrokerFileGroupAggInfo.FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         DataDescription desc = new DataDescription("testTable", null, Lists.newArrayList("abc.txt"),
-                                                   null, null, null, false, null);
+                null, null, null, false, null);
         BrokerFileGroup brokerFileGroup = new BrokerFileGroup(desc);
         brokerFileGroups.add(brokerFileGroup);
         BrokerFileGroupAggInfo.FileGroupAggKey aggKey = new BrokerFileGroupAggInfo.FileGroupAggKey(tableId, null);
@@ -253,10 +197,6 @@ public class SparkLoadPendingTaskTest {
 
         new Expectations() {
             {
-                catalog.getDb(dbId);
-                result = database;
-                database.getTable(tableId);
-                result = table;
                 table.getPartitions();
                 result = partitions;
                 table.getIndexIdToSchema();

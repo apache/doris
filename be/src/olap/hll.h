@@ -15,21 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_HLL_H
-#define DORIS_BE_SRC_OLAP_HLL_H
+#pragma once
 
 #include <math.h>
+#include <parallel_hashmap/phmap.h>
 #include <stdio.h>
 
 #include <map>
 #include <set>
 #include <string>
 
+#ifdef __x86_64__
+#include <immintrin.h>
+#endif
+
 #include "gutil/macros.h"
 
 namespace doris {
 
-class Slice;
+struct Slice;
 
 const static int HLL_COLUMN_PRECISION = 14;
 const static int HLL_ZERO_COUNT_BITS = (64 - HLL_COLUMN_PRECISION);
@@ -84,10 +88,115 @@ public:
     explicit HyperLogLog(uint64_t hash_value) : _type(HLL_DATA_EXPLICIT) {
         _hash_set.emplace(hash_value);
     }
-
     explicit HyperLogLog(const Slice& src);
 
-    ~HyperLogLog() { delete[] _registers; }
+    HyperLogLog(const HyperLogLog& other) {
+        this->_type = other._type;
+        switch (other._type) {
+        case HLL_DATA_EMPTY:
+            break;
+        case HLL_DATA_EXPLICIT: {
+            this->_hash_set = other._hash_set;
+            break;
+        }
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL: {
+            _registers = new uint8_t[HLL_REGISTERS_COUNT];
+            memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    HyperLogLog(HyperLogLog&& other) {
+        this->_type = other._type;
+        switch (other._type) {
+        case HLL_DATA_EMPTY:
+            break;
+        case HLL_DATA_EXPLICIT: {
+            this->_hash_set = std::move(other._hash_set);
+            other._type = HLL_DATA_EMPTY;
+            break;
+        }
+        case HLL_DATA_SPARSE:
+        case HLL_DATA_FULL: {
+            this->_registers = other._registers;
+            other._registers = nullptr;
+            other._type = HLL_DATA_EMPTY;
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    HyperLogLog& operator=(HyperLogLog&& other) {
+        if (this != &other) {
+            if (_registers != nullptr) {
+                delete[] _registers;
+                _registers = nullptr;
+            }
+
+            this->_type = other._type;
+            switch (other._type) {
+            case HLL_DATA_EMPTY:
+                break;
+            case HLL_DATA_EXPLICIT: {
+                this->_hash_set = std::move(other._hash_set);
+                other._type = HLL_DATA_EMPTY;
+                break;
+            }
+            case HLL_DATA_SPARSE:
+            case HLL_DATA_FULL: {
+                this->_registers = other._registers;
+                other._registers = nullptr;
+                other._type = HLL_DATA_EMPTY;
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        return *this;
+    }
+
+    HyperLogLog& operator=(const HyperLogLog& other) {
+        if (this != &other) {
+            if (_registers != nullptr) {
+                delete[] _registers;
+                _registers = nullptr;
+            }
+
+            this->_type = other._type;
+            switch (other._type) {
+            case HLL_DATA_EMPTY:
+                break;
+            case HLL_DATA_EXPLICIT: {
+                this->_hash_set = other._hash_set;
+                break;
+            }
+            case HLL_DATA_SPARSE:
+            case HLL_DATA_FULL: {
+                _registers = new uint8_t[HLL_REGISTERS_COUNT];
+                memcpy(_registers, other._registers, HLL_REGISTERS_COUNT);
+                break;
+            }
+            default:
+                break;
+            }
+        }
+        return *this;
+    }
+
+    ~HyperLogLog() { clear(); }
+    void clear() {
+        _type = HLL_DATA_EMPTY;
+        _hash_set.clear();
+        delete[] _registers;
+        _registers = nullptr;
+    }
 
     typedef uint8_t SetTypeValueType;
     typedef int32_t SparseLengthValueType;
@@ -102,6 +211,15 @@ public:
 
     // Return max size of serialized binary
     size_t max_serialized_size() const;
+
+    size_t memory_consumed() const {
+        size_t size = sizeof(*this);
+        if (_type == HLL_DATA_EXPLICIT)
+            size += _hash_set.size() * sizeof(uint64_t);
+        else if (_type == HLL_DATA_SPARSE || _type == HLL_DATA_FULL)
+            size += HLL_REGISTERS_COUNT;
+        return size;
+    }
 
     // Input slice should has enough capacity for serialize, which
     // can be get through max_serialized_size(). If insufficient buffer
@@ -135,7 +253,7 @@ public:
         case HLL_DATA_EXPLICIT:
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL: {
-            std::string str{"hash set size: "};
+            std::string str {"hash set size: "};
             str.append(std::to_string(_hash_set.size()));
             str.append("\ncardinality:\t");
             str.append(std::to_string(estimate_cardinality()));
@@ -150,15 +268,13 @@ public:
 
 private:
     HllDataType _type = HLL_DATA_EMPTY;
-    std::set<uint64_t> _hash_set;
+    phmap::flat_hash_set<uint64_t> _hash_set;
 
     // This field is much space consuming(HLL_REGISTERS_COUNT), we create
     // it only when it is really needed.
     uint8_t* _registers = nullptr;
 
 private:
-    DISALLOW_COPY_AND_ASSIGN(HyperLogLog);
-
     void _convert_explicit_to_register();
 
     // update one hash value into this registers
@@ -170,14 +286,28 @@ private:
         // make sure max first_one_bit is HLL_ZERO_COUNT_BITS + 1
         hash_value |= ((uint64_t)1 << HLL_ZERO_COUNT_BITS);
         uint8_t first_one_bit = __builtin_ctzl(hash_value) + 1;
-        _registers[idx] = std::max((uint8_t)_registers[idx], first_one_bit);
+        _registers[idx] = (_registers[idx] < first_one_bit ? first_one_bit : _registers[idx]);
     }
 
     // absorb other registers into this registers
     void _merge_registers(const uint8_t* other_registers) {
-        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
-            _registers[i] = std::max(_registers[i], other_registers[i]);
+#ifdef __AVX2__
+        int loop = HLL_REGISTERS_COUNT / 32; // 32 = 256/8
+        uint8_t* dst = _registers;
+        const uint8_t* src = other_registers;
+        for (int i = 0; i < loop; i++) {
+            __m256i xa = _mm256_loadu_si256((const __m256i*)dst);
+            __m256i xb = _mm256_loadu_si256((const __m256i*)src);
+            _mm256_storeu_si256((__m256i*)dst, _mm256_max_epu8(xa, xb));
+            src += 32;
+            dst += 32;
         }
+#else
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            _registers[i] =
+                    (_registers[i] < other_registers[i] ? other_registers[i] : _registers[i]);
+        }
+#endif
     }
 };
 
@@ -207,10 +337,10 @@ public:
     }
 
     // hll set type
-    HllDataType get_hll_data_type() { return _set_type; };
+    HllDataType get_hll_data_type() { return _set_type; }
 
     // explicit value num
-    int get_explicit_count() { return (int)_explicit_num; };
+    int get_explicit_count() { return (int)_explicit_num; }
 
     // get explicit index value 64bit
     uint64_t get_explicit_value(int index) {
@@ -218,13 +348,13 @@ public:
             return -1;
         }
         return _explicit_value[index];
-    };
+    }
 
     // get full register value
-    char* get_full_value() { return _full_value_position; };
+    char* get_full_value() { return _full_value_position; }
 
     // get (index, value) map
-    std::map<SparseIndexType, SparseValueType>& get_sparse_map() { return _sparse_map; };
+    std::map<SparseIndexType, SparseValueType>& get_sparse_map() { return _sparse_map; }
 
     // parse set , call after copy() or init()
     void parse();
@@ -250,5 +380,3 @@ public:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_HLL_H

@@ -38,7 +38,6 @@ add_library(Rowset STATIC
     segment_writer.cpp
     rowset.cpp
     rowset_factory.cpp
-    rowset_converter.cpp
     rowset_meta_manager.cpp
     alpha_rowset.cpp
     alpha_rowset_reader.cpp
@@ -47,3 +46,5 @@ add_library(Rowset STATIC
     beta_rowset.cpp
     beta_rowset_reader.cpp
     beta_rowset_writer.cpp)
+
+target_compile_options(Rowset PUBLIC)

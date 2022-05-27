@@ -61,6 +61,13 @@ public class VirtualSlotRef extends SlotRef {
         return virtualSlotRef;
     }
 
+    public String getRealColumnName() {
+        if (getColumnName().startsWith(GroupingInfo.GROUPING_PREFIX)) {
+            return getColumnName().substring(GroupingInfo.GROUPING_PREFIX.length());
+        }
+        return getColumnName();
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);

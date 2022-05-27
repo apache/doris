@@ -17,12 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -37,7 +38,7 @@ public class RestoreStmt extends AbstractBackupStmt {
     private final static String PROP_META_VERSION = "meta_version";
 
     private boolean allowLoad = false;
-    private int replicationNum = FeConstants.default_replication_num;
+    private ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     private String backupTimestamp = null;
     private int metaVersion = -1;
 
@@ -50,8 +51,8 @@ public class RestoreStmt extends AbstractBackupStmt {
         return allowLoad;
     }
 
-    public int getReplicationNum() {
-        return replicationNum;
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     public String getBackupTimestamp() {
@@ -101,16 +102,10 @@ public class RestoreStmt extends AbstractBackupStmt {
         }
 
         // replication num
-        if (copiedProperties.containsKey(PROP_REPLICATION_NUM)) {
-            try {
-                replicationNum = Integer.valueOf(copiedProperties.get(PROP_REPLICATION_NUM));
-            } catch (NumberFormatException e) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_COMMON_ERROR,
-                        "Invalid replication num format: " + copiedProperties.get(PROP_REPLICATION_NUM));
-            }
-            copiedProperties.remove(PROP_REPLICATION_NUM);
+        this.replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(copiedProperties, "");
+        if (this.replicaAlloc.isNotSet()) {
+            this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
-
         // backup timestamp
         if (copiedProperties.containsKey(PROP_BACKUP_TIMESTAMP)) {
             backupTimestamp = copiedProperties.get(PROP_BACKUP_TIMESTAMP);

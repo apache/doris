@@ -21,7 +21,6 @@
 #include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/raw_value.h"
-#include "util/debug_util.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -59,14 +58,14 @@ Status ResultBufferMgr::init() {
 }
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      boost::shared_ptr<BufferControlBlock>* sender) {
+                                      std::shared_ptr<BufferControlBlock>* sender) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
         return Status::OK();
     }
 
-    boost::shared_ptr<BufferControlBlock> control_block(
+    std::shared_ptr<BufferControlBlock> control_block(
             new BufferControlBlock(query_id, buffer_size));
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -76,8 +75,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     return Status::OK();
 }
 
-boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
-        const TUniqueId& query_id) {
+std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
     std::lock_guard<std::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
@@ -86,13 +84,13 @@ boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
         return iter->second;
     }
 
-    return boost::shared_ptr<BufferControlBlock>();
+    return std::shared_ptr<BufferControlBlock>();
 }
 
 Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
 
-    if (NULL == cb) {
+    if (nullptr == cb) {
         // the sender tear down its buffer block
         return Status::InternalError("no result for this query.");
     }
@@ -104,7 +102,7 @@ void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* c
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
     tid.__set_lo(finst_id.lo());
-    boost::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(tid);
     if (cb == nullptr) {
         LOG(WARNING) << "no result for this query, id=" << tid;
         ctx->on_failure(Status::InternalError("no result for this query"));
@@ -145,7 +143,7 @@ void ResultBufferMgr::cancel_thread() {
     do {
         // get query
         std::vector<TUniqueId> query_to_cancel;
-        time_t now_time = time(NULL);
+        time_t now_time = time(nullptr);
         {
             std::lock_guard<std::mutex> l(_timeout_lock);
             TimeoutMap::iterator end = _timeout_map.upper_bound(now_time + 1);
@@ -163,7 +161,7 @@ void ResultBufferMgr::cancel_thread() {
         for (int i = 0; i < query_to_cancel.size(); ++i) {
             cancel(query_to_cancel[i]);
         }
-    } while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 
     LOG(INFO) << "result buffer manager cancel thread finish.";
 }

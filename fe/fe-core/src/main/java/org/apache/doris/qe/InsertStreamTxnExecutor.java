@@ -26,6 +26,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TBrokerRangeDesc;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -62,10 +63,11 @@ public class InsertStreamTxnExecutor {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(txnEntry.getDb(), (OlapTable) txnEntry.getTable(), streamLoadTask);
         TExecPlanFragmentParams tRequest = planner.plan(streamLoadTask.getId());
-        List<Long> beIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(
-                1, true, true, txnEntry.getDb().getClusterName());
-        if (beIds == null || beIds.isEmpty()) {
-            throw new UserException("there is no scanNode Backend.");
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().setCluster(txnEntry.getDb().getClusterName())
+                .needLoadAvailable().needQueryAvailable().build();
+        List<Long> beIds = Catalog.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (beIds.isEmpty()) {
+            throw new UserException("No available backend to match the policy: " + policy);
         }
 
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
@@ -159,9 +161,10 @@ public class InsertStreamTxnExecutor {
             if (code != TStatusCode.OK) {
                 throw new TException("failed to insert data: " + result.getStatus().getErrorMsgsList());
             }
-            txnEntry.clearDataToSend();
         } catch (RpcException e) {
             throw new TException(e);
+        } finally {
+            txnEntry.clearDataToSend();
         }
     }
 

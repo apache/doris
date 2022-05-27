@@ -25,7 +25,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -59,7 +58,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
         // check privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.CREATE)) {
+                tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
@@ -67,15 +66,22 @@ public class CreateViewStmt extends BaseViewStmt {
         if (ConnectContext.get() != null) {
             ConnectContext.get().setNotEvalNondeterministicFunction(true);
         }
+        try {
+            if (cols != null) {
+                cloneStmt = viewDefStmt.clone();
+            }
 
-        if (cols != null) {
-            cloneStmt = viewDefStmt.clone();
+            // Analyze view define statement
+            Analyzer viewAnalyzer = new Analyzer(analyzer);
+            viewDefStmt.analyze(viewAnalyzer);
+
+            createColumnAndViewDefs(analyzer);
+        } finally {
+            // must reset this flag, otherwise, all following query statement in this connection
+            // will not do constant fold for nondeterministic functions.
+            if (ConnectContext.get() != null) {
+                ConnectContext.get().setNotEvalNondeterministicFunction(false);
+            }
         }
-
-        // Analyze view define statement
-        Analyzer viewAnalyzer = new Analyzer(analyzer);
-        viewDefStmt.analyze(viewAnalyzer);
-
-        createColumnAndViewDefs(analyzer);
     }
 }

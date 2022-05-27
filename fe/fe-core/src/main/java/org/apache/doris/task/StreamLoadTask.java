@@ -17,11 +17,11 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
+import org.apache.doris.analysis.Separator;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
@@ -35,11 +35,10 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 
@@ -73,6 +72,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     private LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     private Expr deleteCondition;
     private String sequenceCol;
+    private int sendBatchParallelism = 1;
+    private double maxFilterRatio = 0.0;
+    private boolean loadToSingleTablet = false;
+    private String headerType = "";
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType) {
         this.id = id;
@@ -119,8 +122,22 @@ public class StreamLoadTask implements LoadTaskInfo {
         return columnSeparator;
     }
 
+    public String getHeaderType() {
+        return headerType;
+    }
+
     public Separator getLineDelimiter() {
         return lineDelimiter;
+    }
+
+    @Override
+    public int getSendBatchParallelism() {
+        return sendBatchParallelism;
+    }
+
+    @Override
+    public boolean isLoadToSingleTablet() {
+        return loadToSingleTablet;
     }
 
     public PartitionNames getPartitions() {
@@ -230,6 +247,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         if (request.isSetLineDelimiter()) {
             setLineDelimiter(request.getLineDelimiter());
         }
+        if (request.isSetHeaderType()) {
+            headerType = request.getHeaderType();
+        }
         if (request.isSetPartitions()) {
             String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
             if (request.isSetIsTempPartition()) {
@@ -240,6 +260,8 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
+            // fall through to case FILE_LOCAL
+            case FILE_LOCAL:
                 path = request.getPath();
                 break;
             default:
@@ -287,6 +309,15 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetSequenceCol()) {
             sequenceCol = request.getSequenceCol();
+        }
+        if (request.isSetSendBatchParallelism()) {
+            sendBatchParallelism = request.getSendBatchParallelism();
+        }
+        if (request.isSetMaxFilterRatio()) {
+            maxFilterRatio = request.getMaxFilterRatio();
+        }
+        if (request.isSetLoadToSingleTablet()) {
+            loadToSingleTablet = request.isLoadToSingleTablet();
         }
     }
 
@@ -357,5 +388,10 @@ public class StreamLoadTask implements LoadTaskInfo {
     @Override
     public long getMemLimit() {
         return execMemLimit;
+    }
+
+    @Override
+    public double getMaxFilterRatio() {
+        return maxFilterRatio;
     }
 }

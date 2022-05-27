@@ -33,9 +33,8 @@ import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 import com.sleepycat.je.LockMode;
 import com.sleepycat.je.OperationStatus;
-
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
 
 import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
@@ -74,8 +73,7 @@ public class BDBTool {
             if (options.isListDbs()) {
                 // list all databases
                 List<String> dbNames = env.getDatabaseNames();
-                JSONArray jsonArray = new JSONArray(dbNames);
-                System.out.println(jsonArray.toString());
+                System.out.println(JSONArray.toJSONString(dbNames));
                 return true;
             } else {
                 // db operations
@@ -90,8 +88,7 @@ public class BDBTool {
                     // get db stat
                     Map<String, String> statMap = Maps.newHashMap();
                     statMap.put("count", String.valueOf(db.count()));
-                    JSONObject jsonObject = new JSONObject(statMap);
-                    System.out.println(jsonObject.toString());
+                    System.out.println(JSONObject.toJSONString(statMap));
                     return true;
                 } else {
                     // set from key
@@ -103,7 +100,7 @@ public class BDBTool {
                         System.err.println("Not a valid from key: " + fromKeyStr);
                         return false;
                     }
-                    
+
                     // set end key
                     Long endKey = fromKey + db.count() - 1;
                     if (options.hasEndKey()) {
@@ -114,13 +111,13 @@ public class BDBTool {
                             return false;
                         }
                     }
-                    
+
                     if (fromKey > endKey) {
                         System.err.println("from key should less than or equal to end key["
                                 + fromKey + " vs. " + endKey + "]");
                         return false;
                     }
-                    
+
                     // meta version
                     MetaContext metaContext = new MetaContext();
                     metaContext.setMetaVersion(options.getMetaVersion());

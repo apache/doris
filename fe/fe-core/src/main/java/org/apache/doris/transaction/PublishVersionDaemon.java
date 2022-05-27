@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -38,7 +37,6 @@ import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -48,13 +46,13 @@ import java.util.Map;
 import java.util.Set;
 
 public class PublishVersionDaemon extends MasterDaemon {
-    
+
     private static final Logger LOG = LogManager.getLogger(PublishVersionDaemon.class);
-    
+
     public PublishVersionDaemon() {
         super("PUBLISH_VERSION", Config.publish_version_interval_ms);
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         try {
@@ -63,18 +61,24 @@ public class PublishVersionDaemon extends MasterDaemon {
             LOG.error("errors while publish version to all backends", t);
         }
     }
-    
-    private void publishVersion() throws UserException {
+
+    private boolean isAllBackendsOfUnfinishedTasksDead(List<PublishVersionTask> unfinishedTasks) {
+        for (PublishVersionTask unfinishedTask : unfinishedTasks) {
+            if (Catalog.getCurrentSystemInfo().checkBackendAlive(unfinishedTask.getBackendId())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void publishVersion() {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         List<TransactionState> readyTransactionStates = globalTransactionMgr.getReadyToPublishTransactions();
-        if (readyTransactionStates == null || readyTransactionStates.isEmpty()) {
+        if (readyTransactionStates.isEmpty()) {
             return;
         }
 
-        // TODO yiguolei: could publish transaction state according to multi-tenant cluster info
-        // but should do more work. for example, if a table is migrate from one cluster to another cluster
-        // should publish to two clusters.
-        // attention here, we publish transaction state to all backends including dead backend, if not publish to dead backend
+        // ATTN, we publish transaction state to all backends including dead backend, if not publish to dead backend
         // then transaction manager will treat it as success
         List<Long> allBackends = Catalog.getCurrentSystemInfo().getBackendIds(false);
         if (allBackends.isEmpty()) {
@@ -95,15 +99,13 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             List<TPartitionVersionInfo> partitionVersionInfos = new ArrayList<>(partitionCommitInfos.size());
             for (PartitionCommitInfo commitInfo : partitionCommitInfos) {
-                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(), 
-                        commitInfo.getVersion(), 
-                        commitInfo.getVersionHash());
+                TPartitionVersionInfo versionInfo = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                        commitInfo.getVersion(), 0);
                 partitionVersionInfos.add(versionInfo);
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("try to publish version info partitionid [{}], version [{}], version hash [{}]", 
-                            commitInfo.getPartitionId(), 
-                            commitInfo.getVersion(), 
-                            commitInfo.getVersionHash());
+                    LOG.debug("try to publish version info partitionid [{}], version [{}]",
+                            commitInfo.getPartitionId(),
+                            commitInfo.getVersion());
                 }
             }
             Set<Long> publishBackends = transactionState.getPublishVersionTasks().keySet();
@@ -133,7 +135,7 @@ public class PublishVersionDaemon extends MasterDaemon {
         if (!batchTask.getAllTasks().isEmpty()) {
             AgentTaskExecutor.submit(batchTask);
         }
-        
+
         TabletInvertedIndex tabletInvertedIndex = Catalog.getCurrentInvertedIndex();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
@@ -159,7 +161,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                             if (replica != null) {
                                 publishErrorReplicaIds.add(replica.getId());
                             } else {
-                                LOG.info("could not find related replica with tabletid={}, backendid={}", 
+                                LOG.info("could not find related replica with tabletid={}, backendid={}",
                                         tabletId, publishVersionTask.getBackendId());
                             }
                         }
@@ -171,7 +173,8 @@ public class PublishVersionDaemon extends MasterDaemon {
 
             boolean shouldFinishTxn = false;
             if (!unfinishedTasks.isEmpty()) {
-                if (transactionState.isPublishTimeout()) {
+                shouldFinishTxn = isAllBackendsOfUnfinishedTasksDead(unfinishedTasks);
+                if (transactionState.isPublishTimeout() || shouldFinishTxn) {
                     // transaction's publish is timeout, but there still has unfinished tasks.
                     // we need to collect all error replicas, and try to finish this txn.
                     for (PublishVersionTask unfinishedTask : unfinishedTasks) {
@@ -185,16 +188,14 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
-                        Database db = Catalog.getCurrentCatalog().getDb(transactionState.getDbId());
+                        Database db = Catalog.getCurrentCatalog().getDbNullable(transactionState.getDbId());
                         if (db == null) {
                             LOG.warn("Database [{}] has been dropped.", transactionState.getDbId());
                             continue;
                         }
 
-
-                        for (int i = 0; i < transactionState.getTableIdList().size(); i++) {
-                            long tableId = transactionState.getTableIdList().get(i);
-                            Table table = db.getTable(tableId);
+                        for (long tableId : transactionState.getTableIdList()) {
+                            Table table = db.getTableNullable(tableId);
                             if (table == null || table.getType() != Table.TableType.OLAP) {
                                 LOG.warn("Table [{}] in database [{}] has been dropped.", tableId, db.getFullName());
                                 continue;
@@ -223,21 +224,20 @@ public class PublishVersionDaemon extends MasterDaemon {
                     }
                     shouldFinishTxn = true;
                 }
-                // transaction's publish is not timeout, waiting next round.
             } else {
                 // all publish tasks are finished, try to finish this txn.
                 shouldFinishTxn = true;
             }
-            
+
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction
                     globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 } catch (Exception e) {
-                    LOG.warn("error happends when finish transaction {} ", transactionState.getTransactionId(), e);
+                    LOG.warn("error happens when finish transaction {}", transactionState.getTransactionId(), e);
                 }
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
-                    // if finish transaction state failed, then update publish version time, should check 
+                    // if finish transaction state failed, then update publish version time, should check
                     // to finish after some interval
                     transactionState.updateSendTaskTime();
                     LOG.debug("publish version for transaction {} failed, has {} error replicas during publish",

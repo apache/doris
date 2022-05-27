@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.alter.AlterOpType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -54,8 +55,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException("Can only change storage type to COLUMN");
             }
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE)) {
-            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("hash")) {
-                throw new AnalysisException("Can only change distribution type to HASH");
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("random")) {
+                throw new AnalysisException("Can only change distribution type from HASH to RANDOM");
             }
             this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
@@ -74,16 +75,21 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            PropertyAnalyzer.analyzeReplicationNum(properties, false);
-        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            short defaultReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, true);
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
+        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)
+                || properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            ReplicaAllocation replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "default");
+            properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION, replicaAlloc.toCreateStmt());
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE)) {
+            throw new AnalysisException("Alter table remote_storage_resource is not supported.");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
@@ -100,7 +106,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         sb.append("PROPERTIES (");
         sb.append(new PrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
-        
+
         return sb.toString();
     }
 

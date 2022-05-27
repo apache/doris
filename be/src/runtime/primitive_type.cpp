@@ -78,6 +78,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::VARCHAR:
         return TYPE_VARCHAR;
 
+    case TPrimitiveType::STRING:
+        return TYPE_STRING;
+
     case TPrimitiveType::BINARY:
         return TYPE_BINARY;
 
@@ -92,6 +95,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::OBJECT:
         return TYPE_OBJECT;
+
+    case TPrimitiveType::QUANTILE_STATE:
+        return TYPE_QUANTILE_STATE;
 
     case TPrimitiveType::ARRAY:
         return TYPE_ARRAY;
@@ -145,6 +151,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_VARCHAR:
         return TPrimitiveType::VARCHAR;
 
+    case TYPE_STRING:
+        return TPrimitiveType::STRING;
+
     case TYPE_BINARY:
         return TPrimitiveType::BINARY;
 
@@ -159,6 +168,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_OBJECT:
         return TPrimitiveType::OBJECT;
+
+    case TYPE_QUANTILE_STATE:
+        return TPrimitiveType::QUANTILE_STATE;
 
     case TYPE_ARRAY:
         return TPrimitiveType::ARRAY;
@@ -212,6 +224,9 @@ std::string type_to_string(PrimitiveType t) {
     case TYPE_VARCHAR:
         return "VARCHAR";
 
+    case TYPE_STRING:
+        return "STRING";
+
     case TYPE_BINARY:
         return "BINARY";
 
@@ -226,6 +241,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "OBJECT";
+
+    case TYPE_QUANTILE_STATE:
+        return "QUANTILE_STATE";
 
     case TYPE_ARRAY:
         return "ARRAY";
@@ -280,6 +298,9 @@ std::string type_to_odbc_string(PrimitiveType t) {
     case TYPE_VARCHAR:
         return "string";
 
+    case TYPE_STRING:
+        return "string";
+
     case TYPE_BINARY:
         return "binary";
 
@@ -294,6 +315,8 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_OBJECT:
         return "object";
+    case TYPE_QUANTILE_STATE:
+        return "quantile_state";
     };
 
     return "unknown";
@@ -334,8 +357,10 @@ int get_slot_size(PrimitiveType type) {
     switch (type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
+    case TYPE_QUANTILE_STATE:
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return sizeof(StringValue);
     case TYPE_ARRAY:
         return sizeof(CollectionValue);

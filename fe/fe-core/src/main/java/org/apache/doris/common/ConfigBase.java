@@ -17,10 +17,11 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.catalog.Catalog;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,26 +40,63 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ConfigBase {
     private static final Logger LOG = LogManager.getLogger(ConfigBase.class);
-    
+
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface ConfField {
+    public @interface ConfField {
         String value() default "";
         boolean mutable() default false;
         boolean masterOnly() default false;
         String comment() default "";
+        Class<? extends ConfHandler> callback() default DefaultConfHandler.class;
+    }
+
+    public interface ConfHandler {
+        void handle(Field field, String confVal) throws Exception;
+    }
+
+    static class DefaultConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            setConfigField(field, confVal);
+        }
     }
 
     private static String confFile;
     private static String customConfFile;
     public static Class<? extends ConfigBase> confClass;
+    public static Map<String, Field> confFields;
 
-    public void init(String confFile) throws Exception {
-        confClass = this.getClass();
-        this.confFile = confFile;
-        initConf(confFile);
+    private static String ldapConfFile;
+    private static String ldapCustomConfFile;
+    public static Class<? extends ConfigBase> ldapConfClass;
+
+    private boolean isLdapConfig = false;
+
+    public void init(String configFile) throws Exception {
+        this.isLdapConfig = (this instanceof LdapConfig);
+        if (!isLdapConfig) {
+            confClass = this.getClass();
+            confFile = configFile;
+            confFields = Maps.newHashMap();
+            for (Field field : confClass.getFields()) {
+                ConfField confField = field.getAnnotation(ConfField.class);
+                if (confField == null) {
+                    continue;
+                }
+                confFields.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+            }
+
+            initConf(confFile);
+        } else {
+            ldapConfClass = this.getClass();
+            ldapConfFile = configFile;
+            initConf(ldapConfFile);
+        }
     }
 
     public void initCustom(String customConfFile) throws Exception {
@@ -75,44 +113,50 @@ public class ConfigBase {
         Properties props = new Properties();
         props.load(new FileReader(confFile));
         replacedByEnv(props);
-        setFields(props);
+        setFields(props, isLdapConfig);
     }
-    
-    public static HashMap<String, String> dump() throws Exception { 
-        HashMap<String, String> map = new HashMap<String, String>();
-        Field[] fields = confClass.getFields();     
+
+    public static HashMap<String, String> dump() {
+        HashMap<String, String> map = new HashMap<>();
+        Field[] fields = confClass.getFields();
         for (Field f : fields) {
-            if (f.getAnnotation(ConfField.class) == null) {
-                continue;
-            }
-            if (f.getType().isArray()) {
-                switch (f.getType().getSimpleName()) {
-                    case "short[]":
-                        map.put(f.getName(), Arrays.toString((short[]) f.get(null)));
-                        break;
-                    case "int[]":
-                        map.put(f.getName(), Arrays.toString((int[]) f.get(null)));
-                        break;
-                    case "long[]":
-                        map.put(f.getName(), Arrays.toString((long[]) f.get(null)));
-                        break;
-                    case "double[]":
-                        map.put(f.getName(), Arrays.toString((double[]) f.get(null)));
-                        break;
-                    case "boolean[]":
-                        map.put(f.getName(), Arrays.toString((boolean[]) f.get(null)));
-                        break;
-                    case "String[]":
-                        map.put(f.getName(), Arrays.toString((String[]) f.get(null)));
-                        break;
-                    default:
-                        throw new Exception("unknown type: " + f.getType().getSimpleName());
-                }               
-            } else {
-                map.put(f.getName(), f.get(null).toString());
+            ConfField anno = f.getAnnotation(ConfField.class);
+            if (anno != null) {
+                map.put(anno.value().isEmpty() ? f.getName() : anno.value(), getConfValue(f));
             }
         }
         return map;
+    }
+
+    public static String getConfValue(Field field) {
+        try {
+            if (field.getType().isArray()) {
+                switch (field.getType().getSimpleName()) {
+                    case "boolean[]":
+                        return Arrays.toString((boolean[]) field.get(null));
+                    case "char[]":
+                        return Arrays.toString((char[]) field.get(null));
+                    case "byte[]":
+                        return Arrays.toString((byte[]) field.get(null));
+                    case "short[]":
+                        return Arrays.toString((short[]) field.get(null));
+                    case "int[]":
+                        return Arrays.toString((int[]) field.get(null));
+                    case "long[]":
+                        return Arrays.toString((long[]) field.get(null));
+                    case "float[]":
+                        return Arrays.toString((float[]) field.get(null));
+                    case "double[]":
+                        return Arrays.toString((double[]) field.get(null));
+                    default:
+                        return Arrays.toString((Object[]) field.get(null));
+                }
+            } else {
+                return String.valueOf(field.get(null));
+            }
+        } catch (Exception e) {
+            return String.format("Failed to get config %s: %s", field.getName(), e.getMessage());
+        }
     }
 
     // there is some config in fe.conf like:
@@ -137,32 +181,33 @@ public class ConfigBase {
         }
     }
 
-    private static void setFields(Properties props) throws Exception {
-        Field[] fields = confClass.getFields();     
+    private static void setFields(Properties props, boolean isLdapConfig) throws Exception {
+        Class<? extends ConfigBase> theClass = isLdapConfig ? ldapConfClass : confClass;
+        Field[] fields = theClass.getFields();
         for (Field f : fields) {
             // ensure that field has "@ConfField" annotation
             ConfField anno = f.getAnnotation(ConfField.class);
             if (anno == null) {
                 continue;
             }
-            
+
             // ensure that field has property string
             String confKey = anno.value().equals("") ? f.getName() : anno.value();
             String confVal = props.getProperty(confKey);
             if (Strings.isNullOrEmpty(confVal)) {
                 continue;
             }
-            
+
             setConfigField(f, confVal);
 
             // to be compatible with old version
             if (confKey.equalsIgnoreCase("async_load_task_pool_size")) {
                 Config.async_loading_load_task_pool_size = Config.async_load_task_pool_size;
             }
-        }       
+        }
     }
 
-    public static void setConfigField(Field f, String confVal) throws IllegalAccessException, Exception {
+    public static void setConfigField(Field f, String confVal) throws Exception {
         confVal = confVal.trim();
 
         String[] sa = confVal.split(",");
@@ -185,7 +230,9 @@ public class ConfigBase {
                 f.setDouble(null, Double.parseDouble(confVal));
                 break;
             case "boolean":
-                f.setBoolean(null, Boolean.parseBoolean(confVal));
+                if (isBoolean(confVal)) {
+                    f.setBoolean(null, Boolean.parseBoolean(confVal));
+                }
                 break;
             case "String":
                 f.set(null, confVal);
@@ -221,7 +268,9 @@ public class ConfigBase {
             case "boolean[]":
                 boolean[] ba = new boolean[sa.length];
                 for (int i = 0; i < ba.length; i++) {
-                    ba[i] = Boolean.parseBoolean(sa[i]);
+                    if (isBoolean(sa[i])) {
+                        ba[i] = Boolean.parseBoolean(sa[i]);
+                    }
                 }
                 f.set(null, ba);
                 break;
@@ -233,124 +282,73 @@ public class ConfigBase {
         }
     }
 
-    public static Map<String, Field> getAllMutableConfigs() {
-        Map<String, Field> mutableConfigs = Maps.newHashMap();
-        Field fields[] = ConfigBase.confClass.getFields();
-        for (Field field : fields) {
-            ConfField confField = field.getAnnotation(ConfField.class);
-            if (confField == null) {
-                continue;
-            }
-            if (!confField.mutable()) {
-                continue;
-            }
-            mutableConfigs.put(confField.value().equals("") ? field.getName() : confField.value(), field);
+    private static boolean isBoolean(String s) {
+        if (s.equalsIgnoreCase("true") || s.equalsIgnoreCase("false")) {
+            return true;
         }
-
-        return mutableConfigs;
+        throw new IllegalArgumentException("type mismatch");
     }
 
     public synchronized static void setMutableConfig(String key, String value) throws DdlException {
-        Map<String, Field> mutableConfigs = getAllMutableConfigs();
-        Field field = mutableConfigs.get(key);
+        Field field = confFields.get(key);
         if (field == null) {
-            throw new DdlException("Config '" + key + "' does not exist or is not mutable");
+            throw new DdlException("Config '" + key + "' does not exist");
+        }
+
+        ConfField anno = field.getAnnotation(ConfField.class);
+        if (!anno.mutable()) {
+            throw new DdlException("Config '" + key + "' is not mutable");
+        }
+        if (anno.masterOnly() && !Catalog.getCurrentCatalog().isMaster()) {
+            throw new DdlException("Config '" + key + "' is master only");
         }
 
         try {
-            ConfigBase.setConfigField(field, value);
+            anno.callback().newInstance().handle(field, value);
         } catch (Exception e) {
             throw new DdlException("Failed to set config '" + key + "'. err: " + e.getMessage());
         }
-        
+
         LOG.info("set config {} to {}", key, value);
     }
 
-    public synchronized static List<List<String>> getConfigInfo(PatternMatcher matcher) throws DdlException {
-        List<List<String>> configs = Lists.newArrayList();
-        Field[] fields = confClass.getFields();
-        for (Field f : fields) {
-            List<String> config = Lists.newArrayList();
+    public synchronized static List<List<String>> getConfigInfo(PatternMatcher matcher) {
+        return confFields.entrySet().stream().sorted(Map.Entry.comparingByKey()).flatMap(e -> {
+            String confKey = e.getKey();
+            Field f = e.getValue();
             ConfField anno = f.getAnnotation(ConfField.class);
-            if (anno == null) {
-                continue;
+            if (matcher == null || matcher.match(confKey)) {
+                List<String> config = Lists.newArrayList();
+                config.add(confKey);
+                config.add(getConfValue(f));
+                config.add(f.getType().getSimpleName());
+                config.add(String.valueOf(anno.mutable()));
+                config.add(String.valueOf(anno.masterOnly()));
+                config.add(anno.comment());
+                return Stream.of(config);
+            } else {
+                return Stream.empty();
             }
-
-            String confKey = anno.value().equals("") ? f.getName() : anno.value();
-            if (matcher != null && !matcher.match(confKey)) {
-                continue;
-            }
-            String confVal;
-            try {
-                switch (f.getType().getSimpleName()) {
-                    case "short":
-                    case "int":
-                    case "long":
-                    case "double":
-                    case "boolean":
-                    case "String":
-                        confVal = String.valueOf(f.get(null));
-                        break;
-                    case "short[]":
-                        confVal = Arrays.toString((short[])f.get(null));
-                        break;
-                    case "int[]":
-                        confVal = Arrays.toString((int[])f.get(null));
-                        break;
-                    case "long[]":
-                        confVal = Arrays.toString((long[])f.get(null));
-                        break;
-                    case "double[]":
-                        confVal = Arrays.toString((double[])f.get(null));
-                        break;
-                    case "boolean[]":
-                        confVal = Arrays.toString((boolean[])f.get(null));
-                        break;
-                    case "String[]":
-                        confVal = Arrays.toString((String[])f.get(null));
-                        break;
-                    default:
-                        throw new DdlException("unknown type: " + f.getType().getSimpleName());
-                }
-            } catch (IllegalArgumentException | IllegalAccessException e) {
-                throw new DdlException("Failed to get config '" + confKey + "'. err: " + e.getMessage());
-            }
-            
-            config.add(confKey);
-            config.add(Strings.nullToEmpty(confVal));
-            config.add(f.getType().getSimpleName());
-            config.add(String.valueOf(anno.mutable()));
-            config.add(String.valueOf(anno.masterOnly()));
-            config.add(anno.comment());
-            configs.add(config);
-        }
-
-        return configs;
+        }).collect(Collectors.toList());
     }
 
     public synchronized static boolean checkIsMasterOnly(String key) {
-        Map<String, Field> mutableConfigs = getAllMutableConfigs();
-        Field f = mutableConfigs.get(key);
+        Field f = confFields.get(key);
         if (f == null) {
             return false;
         }
 
         ConfField anno = f.getAnnotation(ConfField.class);
-        if (anno == null) {
-            return false;
-        }
-
-        return anno.masterOnly();
+        return anno != null && anno.mutable() && anno.masterOnly();
     }
 
-    // overwrite configs to customConfFile.
     // use synchronized to make sure only one thread modify this file
-    public synchronized static void persistConfig(Map<String, String> customConf) throws IOException {
+    public synchronized static void persistConfig(Map<String, String> customConf, boolean resetPersist) throws IOException {
         File file = new File(customConfFile);
         if (!file.exists()) {
             file.createNewFile();
-        } else {
-            // clear the file content
+        } else if (resetPersist) {
+            // clear the customConfFile content
             try (PrintWriter writer = new PrintWriter(file)) {
                 writer.print("");
             }
@@ -370,4 +368,3 @@ public class ConfigBase {
         }
     }
 }
-

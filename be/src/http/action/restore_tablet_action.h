@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
-#define DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H
+#pragma once
 
-#include <boost/scoped_ptr.hpp>
 #include <map>
 #include <mutex>
 
@@ -66,4 +64,3 @@ private:
 }; // end class RestoreTabletAction
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_HTTP_RESTORE_TABLET_ACTION_H

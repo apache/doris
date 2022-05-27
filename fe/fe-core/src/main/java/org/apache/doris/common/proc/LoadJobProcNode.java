@@ -29,7 +29,7 @@ public class LoadJobProcNode implements ProcNodeInterface {
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("TabletId").add("ReplicaId").add("Version")
-            .add("VersionHash").add("PartitionId").add("LoadVersion").add("LoadVersionHash")
+            .add("PartitionId").add("LoadVersion")
             .build();
 
     private Load load;

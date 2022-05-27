@@ -35,10 +35,11 @@ class MemTable;
 // the statistic of a certain flush handler.
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
-    int64_t flush_time_ns = 0;
-    int64_t flush_count = 0;
-    int64_t flush_size_bytes = 0;
-    int64_t flush_disk_size_bytes = 0;
+    std::atomic_uint64_t flush_time_ns = 0;
+    std::atomic_uint64_t flush_count = 0;
+    std::atomic_uint64_t flush_size_bytes = 0;
+    std::atomic_uint64_t flush_disk_size_bytes = 0;
+    std::atomic_uint64_t flush_wait_time_ns = 0;
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -55,26 +56,26 @@ public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
             : _flush_token(std::move(flush_pool_token)), _flush_status(OLAP_SUCCESS) {}
 
-    OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
+    Status submit(const std::shared_ptr<MemTable>& mem_table);
 
     // error has happpens, so we cancel this token
     // And remove all tasks in the queue.
     void cancel();
 
     // wait all tasks in token to be completed.
-    OLAPStatus wait();
+    Status wait();
 
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
 
 private:
-    void _flush_memtable(std::shared_ptr<MemTable> mem_table);
+    void _flush_memtable(std::shared_ptr<MemTable> mem_table, int64_t submit_task_time);
 
     std::unique_ptr<ThreadPoolToken> _flush_token;
 
     // Records the current flush status of the tablet.
     // Note: Once its value is set to Failed, it cannot return to SUCCESS.
-    std::atomic<OLAPStatus> _flush_status;
+    std::atomic<ErrorCode> _flush_status;
 
     FlushStatistic _stats;
 };
@@ -91,18 +92,21 @@ private:
 class MemTableFlushExecutor {
 public:
     MemTableFlushExecutor() {}
-    ~MemTableFlushExecutor() { _flush_pool->shutdown(); }
+    ~MemTableFlushExecutor() {
+        _flush_pool->shutdown();
+        _high_prio_flush_pool->shutdown();
+    }
 
     // init should be called after storage engine is opened,
     // because it needs path hash of each data dir.
     void init(const std::vector<DataDir*>& data_dirs);
 
-    OLAPStatus create_flush_token(
-            std::unique_ptr<FlushToken>* flush_token,
-            RowsetTypePB rowset_type);
+    Status create_flush_token(std::unique_ptr<FlushToken>* flush_token, RowsetTypePB rowset_type,
+                              bool is_high_priority);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
+    std::unique_ptr<ThreadPool> _high_prio_flush_pool;
 };
 
 } // namespace doris

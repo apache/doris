@@ -17,15 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
 import java.io.DataInput;
@@ -83,8 +82,8 @@ public class RangePartitionInfo extends PartitionInfo {
         boolean isFixedPartitionKeyValueType = partKeyDesc.getPartitionType() == PartitionKeyDesc.PartitionKeyValueType.FIXED;
 
         // generate partitionItemEntryList
-        List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType ?
-                        getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
+        List<Map.Entry<Long, PartitionItem>> partitionItemEntryList = isFixedPartitionKeyValueType
+                ? getPartitionItemEntryList(isTemp, false) : getPartitionItemEntryList(isTemp, true);
 
         if (isFixedPartitionKeyValueType) {
             return createNewRangeForFixedPartitionValueType(partKeyDesc, partitionItemEntryList);
@@ -138,10 +137,9 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     private Range<PartitionKey> createNewRangeForLessThanPartitionValueType(PartitionKey newRangeUpper,
-                                                                            Range<PartitionKey> lastRange, Range<PartitionKey> currentRange)
-            throws AnalysisException, DdlException {
-        PartitionKey lowKey = lastRange == null ?
-                PartitionKey.createInfinityPartitionKey(partitionColumns, false) : lastRange.upperEndpoint();
+            Range<PartitionKey> lastRange, Range<PartitionKey> currentRange) throws AnalysisException, DdlException {
+        PartitionKey lowKey = lastRange == null ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
+                : lastRange.upperEndpoint();
 
         // check: [left, right), error if left equal right
         if (lowKey.compareTo(newRangeUpper) >= 0) {
@@ -222,13 +220,11 @@ public class RangePartitionInfo extends PartitionInfo {
             idToItem.put(partitionId, new RangePartitionItem(range));
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
-            counter = in.readInt();
-            for (int i = 0; i < counter; i++) {
-                long partitionId = in.readLong();
-                Range<PartitionKey> range = RangeUtils.readRange(in);
-                idToTempItem.put(partitionId, new RangePartitionItem(range));
-            }
+        counter = in.readInt();
+        for (int i = 0; i < counter; i++) {
+            long partitionId = in.readLong();
+            Range<PartitionKey> range = RangeUtils.readRange(in);
+            idToTempItem.put(partitionId, new RangePartitionItem(range));
         }
     }
 
@@ -275,4 +271,3 @@ public class RangePartitionInfo extends PartitionInfo {
         return sb.toString();
     }
 }
-

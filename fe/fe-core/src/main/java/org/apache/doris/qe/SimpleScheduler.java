@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,7 +48,7 @@ public class SimpleScheduler {
     // backend id -> (try time, reason)
     // There will be multi threads to read and modify this map.
     // But only one thread (UpdateBlacklistThread) will modify the `Pair`.
-    // So using concurrenty map is enough
+    // So using concurrent map is enough
     private static Map<Long, Pair<Integer, String>> blacklistBackends = Maps.newConcurrentMap();
     private static UpdateBlacklistThread updateBlacklistThread;
 
@@ -87,8 +86,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -119,8 +118,8 @@ public class SimpleScheduler {
         }
 
         // no backend returned
-        throw new UserException("there is no scanNode Backend. " +
-                getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
+                + getBackendErrorMsg(locations.stream().map(l -> l.backend_id).collect(Collectors.toList()),
                         backends, locations.size()));
     }
 
@@ -161,7 +160,7 @@ public class SimpleScheduler {
             }
         }
         // no backend returned
-        throw new UserException("there is no scanNode Backend. "
+        throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG
                 + getBackendErrorMsg(Lists.newArrayList(backends.keySet()), backends, 3));
     }
 
@@ -178,6 +177,8 @@ public class SimpleScheduler {
             } else if (blacklistBackends.containsKey(beId)) {
                 Pair<Integer, String> pair = blacklistBackends.get(beId);
                 res.add(beId + ": in black list(" + (pair == null ? "unknown" : pair.second) + ")");
+            } else if (!be.isQueryAvailable()) {
+                res.add(beId + ": disable query");
             } else {
                 res.add(beId + ": unknown");
             }
@@ -195,13 +196,13 @@ public class SimpleScheduler {
     }
 
     public static boolean isAvailable(Backend backend) {
-        return (backend != null && backend.isAlive() && !blacklistBackends.containsKey(backend.getId()));
+        return (backend != null && backend.isQueryAvailable() && !blacklistBackends.containsKey(backend.getId()));
     }
-    
+
     private static class UpdateBlacklistThread implements Runnable {
         private static final Logger LOG = LogManager.getLogger(UpdateBlacklistThread.class);
         private static Thread thread;
-        
+
         public UpdateBlacklistThread() {
             thread = new Thread(this, "UpdateBlacklistThread");
             thread.setDaemon(true);
@@ -210,7 +211,7 @@ public class SimpleScheduler {
         public void start() {
             thread.start();
         }
- 
+
         @Override
         public void run() {
             LOG.debug("UpdateBlacklistThread is start to run");
@@ -248,5 +249,17 @@ public class SimpleScheduler {
                 }
             }
         }
+    }
+
+    public static TNetworkAddress getHostByCurrentBackend(Map<TNetworkAddress, Long> addressToBackendID) {
+        int backendSize = addressToBackendID.size();
+        if (backendSize == 0) {
+            return null;
+        }
+        Long id = nextId.getAndIncrement() % backendSize;
+
+        List<TNetworkAddress> idToBackendId = Lists.newArrayList();
+        idToBackendId.addAll(addressToBackendID.keySet());
+        return idToBackendId.get(id.intValue());
     }
 }

@@ -14,17 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/symbols-util.cc
+// and modified by Doris
 
 #include "util/symbols_util.h"
 
 #include <cxxabi.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/regex.hpp>
+#include <regex>
 #include <sstream>
-
-using boost::algorithm::split_regex;
-using boost::regex;
 
 namespace doris {
 // For the rules about gcc-compatible name mangling, see:
@@ -59,7 +58,7 @@ bool SymbolsUtil::is_mangled(const std::string& symbol) {
 
 std::string SymbolsUtil::demangle(const std::string& name) {
     int status = 0;
-    char* demangled_name = abi::__cxa_demangle(name.c_str(), NULL, NULL, &status);
+    char* demangled_name = abi::__cxa_demangle(name.c_str(), nullptr, nullptr, &status);
     if (status != 0) {
         return name;
     }
@@ -154,6 +153,8 @@ static void append_any_val_type(int namespace_id, const TypeDescriptor& type,
     case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_STRING:
+    case TYPE_QUANTILE_STATE:
         append_mangled_token("StringVal", s);
         break;
     case TYPE_DATE:
@@ -173,8 +174,9 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
                                               const std::vector<TypeDescriptor>& arg_types,
                                               bool has_var_args, TypeDescriptor* ret_arg_type) {
     // We need to split fn_name by :: to separate scoping from tokens
-    std::vector<std::string> name_tokens;
-    split_regex(name_tokens, fn_name, regex("::"));
+    const std::regex re("::");
+    std::sregex_token_iterator it {fn_name.begin(), fn_name.end(), re, -1};
+    std::vector<std::string> name_tokens {it, {}};
 
     // Mangled names use substitution as a builtin compression. The first time a token
     // is seen, we output the raw token string and store the index ("seq_id"). The
@@ -235,7 +237,7 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
     }
 
     // Output return argument.
-    if (ret_arg_type != NULL) {
+    if (ret_arg_type != nullptr) {
         int repeated_symbol_idx = -1;
         if (argument_map.find(ret_arg_type->type) != argument_map.end()) {
             repeated_symbol_idx = argument_map[ret_arg_type->type];
@@ -255,8 +257,9 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
 
 std::string SymbolsUtil::mangle_prepare_or_close_function(const std::string& fn_name) {
     // We need to split fn_name by :: to separate scoping from tokens
-    std::vector<std::string> name_tokens;
-    split_regex(name_tokens, fn_name, regex("::"));
+    const std::regex re("::");
+    std::sregex_token_iterator it {fn_name.begin(), fn_name.end(), re, -1};
+    std::vector<std::string> name_tokens {it, {}};
 
     // Mangled names use substitution as a builtin compression. The first time a token
     // is seen, we output the raw token string and store the index ("seq_id"). The

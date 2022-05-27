@@ -19,6 +19,7 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -26,7 +27,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
-
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -63,9 +63,11 @@ public class CancelLoadAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No label specified");
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            return ResponseEntityBuilder.okWithCommonError("unknown database, database=" + dbName);
+        Database db;
+        try {
+            db = Catalog.getCurrentCatalog().getDbOrMetaException(fullDbName);
+        } catch (MetaNotFoundException e) {
+            return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
 
         // TODO(cmy): Currently we only check priv in db level.

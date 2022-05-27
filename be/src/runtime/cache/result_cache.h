@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
-#define DORIS_BE_SRC_RUNTIME_RESULT_CACHE_H
+#pragma once
 
-#include <boost/thread.hpp>
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
@@ -34,7 +32,6 @@
 #include "runtime/cache/cache_utils.h"
 #include "runtime/cache/result_node.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 
@@ -45,7 +42,7 @@ typedef std::unordered_map<UniqueId, ResultNode*> ResultNodeMap;
 // a doubly linked list class, point to result node
 class ResultNodeList {
 public:
-    ResultNodeList() : _head(NULL), _tail(NULL), _node_count(0) {}
+    ResultNodeList() : _head(nullptr), _tail(nullptr), _node_count(0) {}
     virtual ~ResultNodeList() {}
 
     ResultNode* new_node(const UniqueId& sql_key) { return new ResultNode(sql_key); }
@@ -119,4 +116,3 @@ private:
 };
 
 } // namespace doris
-#endif

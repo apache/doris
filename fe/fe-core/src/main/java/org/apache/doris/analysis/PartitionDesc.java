@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
@@ -28,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.List;
@@ -77,6 +77,10 @@ public class PartitionDesc {
                     }
                     if (columnDef.getType().isFloatingPointType()) {
                         throw new AnalysisException("Floating point type column can not be partition column");
+                    }
+                    if (columnDef.getType().isScalarType(PrimitiveType.STRING)) {
+                        throw new AnalysisException("String Type should not be used in partition column["
+                                + columnDef.getName() + "].");
                     }
                     if (!ConnectContext.get().getSessionVariable().isAllowPartitionColumnNullable()
                             && columnDef.isAllowNull()) {

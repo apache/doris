@@ -22,8 +22,8 @@ public class MysqlHandshakePacket extends MysqlPacket {
     private static final int SCRAMBLE_LENGTH = 20;
     // Version of handshake packet, since MySQL 3.21.0, Handshake of protocol 10 is used
     private static final int PROTOCOL_VERSION = 10;
-    // JDBC use this version to check which protocol the server support
-    private static final String SERVER_VERSION = "5.1.0";
+    // JDBC uses this version to check which protocol the server support
+    public static final String SERVER_VERSION = "5.7.37";
     // 33 stands for UTF-8 character set
     private static final int CHARACTER_SET = 33;
     // use default capability for all
@@ -88,7 +88,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     // If the auth default plugin in client is different from Doris
     // it will create a AuthSwitchRequest
     public void buildAuthSwitchRequest(MysqlSerializer serializer) {
-        serializer.writeInt1((byte)0xfe);
+        serializer.writeInt1((byte) 0xfe);
         serializer.writeNulTerminateString(AUTH_PLUGIN_NAME);
         serializer.writeBytes(authPluginData);
         serializer.writeInt1(0);

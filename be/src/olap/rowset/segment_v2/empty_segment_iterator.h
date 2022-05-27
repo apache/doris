@@ -32,9 +32,10 @@ public:
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
     const Schema& schema() const override { return _schema; }
     Status next_batch(RowBlockV2* row_block) override;
+    Status next_batch(vectorized::Block* block) override;
 
 private:
-    Schema _schema;
+    const Schema& _schema;
 };
 
 } // namespace segment_v2

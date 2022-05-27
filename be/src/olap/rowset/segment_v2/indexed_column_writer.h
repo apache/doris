@@ -27,7 +27,6 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -71,7 +70,7 @@ struct IndexedColumnWriterOptions {
 class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* typeinfo, fs::WritableBlock* wblock);
+                                 const TypeInfo* type_info, fs::WritableBlock* wblock);
 
     ~IndexedColumnWriter();
 
@@ -88,10 +87,9 @@ private:
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _typeinfo;
+    const TypeInfo* _type_info;
     fs::WritableBlock* _wblock;
     // only used for `_first_value`
-    std::shared_ptr<MemTracker> _mem_tracker;
     MemPool _mem_pool;
 
     ordinal_t _num_values;
@@ -110,7 +108,7 @@ private:
     std::unique_ptr<IndexPageBuilder> _value_index_builder;
     // encoder for value index's key
     const KeyCoder* _value_key_coder;
-    const BlockCompressionCodec* _compress_codec;
+    std::unique_ptr<BlockCompressionCodec> _compress_codec;
 
     DISALLOW_COPY_AND_ASSIGN(IndexedColumnWriter);
 };

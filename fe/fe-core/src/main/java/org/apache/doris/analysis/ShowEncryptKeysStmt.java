@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
@@ -30,7 +29,9 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowEncryptKeysStmt extends ShowStmt{
+import com.google.common.base.Strings;
+
+public class ShowEncryptKeysStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("EncryptKey Name", ScalarType.createVarchar(20)))
@@ -68,7 +69,7 @@ public class ShowEncryptKeysStmt extends ShowStmt{
         // must check after analyze dbName, for case dbName is null.
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DB_ACCESS_DENIED, ConnectContext.get().getQualifiedUser(), dbName);
+                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }
 
     }

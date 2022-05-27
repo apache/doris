@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_PARSER_H
-#define DORIS_BE_SRC_COMMON_UTIL_HTTP_PARSER_H
+#pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <ostream>
@@ -63,5 +63,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

@@ -29,9 +29,14 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import com.google.common.collect.ImmutableMap;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.function.Function;
 
 /*
  * rewrite sql: select * from table where from_unixtime(query_time) > '2021-03-02 12:12:23'
@@ -41,10 +46,45 @@ import java.util.Date;
  * this rewrite can improve the query performance, because from_unixtime is cpu-exhausted
  * */
 public class RewriteFromUnixTimeRule implements ExprRewriteRule {
+
     public static RewriteFromUnixTimeRule INSTANCE = new RewriteFromUnixTimeRule();
+    // In BE, will convert format in timestamp function.
+    // yyyyMMdd -> %Y%m%d
+    // yyyy-MM-dd -> %Y-%m-%d
+    // yyyy-MM-dd HH:mm:ss -> %Y-%m-%d %H:%i:%s
+    // Here, we just support these three format.
+    private final ImmutableMap<String, String> beSupportFormatMap;
+    private final ImmutableMap<String, Function<String, Long>> parseMillisFunctionMap;
+    public RewriteFromUnixTimeRule() {
+        beSupportFormatMap = ImmutableMap.<String, String>builder()
+                .put("%Y%m%d", "yyyyMMdd")
+                .put("%Y-%m-%d", "yyyy-MM-dd")
+                .put("%Y-%m-%d %H:%i:%s", "yyyy-MM-dd HH:mm:ss")
+                .build();
+        parseMillisFunctionMap = ImmutableMap.<String, Function<String, Long>>builder()
+                .put("yyyyMMdd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyyMMdd")).atStartOfDay().toEpochSecond(OffsetDateTime.now().getOffset()))
+                .put("yyyy-MM-dd", (str) -> LocalDate.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+                        .atStartOfDay().toEpochSecond(OffsetDateTime.now().getOffset()))
+                .put("yyyy-MM-dd HH:mm:ss", (str) -> LocalDateTime.parse(str, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+                        .toEpochSecond(OffsetDateTime.now().getOffset()))
+                .build();
+    }
+
+    Function<String, Long> getParseSecondsFunction(String formatStr) {
+        final String patternStr;
+        if (beSupportFormatMap.containsValue(formatStr)) {
+            patternStr = formatStr;
+        } else if (beSupportFormatMap.containsKey(formatStr)) {
+            patternStr = beSupportFormatMap.get(formatStr);
+        } else {
+            return null;
+        }
+
+        return parseMillisFunctionMap.get(patternStr);
+    }
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (!(expr instanceof BinaryPredicate)) {
             return expr;
         }
@@ -78,30 +118,35 @@ public class RewriteFromUnixTimeRule implements ExprRewriteRule {
             return expr;
         }
         LiteralExpr le = (LiteralExpr) right;
-        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
-        // default format is "yyyy-MM-dd HH:mm:ss"
+        final String formatStr;
+        // default format is "yyyy-MM-dd HH:mm:ss" (%Y-%m-%d %H:%i:%s)
         if (params.exprs().size() == 1) {
-            format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            formatStr = "yyyy-MM-dd HH:mm:ss";
         } else {
             LiteralExpr fm = (LiteralExpr) params.exprs().get(1);
-            format = new SimpleDateFormat(fm.getStringValue());
+            formatStr = fm.getStringValue();
         }
+        Function<String, Long> parseSecondsFunction = getParseSecondsFunction(formatStr);
+        if (null == parseSecondsFunction) {
+            return expr;
+        }
+
         try {
-            Date date = format.parse(le.getStringValue());
+            Expr literalExpr = LiteralExpr.create(String.valueOf(parseSecondsFunction.apply(le.getStringValue())), Type.BIGINT);
             // it must adds low bound 0, because when a field contains negative data like -100, it will be queried as a result
             if (bp.getOp() == BinaryPredicate.Operator.LT || bp.getOp() == BinaryPredicate.Operator.LE) {
-                BinaryPredicate r = new BinaryPredicate(bp.getOp(), sr, LiteralExpr.create(String.valueOf(date.getTime() / 1000), Type.BIGINT));
+                BinaryPredicate r = new BinaryPredicate(bp.getOp(), sr, literalExpr);
                 BinaryPredicate l = new BinaryPredicate(BinaryPredicate.Operator.GE, sr, LiteralExpr.create("0", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
             } else if (bp.getOp() == BinaryPredicate.Operator.GT || bp.getOp() == BinaryPredicate.Operator.GE) {
                 // also it must adds upper bound 253402271999, because from_unixtime support time range is [1970-01-01 00:00:00 ~ 9999-12-31 23:59:59]
-                BinaryPredicate l = new BinaryPredicate(bp.getOp(), sr, LiteralExpr.create(String.valueOf(date.getTime() / 1000), Type.BIGINT));
+                BinaryPredicate l = new BinaryPredicate(bp.getOp(), sr, literalExpr);
                 BinaryPredicate r = new BinaryPredicate(BinaryPredicate.Operator.LE, sr, LiteralExpr.create("253402271999", Type.BIGINT));
                 return new CompoundPredicate(CompoundPredicate.Operator.AND, r, l);
             } else {
-                return new BinaryPredicate(bp.getOp(), sr, LiteralExpr.create(String.valueOf(date.getTime() / 1000), Type.BIGINT));
+                return new BinaryPredicate(bp.getOp(), sr, literalExpr);
             }
-        } catch (ParseException e) {
+        } catch (DateTimeParseException e) {
             return expr;
         }
     }

@@ -36,7 +36,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.SchemaVersionAndHash;
@@ -59,18 +58,14 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -198,10 +193,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     protected void runPendingJob() throws AlterCancelException {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
         LOG.info("begin to send create replica tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Databasee " + dbId + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
         if (!checkTableStable(db)) {
             return;
@@ -218,9 +210,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
 
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -235,19 +227,19 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     continue;
                 }
                 TStorageMedium storageMedium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                
+
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                     long shadowIdxId = entry.getKey();
                     MaterializedIndex shadowIdx = entry.getValue();
-                    
+
                     short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                     List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
                     int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                     long originIndexId = indexIdMap.get(shadowIdxId);
                     int originSchemaHash = tbl.getSchemaHashByIndexId(originIndexId);
                     KeysType originKeysType = tbl.getKeysTypeByIndexId(originIndexId);
-                    
+
                     for (Tablet shadowTablet : shadowIdx.getTablets()) {
                         long shadowTabletId = shadowTablet.getId();
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
@@ -257,7 +249,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
                                     backendId, dbId, tableId, partitionId, shadowIdxId, shadowTabletId,
                                     shadowShortKeyColumnCount, shadowSchemaHash,
-                                    Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
+                                    Partition.PARTITION_INIT_VERSION,
                                     originKeysType, TStorageType.COLUMN, storageMedium,
                                     shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
                                     tbl.isInMemory(),
@@ -280,8 +272,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
-            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 
-                Config.max_create_table_timeout_second * 1000L);
+            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum,
+                    Config.max_create_table_timeout_second * 1000L);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -310,7 +302,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // create all replicas success.
         // add all shadow indexes to catalog
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             addShadowIndexToCatalog(tbl);
@@ -370,14 +362,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         LOG.info("previous transactions are all finished, begin to send schema change tasks. job: {}", jobId);
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Databasee " + dbId + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -392,7 +381,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
                 // the schema change task will transform the data before visible version(included).
                 long visibleVersion = partition.getVisibleVersion();
-                long visibleVersionHash = partition.getVisibleVersionHash();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -413,7 +401,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowIdxId, originIdxId,
                                     shadowTabletId, originTabletId, shadowReplica.getId(),
                                     shadowSchemaHash, originSchemaHash,
-                                    visibleVersion, visibleVersionHash, jobId, JobType.SCHEMA_CHANGE);
+                                    visibleVersion, jobId, JobType.SCHEMA_CHANGE);
                             schemaChangeBatchTask.addTask(rollupTask);
                         }
                     }
@@ -446,14 +434,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // must check if db or table still exist first.
         // or if table is dropped, the tasks will never be finished,
         // and the job will be in RUNNING state forever.
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new AlterCancelException("Database " + dbId + " does not exist");
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 
-        OlapTable tbl = null;
+        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrThrowException(tableId, TableType.OLAP);
+            tbl = db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -474,7 +459,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
          */
-        tbl.writeLock();
+        tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
 
@@ -483,8 +468,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 Preconditions.checkNotNull(partition, partitionId);
 
                 long visiableVersion = partition.getVisibleVersion();
-                long visiableVersionHash = partition.getVisibleVersionHash();
-                short expectReplicationNum = tbl.getPartitionInfo().getReplicationNum(partition.getId());
+                short expectReplicationNum = tbl.getPartitionInfo().getReplicaAllocation(partition.getId()).getTotalReplicaNum();
 
                 Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
                 for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
@@ -495,7 +479,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         int healthyReplicaNum = 0;
                         for (Replica replica : replicas) {
                             if (replica.getLastFailedVersion() < 0
-                                    && replica.checkVersionCatchUp(visiableVersion, visiableVersionHash, false)) {
+                                    && replica.checkVersionCatchUp(visiableVersion, false)) {
                                 healthyReplicaNum++;
                             }
                         }
@@ -623,9 +607,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         AgentTaskQueue.removeBatchTask(schemaChangeBatchTask, TTaskType.ALTER);
         // remove all shadow indexes, and set state to NORMAL
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db != null) {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
                 tbl.writeLock();
                 try {
@@ -665,20 +649,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in SchemaChangeHandler.createJob()
      */
-    private void replayCreateJob(SchemaChangeJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            // database may be dropped before replaying this log. just return
-            return;
-        }
-
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            // table may be dropped before replaying this log. just return
-            return;
-        }
-
-        tbl.writeLock();
+    private void replayCreateJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        olapTable.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (Cell<Long, Long, MaterializedIndex> cell : partitionIndexMap.cellSet()) {
@@ -686,7 +660,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 long shadowIndexId = cell.getColumnKey();
                 MaterializedIndex shadowIndex = cell.getValue();
 
-                TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
                         indexSchemaVersionAndHashMap.get(shadowIndexId).schemaHash, medium);
 
@@ -697,13 +671,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     }
                 }
             }
-            
+
             // set table state
-            tbl.setState(OlapTableState.SCHEMA_CHANGE);
+            olapTable.setState(OlapTableState.SCHEMA_CHANGE);
         } finally {
-            tbl.writeUnlock();
+            olapTable.writeUnlock();
         }
-        
+
         this.watershedTxnId = replayedJob.watershedTxnId;
         jobState = JobState.WAITING_TXN;
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
@@ -713,23 +687,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
-    private void replayPendingJob(SchemaChangeJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            // database may be dropped before replaying this log. just return
-            return;
-        }
-
-        OlapTable tbl = (OlapTable) db.getTable(tableId);
-        if (tbl == null) {
-            // table may be dropped before replaying this log. just return
-            return;
-        }
-        tbl.writeLock();
+    private void replayPendingJob(SchemaChangeJobV2 replayedJob) throws MetaNotFoundException {
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
+        olapTable.writeLock();
         try {
-            addShadowIndexToCatalog(tbl);
+            addShadowIndexToCatalog(olapTable);
         } finally {
-            tbl.writeUnlock();
+            olapTable.writeUnlock();
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
@@ -743,9 +708,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * Should replay all changes in runRunningJob()
      */
     private void replayRunningJob(SchemaChangeJobV2 replayedJob) {
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db != null) {
-            OlapTable tbl = (OlapTable) db.getTable(tableId);
+            OlapTable tbl = (OlapTable) db.getTableNullable(tableId);
             if (tbl != null) {
                 tbl.writeLock();
                 try {
@@ -774,22 +739,26 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     @Override
     public void replay(AlterJobV2 replayedJob) {
-        SchemaChangeJobV2 replayedSchemaChangeJob = (SchemaChangeJobV2) replayedJob;
-        switch (replayedJob.jobState) {
-            case PENDING:
-                replayCreateJob(replayedSchemaChangeJob);
-                break;
-            case WAITING_TXN:
-                replayPendingJob(replayedSchemaChangeJob);
-                break;
-            case FINISHED:
-                replayRunningJob(replayedSchemaChangeJob);
-                break;
-            case CANCELLED:
-                replayCancelled(replayedSchemaChangeJob);
-                break;
-            default:
-                break;
+        try {
+            SchemaChangeJobV2 replayedSchemaChangeJob = (SchemaChangeJobV2) replayedJob;
+            switch (replayedJob.jobState) {
+                case PENDING:
+                    replayCreateJob(replayedSchemaChangeJob);
+                    break;
+                case WAITING_TXN:
+                    replayPendingJob(replayedSchemaChangeJob);
+                    break;
+                case FINISHED:
+                    replayRunningJob(replayedSchemaChangeJob);
+                    break;
+                case CANCELLED:
+                    replayCancelled(replayedSchemaChangeJob);
+                    break;
+                default:
+                    break;
+            }
+        } catch (MetaNotFoundException e) {
+            LOG.warn("[INCONSISTENT META] replay schema change job failed {}", replayedJob.getJobId(), e);
         }
     }
 
@@ -839,170 +808,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         return taskInfos;
     }
 
-    /**
-     * read data need to persist when job not finish
-     */
-    private void readJobNotFinishData(DataInput in) throws IOException {
-        int partitionNum = in.readInt();
-        for (int i = 0; i < partitionNum; i++) {
-            long partitionId = in.readLong();
-            int indexNum = in.readInt();
-            for (int j = 0; j < indexNum; j++) {
-                long shadowIndexId = in.readLong();
-                int tabletNum = in.readInt();
-                Map<Long, Long> tabletMap = Maps.newHashMapWithExpectedSize(tabletNum);
-                for (int k = 0; k < tabletNum; k++) {
-                    long shadowTabletId = in.readLong();
-                    long originTabletId = in.readLong();
-                    tabletMap.put(shadowTabletId, originTabletId);
-                }
-                partitionIndexTabletMap.put(partitionId, shadowIndexId, tabletMap);
-                // shadow index
-                MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-                partitionIndexMap.put(partitionId, shadowIndexId, shadowIndex);
-            }
-        }
-
-        // shadow index info
-        int indexNum = in.readInt();
-        for (int i = 0; i < indexNum; i++) {
-            long shadowIndexId = in.readLong();
-            long originIndexId = in.readLong();
-            String indexName = Text.readString(in);
-            // index schema
-            int colNum = in.readInt();
-            List<Column> schema = Lists.newArrayListWithCapacity(colNum);
-            for (int j = 0; j < colNum; j++) {
-                schema.add(Column.read(in));
-            }
-            int schemaVersion = in.readInt();
-            int schemaVersionHash = in.readInt();
-            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
-            short shortKeyCount = in.readShort();
-
-            indexIdMap.put(shadowIndexId, originIndexId);
-            indexIdToName.put(shadowIndexId, indexName);
-            indexSchemaMap.put(shadowIndexId, schema);
-            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
-            indexShortKeyMap.put(shadowIndexId, shortKeyCount);
-        }
-
-        // bloom filter
-        hasBfChange = in.readBoolean();
-        if (hasBfChange) {
-            int bfNum = in.readInt();
-            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
-            for (int i = 0; i < bfNum; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-            bfFpp = in.readDouble();
-        }
-
-        watershedTxnId = in.readLong();
-
-        // index
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
-            indexChange = in.readBoolean();
-            if (indexChange) {
-                if (in.readBoolean()) {
-                    int indexCount = in.readInt();
-                    this.indexes = new ArrayList<>();
-                    for (int i = 0; i < indexCount; ++i) {
-                        this.indexes.add(Index.read(in));
-                    }
-                } else {
-                    this.indexes = null;
-                }
-            }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
-    }
-
-    /**
-     * read data need to persist when job finished
-     */
-    private void readJobFinishedData(DataInput in) throws IOException {
-        // shadow index info
-        int indexNum = in.readInt();
-        for (int i = 0; i < indexNum; i++) {
-            long shadowIndexId = in.readLong();
-            long originIndexId = in.readLong();
-            String indexName = Text.readString(in);
-            int schemaVersion = in.readInt();
-            int schemaVersionHash = in.readInt();
-            SchemaVersionAndHash schemaVersionAndHash = new SchemaVersionAndHash(schemaVersion, schemaVersionHash);
-
-            indexIdMap.put(shadowIndexId, originIndexId);
-            indexIdToName.put(shadowIndexId, indexName);
-            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
-        }
-
-        // bloom filter
-        hasBfChange = in.readBoolean();
-        if (hasBfChange) {
-            int bfNum = in.readInt();
-            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
-            for (int i = 0; i < bfNum; i++) {
-                bfColumns.add(Text.readString(in));
-            }
-            bfFpp = in.readDouble();
-        }
-
-        watershedTxnId = in.readLong();
-
-        // index
-        indexChange = in.readBoolean();
-        if (indexChange) {
-            if (in.readBoolean()) {
-                int indexCount = in.readInt();
-                this.indexes = new ArrayList<>();
-                for (int i = 0; i < indexCount; ++i) {
-                    this.indexes.add(Index.read(in));
-                }
-            } else {
-                this.indexes = null;
-            }
-        }
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
-            storageFormat = TStorageFormat.valueOf(Text.readString(in));
-        }
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
     }
-
-    /**
-     * This method is only used to deserialize the text mate which version is less than 86.
-     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather than here.
-     */
-    public static SchemaChangeJobV2 read(DataInput in) throws IOException {
-        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2();
-        schemaChangeJob.readFields(in);
-        return schemaChangeJob;
-    }
-
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
-            boolean isMetaPruned = in.readBoolean();
-            if (isMetaPruned) {
-                readJobFinishedData(in);
-            } else {
-                readJobNotFinishData(in);
-            }
-        } else {
-            readJobNotFinishData(in);
-        }
-    }
-
 }

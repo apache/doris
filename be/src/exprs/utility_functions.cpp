@@ -14,14 +14,18 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/utility-functions.cpp
+// and modified by Doris
 
 #include "exprs/utility_functions.h"
+
+#include <thread>
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
-#include "util/monotime.h"
 
 namespace doris {
 
@@ -35,7 +39,7 @@ BooleanVal UtilityFunctions::sleep(FunctionContext* ctx, const IntVal& seconds) 
     if (seconds.is_null) {
         return BooleanVal::null();
     }
-    SleepFor(MonoDelta::FromSeconds(seconds.val));
+    std::this_thread::sleep_for(std::chrono::seconds(seconds.val));
     return BooleanVal(true);
 }
 

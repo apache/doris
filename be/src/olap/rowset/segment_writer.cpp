@@ -34,7 +34,7 @@ SegmentWriter::SegmentWriter(const std::string& file_name, SegmentGroup* segment
           _stream_buffer_size(stream_buffer_size),
           _compress_kind(compress_kind),
           _bloom_filter_fpp(bloom_filter_fpp),
-          _stream_factory(NULL),
+          _stream_factory(nullptr),
           _row_count(0),
           _block_count(0) {}
 
@@ -47,14 +47,14 @@ SegmentWriter::~SegmentWriter() {
     }
 }
 
-OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
+    Status res = Status::OK();
     // 创建factory
     _stream_factory = new (std::nothrow) OutStreamFactory(_compress_kind, _stream_buffer_size);
 
-    if (NULL == _stream_factory) {
-        OLAP_LOG_WARNING("fail to allocate out stream factory");
-        return OLAP_ERR_MALLOC_ERROR;
+    if (nullptr == _stream_factory) {
+        LOG(WARNING) << "fail to allocate out stream factory";
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 
     // 创建writer
@@ -63,40 +63,40 @@ OLAPStatus SegmentWriter::init(uint32_t write_mbytes_per_sec) {
                 i, _segment_group->get_tablet_schema(), _stream_factory,
                 _segment_group->get_num_rows_per_row_block(), _bloom_filter_fpp);
 
-        if (NULL == writer) {
-            OLAP_LOG_WARNING("fail to create writer");
-            return OLAP_ERR_MALLOC_ERROR;
+        if (nullptr == writer) {
+            LOG(WARNING) << "fail to create writer";
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         } else {
             _root_writers.push_back(writer);
         }
 
         res = writer->init();
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to initialize ColumnWriter. [res=%d]", res);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to initialize ColumnWriter. res = " << res;
             return res;
         }
     }
 
     _write_mbytes_per_sec = write_mbytes_per_sec;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus SegmentWriter::write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize) {
+Status SegmentWriter::write_batch(RowBlock* block, RowCursor* cursor, bool is_finalize) {
     DCHECK(block->row_block_info().row_num == _segment_group->get_num_rows_per_row_block() ||
            is_finalize)
             << "write block not empty, num_rows=" << block->row_block_info().row_num
             << ", table_num_rows=" << _segment_group->get_num_rows_per_row_block();
-    OLAPStatus res = OLAP_SUCCESS;
+    Status res = Status::OK();
     for (auto col_writer : _root_writers) {
         res = col_writer->write_batch(block, cursor);
-        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-            OLAP_LOG_WARNING("fail to write row. [res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to write row. res = " << res;
             return res;
         }
         res = col_writer->create_row_index_entry();
-        if (OLAP_UNLIKELY(res != OLAP_SUCCESS)) {
-            OLAP_LOG_WARNING("fail to create row index. [res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to create row index. res = " << res;
             return res;
         }
     }
@@ -121,8 +121,8 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return result;
 }
 
-OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header) {
+    Status res = Status::OK();
     file_header->set_number_of_rows(_row_count);
     file_header->set_compress_kind(_compress_kind);
     file_header->set_stream_buffer_size(_stream_buffer_size);
@@ -154,8 +154,8 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
         //   * zone_maps
         res = (*it)->finalize(file_header);
 
-        if (OLAP_UNLIKELY(OLAP_SUCCESS != res)) {
-            OLAP_LOG_WARNING("fail to finalize row writer. [res=%d]", res);
+        if (OLAP_UNLIKELY(!res.ok())) {
+            LOG(WARNING) << "fail to finalize row writer. res = " << res;
             return res;
         }
     }
@@ -169,8 +169,8 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
 
         // 如果这个流没有被终止，flush
         if (!stream->is_suppressed()) {
-            if (OLAP_SUCCESS != (res = stream->flush())) {
-                OLAP_LOG_WARNING("fail to flush out stream. [res=%d]", res);
+            if (!(res = stream->flush())) {
+                LOG(WARNING) << "fail to flush out stream. res = " << res;
                 return res;
             }
         } else {
@@ -191,7 +191,7 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
         }
 
         VLOG_TRACE << "stream id=" << it->first.unique_column_id() << ", type=" << it->first.kind()
-                 << ", length=" << stream->get_stream_length();
+                   << ", length=" << stream->get_stream_length();
     }
 
     file_header->set_index_length(index_length);
@@ -200,8 +200,8 @@ OLAPStatus SegmentWriter::_make_file_header(ColumnDataHeaderMessage* file_header
 }
 
 // 之前所有的数据都缓存在内存里, 现在创建文件, 写入数据
-OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status SegmentWriter::finalize(uint32_t* segment_file_size) {
+    Status res = Status::OK();
     FileHandler file_handle;
     FileHeader<ColumnDataHeaderMessage> file_header;
     StorageEngine* engine = StorageEngine::instance();
@@ -216,42 +216,42 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
             data_dir->add_pending_ids(ROWSET_ID_PREFIX + _segment_group->rowset_id().to_string());
         } else {
             LOG(WARNING) << "data dir not found. [data_dir=" << data_dir_string << "]";
-            return OLAP_ERR_CANNOT_CREATE_DIR;
+            return Status::OLAPInternalError(OLAP_ERR_CANNOT_CREATE_DIR);
         }
     }
-    if (OLAP_SUCCESS != (res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
-                                                          S_IRUSR | S_IWUSR))) {
+    if (!(res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
+                                           S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }
 
     res = _make_file_header(file_header.mutable_message());
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to make file header. [res=%d]", res);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to make file header. res = " << res;
         return res;
     }
 
     // check disk capacity
     if (data_dir != nullptr && data_dir->reach_capacity_limit((int64_t)file_header.file_length())) {
-        return OLAP_ERR_DISK_REACH_CAPACITY_LIMIT;
+        return Status::OLAPInternalError(OLAP_ERR_DISK_REACH_CAPACITY_LIMIT);
     }
 
-    if (OLAP_SUCCESS != (res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
-                                                          S_IRUSR | S_IWUSR))) {
+    if (!(res = file_handle.open_with_mode(_file_name, O_CREAT | O_EXCL | O_WRONLY,
+                                           S_IRUSR | S_IWUSR))) {
         LOG(WARNING) << "fail to open file. [file_name=" << _file_name << "]";
         return res;
     }
 
     res = file_header.prepare(&file_handle);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("write file header error. [err=%m]");
+    if (!res.ok()) {
+        LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
         return res;
     }
 
     // 跳过FileHeader
     if (-1 == file_handle.seek(file_header.size(), SEEK_SET)) {
-        OLAP_LOG_WARNING("lseek header file error. [err=%m]");
-        return OLAP_ERR_IO_ERROR;
+        LOG(WARNING) << "lseek header file error. [err=" << Errno::str() << "]";
+        return Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
     }
 
     uint32_t checksum = CRC32_INIT;
@@ -265,10 +265,10 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
         if (!stream->is_suppressed()) {
             checksum = stream->crc32(checksum);
             VLOG_TRACE << "stream id=" << it->first.unique_column_id()
-                     << ", type=" << it->first.kind();
+                       << ", type=" << it->first.kind();
             res = stream->write_to_file(&file_handle, _write_mbytes_per_sec);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to write stream to file. [res=%d]", res);
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to write stream to file. res = " << res;
                 return res;
             }
         }
@@ -281,14 +281,14 @@ OLAPStatus SegmentWriter::finalize(uint32_t* segment_file_size) {
 
     // 写入更新之后的FileHeader
     res = file_header.serialize(&file_handle);
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("write file header error. [err=%m]");
+    if (!res.ok()) {
+        LOG(WARNING) << "write file header error. [err=" << Errno::str() << "]";
         return res;
     }
 
     res = file_handle.close();
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to close file. [err=%m]");
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to close file. [err=" << Errno::str() << "]";
         return res;
     }
 

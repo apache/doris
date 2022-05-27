@@ -26,6 +26,9 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.map.MultiValueMap;
 import org.apache.spark.SparkConf;
 import org.apache.spark.sql.Dataset;
@@ -33,10 +36,6 @@ import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.functions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -55,11 +54,13 @@ public class SparkEtlJob {
     private static final String BITMAP_DICT_FUNC = "bitmap_dict";
     private static final String TO_BITMAP_FUNC = "to_bitmap";
     private static final String BITMAP_HASH = "bitmap_hash";
+    private static final String BINARY_BITMAP = "binary_bitmap";
 
     private String jobConfigFilePath;
     private EtlJobConfig etlJobConfig;
     private Set<Long> hiveSourceTables;
     private Map<Long, Set<String>> tableToBitmapDictColumns;
+    private Map<Long, Set<String>> tableToBinaryBitmapColumns;
     private SparkSession spark;
 
     private SparkEtlJob(String jobConfigFilePath) {
@@ -67,6 +68,7 @@ public class SparkEtlJob {
         this.etlJobConfig = null;
         this.hiveSourceTables = Sets.newHashSet();
         this.tableToBitmapDictColumns = Maps.newHashMap();
+        this.tableToBinaryBitmapColumns = Maps.newHashMap();
     }
 
     private void initSparkEnvironment() {
@@ -105,6 +107,8 @@ public class SparkEtlJob {
         for (Map.Entry<Long, EtlTable> entry : etlJobConfig.tables.entrySet()) {
             boolean isHiveSource = false;
             Set<String> bitmapDictColumns = Sets.newHashSet();
+            Set<String> binaryBitmapColumns = Sets.newHashSet();
+
             for (EtlFileGroup fileGroup : entry.getValue().fileGroups) {
                 if (fileGroup.sourceType == EtlJobConfig.SourceType.HIVE) {
                     isHiveSource = true;
@@ -117,7 +121,9 @@ public class SparkEtlJob {
                     if (funcName.equalsIgnoreCase(BITMAP_HASH)) {
                         throw new SparkDppException("spark load not support bitmap_hash now");
                     }
-                    if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
+                    if (funcName.equalsIgnoreCase(BINARY_BITMAP)) {
+                        binaryBitmapColumns.add(columnName.toLowerCase());
+                    } else if (funcName.equalsIgnoreCase(BITMAP_DICT_FUNC)) {
                         bitmapDictColumns.add(columnName.toLowerCase());
                     } else if (!funcName.equalsIgnoreCase(TO_BITMAP_FUNC)) {
                         newColumnMappings.put(mappingEntry.getKey(), mappingEntry.getValue());
@@ -132,17 +138,20 @@ public class SparkEtlJob {
             if (!bitmapDictColumns.isEmpty()) {
                 tableToBitmapDictColumns.put(entry.getKey(), bitmapDictColumns);
             }
+            if (!binaryBitmapColumns.isEmpty()) {
+                tableToBinaryBitmapColumns.put(entry.getKey(), binaryBitmapColumns);
+            }
         }
         LOG.info("init hiveSourceTables: " + hiveSourceTables + ", tableToBitmapDictColumns: " + tableToBitmapDictColumns);
 
         // spark etl must have only one table with bitmap type column to process.
-        if (hiveSourceTables.size() > 1 || tableToBitmapDictColumns.size() > 1) {
+        if (hiveSourceTables.size() > 1 || tableToBitmapDictColumns.size() > 1 || tableToBinaryBitmapColumns.size() > 1) {
             throw new Exception("spark etl job must have only one hive table with bitmap type column to process");
         }
     }
 
     private void processDpp() throws Exception {
-        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns);
+        SparkDpp sparkDpp = new SparkDpp(spark, etlJobConfig, tableToBitmapDictColumns, tableToBinaryBitmapColumns);
         sparkDpp.init();
         sparkDpp.doDpp();
     }
@@ -183,7 +192,7 @@ public class SparkEtlJob {
         LOG.info("global dict builder args, dictColumnMap: " + dictColumnMap
                          + ", dorisOlapTableColumnList: " + dorisOlapTableColumnList
                          + ", sourceHiveDBTableName: " + sourceHiveDBTableName
-                         + ", sourceHiveFilter: "+ sourceHiveFilter
+                         + ", sourceHiveFilter: " + sourceHiveFilter
                          + ", distinctKeyTableName: " + distinctKeyTableName
                          + ", globalDictTableName: " + globalDictTableName
                          + ", dorisIntermediateHiveTable: " + dorisIntermediateHiveTable);

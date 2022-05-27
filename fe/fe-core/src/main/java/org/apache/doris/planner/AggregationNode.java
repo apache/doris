@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AggregationNode.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -22,24 +25,25 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-
-//import org.apache.doris.thrift.TAggregateFunctionCall;
+import java.util.Set;
 
 /**
  * Aggregation computation.
@@ -92,9 +96,9 @@ public class AggregationNode extends PlanNode {
      * Sets this node as a preaggregation. Only valid to call this if it is not marked
      * as a preaggregation
      */
-    public void setIsPreagg(PlannerContext ctx_) {
-        useStreamingPreagg =  ctx_.getQueryOptions().isSetDisableStreamPreaggregations()
-                && !ctx_.getQueryOptions().disable_stream_preaggregations
+    public void setIsPreagg(PlannerContext ctx) {
+        useStreamingPreagg =  ctx.getQueryOptions().isSetDisableStreamPreaggregations()
+                && !ctx.getQueryOptions().disable_stream_preaggregations
                 && aggInfo.getGroupingExprs().size() > 0;
     }
 
@@ -238,7 +242,7 @@ public class AggregationNode extends PlanNode {
 
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
-        sb.append("AGGREGATE");
+        sb.append(VectorizedUtil.isVectorized() ? "VAGGREGATE" : "AGGREGATE");
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");
@@ -263,17 +267,15 @@ public class AggregationNode extends PlanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.AGGREGATION_NODE;
-
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         // only serialize agg exprs that are being materialized
-        for (FunctionCallExpr e: aggInfo.getMaterializedAggregateExprs()) {
+        for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
             aggregateFunctions.add(e.treeToThrift());
         }
-        msg.agg_node =
-          new TAggregationNode(
-                  aggregateFunctions,
-                  aggInfo.getIntermediateTupleId().asInt(),
-                  aggInfo.getOutputTupleId().asInt(), needsFinalize);
+        msg.agg_node = new TAggregationNode(
+                aggregateFunctions,
+                aggInfo.getIntermediateTupleId().asInt(),
+                aggInfo.getOutputTupleId().asInt(), needsFinalize);
         msg.agg_node.setUseStreamingPreaggregation(useStreamingPreagg);
         List<Expr> groupingExprs = aggInfo.getGroupingExprs();
         if (groupingExprs != null) {
@@ -305,8 +307,7 @@ public class AggregationNode extends PlanNode {
                     getExplainString(aggInfo.getAggregateExprs()) + "\n");
         }
         // TODO: group by can be very long. Break it into multiple lines
-        output.append(detailPrefix + "group by: ").append(
-          getExplainString(aggInfo.getGroupingExprs()) + "\n");
+        output.append(detailPrefix + "group by: ").append(getExplainString(aggInfo.getGroupingExprs()) + "\n");
         if (!conjuncts.isEmpty()) {
             output.append(detailPrefix + "having: ").append(getExplainString(conjuncts) + "\n");
         }
@@ -327,5 +328,22 @@ public class AggregationNode extends PlanNode {
     @Override
     public int getNumInstances() {
         return children.get(0).getNumInstances();
+    }
+
+    @Override
+    public Set<SlotId> computeInputSlotIds() throws NotImplementedException {
+        Set<SlotId> result = Sets.newHashSet();
+        // compute group by slot
+        ArrayList<Expr> groupingExprs = aggInfo.getGroupingExprs();
+        List<SlotId> groupingSlotIds = Lists.newArrayList();
+        Expr.getIds(groupingExprs, null, groupingSlotIds);
+        result.addAll(groupingSlotIds);
+
+        // compute agg function slot
+        ArrayList<FunctionCallExpr> aggregateExprs = aggInfo.getAggregateExprs();
+        List<SlotId> aggregateSlotIds = Lists.newArrayList();
+        Expr.getIds(aggregateExprs, null, aggregateSlotIds);
+        result.addAll(aggregateSlotIds);
+        return result;
     }
 }

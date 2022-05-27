@@ -26,7 +26,7 @@
 
 namespace doris {
 
-class StorePath;
+struct StorePath;
 class Thread;
 
 class Daemon {

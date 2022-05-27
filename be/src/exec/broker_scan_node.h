@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <deque>
 #include <map>
 #include <mutex>
 #include <string>
@@ -40,31 +41,34 @@ struct ScannerCounter;
 class BrokerScanNode : public ScanNode {
 public:
     BrokerScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~BrokerScanNode();
+    ~BrokerScanNode() override;
 
     // Called after create this scan node
-    virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
+    Status init(const TPlanNode& tnode, RuntimeState* state = nullptr) override;
 
     // Prepare partition infos & set up timer
-    virtual Status prepare(RuntimeState* state) override;
+    Status prepare(RuntimeState* state) override;
 
     // Start broker scan using ParquetScanner or BrokerScanner.
-    virtual Status open(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
 
     // Fill the next row batch by calling next() on the scanner,
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
+
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close the scanner, and report errors.
-    virtual Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state) override;
 
     // No use
-    virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
 protected:
     // Write debug string of this into out.
-    virtual void debug_string(int indentation_level, std::stringstream* out) const override;
+    void debug_string(int indentation_level, std::stringstream* out) const override;
 
-private:
     // Update process status to one failed status,
     // NOTE: Must hold the mutex of this scan node
     bool update_status(const Status& new_status) {
@@ -75,23 +79,22 @@ private:
         return false;
     }
 
+    std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
+                                                ScannerCounter* counter);
+
+private:
     // Create scanners to do scan job
-    Status start_scanners();
+    virtual Status start_scanners();
 
     // One scanner worker, This scanner will handle 'length' ranges start from start_idx
     void scanner_worker(int start_idx, int length);
 
     // Scan one range
     Status scanner_scan(const TBrokerScanRange& scan_range,
-                        const std::vector<ExprContext*>& pre_filter_ctxs,
-                        const std::vector<ExprContext*>& conjunct_ctxs,
-                        ScannerCounter* counter);
+                        const std::vector<ExprContext*>& conjunct_ctxs, ScannerCounter* counter);
 
-    std::unique_ptr<BaseScanner> create_scanner(const TBrokerScanRange& scan_range,
-                                                const std::vector<ExprContext*>& pre_filter_ctxs,
-                                                ScannerCounter* counter);
-
-private:
+protected:
+    bool _vectorized = false;
     TupleId _tuple_id;
     RuntimeState* _runtime_state;
     TupleDescriptor* _tuple_desc;
@@ -104,8 +107,6 @@ private:
     std::deque<std::shared_ptr<RowBatch>> _batch_queue;
 
     int _num_running_scanners;
-    // Indicate if all scanners have been finished scan worker
-    bool _all_scanners_finished;
 
     std::atomic<bool> _scan_finished;
 
@@ -115,7 +116,12 @@ private:
 
     int _max_buffered_batches;
 
-    std::vector<ExprContext*> _pre_filter_ctxs;
+    // The origin preceding filter exprs.
+    // These exprs will be converted to expr context
+    // in XXXScanner.
+    // Because the row descriptor used for these exprs is `src_row_desc`,
+    // which is initialized in XXXScanner.
+    std::vector<TExpr> _pre_filter_texprs;
 
     RuntimeProfile::Counter* _wait_scanner_timer;
 };

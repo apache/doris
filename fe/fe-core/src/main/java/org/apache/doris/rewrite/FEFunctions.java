@@ -17,9 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import java.math.BigDecimal;
-import java.math.BigInteger;
-
 import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -33,9 +30,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTimeZone;
@@ -51,6 +48,12 @@ import java.math.BigInteger;
  */
 public class FEFunctions {
     private static final Logger LOG = LogManager.getLogger(FEFunctions.class);
+
+    @FEFunction(name = "version", argTypes = {}, returnType = "VARCHAR")
+    public static StringLiteral version() throws AnalysisException {
+        return new StringLiteral(GlobalVariable.version);
+    }
+
     /**
      * date and time function
      */
@@ -317,6 +320,14 @@ public class FEFunctions {
         return null;
     }
 
+    @FEFunction(name = "timestamp", argTypes = {"DATETIME"}, returnType = "DATETIME")
+    public static DateLiteral timestamp(LiteralExpr arg) throws AnalysisException {
+        if (arg instanceof DateLiteral) {
+            return (DateLiteral) arg;
+        }
+        return null;
+    }
+
     /**
      ------------------------------------------------------------------------------
      */
@@ -327,7 +338,7 @@ public class FEFunctions {
 
     @FEFunction(name = "floor", argTypes = { "DOUBLE"}, returnType = "BIGINT")
     public static IntLiteral floor(LiteralExpr expr) throws AnalysisException {
-        long result = (long)Math.floor(expr.getDoubleValue());
+        long result = (long) Math.floor(expr.getDoubleValue());
         return new IntLiteral(result, Type.BIGINT);
     }
 
@@ -339,8 +350,26 @@ public class FEFunctions {
      * Arithmetic function
      */
 
-    @FEFunction(name = "add", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    @FEFunction(name = "add", argTypes = { "TINYINT", "TINYINT" }, returnType = "SMALLINT")
+    public static IntLiteral addTinyint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.addExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.SMALLINT);
+    }
+
+    @FEFunction(name = "add", argTypes = { "SMALLINT", "SMALLINT" }, returnType = "INT")
+    public static IntLiteral addSmallint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.addExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.INT);
+    }
+
+    @FEFunction(name = "add", argTypes = { "INT", "INT" }, returnType = "BIGINT")
     public static IntLiteral addInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.addExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.BIGINT);
+    }
+
+    @FEFunction(name = "add", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    public static IntLiteral addBigint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long result = Math.addExact(first.getLongValue(), second.getLongValue());
         return new IntLiteral(result, Type.BIGINT);
     }
@@ -368,8 +397,26 @@ public class FEFunctions {
         return new LargeIntLiteral(result.toString());
     }
 
-    @FEFunction(name = "subtract", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    @FEFunction(name = "subtract", argTypes = { "TINYINT", "TINYINT" }, returnType = "SMALLINT")
+    public static IntLiteral subtractTinyint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.subtractExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.SMALLINT);
+    }
+
+    @FEFunction(name = "subtract", argTypes = { "SMALLINT", "SMALLINT" }, returnType = "INT")
+    public static IntLiteral subtractSmallint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.subtractExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.INT);
+    }
+
+    @FEFunction(name = "subtract", argTypes = { "INT", "INT" }, returnType = "BIGINT")
     public static IntLiteral subtractInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.subtractExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.BIGINT);
+    }
+
+    @FEFunction(name = "subtract", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    public static IntLiteral subtractBigint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         long result = Math.subtractExact(first.getLongValue(), second.getLongValue());
         return new IntLiteral(result, Type.BIGINT);
     }
@@ -397,11 +444,27 @@ public class FEFunctions {
         return new LargeIntLiteral(result.toString());
     }
 
-    @FEFunction(name = "multiply", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    @FEFunction(name = "multiply", argTypes = { "TINYINT", "TINYINT" }, returnType = "SMALLINT")
+    public static IntLiteral multiplyTinyint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.multiplyExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.SMALLINT);
+    }
+
+    @FEFunction(name = "multiply", argTypes = { "SMALLINT", "SMALLINT" }, returnType = "INT")
+    public static IntLiteral multiplySmallint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.multiplyExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.INT);
+    }
+
+    @FEFunction(name = "multiply", argTypes = { "INT", "INT" }, returnType = "BIGINT")
     public static IntLiteral multiplyInt(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        long left = first.getLongValue();
-        long right = second.getLongValue();
-        long result = Math.multiplyExact(left, right);
+        long result = Math.multiplyExact(first.getLongValue(), second.getLongValue());
+        return new IntLiteral(result, Type.BIGINT);
+    }
+
+    @FEFunction(name = "multiply", argTypes = { "BIGINT", "BIGINT" }, returnType = "BIGINT")
+    public static IntLiteral multiplyBigint(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        long result = Math.multiplyExact(first.getLongValue(), second.getLongValue());
         return new IntLiteral(result, Type.BIGINT);
     }
 
@@ -430,8 +493,8 @@ public class FEFunctions {
 
     @FEFunction(name = "divide", argTypes = { "DOUBLE", "DOUBLE" }, returnType = "DOUBLE")
     public static FloatLiteral divideDouble(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        if (second.getDoubleValue() == 0.0) {	
-            return null;	
+        if (second.getDoubleValue() == 0.0) {
+            return null;
         }
         double result = first.getDoubleValue() / second.getDoubleValue();
         return new FloatLiteral(result, Type.DOUBLE);
@@ -441,8 +504,8 @@ public class FEFunctions {
     public static DecimalLiteral divideDecimalV2(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         BigDecimal left = new BigDecimal(first.getStringValue());
         BigDecimal right = new BigDecimal(second.getStringValue());
-        if (right.compareTo(BigDecimal.ZERO) == 0) {	
-            return null;	
+        if (right.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
         }
         BigDecimal result = left.divide(right);
         return new DecimalLiteral(result);

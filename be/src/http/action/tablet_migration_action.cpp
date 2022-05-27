@@ -63,7 +63,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                 do {
                     {
                         std::unique_lock<std::mutex> lock(_migration_status_mutex);
-                        std::map<MigrationTask, std::string>::iterator it_task = _migration_tasks.find(current_task);
+                        std::map<MigrationTask, std::string>::iterator it_task =
+                                _migration_tasks.find(current_task);
                         if (it_task != _migration_tasks.end()) {
                             status = Status::AlreadyExist(strings::Substitute(
                                     "There is a migration task for this tablet already exists. "
@@ -73,8 +74,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                         }
                         _migration_tasks[current_task] = "submitted";
                     }
-                    auto st = _migration_thread_pool->submit_func([&, tablet_id, schema_hash,
-                                                                   dest_disk, current_task]() {
+                    auto st = _migration_thread_pool->submit_func([&, dest_disk, current_task]() {
                         {
                             std::unique_lock<std::mutex> lock(_migration_status_mutex);
                             _migration_tasks[current_task] = "running";
@@ -109,7 +109,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
             }
             std::string status_result;
             if (!status.ok()) {
-                status_result = to_json(status);
+                status_result = status.to_json();
             } else {
                 status_result =
                         "{\"status\": \"Success\", \"msg\": \"migration task is successfully "
@@ -123,7 +123,8 @@ void TabletMigrationAction::handle(HttpRequest* req) {
             std::string status_result;
             do {
                 std::unique_lock<std::mutex> lock(_migration_status_mutex);
-                std::map<MigrationTask, std::string>::iterator it_task = _migration_tasks.find(current_task);
+                std::map<MigrationTask, std::string>::iterator it_task =
+                        _migration_tasks.find(current_task);
                 if (it_task != _migration_tasks.end()) {
                     status_result = "{\"status\": \"Success\", \"msg\": \"migration task is " +
                                     it_task->second + "\", \"dest_disk\": \"" +
@@ -151,13 +152,13 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                 }
             } while (0);
             if (!status.ok()) {
-                status_result = to_json(status);
+                status_result = status.to_json();
             }
             req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
             HttpChannel::send_reply(req, HttpStatus::OK, status_result);
         }
     } else {
-        std::string status_result = to_json(status);
+        std::string status_result = status.to_json();
         req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
         HttpChannel::send_reply(req, HttpStatus::OK, status_result);
     }
@@ -186,9 +187,9 @@ Status TabletMigrationAction::_check_param(HttpRequest* req, int64_t& tablet_id,
 Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t schema_hash,
                                                      string dest_disk, TabletSharedPtr& tablet,
                                                      DataDir** dest_store) {
-    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
-        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id << " schema hash:" << schema_hash;
+        LOG(WARNING) << "no tablet for tablet_id:" << tablet_id;
         return Status::NotFound("Tablet not found");
     }
 
@@ -221,19 +222,16 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(tablet, dest_store);
-    OLAPStatus res = StorageEngine::instance()->execute_task(&engine_task);
-    Status status = Status::OK();
-    if (res != OLAP_SUCCESS) {
+    Status res = StorageEngine::instance()->execute_task(&engine_task);
+    if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk
                      << ", status:" << res;
-        status = Status::InternalError(strings::Substitute("migration task failed, res: $0", res));
     } else {
         LOG(INFO) << "tablet migrate success. tablet_id=" << tablet_id
-                  << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk
-                  << ", status:" << res;
+                  << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk;
     }
-    return status;
+    return res;
 }
 
 } // namespace doris

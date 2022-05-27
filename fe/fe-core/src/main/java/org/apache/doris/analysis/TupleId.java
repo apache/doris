@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TupleId.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -31,9 +34,14 @@ public class TupleId extends Id<TupleId> {
     public static IdGenerator<TupleId> createGenerator() {
         return new IdGenerator<TupleId>() {
             @Override
-            public TupleId getNextId() { return new TupleId(nextId_++); }
+            public TupleId getNextId() {
+                return new TupleId(nextId++);
+            }
+
             @Override
-            public TupleId getMaxId() { return new TupleId(nextId_ - 1); }
+            public TupleId getMaxId() {
+                return new TupleId(nextId - 1);
+            }
         };
     }
 }

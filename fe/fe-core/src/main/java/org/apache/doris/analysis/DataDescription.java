@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -35,9 +34,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TNetworkAddress;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -45,6 +41,8 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
 import java.util.Arrays;
@@ -713,29 +711,18 @@ public class DataDescription {
     }
 
     private void analyzeSequenceCol(String fullDbName) throws AnalysisException {
-        Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
-        if (db == null) {
-            throw new AnalysisException("Database[" + fullDbName + "] does not exist");
-        }
-        Table table = db.getTable(tableName);
-        if (table == null) {
-            throw new AnalysisException("Unknown table " + tableName
-                    + " in database " + db.getFullName());
-        }
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("Table " + table.getName() + " is not OlapTable");
-        }
-        OlapTable olapTable = (OlapTable) table;
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(fullDbName);
+        OlapTable olapTable = db.getOlapTableOrAnalysisException(tableName);
         // no sequence column in load and table schema
         if (!hasSequenceCol() && !olapTable.hasSequenceCol()) {
             return;
         }
         // check olapTable schema and sequenceCol
         if (olapTable.hasSequenceCol() && !hasSequenceCol()) {
-            throw new AnalysisException("Table " + table.getName() + " has sequence column, need to specify the sequence column");
+            throw new AnalysisException("Table " + olapTable.getName() + " has sequence column, need to specify the sequence column");
         }
         if (hasSequenceCol() && !olapTable.hasSequenceCol()) {
-            throw new AnalysisException("There is no sequence column in the table " + table.getName());
+            throw new AnalysisException("There is no sequence column in the table " + olapTable.getName());
         }
         // check source sequence column is in parsedColumnExprList or Table base schema
         boolean hasSourceSequenceCol = false;
@@ -756,7 +743,7 @@ public class DataDescription {
             }
         }
         if (!hasSourceSequenceCol) {
-            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + table.getName()
+            throw new AnalysisException("There is no sequence column " + sequenceCol + " in the " + olapTable.getName()
                     + " or the COLUMNS and SET clause");
         }
     }
@@ -801,7 +788,7 @@ public class DataDescription {
                 PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
-                    ConnectContext.get().getRemoteIP(), tableName);
+                    ConnectContext.get().getRemoteIP(), fullDbName + ": " + tableName);
         }
 
         // check hive table auth
@@ -810,7 +797,7 @@ public class DataDescription {
                     PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),
-                        ConnectContext.get().getRemoteIP(), srcTableName);
+                        ConnectContext.get().getRemoteIP(), fullDbName + ": " + srcTableName);
             }
         }
     }

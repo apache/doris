@@ -692,10 +692,14 @@ char* strdup_with_new(const char* the_string) {
 
 char* strndup_with_new(const char* the_string, int max_length) {
     if (the_string == nullptr) return nullptr;
-
-    auto result = new char[max_length + 1];
-    result[max_length] = '\0'; // terminate the string because strncpy might not
-    return strncpy(result, the_string, max_length);
+    size_t str_len = strlen(the_string);
+    if (str_len > max_length) {
+        str_len = max_length;
+    }
+    auto result = new char[str_len + 1];
+    result[max_length] = '\0'; // truncated string might not have \0 at end
+    memcpy(result, the_string, str_len);
+    return result;
 }
 
 // ----------------------------------------------------------------------

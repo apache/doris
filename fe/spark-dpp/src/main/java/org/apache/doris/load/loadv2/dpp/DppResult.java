@@ -32,6 +32,7 @@ public class DppResult implements Serializable {
         abnormalRows = 0;
         unselectRows = 0;
         partialAbnormalRows = "";
+        scannedBytes = 0;
     }
 
     @SerializedName("is_success")
@@ -61,4 +62,7 @@ public class DppResult implements Serializable {
     // only part of abnormal rows will be returned
     @SerializedName("partial_abnormal_rows")
     public String partialAbnormalRows;
+
+    @SerializedName("scanned_bytes")
+    public long scannedBytes;
 }

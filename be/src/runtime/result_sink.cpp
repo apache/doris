@@ -27,7 +27,9 @@
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/uid_util.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
@@ -38,11 +40,6 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         _sink_type = TResultSinkType::MYSQL_PROTOCAL;
     } else {
         _sink_type = sink.type;
-    }
-
-    if (_sink_type == TResultSinkType::FILE) {
-        CHECK(sink.__isset.file_options);
-        _file_opts.reset(new ResultFileOptions(sink.file_options));
     }
 
     _name = "ResultSink";
@@ -75,13 +72,8 @@ Status ResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
     case TResultSinkType::MYSQL_PROTOCAL:
-        _writer.reset(new (std::nothrow)
-                              MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
-        break;
-    case TResultSinkType::FILE:
-        CHECK(_file_opts.get() != nullptr);
-        _writer.reset(new (std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs,
-                                                          _profile, _sender.get()));
+        _writer.reset(new (std::nothrow) MysqlResultWriter(
+                _sender.get(), _output_expr_ctxs, _profile, state->return_object_data_as_binary()));
         break;
     default:
         return Status::InternalError("Unknown result sink type");
@@ -96,6 +88,9 @@ Status ResultSink::open(RuntimeState* state) {
 }
 
 Status ResultSink::send(RuntimeState* state, RowBatch* batch) {
+    // The memory consumption in the process of sending the results is not check query memory limit.
+    // Avoid the query being cancelled when the memory limit is reached after the query result comes out.
+    STOP_CHECK_LIMIT_THREAD_LOCAL_MEM_TRACKER();
     return _writer->append_row_batch(batch);
 }
 
@@ -116,16 +111,17 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
 
     // close sender, this is normal path end
     if (_sender) {
-        _sender->update_num_written_rows(_writer->get_written_rows());
+        _sender->update_num_written_rows(_writer == nullptr ? 0 : _writer->get_written_rows());
+        _sender->update_max_peak_memory_bytes();
         _sender->close(final_status);
     }
     state->exec_env()->result_mgr()->cancel_at_time(
-            time(NULL) + config::result_buffer_cancelled_interval_time,
+            time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id());
+
     Expr::close(_output_expr_ctxs, state);
 
-    _closed = true;
-    return Status::OK();
+    return DataSink::close(state, exec_status);
 }
 
 void ResultSink::set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {

@@ -36,114 +36,6 @@ protected:
     virtual void TearDown() {}
 };
 
-TEST_F(DppSinkInternalTest, RollupNormal) {
-    ObjectPool pool;
-    TRollupSchema t_schema;
-    // Two Keys
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.keys.push_back(expr);
-    }
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.keys.push_back(expr);
-    }
-    // Two Values
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.values.push_back(expr);
-    }
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.values.push_back(expr);
-    }
-    // Two ValueOps
-    t_schema.value_ops.push_back(TAggregationType::SUM);
-    t_schema.value_ops.push_back(TAggregationType::SUM);
-
-    RollupSchema schema;
-
-    ASSERT_TRUE(RollupSchema::from_thrift(&pool, t_schema, &schema).ok());
-    ASSERT_TRUE(schema.prepare(nullptr, RowDescriptor()).ok());
-}
-
-TEST_F(DppSinkInternalTest, ValueSizeNotEq) {
-    ObjectPool pool;
-    TRollupSchema t_schema;
-    // Two Keys
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.keys.push_back(expr);
-    }
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.keys.push_back(expr);
-    }
-    // Two Values
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.values.push_back(expr);
-    }
-    {
-        TExpr expr;
-        TExprNode node;
-        node.node_type = TExprNodeType::INT_LITERAL;
-        node.type.type = TPrimitiveType::INT;
-        node.num_children = 0;
-        node.__set_int_literal(TIntLiteral());
-        expr.nodes.push_back(node);
-        t_schema.values.push_back(expr);
-    }
-    // One ValueOp
-    t_schema.value_ops.push_back(TAggregationType::SUM);
-
-    RollupSchema schema;
-
-    ASSERT_FALSE(RollupSchema::from_thrift(&pool, t_schema, &schema).ok());
-}
-
 TEST_F(DppSinkInternalTest, PartitionInfoNormal) {
     ObjectPool pool;
     TRangePartition t_partition;
@@ -175,8 +67,8 @@ TEST_F(DppSinkInternalTest, PartitionInfoNormal) {
 
     PartitionInfo info;
 
-    ASSERT_TRUE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
-    ASSERT_TRUE(info.prepare(nullptr, RowDescriptor()).ok());
+    EXPECT_TRUE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
+    EXPECT_TRUE(info.prepare(nullptr, RowDescriptor()).ok());
 }
 
 TEST_F(DppSinkInternalTest, ZeroBucket) {
@@ -198,12 +90,7 @@ TEST_F(DppSinkInternalTest, ZeroBucket) {
 
     PartitionInfo info;
 
-    ASSERT_FALSE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
+    EXPECT_FALSE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

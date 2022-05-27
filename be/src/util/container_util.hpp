@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/container-util.hpp
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
-#define DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
+#pragma once
 
 #include <map>
 #include <unordered_map>
@@ -94,5 +96,3 @@ const V& find_with_default(const std::unordered_map<K, V>& m, const K& key, cons
 }
 
 } // namespace doris
-
-#endif

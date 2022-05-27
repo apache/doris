@@ -38,6 +38,8 @@
 #include "runtime/mem_pool.h"
 #include "util/coding.h"
 #include "util/faststring.h"
+#include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -45,14 +47,13 @@ namespace segment_v2 {
 class BinaryPlainPageBuilder : public PageBuilder {
 public:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
-            : _size_estimate(0), _prepared_size(0), _options(options) {
+            : _size_estimate(0), _options(options) {
         reset();
     }
 
     bool is_page_full() override {
         // data_page_size is 0, do not limit the page size
-        return _options.data_page_size != 0 && (_size_estimate > _options.data_page_size ||
-                                                _prepared_size > _options.data_page_size);
+        return _options.data_page_size != 0 && _size_estimate > _options.data_page_size;
     }
 
     Status add(const uint8_t* vals, size_t* count) override {
@@ -99,7 +100,6 @@ public:
         _buffer.clear();
         _buffer.reserve(_options.data_page_size == 0 ? 1024 : _options.data_page_size);
         _size_estimate = sizeof(uint32_t);
-        _prepared_size = sizeof(uint32_t);
         _finished = false;
         _last_value_size = 0;
     }
@@ -125,10 +125,15 @@ public:
         return Status::OK();
     }
 
-    void update_prepared_size(size_t added_size) {
-        _prepared_size += added_size;
-        _prepared_size += sizeof(uint32_t);
+    inline Slice operator[](size_t idx) const {
+        DCHECK(!_finished);
+        DCHECK_LT(idx, _offsets.size());
+        size_t value_size =
+                (idx < _offsets.size() - 1) ? _offsets[idx + 1] - _offsets[idx] : _last_value_size;
+        return Slice(&_buffer[_offsets[idx]], value_size);
     }
+
+    inline Slice get(std::size_t idx) const { return (*this)[idx]; }
 
 private:
     void _copy_value_at(size_t idx, faststring* value) const {
@@ -139,7 +144,6 @@ private:
 
     faststring _buffer;
     size_t _size_estimate;
-    size_t _prepared_size;
     // Offsets of each entry, relative to the start of the page
     std::vector<uint32_t> _offsets;
     bool _finished;
@@ -215,7 +219,7 @@ public:
         char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
         if (destination == nullptr) {
             return Status::MemoryAllocFailed(
-                strings::Substitute("memory allocate failed, size:$0", mem_size));
+                    strings::Substitute("memory allocate failed, size:$0", mem_size));
         }
         for (int i = 0; i < max_fetch; ++i) {
             out->relocate(destination);
@@ -226,6 +230,29 @@ public:
         *n = max_fetch;
         return Status::OK();
     }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+        DCHECK(_parsed);
+        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
+            *n = 0;
+            return Status::OK();
+        }
+        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
+
+        uint32_t len_array[max_fetch];
+        uint32_t start_offset_array[max_fetch];
+        for (int i = 0; i < max_fetch; i++, _cur_idx++) {
+            const uint32_t start_offset = offset(_cur_idx);
+            uint32_t len = offset(_cur_idx + 1) - start_offset;
+            len_array[i] = len;
+            start_offset_array[i] = start_offset;
+        }
+        dst->insert_many_binary_data(_data.mutable_data(), len_array, start_offset_array,
+                                     max_fetch);
+
+        *n = max_fetch;
+        return Status::OK();
+    };
 
     size_t count() const override {
         DCHECK(_parsed);
@@ -243,9 +270,30 @@ public:
         return Slice(&_data[start_offset], len);
     }
 
+    void get_dict_word_info(StringRef* dict_word_info) {
+        if (_num_elems <= 0) [[unlikely]]
+            return;
+
+        char* data_begin = (char*)&_data[0];
+        char* offset_ptr = (char*)&_data[_offsets_pos];
+
+        for (uint32_t i = 0; i < _num_elems; ++i) {
+            dict_word_info[i].data = data_begin + decode_fixed32_le((uint8_t*)offset_ptr);
+            offset_ptr += sizeof(uint32_t);
+        }
+
+        for (int i = 0; i < (int)_num_elems - 1; ++i) {
+            dict_word_info[i].size =
+                    (char*)dict_word_info[i + 1].data - (char*)dict_word_info[i].data;
+        }
+
+        dict_word_info[_num_elems - 1].size =
+                (data_begin + _offsets_pos) - (char*)dict_word_info[_num_elems - 1].data;
+    }
+
 private:
     // Return the offset within '_data' where the string value with index 'idx' can be found.
-    uint32_t offset(int idx) const {
+    uint32_t offset(size_t idx) const {
         if (idx >= _num_elems) {
             return _offsets_pos;
         }
@@ -263,6 +311,8 @@ private:
 
     // Index of the currently seeked element in the page.
     uint32_t _cur_idx;
+    friend class BinaryDictPageDecoder;
+    friend class FileColumnIterator;
 };
 
 } // namespace segment_v2

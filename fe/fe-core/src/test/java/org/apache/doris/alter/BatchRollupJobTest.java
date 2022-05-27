@@ -32,7 +32,6 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -49,13 +48,13 @@ public class BatchRollupJobTest {
 
     @BeforeClass
     public static void setup() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
     }
 
     @Before
     public void before() throws Exception {
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         alterJobs.clear();
 
         // create database db1
@@ -77,12 +76,12 @@ public class BatchRollupJobTest {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assert.assertNotNull(tbl);
 
         int finishedNum = 0;
@@ -127,13 +126,13 @@ public class BatchRollupJobTest {
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
         Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
 
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getMaterializedViewHandler().getAlterJobsV2();
         Assert.assertEquals(3, alterJobs.size());
         List<Long> jobIds = Lists.newArrayList(alterJobs.keySet());
 
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Database db = Catalog.getCurrentCatalog().getDbNullable("default_cluster:db1");
         Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl2");
+        OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assert.assertNotNull(tbl);
 
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {

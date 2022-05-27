@@ -27,12 +27,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.GaugeMetric;
@@ -46,7 +46,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table.Cell;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -65,25 +64,25 @@ import java.util.stream.Collectors;
 public class TabletChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletChecker.class);
 
-    private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
-
     private Catalog catalog;
     private SystemInfoService infoService;
     private TabletScheduler tabletScheduler;
     private TabletSchedulerStat stat;
 
-    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>(){{
-        put("total", new AtomicLong(0L));
-        put("unhealthy", new AtomicLong(0L));
-        put("added", new AtomicLong(0L));
-        put("in_sched", new AtomicLong(0L));
-        put("not_ready", new AtomicLong(0L));
-    }};
+    HashMap<String, AtomicLong> tabletCountByStatus = new HashMap<String, AtomicLong>() {
+        {
+            put("total", new AtomicLong(0L));
+            put("unhealthy", new AtomicLong(0L));
+            put("added", new AtomicLong(0L));
+            put("in_sched", new AtomicLong(0L));
+            put("not_ready", new AtomicLong(0L));
+        }
+    };
 
     // db id -> (tbl id -> PrioPart)
     // priority of replicas of partitions in this table will be set to VERY_HIGH if not healthy
     private com.google.common.collect.Table<Long, Long, Set<PrioPart>> prios = HashBasedTable.create();
-    
+
     // represent a partition which need to be repaired preferentially
     public static class PrioPart {
         public long partId;
@@ -127,8 +126,8 @@ public class TabletChecker extends MasterDaemon {
     }
 
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
-            TabletSchedulerStat stat) {
-        super("tablet checker", CHECK_INTERVAL_MS);
+                         TabletSchedulerStat stat) {
+        super("tablet checker", FeConstants.tablet_checker_interval_ms);
         this.catalog = catalog;
         this.infoService = infoService;
         this.tabletScheduler = tabletScheduler;
@@ -189,7 +188,6 @@ public class TabletChecker extends MasterDaemon {
                 tblMap.remove(repairTabletInfo.tblId);
             }
         }
-
     }
 
     /*
@@ -242,14 +240,14 @@ public class TabletChecker extends MasterDaemon {
 
         OUT:
         for (long dbId : copiedPrios.rowKeySet()) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
             List<Long> aliveBeIdsInCluster = infoService.getClusterBackendIds(db.getClusterName(), true);
             Map<Long, Set<PrioPart>> tblPartMap = copiedPrios.row(dbId);
             for (long tblId : tblPartMap.keySet()) {
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
                     continue;
                 }
@@ -277,7 +275,7 @@ public class TabletChecker extends MasterDaemon {
         List<Long> dbIds = catalog.getDbIds();
         OUT:
         for (Long dbId : dbIds) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 continue;
             }
@@ -358,8 +356,7 @@ public class TabletChecker extends MasterDaemon {
                         infoService,
                         db.getClusterName(),
                         partition.getVisibleVersion(),
-                        partition.getVisibleVersionHash(),
-                        tbl.getPartitionInfo().getReplicationNum(partition.getId()),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         aliveBeIdsInCluster);
 
                 if (statusWithPrio.first == TabletStatus.HEALTHY) {
@@ -388,15 +385,15 @@ public class TabletChecker extends MasterDaemon {
                         db.getClusterName(),
                         db.getId(), tbl.getId(),
                         partition.getId(), idx.getId(), tablet.getId(),
+                        tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletStatus(statusWithPrio.first);
                 tabletCtx.setOrigPriority(statusWithPrio.second);
 
                 AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                if (res == AddResult.LIMIT_EXCEED) {
-                    LOG.info("number of scheduling tablets in tablet scheduler"
-                            + " exceed to limit. stop tablet checker");
+                if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
+                    LOG.info("tablet scheduler return: {}. stop tablet checker", res.name());
                     return LoopControlStatus.BREAK_OUT;
                 } else if (res == AddResult.ADDED) {
                     counter.addToSchedulerTabletNum++;
@@ -407,7 +404,7 @@ public class TabletChecker extends MasterDaemon {
         if (prioPartIsHealthy && isInPrios) {
             // if all replicas in this partition are healthy, remove this partition from
             // priorities.
-            LOG.debug("partition is healthy, remove from prios: {}-{}-{}",
+            LOG.info("partition is healthy, remove from prios: {}-{}-{}",
                     db.getId(), tbl.getId(), partition.getId());
             removePrios(new RepairTabletInfo(db.getId(),
                     tbl.getId(), Lists.newArrayList(partition.getId())));
@@ -437,7 +434,7 @@ public class TabletChecker extends MasterDaemon {
         while (iter.hasNext()) {
             Map.Entry<Long, Map<Long, Set<PrioPart>>> dbEntry = iter.next();
             long dbId = dbEntry.getKey();
-            Database db = Catalog.getCurrentCatalog().getDb(dbId);
+            Database db = Catalog.getCurrentCatalog().getDbNullable(dbId);
             if (db == null) {
                 iter.remove();
                 continue;
@@ -447,7 +444,7 @@ public class TabletChecker extends MasterDaemon {
             while (jter.hasNext()) {
                 Map.Entry<Long, Set<PrioPart>> tblEntry = jter.next();
                 long tblId = tblEntry.getKey();
-                OlapTable tbl = (OlapTable) db.getTable(tblId);
+                OlapTable tbl = (OlapTable) db.getTableNullable(tblId);
                 if (tbl == null) {
                     deletedPrios.add(Pair.create(dbId, tblId));
                     continue;
@@ -525,22 +522,15 @@ public class TabletChecker extends MasterDaemon {
 
     public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
         Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(dbName);
-        if (db == null) {
-            throw new DdlException("Database " + dbName + " does not exist");
-        }
+        Database db = catalog.getDbOrDdlException(dbName);
 
         long dbId = db.getId();
         long tblId = -1;
         List<Long> partIds = Lists.newArrayList();
-        Table tbl = db.getTable(tblName);
-        if (tbl == null || tbl.getType() != TableType.OLAP) {
-            throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
-        }
-        tbl.readLock();
+        OlapTable olapTable = db.getOlapTableOrDdlException(tblName);
+        olapTable.readLock();
         try {
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
+            tblId = olapTable.getId();
 
             if (partitions == null || partitions.isEmpty()) {
                 partIds = olapTable.getPartitions().stream().map(Partition::getId).collect(Collectors.toList());
@@ -554,7 +544,7 @@ public class TabletChecker extends MasterDaemon {
                 }
             }
         } finally {
-            tbl.readUnlock();
+            olapTable.readUnlock();
         }
 
         Preconditions.checkState(tblId != -1);

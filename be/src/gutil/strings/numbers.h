@@ -3,8 +3,7 @@
 //
 // Convert strings to numbers or numbers to strings.
 
-#ifndef STRINGS_NUMBERS_H_
-#define STRINGS_NUMBERS_H_
+#pragma once
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -442,6 +441,8 @@ int FloatToBuffer(float i, int width, char* buffer);
 char* DoubleToBuffer(double i, char* buffer);
 char* FloatToBuffer(float i, char* buffer);
 
+int FastDoubleToBuffer(double i, char* buffer);
+int FastFloatToBuffer(float i, char* buffer);
 // In practice, doubles should never need more than 24 bytes and floats
 // should never need more than 14 (including null terminators), but we
 // overestimate to be safe.
@@ -461,6 +462,9 @@ string SimpleItoaWithCommas(uint32 i);
 string SimpleItoaWithCommas(int64 i);
 string SimpleItoaWithCommas(uint64 i);
 
+char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size);
+char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size);
+
 // ----------------------------------------------------------------------
 // ItoaKMGT()
 //    Description: converts an integer to a string
@@ -469,8 +473,12 @@ string SimpleItoaWithCommas(uint64 i);
 //    e.g. 3000 -> 2K   57185920 -> 45M
 //
 //    Return value: string
+//
+// AccurateItoaKMGT()
+//    Description: preserve accuracy
 // ----------------------------------------------------------------------
 string ItoaKMGT(int64 i);
+string AccurateItoaKMGT(int64 i);
 
 // ----------------------------------------------------------------------
 // ParseDoubleRange()
@@ -562,5 +570,3 @@ bool ParseDoubleRange(const char* text, int len, const char** end, double* from,
 // inline string UInt64ToString(uint64 ui64) {
 //   return StringPrintf("%7" PRIu64, ui64);
 // }
-
-#endif // STRINGS_NUMBERS_H_

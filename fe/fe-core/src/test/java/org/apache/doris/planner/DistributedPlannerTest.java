@@ -29,7 +29,9 @@ import org.apache.doris.utframe.UtFrameUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.After;
@@ -42,17 +44,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
-
 public class DistributedPlannerTest {
     private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
     private static ConnectContext ctx;
 
     @BeforeClass
     public static void setUp() throws Exception {
-        UtFrameUtils.createMinDorisCluster(runningDir);
+        UtFrameUtils.createDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
@@ -146,5 +144,29 @@ public class DistributedPlannerTest {
         fragments = planner.getFragments();
         plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
         Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
+    }
+
+    @Test
+    public void testBroadcastJoinCostThreshold() throws Exception {
+        String sql = "explain select * from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k3";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        String plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+        Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (BROADCAST)"));
+
+        double originThreshold = ctx.getSessionVariable().autoBroadcastJoinThreshold;
+        try {
+            ctx.getSessionVariable().autoBroadcastJoinThreshold = -1.0;
+            stmtExecutor = new StmtExecutor(ctx, sql);
+            stmtExecutor.execute();
+            planner = stmtExecutor.planner();
+            fragments = planner.getFragments();
+            plan = planner.getExplainString(fragments, new ExplainOptions(false, false));
+            Assert.assertEquals(1, StringUtils.countMatches(plan, "INNER JOIN (PARTITIONED)"));
+        } finally {
+            ctx.getSessionVariable().autoBroadcastJoinThreshold = originThreshold;
+        }
     }
 }

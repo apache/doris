@@ -30,6 +30,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
+import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -51,7 +52,7 @@ public class CountDistinctToBitmap implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new CountDistinctToBitmap();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         // meet condition
         if (!(expr instanceof FunctionCallExpr)) {
             return expr;

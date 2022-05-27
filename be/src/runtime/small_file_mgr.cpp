@@ -20,8 +20,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::starts_with
+#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
 #include <sstream>
 
 #include "common/status.h"
@@ -84,7 +83,8 @@ Status SmallFileMgr::_load_single_file(const std::string& path, const std::strin
     std::string md5 = parts[1];
 
     if (_file_cache.find(file_id) != _file_cache.end()) {
-        return Status::InternalError("File with same id is already been loaded: " + file_id);
+        return Status::InternalError(
+                fmt::format("File with same id is already been loaded: {}", file_id));
     }
 
     std::string file_md5;

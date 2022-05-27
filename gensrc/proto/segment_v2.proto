@@ -166,7 +166,7 @@ message SegmentFooterPB {
     optional uint32 version = 1 [default = 1]; // file version
     repeated ColumnMetaPB columns = 2; // tablet schema
     optional uint32 num_rows = 3; // number of values
-    optional uint64 index_footprint = 4; // total idnex footprint of all columns
+    optional uint64 index_footprint = 4; // total index footprint of all columns
     optional uint64 data_footprint = 5; // total data footprint of all columns
     optional uint64 raw_data_footprint = 6; // raw data footprint
 

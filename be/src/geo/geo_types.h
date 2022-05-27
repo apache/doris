@@ -17,17 +17,21 @@
 
 #pragma once
 
-#include <s2/s2cap.h>
-#include <s2/s2point.h>
-#include <s2/s2polygon.h>
-#include <s2/s2polyline.h>
-
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
+
+class S2Polyline;
+class S2Polygon;
+class S2Cap;
+
+template <typename T>
+class Vector3;
+typedef Vector3<double> Vector3_d;
+using S2Point = Vector3_d;
 
 namespace doris {
 
@@ -59,15 +63,18 @@ protected:
 
 class GeoPoint : public GeoShape {
 public:
-    GeoPoint() {}
-    ~GeoPoint() override {}
+    GeoPoint();
+    ~GeoPoint() override;
 
     GeoParseStatus from_coord(double x, double y);
     GeoParseStatus from_coord(const GeoCoordinate& point);
 
     GeoShapeType type() const override { return GEO_SHAPE_POINT; }
 
-    const S2Point& point() const { return _point; }
+    const S2Point* point() const { return _point.get(); }
+
+    static bool ComputeDistance(double x_lng, double x_lat, double y_lng, double y_lat,
+                                double* distance);
 
     std::string to_string() const override;
     std::string as_wkt() const override;
@@ -80,13 +87,13 @@ protected:
     bool decode(const void* data, size_t size) override;
 
 private:
-    S2Point _point;
+    std::unique_ptr<S2Point> _point;
 };
 
 class GeoLine : public GeoShape {
 public:
-    GeoLine() {}
-    ~GeoLine() override {}
+    GeoLine();
+    ~GeoLine() override;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
 
@@ -105,8 +112,8 @@ private:
 
 class GeoPolygon : public GeoShape {
 public:
-    GeoPolygon() {}
-    ~GeoPolygon() override {}
+    GeoPolygon();
+    ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
 
@@ -126,8 +133,8 @@ private:
 
 class GeoCircle : public GeoShape {
 public:
-    GeoCircle() {}
-    ~GeoCircle() {}
+    GeoCircle();
+    ~GeoCircle() override;
 
     GeoParseStatus init(double lng, double lat, double radius);
 
@@ -143,57 +150,5 @@ protected:
 private:
     std::unique_ptr<S2Cap> _cap;
 };
-
-#if 0
-class GeoMultiPoint : public GeoShape {
-public:
-    GeoPolygon();
-    ~GeoPolygon() override;
-
-    GeoShapeType type() const override { return GEO_SHAPE_POLYGON; }
-    const std::vector<S2Point>& points() const { return _points; }
-
-private:
-    std::vector<S2Point> _points;
-};
-
-class GeoMultiLine : public GeoShape {
-public:
-    GeoMultiLine();
-    ~GeoMultiLine() override;
-
-    GeoShapeType type() const override { return GEO_SHAPE_MULTI_LINE_STRING; }
-    const std::vector<S2Polyline*>& polylines() const { return _polylines; }
-
-private:
-    std::vector<S2Polyline> _polylines;
-};
-
-class GeoMultiPolygon : public GeoShape {
-public:
-    GeoMultiPolygon();
-    ~GeoMultiPolygon() override;
-
-    GeoShapeType type() const override { return GEO_SHAPE_MULTI_POLYGON; }
-
-    const std::vector<S2Polygon>& polygons() const { return _polygons; }
-
-
-    bool contains(const GeoShape* rhs) override;
-private:
-    std::vector<S2Polygon> _polygons;
-};
-
-#if 0
-class GeoEnvelope : public GeoShape {
-public:
-};
-
-class GeoCircle : public GeoShape {
-public:
-};
-#endif
-
-#endif
 
 } // namespace doris

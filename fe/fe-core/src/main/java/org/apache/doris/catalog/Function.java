@@ -17,19 +17,18 @@
 
 package org.apache.doris.catalog;
 
-import static org.apache.doris.common.io.IOUtils.writeOptionString;
-
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HdfsURI;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.io.IOUtils;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,7 +36,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-
 
 /**
  * Base class for all functions.
@@ -82,6 +80,18 @@ public class Function implements Writable {
         IS_MATCHABLE
     }
 
+    public enum NullableMode {
+        // Whether output column is nullable is depend on the input column is nullable
+        DEPEND_ON_ARGUMENT,
+        // like 'str_to_date', 'cast', 'date_format' etc, the output column is nullable
+        // depend on input content
+        ALWAYS_NULLABLE,
+        // like 'count', the output column is always not nullable
+        ALWAYS_NOT_NULLABLE,
+        // Whether output column is nullable is depend on custom algorithm by @Expr.isNullable()
+        CUSTOM
+    }
+
     public static final long UNIQUE_FUNCTION_ID = 0;
     // Function id, every function has a unique id. Now all built-in functions' id is 0
     private long id = 0;
@@ -101,8 +111,12 @@ public class Function implements Writable {
 
     // Absolute path in HDFS for the binary that contains this function.
     // e.g. /udfs/udfs.jar
-    private HdfsURI location;
+    private URI location;
     private TFunctionBinaryType binaryType;
+
+    protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
+
+    protected boolean vectorized = false;
 
     // library's checksum to make sure all backends use one library to serve user's request
     protected String checksum = "";
@@ -111,33 +125,38 @@ public class Function implements Writable {
     protected Function() {
     }
 
-    public Function(FunctionName name, Type[] argTypes, Type retType, boolean varArgs) {
-        this(0, name, argTypes, retType, varArgs);
-    }
-
     public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs) {
-        this(0, name, args, retType, varArgs);
+        this(0, name, args, retType, varArgs, false, NullableMode.DEPEND_ON_ARGUMENT);
     }
 
-    public Function(long id, FunctionName name, Type[] argTypes, Type retType, boolean hasVarArgs) {
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized) {
+        this(0, name, args, retType, varArgs, vectorized, NullableMode.DEPEND_ON_ARGUMENT);
+    }
+
+    public Function(FunctionName name, List<Type> args, Type retType, boolean varArgs, boolean vectorized, NullableMode mode) {
+        this(0, name, args, retType, varArgs, vectorized, mode);
+    }
+
+    public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
+                    TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
-        if (argTypes == null) {
-            this.argTypes = new Type[0];
-        } else {
-            this.argTypes = argTypes;
-        }
-        this.retType = retType;
-    }
-
-    public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs) {
-        this(id, name, (Type[]) null, retType, hasVarArgs);
         if (argTypes.size() > 0) {
             this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
         } else {
             this.argTypes = new Type[0];
         }
+        this.retType = retType;
+        this.binaryType = binaryType;
+        this.userVisible = userVisible;
+        this.vectorized = vectorized;
+        this.nullableMode = mode;
+    }
+
+    public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
+                    boolean hasVarArgs, boolean vectorized, NullableMode mode) {
+        this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
     }
 
     public FunctionName getFunctionName() {
@@ -169,11 +188,11 @@ public class Function implements Writable {
         return argTypes.length;
     }
 
-    public HdfsURI getLocation() {
+    public URI getLocation() {
         return location;
     }
 
-    public void setLocation(HdfsURI loc) {
+    public void setLocation(URI loc) {
         location = loc;
     }
 
@@ -209,10 +228,21 @@ public class Function implements Writable {
         hasVarArgs = v;
     }
 
-    public void setId(long functionId) { this.id = functionId; }
-    public long getId() { return id; }
-    public void setChecksum(String checksum) { this.checksum = checksum; }
-    public String getChecksum() { return checksum; }
+    public void setId(long functionId) {
+        this.id = functionId;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setChecksum(String checksum) {
+        this.checksum = checksum;
+    }
+
+    public String getChecksum() {
+        return checksum;
+    }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
     // Maybe we should use a separate variable to identify,
@@ -427,7 +457,7 @@ public class Function implements Writable {
         fn.setName(name.toThrift());
         fn.setBinaryType(binaryType);
         if (location != null) {
-            fn.setHdfsLocation(location.toString());
+            fn.setHdfsLocation(location.getLocation());
         }
         fn.setArgTypes(Type.toThrift(argTypes));
         fn.setRetType(getReturnType().toThrift());
@@ -438,6 +468,7 @@ public class Function implements Writable {
         if (!checksum.isEmpty()) {
             fn.setChecksum(checksum);
         }
+        fn.setVectorized(vectorized);
         return fn;
     }
 
@@ -469,6 +500,8 @@ public class Function implements Writable {
             case CHAR:
             case HLL:
             case BITMAP:
+            case QUANTILE_STATE:
+            case STRING:
                 return "string_val";
             case DATE:
             case DATETIME:
@@ -506,6 +539,8 @@ public class Function implements Writable {
             case CHAR:
             case HLL:
             case BITMAP:
+            case QUANTILE_STATE:
+            case STRING:
                 return "StringVal";
             case DATE:
             case DATETIME:
@@ -563,7 +598,8 @@ public class Function implements Writable {
     enum FunctionType {
         ORIGIN(0),
         SCALAR(1),
-        AGGREGATE(2);
+        AGGREGATE(2),
+        ALIAS(3);
 
         private int code;
 
@@ -575,13 +611,15 @@ public class Function implements Writable {
         }
 
         public static FunctionType fromCode(int code) {
-            switch (code) {
+            switch (code) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
                 case 0:
                     return ORIGIN;
                 case 1:
                     return SCALAR;
                 case 2:
                     return AGGREGATE;
+                case 3:
+                    return ALIAS;
             }
             return null;
         }
@@ -608,10 +646,10 @@ public class Function implements Writable {
         // write library URL
         String libUrl = "";
         if (location != null) {
-            libUrl = location.toString();
+            libUrl = location.getLocation();
         }
-        writeOptionString(output, libUrl);
-        writeOptionString(output, checksum);
+        IOUtils.writeOptionString(output, libUrl);
+        IOUtils.writeOptionString(output, checksum);
     }
 
     @Override
@@ -634,7 +672,13 @@ public class Function implements Writable {
 
         boolean hasLocation = input.readBoolean();
         if (hasLocation) {
-            location = new HdfsURI(Text.readString(input));
+            String locationStr = Text.readString(input);
+            try {
+                location = URI.create(locationStr);
+            } catch (AnalysisException e) {
+                LOG.warn("failed to parse location:" + locationStr);
+            }
+
         }
         boolean hasChecksum = input.readBoolean();
         if (hasChecksum) {
@@ -651,6 +695,9 @@ public class Function implements Writable {
                 break;
             case AGGREGATE:
                 function = new AggregateFunction();
+                break;
+            case ALIAS:
+                function = new AliasFunction();
                 break;
             default:
                 throw new Error("Unsupported function type, type=" + functionType);
@@ -675,6 +722,9 @@ public class Function implements Writable {
             if (this instanceof ScalarFunction) {
                 row.add("Scalar");
                 row.add("NULL");
+            } else if (this instanceof AliasFunction) {
+                row.add("Alias");
+                row.add("NULL");
             } else {
                 row.add("Aggregate");
                 AggregateFunction aggFunc = (AggregateFunction) this;
@@ -691,5 +741,13 @@ public class Function implements Writable {
             row.add(functionName());
         }
         return row;
+    }
+
+    boolean isVectorized() {
+        return vectorized;
+    }
+
+    public NullableMode getNullableMode() {
+        return nullableMode;
     }
 }

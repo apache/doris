@@ -17,12 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
@@ -58,7 +52,11 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -67,6 +65,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -96,7 +95,7 @@ public class BrokerLoadJobTest {
                 labelName.getDbName();
                 minTimes = 0;
                 result = databaseName;
-                catalog.getDb(databaseName);
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -105,7 +104,7 @@ public class BrokerLoadJobTest {
                 dataDescription.getTableName();
                 minTimes = 0;
                 result = tableName;
-                database.getTable(tableName);
+                database.getTableNullable(tableName);
                 minTimes = 0;
                 result = null;
             }
@@ -147,7 +146,7 @@ public class BrokerLoadJobTest {
                 labelName.getLabelName();
                 minTimes = 0;
                 result = label;
-                catalog.getDb(databaseName);
+                catalog.getDbNullable(databaseName);
                 minTimes = 0;
                 result = database;
                 loadStmt.getDataDescriptions();
@@ -156,7 +155,7 @@ public class BrokerLoadJobTest {
                 dataDescription.getTableName();
                 minTimes = 0;
                 result = tableName;
-                database.getTable(tableName);
+                database.getTableNullable(tableName);
                 minTimes = 0;
                 result = olapTable;
                 dataDescription.getPartitionNames();
@@ -218,10 +217,10 @@ public class BrokerLoadJobTest {
                 result = Sets.newHashSet(1L);
                 catalog.getDb(anyLong);
                 minTimes = 0;
-                result = database;
+                result = Optional.of(database);
                 database.getTable(1L);
                 minTimes = 0;
-                result = table;
+                result = Optional.of(table);
                 table.getName();
                 minTimes = 0;
                 result = tableName;
@@ -229,7 +228,7 @@ public class BrokerLoadJobTest {
         };
 
         Assert.assertEquals(1, brokerLoadJob.getTableNamesForShow().size());
-        Assert.assertEquals(true, brokerLoadJob.getTableNamesForShow().contains(tableName));
+        Assert.assertTrue(brokerLoadJob.getTableNamesForShow().contains(tableName));
     }
 
     @Test
@@ -309,13 +308,13 @@ public class BrokerLoadJobTest {
                 attachment.getTaskId();
                 minTimes = 0;
                 result = taskId;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
                 fileGroupAggInfo.getAggKeyToFileGroups();
                 minTimes = 0;
                 result = aggKeyToFileGroups;
-                database.getTable(anyLong);
+                database.getTableNullable(anyLong);
                 minTimes = 0;
                 result = olapTable;
                 catalog.getNextId();
@@ -344,7 +343,7 @@ public class BrokerLoadJobTest {
                                           @Mocked OlapTable olapTable,
                                           @Mocked PlanFragment sinkFragment,
                                           @Mocked OlapTableSink olapTableSink,
-                                          @Mocked BrokerScanNode scanNode) throws Exception{
+                                          @Mocked BrokerScanNode scanNode) throws Exception {
         List<Column> schema = new ArrayList<>();
         schema.add(new Column("a", PrimitiveType.BIGINT));
         Map<String, String> properties = new HashMap<>();
@@ -360,9 +359,9 @@ public class BrokerLoadJobTest {
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         RuntimeProfile jobProfile = new RuntimeProfile("test");
-        LoadLoadingTask task = new LoadLoadingTask(database, olapTable,brokerDesc, fileGroups,
-                100, 100, false, 100, callback, "", 100, 1,
-                jobProfile);
+        LoadLoadingTask task = new LoadLoadingTask(database, olapTable, brokerDesc, fileGroups,
+                100, 100, false, 100, callback, "",
+                100, 1, 1, true, jobProfile, false);
         try {
             UserIdentity userInfo = new UserIdentity("root", "localhost");
             userInfo.setIsAnalyzed();
@@ -480,7 +479,7 @@ public class BrokerLoadJobTest {
                 attachment1.getTaskId();
                 minTimes = 0;
                 result = 1L;
-                catalog.getDb(anyLong);
+                catalog.getDbNullable(anyLong);
                 minTimes = 0;
                 result = database;
             }

@@ -42,11 +42,10 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.StringUtils;
 
-import java.util.Arrays;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -81,7 +80,7 @@ public class DescribeStmt extends ShowStmt {
 
     private TableName dbTableName;
     private ProcNodeInterface node;
-    
+
     List<List<String>> totalRows;
 
     private boolean isAllTables;
@@ -100,24 +99,17 @@ public class DescribeStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         dbTableName.analyze(analyzer);
-        
+
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbTableName.getDb(),
                                                                 dbTableName.getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                dbTableName.getTbl());
+                                                dbTableName.getDb() + ": " + dbTableName.getTbl());
         }
 
-        Database db = Catalog.getCurrentCatalog().getDb(dbTableName.getDb());
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbTableName.getDb());
-        }
-
-        Table table = db.getTable(dbTableName.getTbl());
-        if (table == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, dbTableName.getTbl());
-        }
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbTableName.getDb());
+        Table table = db.getTableOrAnalysisException(dbTableName.getTbl());
 
         table.readLock();
         try {
@@ -214,7 +206,8 @@ public class DescribeStmt extends ShowStmt {
                                                      mysqlTable.getUserName(),
                                                      mysqlTable.getPasswd(),
                                                      mysqlTable.getMysqlDatabaseName(),
-                                                     mysqlTable.getMysqlTableName());
+                                                     mysqlTable.getMysqlTableName(),
+                                                     mysqlTable.getCharset());
                     totalRows.add(row);
                 } else {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, table.getType());

@@ -27,6 +27,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Objects;
+
 /**
  * Describes an ARRAY type.
  */
@@ -66,7 +68,11 @@ public class ArrayType extends Type {
             return false;
         }
 
+        // Array(Null) is a virtual Array type, can match any Array(...) type
         if (itemType.isNull()) {
+            return true;
+        }
+        if (((ArrayType) t).getItemType().isNull()) {
             return true;
         }
 
@@ -83,10 +89,12 @@ public class ArrayType extends Type {
 
     @Override
     public String toSql(int depth) {
-        if (depth >= MAX_NESTING_DEPTH) {
-            return "ARRAY<...>";
-        }
         return String.format("ARRAY<%s>", itemType.toSql(depth + 1));
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(itemType);
     }
 
     @Override
@@ -96,6 +104,13 @@ public class ArrayType extends Type {
         }
         ArrayType otherArrayType = (ArrayType) other;
         return otherArrayType.itemType.equals(itemType);
+    }
+
+    public static boolean canCastTo(ArrayType type, ArrayType targetType) {
+        if (targetType.getItemType().isStringType() && type.getItemType().isStringType()) {
+            return true;
+        }
+        return Type.canCastTo(type.getItemType(), targetType.getItemType());
     }
 
     @Override
@@ -125,11 +140,7 @@ public class ArrayType extends Type {
         if (!Config.enable_complex_type_support) {
             return false;
         }
-
-        if (itemType.isNull()) {
-            return false;
-        }
-        return true;
+        return !itemType.isNull();
     }
 
     @Override

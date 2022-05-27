@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
@@ -29,6 +28,7 @@ import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
+import org.apache.doris.analysis.ModifyBackendClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -38,19 +38,15 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentTask;
-import org.apache.doris.thrift.TTabletInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -71,23 +67,9 @@ public class SystemHandler extends AlterHandler {
     }
 
     @Override
-    public void handleFinishedReplica(AgentTask task, TTabletInfo finishTabletInfo, long reportVersion)
-            throws MetaNotFoundException {
-    }
-
-    @Override
     protected void runAfterCatalogReady() {
         super.runAfterCatalogReady();
-        runOldAlterJob();
         runAlterJobV2();
-    }
-
-    @Deprecated
-    private void runOldAlterJob() {
-        // just remove all old decommission jobs. the decommission state is already marked in Backend,
-        // and we no long need decommission job.
-        alterJobs.clear();
-        finishedOrCancelledAlterJobs.clear();
     }
 
     // check all decommissioned backends, if there is no tablet on that backend, drop it.
@@ -134,17 +116,17 @@ public class SystemHandler extends AlterHandler {
             // add backend
             AddBackendClause addBackendClause = (AddBackendClause) alterClause;
             final String destClusterName = addBackendClause.getDestCluster();
-            
+
             if ((!Strings.isNullOrEmpty(destClusterName) || addBackendClause.isFree()) && Config.disable_cluster_feature) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "ADD BACKEND TO CLUSTER");
             }
 
-            if (!Strings.isNullOrEmpty(destClusterName) 
+            if (!Strings.isNullOrEmpty(destClusterName)
                     && Catalog.getCurrentCatalog().getCluster(destClusterName) == null) {
                 throw new DdlException("Cluster: " + destClusterName + " does not exist.");
             }
-            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(), 
-                addBackendClause.isFree(), addBackendClause.getDestCluster());
+            Catalog.getCurrentSystemInfo().addBackends(addBackendClause.getHostPortPairs(),
+                    addBackendClause.isFree(), addBackendClause.getDestCluster(), addBackendClause.getTag());
         } else if (alterClause instanceof DropBackendClause) {
             // drop backend
             DropBackendClause dropBackendClause = (DropBackendClause) alterClause;
@@ -152,7 +134,7 @@ public class SystemHandler extends AlterHandler {
                 throw new DdlException("It is highly NOT RECOMMENDED to use DROP BACKEND stmt."
                         + "It is not safe to directly drop a backend. "
                         + "All data on this backend will be discarded permanently. "
-                        + "If you insist, use DROPP BACKEND stmt (double P).");
+                        + "If you insist, use DROPP instead of DROP");
             }
             Catalog.getCurrentSystemInfo().dropBackends(dropBackendClause.getHostPortPairs());
         } else if (alterClause instanceof DecommissionBackendClause) {
@@ -188,6 +170,8 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AlterLoadErrorUrlClause) {
             AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
             Catalog.getCurrentCatalog().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
+        } else if (alterClause instanceof ModifyBackendClause) {
+            Catalog.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }
@@ -259,26 +243,5 @@ public class SystemHandler extends AlterHandler {
                 LOG.info("backend is not decommissioned[{}]", backend.getHost());
             }
         }
-    }
-
-    @Override
-    public void replayInitJob(AlterJob alterJob, Catalog catalog) {
-        DecommissionBackendJob decommissionBackendJob = (DecommissionBackendJob) alterJob;
-        LOG.debug("replay init decommission backend job: {}", decommissionBackendJob.getBackendIdsString());
-        addAlterJob(alterJob);
-    }
-
-    @Override
-    public void replayFinish(AlterJob alterJob, Catalog catalog) {
-        LOG.debug("replay finish decommission backend job: {}",
-                ((DecommissionBackendJob) alterJob).getBackendIdsString());
-        removeAlterJob(alterJob.getTableId());
-        alterJob.setState(JobState.FINISHED);
-        addFinishedOrCancelledAlterJob(alterJob);
-    }
-
-    @Override
-    public void replayCancel(AlterJob alterJob, Catalog catalog) {
-        throw new NotImplementedException();
     }
 }

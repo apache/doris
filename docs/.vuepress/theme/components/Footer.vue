@@ -20,23 +20,28 @@ under the License.
 <template>
   <div class="footer-wrapper">
     <p class="apache-info">
-      <a href="https://apache.org">
-        <img width="200" :src="$withBase('/images/asf_logo.svg')" alt="The Apache Software Foundation">
-      </a>
-      <a style="float: right" href="https://www.apache.org/events/current-event.html">
-        <img src="https://www.apache.org/events/current-event-234x60.png">
-      </a>
-    <p>
-      <a href="https://www.apache.org/licenses/">License</a> | <a href="https://www.apache.org/security/">Security</a> | <a href="https://www.apache.org/foundation/thanks.html">Thanks</a> | <a href="https://www.apache.org/foundation/sponsorship.html">Sponsorship</a>
+      <a href="https://www.apache.org/">Foundation</a> |
+      <a href="https://www.apache.org/licenses/">License</a> | 
+      <a href="https://www.apache.org/events/current-event">Events</a> | 
+      <a href="https://www.apache.org/security/">Security</a> | 
+       <a href="https://www.apache.org/foundation/sponsorship.html">Sponsorship</a> |
+      <a href="https://www.apache.org/foundation/policies/privacy.html">Privacy</a> |
+      <a href="https://www.apache.org/foundation/thanks.html">Thanks</a>
     </p>
     <p>
       <br />
-        <span class="footer-text">© Copyright {{ thisYear }}, Apache Doris(Incubating) </span>
+      <span class="footer-text">
+        Copyright © {{ thisYear }} The Apache Software Foundation. Licensed under the Apache License, Version 2.0.
+        Apache Doris(Incubating), Apache Incubator, Apache, the Apache feather logo, the Apache Doris(Incubating) logo
+        and the Apache Incubator project logo are trademarks of The Apache Software Foundation.
+      </span>
       <br />
-      <span
-        class="footer-text"
-      >
-        Apache Doris(incubating) is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates that the infrastructure, communications, and decision making process have stabilized in a manner consistent with other successful ASF projects. While incubation status is not necessarily a reflection of the completeness or stability of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
+      <span class="footer-text">
+        Apache Doris(incubating) is an effort undergoing incubation at The Apache Software Foundation (ASF), sponsored
+        by the Apache Incubator. Incubation is required of all newly accepted projects until a further review indicates
+        that the infrastructure, communications, and decision making process have stabilized in a manner consistent with
+        other successful ASF projects. While incubation status is not necessarily a reflection of the completeness or
+        stability of the code, it does indicate that the project has yet to be fully endorsed by the ASF.
       </span>
     </p>
   </div>

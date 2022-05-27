@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/topn-node.cc
+// and modified by Doris
 
 #include "exec/topn_node.h"
 
@@ -37,11 +40,11 @@ namespace doris {
 TopNNode::TopNNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _materialized_tuple_desc(NULL),
-          _tuple_row_less_than(NULL),
-          _tuple_pool(NULL),
+          _materialized_tuple_desc(nullptr),
+          _tuple_row_less_than(nullptr),
+          _tuple_pool(nullptr),
           _num_rows_skipped(0),
-          _priority_queue() {}
+          _priority_queue(nullptr) {}
 
 TopNNode::~TopNNode() {}
 
@@ -59,6 +62,7 @@ Status TopNNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status TopNNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     _tuple_pool.reset(new MemPool(mem_tracker().get()));
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                              expr_mem_tracker()));
@@ -75,6 +79,7 @@ Status TopNNode::prepare(RuntimeState* state) {
 
 Status TopNNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Top n, before open."));
@@ -95,7 +100,7 @@ Status TopNNode::open(RuntimeState* state) {
 
     // Limit of 0, no need to fetch anything from children.
     if (_limit != 0) {
-        RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+        RowBatch batch(child(0)->row_desc(), state->batch_size());
         bool eos = false;
 
         do {
@@ -127,6 +132,7 @@ Status TopNNode::open(RuntimeState* state) {
 
 Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("Top n, before moving result to row_batch."));
@@ -167,7 +173,7 @@ Status TopNNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    if (_tuple_pool.get() != NULL) {
+    if (_tuple_pool.get() != nullptr) {
         _tuple_pool->free_all();
     }
     _sort_exec_exprs.close(state);
@@ -182,14 +188,14 @@ void TopNNode::insert_tuple_row(TupleRow* input_row) {
                 _tuple_pool->allocate(_materialized_tuple_desc->byte_size()));
         insert_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
                                                _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
-                                               _tuple_pool.get(), NULL, NULL);
+                                               _tuple_pool.get(), nullptr, nullptr);
         _priority_queue->push(insert_tuple);
     } else {
         DCHECK(!_priority_queue->empty());
         Tuple* top_tuple = _priority_queue->top();
         _tmp_tuple->materialize_exprs<false>(input_row, *_materialized_tuple_desc,
-                                             _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), NULL,
-                                             NULL, NULL);
+                                             _sort_exec_exprs.sort_tuple_slot_expr_ctxs(), nullptr,
+                                             nullptr, nullptr);
 
         if ((*_tuple_row_less_than)(_tmp_tuple, top_tuple)) {
             // TODO: DeepCopy will allocate new buffers for the string data.  This needs

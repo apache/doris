@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/cloudera/Impala/blob/v0.7refresh/be/src/runtime/plan-fragment-executor.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
-#define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
+#pragma once
 
-#include <boost/scoped_ptr.hpp>
 #include <condition_variable>
 #include <functional>
 #include <vector>
@@ -26,15 +27,16 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/datetime_value.h"
+#include "runtime/query_fragments_ctx.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 class QueryFragmentsCtx;
-class HdfsFsCache;
 class ExecNode;
 class RowDescriptor;
 class RowBatch;
@@ -97,7 +99,7 @@ public:
     // The query will be aborted (MEM_LIMIT_EXCEEDED) if it goes over that limit.
     // If fragments_ctx is not null, some components will be got from fragments_ctx.
     Status prepare(const TExecPlanFragmentParams& request,
-                   const QueryFragmentsCtx* fragments_ctx = nullptr);
+                   QueryFragmentsCtx* fragments_ctx = nullptr);
 
     // Start execution. Call this prior to get_next().
     // If this fragment has a sink, open() will send all rows produced
@@ -110,9 +112,9 @@ public:
     // time when open() returns, and the status-reporting thread will have been stopped.
     Status open();
 
-    // Return results through 'batch'. Sets '*batch' to NULL if no more results.
+    // Return results through 'batch'. Sets '*batch' to nullptr if no more results.
     // '*batch' is owned by PlanFragmentExecutor and must not be deleted.
-    // When *batch == NULL, get_next() should not be called anymore. Also, report_status_cb
+    // When *batch == nullptr, get_next() should not be called anymore. Also, report_status_cb
     // will have been called for the final time and the status-reporting thread
     // will have been stopped.
     Status get_next(RowBatch** batch);
@@ -127,10 +129,8 @@ public:
     void set_abort();
 
     // Initiate cancellation. Must not be called until after prepare() returned.
-    void cancel();
-
-    // Releases the thread token for this fragment executor.
-    void release_thread_token();
+    void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
+                const std::string& msg = "");
 
     // call these only after prepare()
     RuntimeState* runtime_state() { return _runtime_state.get(); }
@@ -141,7 +141,7 @@ public:
 
     const Status& status() const { return _status; }
 
-    DataSink* get_sink() { return _sink.get(); }
+    DataSink* get_sink() const { return _sink.get(); }
 
     void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
@@ -149,11 +149,10 @@ private:
     ExecEnv* _exec_env; // not owned
     ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
-    std::shared_ptr<MemTracker> _mem_tracker;
 
     // profile reporting-related
     report_status_callback _report_status_cb;
-    boost::thread _report_thread;
+    std::thread _report_thread;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.
@@ -174,9 +173,6 @@ private:
     // true if close() has been called
     bool _closed;
 
-    // true if this fragment has not returned the thread token to the thread resource mgr
-    bool _has_thread_token;
-
     bool _is_report_success;
 
     // If this is set to false, and '_is_report_success' is false as well,
@@ -195,32 +191,28 @@ private:
 
     // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
     // therefore we declare it before `_sink' and `_row_batch'
-    boost::scoped_ptr<RuntimeState> _runtime_state;
+    std::unique_ptr<RuntimeState> _runtime_state;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
-    boost::scoped_ptr<DataSink> _sink;
-    boost::scoped_ptr<RowBatch> _row_batch;
+    std::unique_ptr<DataSink> _sink;
+    std::unique_ptr<RowBatch> _row_batch;
+    std::unique_ptr<doris::vectorized::Block> _block;
 
     // Number of rows returned by this fragment
     RuntimeProfile::Counter* _rows_produced_counter;
 
     RuntimeProfile::Counter* _fragment_cpu_timer;
 
-    // Average number of thread tokens for the duration of the plan fragment execution.
-    // Fragments that do a lot of cpu work (non-coordinator fragment) will have at
-    // least 1 token.  Fragments that contain a hdfs scan node will have 1+ tokens
-    // depending on system load.  Other nodes (e.g. hash join node) can also reserve
-    // additional tokens.
-    // This is a measure of how much CPU resources this fragment used during the course
-    // of the execution.
-    RuntimeProfile::Counter* _average_thread_tokens;
-
     // It is shared with BufferControlBlock and will be called in two different
     // threads. But their calls are all at different time, there is no problem of
     // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
     bool _collect_query_statistics_with_every_batch;
+
+    // Record the cancel information when calling the cancel() method, return it to FE
+    PPlanFragmentCancelReason _cancel_reason;
+    std::string _cancel_msg;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
@@ -247,67 +239,23 @@ private:
     // If this plan fragment has a sink and open_internal() returns without an
     // error condition, all rows will have been sent to the sink, the sink will
     // have been closed, a final report will have been sent and the report thread will
-    // have been stopped. _sink will be set to NULL after successful execution.
+    // have been stopped. _sink will be set to nullptr after successful execution.
     Status open_internal();
+    Status open_vectorized_internal();
 
     // Executes get_next() logic and returns resulting status.
     Status get_next_internal(RowBatch** batch);
+    Status get_vectorized_internal(::doris::vectorized::Block** block);
 
     // Stops report thread, if one is running. Blocks until report thread terminates.
     // Idempotent.
     void stop_report_thread();
 
-    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
+    const DescriptorTbl& desc_tbl() const { return _runtime_state->desc_tbl(); }
 
     void _collect_query_statistics();
-};
 
-// Save the common components of fragments in a query.
-// Some components like DescriptorTbl may be very large
-// that will slow down each execution of fragments when DeSer them every time.
-class QueryFragmentsCtx {
-public:
-    QueryFragmentsCtx(int total_fragment_num)
-            : fragment_num(total_fragment_num), timeout_second(-1) {
-        _start_time = DateTimeValue::local_time();
-    }
-
-    bool countdown() { return fragment_num.fetch_sub(1) == 1; }
-
-    bool is_timeout(const DateTimeValue& now) const {
-        if (timeout_second <= 0) {
-            return false;
-        }
-        if (now.second_diff(_start_time) > timeout_second) {
-            return true;
-        }
-        return false;
-    }
-
-public:
-    TUniqueId query_id;
-    DescriptorTbl* desc_tbl;
-    bool set_rsc_info = false;
-    std::string user;
-    std::string group;
-    TNetworkAddress coord_addr;
-    TQueryGlobals query_globals;
-
-    /// In the current implementation, for multiple fragments executed by a query on the same BE node,
-    /// we store some common components in QueryFragmentsCtx, and save QueryFragmentsCtx in FragmentMgr.
-    /// When all Fragments are executed, QueryFragmentsCtx needs to be deleted from FragmentMgr.
-    /// Here we use a counter to store the number of Fragments that have not yet been completed,
-    /// and after each Fragment is completed, this value will be reduced by one.
-    /// When the last Fragment is completed, the counter is cleared, and the worker thread of the last Fragment
-    /// will clean up QueryFragmentsCtx.
-    std::atomic<int> fragment_num;
-    int timeout_second;
-    ObjectPool obj_pool;
-
-private:
-    DateTimeValue _start_time;
+    void _collect_node_statistics();
 };
 
 } // namespace doris
-
-#endif

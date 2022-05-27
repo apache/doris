@@ -14,14 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/in-predicate.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_IN_PREDICATE_H
+#pragma once
 
-#include <boost/shared_ptr.hpp>
 #include <string>
 #include <unordered_set>
 
+#include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/predicate.h"
 #include "runtime/raw_value.h"
@@ -40,11 +42,11 @@ public:
 
     Status prepare(RuntimeState* state, HybridSetBase* hset);
     Status open(RuntimeState* state, ExprContext* context,
-                FunctionContext::FunctionStateScope scope);
+                FunctionContext::FunctionStateScope scope) override;
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           ExprContext* context);
+                           ExprContext* context) override;
 
-    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
+    virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row) override;
 
     // this function add one item in hashset, not add to children.
     // if add to children, when List is long, copy is a expensive op.
@@ -62,15 +64,13 @@ protected:
     InPredicate(const TExprNode& node);
 
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
 
 private:
     const bool _is_not_in;
     bool _is_prepare;
     bool _null_in_set;
-    boost::shared_ptr<HybridSetBase> _hybrid_set;
+    std::shared_ptr<HybridSetBase> _hybrid_set;
 };
 
 } // namespace doris
-
-#endif

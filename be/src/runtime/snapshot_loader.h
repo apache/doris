@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
-#define DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H
+#pragma once
 
 #include <stdint.h>
 
@@ -33,7 +32,7 @@ namespace doris {
 
 class ExecEnv;
 class StorageBackend;
-class FileStat;
+struct FileStat;
 
 /*
  * Upload:
@@ -86,11 +85,6 @@ private:
 
     bool _end_with(const std::string& str, const std::string& match);
 
-    void _assemble_file_name(const std::string& snapshot_path, const std::string& tablet_path,
-                             int64_t tablet_id, int64_t start_version, int64_t end_version,
-                             int64_t version_hash, int32_t seg_num, const std::string suffix,
-                             std::string* snapshot_file, std::string* tablet_file);
-
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);
 
@@ -103,11 +97,9 @@ private:
     ExecEnv* _env;
     int64_t _job_id;
     int64_t _task_id;
-    const TNetworkAddress& _broker_addr;
-    const std::map<std::string, std::string>& _prop;
+    const TNetworkAddress _broker_addr;
+    const std::map<std::string, std::string> _prop;
     std::unique_ptr<StorageBackend> _storage_backend;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_RUNTIME_SNAPSHOT_LOADER_H

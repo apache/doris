@@ -14,20 +14,24 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/TupleIsNullPredicate.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TTupleIsNullPredicate;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Internal expr that returns true if all of the given tuples are NULL, otherwise false.
@@ -46,7 +50,7 @@ public class TupleIsNullPredicate extends Predicate {
     protected TupleIsNullPredicate(TupleIsNullPredicate other) {
         super(other);
         tupleIds.addAll(other.tupleIds);
-   }
+    }
 
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
@@ -54,7 +58,19 @@ public class TupleIsNullPredicate extends Predicate {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
+
+    @Override
+    public boolean isBoundByTupleIds(List<TupleId> tids) {
+        for (TupleId tid : tids) {
+            if (tupleIds.contains(tid)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     @Override
     public Expr clone() {
@@ -74,6 +90,10 @@ public class TupleIsNullPredicate extends Predicate {
         return tupleIds;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode());
+    }
 
     @Override
     public boolean equals(Object o) {
@@ -85,29 +105,29 @@ public class TupleIsNullPredicate extends Predicate {
         }
         TupleIsNullPredicate other = (TupleIsNullPredicate) o;
         return other.tupleIds.containsAll(tupleIds)
-            && tupleIds.containsAll(other.tupleIds);
+                && tupleIds.containsAll(other.tupleIds);
     }
 
     /**
      * Makes each input expr nullable, if necessary, by wrapping it as follows:
      * IF(TupleIsNull(tids), NULL, expr)
-     *
+     * <p>
      * The given tids must be materialized. The given inputExprs are expected to be bound
      * by tids once fully substituted against base tables. However, inputExprs may not yet
      * be fully substituted at this point.
-     *
+     * <p>
      * Returns a new list with the nullable exprs.
      */
     public static List<Expr> wrapExprs(List<Expr> inputExprs,
-        List<TupleId> tids, Analyzer analyzer) throws UserException {
+                                       List<TupleId> tids, Analyzer analyzer) throws UserException {
         // Assert that all tids are materialized.
-        for (TupleId tid: tids) {
+        for (TupleId tid : tids) {
             TupleDescriptor tupleDesc = analyzer.getTupleDesc(tid);
             Preconditions.checkState(tupleDesc.getIsMaterialized());
         }
         // Perform the wrapping.
         List<Expr> result = Lists.newArrayListWithCapacity(inputExprs.size());
-        for (Expr e: inputExprs) {
+        for (Expr e : inputExprs) {
             result.add(wrapExpr(e, tids, analyzer));
         }
         return result;
@@ -158,13 +178,13 @@ public class TupleIsNullPredicate extends Predicate {
      * Recursive function that replaces all 'IF(TupleIsNull(), NULL, e)' exprs in
      * 'expr' with e and returns the modified expr.
      */
-    public static Expr unwrapExpr(Expr expr)  {
+    public static Expr unwrapExpr(Expr expr) {
         if (expr instanceof FunctionCallExpr) {
             FunctionCallExpr fnCallExpr = (FunctionCallExpr) expr;
             List<Expr> params = fnCallExpr.getParams().exprs();
-            if (fnCallExpr.getFnName().getFunction().equals("if") &&
-                    params.get(0) instanceof TupleIsNullPredicate &&
-                    Expr.IS_NULL_LITERAL.apply(params.get(1))) {
+            if (fnCallExpr.getFnName().getFunction().equals("if")
+                    && params.get(0) instanceof TupleIsNullPredicate
+                    && Expr.IS_NULL_LITERAL.apply(params.get(1))) {
                 return unwrapExpr(params.get(2));
             }
         }
@@ -172,5 +192,10 @@ public class TupleIsNullPredicate extends Predicate {
             expr.setChild(i, unwrapExpr(expr.getChild(i)));
         }
         return expr;
+    }
+
+    @Override
+    public boolean isNullable() {
+        return false;
     }
 }

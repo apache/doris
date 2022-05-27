@@ -26,7 +26,7 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 
-// clause which is used to add one column to
+// clause which is used to drop a partition
 public class DropPartitionClause extends AlterTableClause {
     private boolean ifExists;
     private String partitionName;

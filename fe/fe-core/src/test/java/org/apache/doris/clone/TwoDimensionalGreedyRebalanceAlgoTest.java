@@ -17,14 +17,15 @@
 
 package org.apache.doris.clone;
 
+import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
+import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
+import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionMove;
+import org.apache.doris.common.Pair;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.collect.TreeMultimap;
-import org.apache.doris.catalog.TabletInvertedIndex.PartitionBalanceInfo;
-import org.apache.doris.clone.TwoDimensionalGreedyRebalanceAlgo.PartitionMove;
-import org.apache.doris.clone.PartitionRebalancer.ClusterBalanceInfo;
-import org.apache.doris.common.Pair;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -82,7 +83,7 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
 
     // Transform the definition of the test cluster into the ClusterInfo
     // that is consumed by the rebalancing algorithm.
-    private ClusterBalanceInfo ClusterConfigToClusterBalanceInfo(TestClusterConfig tcc) {
+    private ClusterBalanceInfo clusterConfigToClusterBalanceInfo(TestClusterConfig tcc) {
         // First verify that the configuration of the test cluster is valid.
         Set<Pair<Long, Long>> partitionIds = Sets.newHashSet();
         for (TestClusterConfig.PartitionPerBeReplicas p : tcc.partitionReplicas) {
@@ -113,17 +114,17 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
             List<Long> replicaCount = distribution.numReplicasByServer;
             IntStream.range(0, replicaCount.size()).forEach(i -> info.beByReplicaCount.put(replicaCount.get(i), tcc.beIds.get(i)));
 
-            Long max_count = info.beByReplicaCount.keySet().last();
-            Long min_count = info.beByReplicaCount.keySet().first();
-            Assert.assertTrue(max_count >= min_count);
-            balance.partitionInfoBySkew.put(max_count - min_count, info);
+            Long maxCount = info.beByReplicaCount.keySet().last();
+            Long minCount = info.beByReplicaCount.keySet().first();
+            Assert.assertTrue(maxCount >= minCount);
+            balance.partitionInfoBySkew.put(maxCount - minCount, info);
         }
         return balance;
     }
 
     private void verifyMoves(List<TestClusterConfig> configs) {
         for (TestClusterConfig config : configs) {
-            List<PartitionMove> moves = algo.getNextMoves(ClusterConfigToClusterBalanceInfo(config), 0);
+            List<PartitionMove> moves = algo.getNextMoves(clusterConfigToClusterBalanceInfo(config), 0);
             Assert.assertEquals(moves, config.expectedMoves);
         }
     }
@@ -173,9 +174,11 @@ public class TwoDimensionalGreedyRebalanceAlgoTest {
         }
 
         try {
-            algo.getNextMoves(new ClusterBalanceInfo() {{
-                beByTotalReplicaCount.put(0L, 10001L);
-            }}, 0);
+            algo.getNextMoves(new ClusterBalanceInfo() {
+                {
+                    beByTotalReplicaCount.put(0L, 10001L);
+                }
+            }, 0);
         } catch (Exception e) {
             Assert.fail();
         }

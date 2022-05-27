@@ -21,7 +21,6 @@ package org.apache.doris.resource;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Sets;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
@@ -96,7 +95,7 @@ public class TagSerializationTest {
 
         TagManager tagManager = new TagManager();
         tagManager.addResourceTag(1L, Tag.create(Tag.TYPE_LOCATION, "rack1"));
-        tagManager.addResourceTags(2L, TagSet.create( Tag.create(Tag.TYPE_LOCATION, "rack1"),  Tag.create(Tag.TYPE_LOCATION, "rack2")));
+        tagManager.addResourceTags(2L, TagSet.create(Tag.create(Tag.TYPE_LOCATION, "rack1"),  Tag.create(Tag.TYPE_LOCATION, "rack2")));
         tagManager.write(out);
         out.flush();
         out.close();

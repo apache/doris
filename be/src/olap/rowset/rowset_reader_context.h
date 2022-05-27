@@ -42,21 +42,27 @@ struct RowsetReaderContext {
     // columns to load bloom filter index
     // including columns in "=" or "in" conditions
     const std::set<uint32_t>* load_bf_columns = nullptr;
+    const std::set<uint32_t>* load_bf_all_columns = nullptr;
     // column filter conditions by delete sql
     const Conditions* conditions = nullptr;
+    // value column predicate in UNIQUE table
+    const Conditions* all_conditions = nullptr;
     // column name -> column predicate
     // adding column_name for predicate to make use of column selectivity
     const std::vector<ColumnPredicate*>* predicates = nullptr;
     // value column predicate in UNIQUE table
     const std::vector<ColumnPredicate*>* value_predicates = nullptr;
-    const std::vector<RowCursor*>* lower_bound_keys = nullptr;
+    const std::vector<RowCursor>* lower_bound_keys = nullptr;
     const std::vector<bool>* is_lower_keys_included = nullptr;
-    const std::vector<RowCursor*>* upper_bound_keys = nullptr;
+    const std::vector<RowCursor>* upper_bound_keys = nullptr;
     const std::vector<bool>* is_upper_keys_included = nullptr;
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
     bool use_page_cache = false;
+    int sequence_id_idx = -1;
+    int batch_size = 1024;
+    bool is_vec = false;
 };
 
 } // namespace doris

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_MINI_LOAD_H
-#define DORIS_BE_SRC_COMMON_UTIL_MINI_LOAD_H
+#pragma once
 
 #include <map>
 #include <mutex>
@@ -108,4 +107,3 @@ private:
 };
 
 } // namespace doris
-#endif

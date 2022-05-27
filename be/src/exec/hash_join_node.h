@@ -14,17 +14,20 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/hash-join-node.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_HASH_JOIN_NODE_H
+#pragma once
 
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread.hpp>
+#include <future>
 #include <string>
+#include <thread>
 #include <unordered_set>
 
 #include "exec/exec_node.h"
 #include "exec/hash_table.h"
+#include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
@@ -64,7 +67,7 @@ protected:
 private:
     friend class IRuntimeFilter;
 
-    boost::scoped_ptr<HashTable> _hash_tbl;
+    std::unique_ptr<HashTable> _hash_tbl;
     HashTable::Iterator _hash_tbl_iterator;
 
     // for right outer joins, keep track of what's been joined
@@ -91,9 +94,9 @@ private:
     bool _match_all_build; // output all rows coming from the build input
     bool _build_unique;    // build a hash table without duplicated rows
 
-    bool _matched_probe;                    // if true, we have matched the current probe row
-    bool _eos;                              // if true, nothing left to return in get_next()
-    boost::scoped_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
+    bool _matched_probe;                  // if true, we have matched the current probe row
+    bool _eos;                            // if true, nothing left to return in get_next()
+    std::unique_ptr<MemPool> _build_pool; // holds everything referenced in _hash_tbl
 
     // Size of the TupleRow (just the Tuple ptrs) from the build (right) and probe (left)
     // sides. Set to zero if the build/probe tuples are not returned, e.g., for semi joins.
@@ -104,7 +107,7 @@ private:
     // _probe_batch must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    boost::scoped_ptr<RowBatch> _probe_batch;
+    std::unique_ptr<RowBatch> _probe_batch;
     int _probe_batch_pos; // current scan pos in _probe_batch
     int _probe_counter;
     bool _probe_eos; // if true, probe child has no more rows to process
@@ -139,7 +142,7 @@ private:
 
     // Supervises ConstructHashTable in a separate thread, and
     // returns its status in the promise parameter.
-    void build_side_thread(RuntimeState* state, boost::promise<Status>* status);
+    void build_side_thread(RuntimeState* state, std::promise<Status>* status);
 
     // We parallelise building the build-side with Open'ing the
     // probe-side. If, for example, the probe-side child is another
@@ -169,21 +172,12 @@ private:
     // Returns a debug string for probe_rows.  Probe rows have tuple ptrs that are
     // uninitialized; the left hand child only populates the tuple ptrs it is responsible
     // for.  This function outputs just the probe row values and leaves the build
-    // side values as NULL.
+    // side values as nullptr.
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-
-    // RELEASE_CONTEXT_COUNTER should be power of 2
-    // GCC will optimize the modulo operation to &(release_context_counter - 1)
-    // build_expr_context and probe_expr_context will free local alloc after this probe calculations
-    static constexpr int RELEASE_CONTEXT_COUNTER = 1 << 5;
-    static_assert((RELEASE_CONTEXT_COUNTER & (RELEASE_CONTEXT_COUNTER - 1)) == 0,
-                  "should be power of 2");
 };
 
 } // namespace doris
-
-#endif

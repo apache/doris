@@ -19,8 +19,8 @@
 
 namespace doris_udf {
 class FunctionContext;
-class IntVal;
-class StringVal;
+struct IntVal;
+struct StringVal;
 } // namespace doris_udf
 
 namespace doris {

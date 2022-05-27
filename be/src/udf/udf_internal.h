@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/udf/udf-internal.h
+// and modified by Doris
 
-#ifndef DORIS_BE_UDF_UDF_INTERNAL_H
-#define DORIS_BE_UDF_UDF_INTERNAL_H
+#pragma once
 
 #include <string.h>
 
@@ -32,6 +34,7 @@ namespace doris {
 class FreePool;
 class MemPool;
 class RuntimeState;
+struct ColumnPtrWrapper;
 
 // This class actually implements the interface of FunctionContext. This is split to
 // hide the details from the external header.
@@ -66,6 +69,8 @@ public:
     doris_udf::FunctionContext* clone(MemPool* pool);
 
     void set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args);
+
+    void set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& cols);
 
     uint8_t* varargs_buffer() { return _varargs_buffer; }
 
@@ -102,7 +107,7 @@ public:
 
     std::string& string_result() { return _string_result; }
 
-    const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; } 
+    const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
 
 private:
     friend class doris_udf::FunctionContext;
@@ -126,7 +131,7 @@ private:
     // Pool to service allocations from.
     FreePool* _pool;
 
-    // We use the query's runtime state to report errors and warnings. NULL for test
+    // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
     RuntimeState* _state;
 
@@ -164,10 +169,12 @@ private:
     // Type descriptors for each argument of the function.
     std::vector<doris_udf::FunctionContext::TypeDesc> _arg_types;
 
-    // Contains an AnyVal* for each argument of the function. If the AnyVal* is NULL,
+    // Contains an AnyVal* for each argument of the function. If the AnyVal* is nullptr,
     // indicates that the corresponding argument is non-constant. Otherwise contains the
     // value of the argument.
     std::vector<doris_udf::AnyVal*> _constant_args;
+
+    std::vector<doris::ColumnPtrWrapper*> _constant_cols;
 
     // Used by ScalarFnCall to store the arguments when running without codegen. Allows us
     // to pass AnyVal* arguments to the scalar function directly, rather than codegening a
@@ -181,5 +188,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

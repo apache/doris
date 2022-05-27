@@ -25,7 +25,6 @@
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
-#include "util/monotime.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -81,7 +80,8 @@ Status BrokerReader::open() {
     TBrokerOpenReaderResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();
@@ -91,7 +91,7 @@ Status BrokerReader::open() {
         try {
             client->openReader(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
-            SleepFor(MonoDelta::FromSeconds(1));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             RETURN_IF_ERROR(client.reopen());
             client->openReader(response, request);
         }
@@ -148,7 +148,8 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
     TBrokerReadResponse response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();
@@ -161,7 +162,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
         try {
             client->pread(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
-            SleepFor(MonoDelta::FromSeconds(1));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             RETURN_IF_ERROR(client.reopen());
             LOG(INFO) << "retry reading from broker: " << broker_addr << ". reason: " << e.what();
             client->pread(response, request);
@@ -222,7 +223,8 @@ void BrokerReader::close() {
     TBrokerOperationStatus response;
     try {
         Status status;
-        BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
+        BrokerServiceConnection client(client_cache(_env), broker_addr,
+                                       config::thrift_rpc_timeout_ms, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
                          << ", status=" << status.get_error_msg();
@@ -232,7 +234,7 @@ void BrokerReader::close() {
         try {
             client->closeReader(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
-            SleepFor(MonoDelta::FromSeconds(1));
+            std::this_thread::sleep_for(std::chrono::seconds(1));
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Close broker reader failed. broker=" << broker_addr

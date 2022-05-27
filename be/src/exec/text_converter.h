@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_H
-#define DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_H
+#pragma once
 
 #include "runtime/runtime_state.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -48,11 +48,14 @@ public:
     bool write_slot(const SlotDescriptor* slot_desc, Tuple* tuple, const char* data, int len,
                     bool copy_string, bool need_escape, MemPool* pool);
 
+    bool write_column(const SlotDescriptor* slot_desc, vectorized::MutableColumnPtr* column_ptr,
+                      const char* data, size_t len, bool copy_string, bool need_escape);
+
     // Removes escape characters from len characters of the null-terminated string src,
     // and copies the unescaped string into dest, changing *len to the unescaped length.
     // No null-terminator is added to dest.
     void unescape_string(const char* src, char* dest, size_t* len);
-
+    void unescape_string_on_spot(const char* src, size_t* len);
     // Removes escape characters from 'str', allocating a new string from pool.
     // 'str' is updated with the new ptr and length.
     void unescape_string(StringValue* str, MemPool* pool);
@@ -62,5 +65,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -27,8 +28,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -41,11 +42,7 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class DatabaseTest {
 
@@ -58,7 +55,7 @@ public class DatabaseTest {
     private EditLog editLog;
 
     @Before
-    public void Setup() {
+    public void setup() {
         db = new Database(dbId, "dbTest");
         new Expectations() {
             {
@@ -95,10 +92,27 @@ public class DatabaseTest {
 
         db.writeLock();
         try {
-            Assert.assertTrue(db.tryWriteLock(0, TimeUnit.SECONDS));
+            Assert.assertTrue(db.tryWriteLock(1000, TimeUnit.SECONDS));
+            db.writeUnlock();
         } finally {
             db.writeUnlock();
         }
+
+        db.markDropped();
+        Assert.assertFalse(db.writeLockIfExist());
+        Assert.assertFalse(db.isWriteLockHeldByCurrentThread());
+        db.unmarkDropped();
+        Assert.assertTrue(db.writeLockIfExist());
+        Assert.assertTrue(db.isWriteLockHeldByCurrentThread());
+        db.writeUnlock();
+    }
+
+    @Test
+    public void lockTestWithException() {
+        db.markDropped();
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "errCode = 2, detailMessage = unknown db, dbName=dbTest", () -> db.writeLockOrDdlException());
+        db.unmarkDropped();
     }
 
     @Test
@@ -126,20 +140,20 @@ public class DatabaseTest {
         OlapTable table = new OlapTable(2000L, "baseTable", baseSchema, KeysType.AGG_KEYS,
                 new SinglePartitionInfo(), new RandomDistributionInfo(10));
         db.createTable(table);
-        Table resultTable1 = db.getTableOrThrowException(2000L, Table.TableType.OLAP);
-        Table resultTable2 = db.getTableOrThrowException("baseTable", Table.TableType.OLAP);
+        Table resultTable1 = db.getTableOrMetaException(2000L, Table.TableType.OLAP);
+        Table resultTable2 = db.getTableOrMetaException("baseTable", Table.TableType.OLAP);
         Assert.assertEquals(table, resultTable1);
         Assert.assertEquals(table, resultTable2);
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableId=3000",
-                () -> db.getTableOrThrowException(3000L, Table.TableType.OLAP));
-        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, table=baseTable1",
-                () -> db.getTableOrThrowException("baseTable1", Table.TableType.OLAP));
+                () -> db.getTableOrMetaException(3000L, Table.TableType.OLAP));
+        ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class, "unknown table, tableName=baseTable1",
+                () -> db.getTableOrMetaException("baseTable1", Table.TableType.OLAP));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, tableId=2000, type=class org.apache.doris.catalog.OlapTable",
-                () -> db.getTableOrThrowException(2000L, Table.TableType.BROKER));
+                "table type is not BROKER, tableId=2000, type=OLAP",
+                () -> db.getTableOrMetaException(2000L, Table.TableType.BROKER));
         ExceptionChecker.expectThrowsWithMsg(MetaNotFoundException.class,
-                "table type is not BROKER, table=baseTable, type=class org.apache.doris.catalog.OlapTable",
-                () -> db.getTableOrThrowException("baseTable", Table.TableType.BROKER));
+                "table type is not BROKER, tableName=baseTable, type=OLAP",
+                () -> db.getTableOrMetaException("baseTable", Table.TableType.BROKER));
     }
 
     @Test
@@ -150,7 +164,7 @@ public class DatabaseTest {
         MaterializedIndex baseIndex = new MaterializedIndex(10001, IndexState.NORMAL);
         Partition partition = new Partition(20000L, "baseTable", baseIndex, new RandomDistributionInfo(10));
         List<Column> baseSchema = new LinkedList<Column>();
-        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS, 
+        OlapTable table = new OlapTable(2000, "baseTable", baseSchema, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
         table.addPartition(partition);
 
@@ -159,8 +173,8 @@ public class DatabaseTest {
         // duplicate
         Assert.assertFalse(db.createTable(table));
 
-        Assert.assertEquals(table, db.getTable(table.getId()));
-        Assert.assertEquals(table, db.getTable(table.getName()));
+        Assert.assertEquals(table, db.getTableNullable(table.getId()));
+        Assert.assertEquals(table, db.getTableNullable(table.getName()));
 
         Assert.assertEquals(1, db.getTables().size());
         Assert.assertEquals(table, db.getTables().get(0));
@@ -186,11 +200,11 @@ public class DatabaseTest {
         File file = new File("./database");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        
+
         // db1
         Database db1 = new Database();
         db1.write(dos);
-        
+
         // db2
         Database db2 = new Database(2, "db2");
         List<Column> columns = new ArrayList<Column>();
@@ -199,13 +213,13 @@ public class DatabaseTest {
         columns.add(column2);
         columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
-        columns.add(new Column("column4", 
+        columns.add(new Column("column4",
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column5", 
+        columns.add(new Column("column5",
                         ScalarType.createType(PrimitiveType.BIGINT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column6", 
+        columns.add(new Column("column6",
                         ScalarType.createType(PrimitiveType.FLOAT), false, AggregateType.REPLACE, "", ""));
-        columns.add(new Column("column7", 
+        columns.add(new Column("column7",
                         ScalarType.createType(PrimitiveType.DOUBLE), false, AggregateType.REPLACE, "", ""));
         columns.add(new Column("column8", ScalarType.createChar(10), true, null, "", ""));
         columns.add(new Column("column9", ScalarType.createVarchar(10), true, null, "", ""));
@@ -217,7 +231,7 @@ public class DatabaseTest {
         OlapTable table = new OlapTable(1000, "table", columns, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
-        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setIndexMeta(1000, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
 
         List<Column> column = Lists.newArrayList();
         column.add(column2);
@@ -228,21 +242,21 @@ public class DatabaseTest {
         table.addPartition(partition);
         db2.createTable(table);
         db2.write(dos);
-        
+
         dos.flush();
         dos.close();
-        
+
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        
+
         Database rDb1 = new Database();
         rDb1.readFields(dis);
         Assert.assertTrue(rDb1.equals(db1));
-        
+
         Database rDb2 = new Database();
         rDb2.readFields(dis);
         Assert.assertTrue(rDb2.equals(db2));
-        
+
         // 3. delete files
         dis.close();
         file.delete();

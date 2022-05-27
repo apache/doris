@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/compound-predicate.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
-#define DORIS_BE_SRC_QUERY_EXPRS_COMPOUND_PREDICATE_H
+#pragma once
 
 #include <string>
 
@@ -51,13 +53,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new AndPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     AndPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "AndPredicate(" << Expr::debug_string() << ")";
         return out.str();
@@ -73,13 +75,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new OrPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     OrPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "OrPredicate(" << Expr::debug_string() << ")";
         return out.str();
@@ -95,13 +97,13 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new NotPredicate(*this));
     }
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
 
 protected:
     friend class Expr;
     NotPredicate(const TExprNode& node) : CompoundPredicate(node) {}
 
-    virtual std::string debug_string() const {
+    virtual std::string debug_string() const override {
         std::stringstream out;
         out << "NotPredicate(" << Expr::debug_string() << ")";
         return out.str();
@@ -111,5 +113,3 @@ private:
     friend class OpcodeRegistry;
 };
 } // namespace doris
-
-#endif

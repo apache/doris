@@ -33,7 +33,7 @@ int64_t PositionEntryWriter::positions(size_t index) const {
     return -1;
 }
 
-OLAPStatus PositionEntryWriter::set_statistic(ColumnStatistics* statistic) {
+Status PositionEntryWriter::set_statistic(ColumnStatistics* statistic) {
     _statistics_size = statistic->size();
     return statistic->write_to_buffer(_statistics_buffer, MAX_STATISTIC_LENGTH);
 }
@@ -50,23 +50,23 @@ int32_t PositionEntryWriter::output_size() const {
     return _positions_count * sizeof(uint32_t) + _statistics_size;
 }
 
-OLAPStatus PositionEntryWriter::add_position(uint32_t position) {
+Status PositionEntryWriter::add_position(uint32_t position) {
     if (_positions_count < MAX_POSITION_SIZE) {
         _positions[_positions_count] = position;
         _positions_count++;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    return OLAP_ERR_BUFFER_OVERFLOW;
+    return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
 }
 
 void PositionEntryWriter::reset_write_offset() {
     _positions_count = 0;
 }
 
-OLAPStatus PositionEntryWriter::remove_written_position(uint32_t from, size_t count) {
+Status PositionEntryWriter::remove_written_position(uint32_t from, size_t count) {
     if (from + count > _positions_count) {
-        return OLAP_ERR_OUT_OF_BOUND;
+        return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
     }
 
     for (size_t i = from; i < _positions_count - count; ++i) {
@@ -74,7 +74,7 @@ OLAPStatus PositionEntryWriter::remove_written_position(uint32_t from, size_t co
     }
 
     _positions_count -= count;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void PositionEntryWriter::write_to_buffer(char* out_buffer) {
@@ -93,15 +93,15 @@ StreamIndexWriter::StreamIndexWriter(FieldType field_type) : _field_type(field_t
 
 StreamIndexWriter::~StreamIndexWriter() {}
 
-OLAPStatus StreamIndexWriter::add_index_entry(const PositionEntryWriter& entry) {
+Status StreamIndexWriter::add_index_entry(const PositionEntryWriter& entry) {
     try {
         _index_to_write.push_back(entry);
     } catch (...) {
-        OLAP_LOG_WARNING("add entry to index vector fail");
-        return OLAP_ERR_STL_ERROR;
+        LOG(WARNING) << "add entry to index vector fail";
+        return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 PositionEntryWriter* StreamIndexWriter::mutable_entry(uint32_t index) {
@@ -109,22 +109,22 @@ PositionEntryWriter* StreamIndexWriter::mutable_entry(uint32_t index) {
         return &_index_to_write[index];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 size_t StreamIndexWriter::entry_size() {
     return _index_to_write.size();
 }
 
-OLAPStatus StreamIndexWriter::reset() {
+Status StreamIndexWriter::reset() {
     try {
         _index_to_write.clear();
     } catch (...) {
-        OLAP_LOG_WARNING("add entry to index vector fail");
-        return OLAP_ERR_STL_ERROR;
+        LOG(WARNING) << "add entry to index vector fail";
+        return Status::OLAPInternalError(OLAP_ERR_STL_ERROR);
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 size_t StreamIndexWriter::output_size() {
@@ -135,15 +135,15 @@ size_t StreamIndexWriter::output_size() {
     }
 }
 
-OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
-    if (NULL == buffer) {
-        OLAP_LOG_WARNING("given buffer is NULL");
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+Status StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) {
+    if (nullptr == buffer) {
+        LOG(WARNING) << "given buffer is null";
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     if (output_size() > buffer_size) {
-        OLAP_LOG_WARNING("need more buffer, size=%lu, given=%lu", output_size(), buffer_size);
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
+        LOG(WARNING) << "need more buffer, size=" << output_size() << ", given=" << buffer_size;
+        return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
     }
 
     // write header
@@ -162,7 +162,7 @@ OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) 
 
     _header.block_count = _index_to_write.size();
     VLOG_TRACE << "header info. pos: " << _header.position_format
-             << ", stat:" << _header.statistic_format << ", entry_size:" << entry_size;
+               << ", stat:" << _header.statistic_format << ", entry_size:" << entry_size;
     memcpy(buffer, reinterpret_cast<char*>(&_header), sizeof(_header));
     // set offset, write data
     char* write_offset = buffer + sizeof(_header);
@@ -172,7 +172,7 @@ OLAPStatus StreamIndexWriter::write_to_buffer(char* buffer, size_t buffer_size) 
         write_offset += entry_size;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 } // namespace doris

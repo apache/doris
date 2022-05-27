@@ -34,6 +34,7 @@ public class TransProcDir implements ProcDirInterface {
             .add("TransactionStatus")
             .add("LoadJobSourceType")
             .add("PrepareTime")
+            .add("PreCommitTime")
             .add("CommitTime")
             .add("PublishTime")
             .add("FinishTime")

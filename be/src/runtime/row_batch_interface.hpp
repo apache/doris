@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_ROW_BATCH_INTERFACE_H
-#define  DORIS_BE_SRC_QUERY_BE_RUNTIME_ROW_BATCH_INTERFACE_H
+#pragma once
 
 namespace doris {
 
@@ -25,6 +24,4 @@ public:
     virtual ~RowBatchInterface() {}
 };
 
-}
-
-#endif
+} // namespace doris

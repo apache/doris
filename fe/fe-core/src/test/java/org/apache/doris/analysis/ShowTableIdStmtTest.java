@@ -17,11 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.MockedAuth;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.qe.ConnectContext;
+
 import mockit.Mocked;
-import org.apache.doris.common.*;
-import org.apache.doris.mysql.privilege.*;
-import org.apache.doris.qe.*;
-import org.junit.*;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 public class ShowTableIdStmtTest {
     private Analyzer analyzer;
@@ -39,7 +44,7 @@ public class ShowTableIdStmtTest {
     }
 
     @Test
-    public void testNormal() throws UserException, AnalysisException  {
+    public void testNormal() throws UserException, AnalysisException {
         ShowTableIdStmt stmt = new ShowTableIdStmt(123456);
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW TABLE 123456", stmt.toString());

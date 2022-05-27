@@ -46,9 +46,9 @@ sudo apt install gcc-10 g++-10
 sudo apt-get install autoconf automake libtool autopoint
 ```
 
-4. install : openssl-devel
+4. install : libssl-dev
 ```
-sudo apt install -y openssl-devel
+sudo apt install -y libssl-dev
 ```
 
 ## Compile
@@ -116,7 +116,7 @@ brpc_port = 8060
 # If no ip match this rule, will choose one randomly.
 # use CIDR format, e.g. 10.10.10.0/
 # Default value is empty.
-priority_networks = 192.168.59.0/24 # data root path, seperate by ';'
+priority_networks = 192.168.59.0/24 # data root path, separate by ';'
 storage_root_path = /soft/be/storage 
 # sys_log_dir = ${PALO_HOME}/log
 # sys_log_roll_mode = SIZE-MB-
@@ -211,7 +211,7 @@ As shown in the figure:
 
 Among them, 15200 is the process id of the currently running be.
 
-An example of a complete lainch.json is as follows:
+An example of a complete launch.json is as follows:
 
 ```
  {

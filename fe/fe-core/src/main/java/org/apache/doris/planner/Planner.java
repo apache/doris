@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/Planner.java
+// and modified by Doris
 
 package org.apache.doris.planner;
 
@@ -26,20 +29,22 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
+import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TRuntimeFilterMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
-import org.apache.doris.thrift.TRuntimeFilterMode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,7 +61,7 @@ public class Planner {
 
     private boolean isBlockQuery = false;
 
-    private ArrayList<PlanFragment> fragments = Lists.newArrayList();
+    protected ArrayList<PlanFragment> fragments = Lists.newArrayList();
 
     private PlannerContext plannerContext;
     private SingleNodePlanner singleNodePlanner;
@@ -70,7 +75,9 @@ public class Planner {
         return fragments;
     }
 
-    public PlannerContext getPlannerContext() { return plannerContext;}
+    public PlannerContext getPlannerContext() {
+        return plannerContext;
+    }
 
     public List<ScanNode> getScanNodes() {
         if (singleNodePlanner == null) {
@@ -94,16 +101,14 @@ public class Planner {
                     expr.getIds(null, slotList);
                     if (PrimitiveType.DECIMALV2 != expr.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (PrimitiveType.DECIMALV2 != slotDesc.getType().getPrimitiveType()) {
                         continue;
-                            }
+                    }
 
                     if (slotList.contains(slotDesc.getId()) && null != slotDesc.getColumn()) {
-                        // TODO output scale
-                        // int outputScale = slotDesc.getColumn().getType().getScale();
-                        int outputScale = 10;
+                        int outputScale = slotDesc.getColumn().getScale();
                         if (outputScale >= 0) {
                             if (outputScale > expr.getOutputScale()) {
                                 expr.setOutputScale(outputScale);
@@ -167,6 +172,17 @@ public class Planner {
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
 
+        if (VectorizedUtil.isVectorized()) {
+            singleNodePlan.convertToVectoriezd();
+        }
+
+        if (analyzer.getContext() != null
+                && analyzer.getContext().getSessionVariable().isEnableProjection()
+                && statement instanceof SelectStmt) {
+            ProjectPlanner projectPlanner = new ProjectPlanner(analyzer);
+            projectPlanner.projectSingleNodePlan(queryStmt.getResultExprs(), singleNodePlan);
+        }
+
         if (statement instanceof InsertStmt) {
             InsertStmt insertStmt = (InsertStmt) statement;
             insertStmt.prepareExpressions();
@@ -202,7 +218,7 @@ public class Planner {
          */
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
-        
+
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
@@ -225,7 +241,7 @@ public class Planner {
             RuntimeFilterGenerator.generateRuntimeFilters(analyzer, rootFragment.getPlanRoot());
         }
 
-	    if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
+        if (statement instanceof InsertStmt && !analyzer.getContext().isTxnModel()) {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
@@ -239,14 +255,14 @@ public class Planner {
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
             rootFragment.setOutputExprs(resExprs);
         }
-        // rootFragment.setOutputExprs(exprs);
         LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
-            fragment.finalize(analyzer, !queryOptions.allow_unsupported_formats);
+            fragment.finalize(queryStmt);
         }
+
         Collections.reverse(fragments);
 
-        setOutfileSink(queryStmt);
+        pushDownResultFileSink(analyzer);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -258,21 +274,6 @@ public class Planner {
                 LOG.debug("this isn't block query");
             }
         }
-    }
-
-    // if query stmt has OUTFILE clause, set info into ResultSink.
-    // this should be done after fragments are generated.
-    private void setOutfileSink(QueryStmt queryStmt) {
-        if (!queryStmt.hasOutFileClause()) {
-            return;
-        }
-        PlanFragment topFragment = fragments.get(0);
-        if (!(topFragment.getSink() instanceof ResultSink)) {
-            return;
-        }
-
-        ResultSink resultSink = (ResultSink) topFragment.getSink();
-        resultSink.setOutfileInfo(queryStmt.getOutFileClause());
     }
 
     /**
@@ -295,9 +296,96 @@ public class Planner {
         return selectNode;
     }
 
+    /**
+     * This function is mainly used to try to push the top-level result file sink down one layer.
+     * The result file sink after the pushdown can realize the function of concurrently exporting the result set.
+     * Push down needs to meet the following conditions:
+     * 1. The query enables the session variable of the concurrent export result set
+     * 2. The top-level fragment is not a merge change node
+     * 3. The export method uses the s3 method
+     *
+     * After satisfying the above three conditions,
+     * the result file sink and the associated output expr will be pushed down to the next layer.
+     * The second plan fragment performs expression calculation and derives the result set.
+     * The top plan fragment will only summarize the status of the exported result set and return it to fe.
+     */
+    private void pushDownResultFileSink(Analyzer analyzer) {
+        if (fragments.size() < 1) {
+            return;
+        }
+        if (!(fragments.get(0).getSink() instanceof ResultFileSink)) {
+            return;
+        }
+        if (!ConnectContext.get().getSessionVariable().isEnableParallelOutfile()) {
+            return;
+        }
+        if (!(fragments.get(0).getPlanRoot() instanceof ExchangeNode)) {
+            return;
+        }
+        PlanFragment topPlanFragment = fragments.get(0);
+        ExchangeNode topPlanNode = (ExchangeNode) topPlanFragment.getPlanRoot();
+        // try to push down result file sink
+        if (topPlanNode.isMergingExchange()) {
+            return;
+        }
+        PlanFragment secondPlanFragment = fragments.get(1);
+        ResultFileSink resultFileSink = (ResultFileSink) topPlanFragment.getSink();
+        if (resultFileSink.getStorageType() == StorageBackend.StorageType.BROKER) {
+            return;
+        }
+        if (secondPlanFragment.getOutputExprs() != null) {
+            return;
+        }
+        // create result file sink desc
+        TupleDescriptor fileStatusDesc = constructFileStatusTupleDesc(analyzer);
+        resultFileSink.resetByDataStreamSink((DataStreamSink) secondPlanFragment.getSink());
+        resultFileSink.setOutputTupleId(fileStatusDesc.getId());
+        secondPlanFragment.setOutputExprs(topPlanFragment.getOutputExprs());
+        secondPlanFragment.resetSink(resultFileSink);
+        ResultSink resultSink = new ResultSink(topPlanNode.getId());
+        topPlanFragment.resetSink(resultSink);
+        topPlanFragment.resetOutputExprs(fileStatusDesc);
+        topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
+    }
+
+    /**
+     * Construct a tuple for file status, the tuple schema as following:
+     * | FileNumber | Int     |
+     * | TotalRows  | Bigint  |
+     * | FileSize   | Bigint  |
+     * | URL        | Varchar |
+     */
+    private TupleDescriptor constructFileStatusTupleDesc(Analyzer analyzer) {
+        TupleDescriptor resultFileStatusTupleDesc =
+                analyzer.getDescTbl().createTupleDescriptor("result_file_status");
+        resultFileStatusTupleDesc.setIsMaterialized(true);
+        SlotDescriptor fileNumber = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
+        fileNumber.setLabel("FileNumber");
+        fileNumber.setType(ScalarType.createType(PrimitiveType.INT));
+        fileNumber.setIsMaterialized(true);
+        fileNumber.setIsNullable(false);
+        SlotDescriptor totalRows = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
+        totalRows.setLabel("TotalRows");
+        totalRows.setType(ScalarType.createType(PrimitiveType.BIGINT));
+        totalRows.setIsMaterialized(true);
+        totalRows.setIsNullable(false);
+        SlotDescriptor fileSize = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
+        fileSize.setLabel("FileSize");
+        fileSize.setType(ScalarType.createType(PrimitiveType.BIGINT));
+        fileSize.setIsMaterialized(true);
+        fileSize.setIsNullable(false);
+        SlotDescriptor url = analyzer.getDescTbl().addSlotDescriptor(resultFileStatusTupleDesc);
+        url.setLabel("URL");
+        url.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+        url.setIsMaterialized(true);
+        url.setIsNullable(false);
+        resultFileStatusTupleDesc.computeStatAndMemLayout();
+        return resultFileStatusTupleDesc;
+    }
+
     private static class QueryStatisticsTransferOptimizer {
         private final PlanFragment root;
-        
+
         public QueryStatisticsTransferOptimizer(PlanFragment root) {
             Preconditions.checkNotNull(root);
             this.root = root;

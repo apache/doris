@@ -228,6 +228,7 @@ public:
             doris_scan_range.hosts.push_back(host);
             doris_scan_range.__set_schema_hash("1709394");
             doris_scan_range.__set_version("0");
+            // Useless but it is required in TPaloScanRange
             doris_scan_range.__set_version_hash("0");
             config::olap_index_name = "userid_type_planid_unitid_winfoid";
             doris_scan_range.engine_table_name.push_back("clickuserid_online");
@@ -283,10 +284,10 @@ private:
 TEST_F(TestOlapScanNode, SimpleTest) {
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     int num_rows = 0;
@@ -295,27 +296,28 @@ TEST_F(TestOlapScanNode, SimpleTest) {
     while (!eos) {
         row_batch.reset();
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         VLOG_CRITICAL << "num_rows: " << row_batch.num_rows();
         num_rows += row_batch.num_rows();
     }
 
-    ASSERT_EQ(num_rows, 1000);
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_EQ(num_rows, 1000);
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("0");
+    // Useless but it is required in TPaloScanRange
     _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
     std::vector<string> data;
     read_data(0, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     int num_rows = 0;
@@ -325,35 +327,36 @@ TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
     while (!eos) {
         row_batch.reset();
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
             VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
-            ASSERT_LT(data_index, data.size());
-            ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
+            EXPECT_LT(data_index, data.size());
+            EXPECT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;
         }
 
         num_rows += row_batch.num_rows();
     }
 
-    ASSERT_EQ(num_rows, data.size());
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_EQ(num_rows, data.size());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("9");
+    // Useless but it is required in TPaloScanRange
     _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
     std::vector<string> data;
     read_data(9, &data);
 
     OlapScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
     Status status = scan_node.prepare(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     status = scan_node.open(&_runtime_stat);
-    ASSERT_TRUE(status.ok());
-    ASSERT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
+    EXPECT_TRUE(status.ok());
+    EXPECT_TRUE(scan_node.set_scan_ranges(_scan_ranges).ok());
 
     RowBatch row_batch(scan_node._row_descriptor, _runtime_stat.batch_size());
     int num_rows = 0;
@@ -363,35 +366,23 @@ TEST_F(TestOlapScanNode, MultiColumnMultiVersionTest) {
     while (!eos) {
         row_batch.reset();
         status = scan_node.get_next(&_runtime_stat, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
 
         for (int i = 0; i < row_batch.num_rows(); ++i) {
             TupleRow* row = row_batch.get_row(i);
             VLOG_NOTICE << "input row: " << print_row(row, scan_node._row_descriptor);
-            ASSERT_LT(data_index, data.size());
-            ASSERT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
+            EXPECT_LT(data_index, data.size());
+            EXPECT_EQ(data[data_index], print_row(row, scan_node._row_descriptor));
             ++data_index;
         }
 
         num_rows += row_batch.num_rows();
     }
 
-    ASSERT_EQ(num_rows, data.size());
-    ASSERT_TRUE(scan_node.close(&_runtime_stat).ok());
+    EXPECT_EQ(num_rows, data.size());
+    EXPECT_TRUE(scan_node.close(&_runtime_stat).ok());
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}
 
 /* vim: set expandtab ts=4 sw=4 sts=4 tw=100: */

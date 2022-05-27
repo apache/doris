@@ -24,27 +24,25 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/segment_loader.h"
 
 namespace doris {
 
 class BetaRowsetReader : public RowsetReader {
 public:
-    BetaRowsetReader(BetaRowsetSharedPtr rowset,
-                     std::shared_ptr<MemTracker> parent_tracker = nullptr);
+    BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
     ~BetaRowsetReader() override { _rowset->release(); }
 
-    OLAPStatus init(RowsetReaderContext* read_context) override;
+    Status init(RowsetReaderContext* read_context) override;
 
-    // If parent_tracker is not null, the block we get from next_block() will have the parent_tracker.
     // It's ok, because we only get ref here, the block's owner is this reader.
-    OLAPStatus next_block(RowBlock** block) override;
+    Status next_block(RowBlock** block) override;
+    Status next_block(vectorized::Block* block) override;
 
     bool delete_flag() override { return _rowset->delete_flag(); }
 
     Version version() override { return _rowset->version(); }
-
-    VersionHash version_hash() override { return _rowset->version_hash(); }
 
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
@@ -53,20 +51,25 @@ public:
         return _stats->rows_del_filtered + _stats->rows_conditions_filtered;
     }
 
+    RowsetTypePB type() const override { return RowsetTypePB::BETA_ROWSET; }
+
 private:
+    std::unique_ptr<Schema> _schema;
     RowsetReaderContext* _context;
     BetaRowsetSharedPtr _rowset;
 
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats;
 
-    std::shared_ptr<MemTracker> _parent_tracker;
-
     std::unique_ptr<RowwiseIterator> _iterator;
 
     std::unique_ptr<RowBlockV2> _input_block;
     std::unique_ptr<RowBlock> _output_block;
     std::unique_ptr<RowCursor> _row;
+
+    // make sure this handle is initialized and valid before
+    // reading data.
+    SegmentCacheHandle _segment_cache_handle;
 };
 
 } // namespace doris

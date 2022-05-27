@@ -104,6 +104,8 @@ public class TabletSchedulerStat {
     public AtomicLong counterReplicaRedundantErr = new AtomicLong(0L);
     @StatField("num of replica missing in cluster error")
     public AtomicLong counterReplicaMissingInClusterErr = new AtomicLong(0L);
+    @StatField("num of replica missing for tag error")
+    public AtomicLong counterReplicaMissingForTagErr = new AtomicLong(0L);
     @StatField("num of balance scheduled")
     public AtomicLong counterBalanceSchedule = new AtomicLong(0L);
     @StatField("num of colocate replica mismatch")
@@ -126,7 +128,7 @@ public class TabletSchedulerStat {
                 if (!field.isAnnotationPresent(StatField.class)) {
                     continue;
                 }
-                
+
                 ((AtomicLong) field.get(lastSnapshot)).set(((AtomicLong) field.get(this)).get());
             }
         } catch (ClassNotFoundException | IllegalArgumentException | IllegalAccessException e) {
@@ -148,7 +150,7 @@ public class TabletSchedulerStat {
                 if (!field.isAnnotationPresent(StatField.class)) {
                     continue;
                 }
-                
+
                 List<String> info = Lists.newArrayList();
                 info.add(field.getAnnotation(StatField.class).value());
                 info.add(String.valueOf(((AtomicLong) field.get(this)).get()));

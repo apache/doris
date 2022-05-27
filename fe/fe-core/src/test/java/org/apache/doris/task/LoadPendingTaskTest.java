@@ -17,15 +17,12 @@
 
 package org.apache.doris.task;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.DppScheduler;
 import org.apache.doris.load.EtlSubmitResult;
 import org.apache.doris.load.Load;
@@ -37,8 +34,10 @@ import org.apache.doris.load.TableLoadInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
-
 import org.apache.doris.transaction.GlobalTransactionMgr;
+
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -76,15 +75,15 @@ public class LoadPendingTaskTest {
         indexId = 0L;
         tabletId = 0L;
         backendId = 0L;
-        
+
         label = "test_label";
         UnitTestUtil.initDppConfig();
     }
-    
+
     @Test
     public void testRunPendingTask() throws Exception {
         // mock catalog
-        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
+        db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L);
 
         GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(catalog);
         globalTransactionMgr.setEditLog(editLog);
@@ -93,11 +92,11 @@ public class LoadPendingTaskTest {
         // mock catalog
         new Expectations(catalog) {
             {
-                catalog.getDb(dbId);
+                catalog.getDbNullable(dbId);
                 minTimes = 0;
                 result = db;
 
-                catalog.getDb(db.getFullName());
+                catalog.getDbNullable(db.getFullName());
                 minTimes = 0;
                 result = db;
 
@@ -114,7 +113,7 @@ public class LoadPendingTaskTest {
                 result = globalTransactionMgr;
             }
         };
-        
+
         // create job
         LoadJob job = new LoadJob(label);
         job.setState(JobState.PENDING);
@@ -122,7 +121,7 @@ public class LoadPendingTaskTest {
         String cluster = Config.dpp_default_cluster;
         job.setClusterInfo(cluster, Load.clusterToDppConfig.get(cluster));
         // set partition load infos
-        OlapTable table = (OlapTable) db.getTable(tableId);
+        OlapTable table = (OlapTable) db.getTableOrMetaException(tableId);
         table.setBaseIndexId(0L);
         Partition partition = table.getPartition(partitionId);
         Source source = new Source(new ArrayList<String>());

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/hash-table.hpp
+// and modified by Doris
 
 #ifndef DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
 #define DORIS_BE_SRC_QUERY_EXEC_HASH_TABLE_HPP
@@ -23,6 +26,15 @@
 namespace doris {
 
 inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
+    if (_num_filled_buckets > _num_buckets_till_resize) {
+        if (!resize_buckets(_num_buckets * 2).ok()) {
+            return false;
+        }
+    }
+    if (_current_used == _current_capacity) {
+        grow_node_array();
+    }
+
     bool has_nulls = eval_build_row(row);
 
     if (!_stores_nulls && has_nulls) {
@@ -52,14 +64,6 @@ inline bool HashTable::emplace_key(TupleRow* row, TupleRow** dest_addr) {
         node = last_node;
     }
     if (will_insert) {
-        if (_num_filled_buckets > _num_buckets_till_resize) {
-            resize_buckets(_num_buckets * 2);
-            // real bucket_id will modify after resize buckets
-            bucket_idx = hash & (_num_buckets - 1);
-        }
-        if (_current_used == _current_capacity) {
-            grow_node_array();
-        }
         Node* alloc_node =
                 reinterpret_cast<Node*>(_current_nodes + _node_byte_size * _current_used++);
         ++_num_nodes;

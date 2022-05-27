@@ -626,7 +626,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
             if (streaming_ctx->body_sink != nullptr) {
                 LOG(WARNING) << "cancel stream load " << streaming_ctx->id.to_string()
                              << " because sender failed";
-                streaming_ctx->body_sink->cancel();
+                streaming_ctx->body_sink->cancel("sender failed");
             }
             if (streaming_ctx->unref()) {
                 delete streaming_ctx;
@@ -667,7 +667,7 @@ void MiniLoadAction::_handle(HttpRequest* http_req) {
     }
     auto st = _load(http_req, ctx->file_path, ctx->load_check_req.user, ctx->load_check_req.cluster,
                     ctx->bytes_written);
-    std::string str = to_json(st);
+    std::string str = st.to_json();
     HttpChannel::send_reply(http_req, str);
 }
 
@@ -935,7 +935,7 @@ void MiniLoadAction::_new_handle(HttpRequest* req) {
             ctx->need_rollback = false;
         }
         if (ctx->body_sink.get() != nullptr) {
-            ctx->body_sink->cancel();
+            ctx->body_sink->cancel(ctx->status.get_error_msg());
         }
     }
 

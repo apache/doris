@@ -21,6 +21,7 @@ using std::numeric_limits;
 using std::string;
 
 #include <common/logging.h>
+#include <fmt/format.h>
 
 #include "gutil/gscoped_ptr.h"
 #include "gutil/int128.h"
@@ -1269,6 +1270,28 @@ int FloatToBuffer(float value, int width, char* buffer) {
     return snprintf_result;
 }
 
+int FastDoubleToBuffer(double value, char* buffer) {
+    auto end = fmt::format_to(buffer, "{:.15g}", value);
+    *end = '\0';
+    if (strtod(buffer, nullptr) != value) {
+        end = fmt::format_to(buffer, "{:.17g}", value);
+    }
+    return end - buffer;
+}
+
+int FastFloatToBuffer(float value, char* buffer) {
+    auto end = fmt::format_to(buffer, "{:.6g}", value);
+    *end = '\0';
+#ifdef _MSC_VER // has no strtof()
+    if (strtod(buffer, nullptr) != value) {
+#else
+    if (strtof(buffer, nullptr) != value) {
+#endif
+        end = fmt::format_to(buffer, "{:.8g}", value);
+    }
+    return end - buffer;
+}
+
 // ----------------------------------------------------------------------
 // SimpleItoaWithCommas()
 //    Description: converts an integer to a string.
@@ -1335,28 +1358,7 @@ string SimpleItoaWithCommas(uint32 i) {
 string SimpleItoaWithCommas(int64 i) {
     // 19 digits, 6 commas, and sign are good for 64-bit or smaller ints.
     char local[26];
-    char* p = local + sizeof(local);
-    // Need to use uint64 instead of int64 to correctly handle
-    // -9,223,372,036,854,775,808.
-    uint64 n = i;
-    if (i < 0) n = 0 - n;
-    *--p = '0' + n % 10; // this case deals with the number "0"
-    n /= 10;
-    while (n) {
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = '0' + n % 10;
-        n /= 10;
-        if (n == 0) break;
-
-        *--p = ',';
-        *--p = '0' + n % 10;
-        n /= 10;
-        // For this unrolling, we check if n == 0 in the main while loop
-    }
-    if (i < 0) *--p = '-';
+    char* p = SimpleItoaWithCommas(i, local, sizeof(local));
     return string(p, local + sizeof(local));
 }
 
@@ -1384,6 +1386,60 @@ string SimpleItoaWithCommas(uint64 i) {
         // For this unrolling, we check if i == 0 in the main while loop
     }
     return string(p, local + sizeof(local));
+}
+
+char* SimpleItoaWithCommas(int64_t i, char* buffer, int32_t buffer_size) {
+    // 19 digits, 6 commas, and sign are good for 64-bit or smaller ints.
+    char* p = buffer + buffer_size;
+    // Need to use uint64 instead of int64 to correctly handle
+    // -9,223,372,036,854,775,808.
+    uint64 n = i;
+    if (i < 0) n = 0 - n;
+    *--p = '0' + n % 10; // this case deals with the number "0"
+    n /= 10;
+    while (n) {
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) break;
+
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) break;
+
+        *--p = ',';
+        *--p = '0' + n % 10;
+        n /= 10;
+        // For this unrolling, we check if n == 0 in the main while loop
+    }
+    if (i < 0) *--p = '-';
+    return p;
+}
+
+char* SimpleItoaWithCommas(__int128_t i, char* buffer, int32_t buffer_size) {
+    // 39 digits, 12 commas, and sign are good for 128-bit or smaller ints.
+    char* p = buffer + buffer_size;
+    // Need to use uint128 instead of int128 to correctly handle
+    // -170,141,183,460,469,231,731,687,303,715,884,105,728.
+    __uint128_t n = i;
+    if (i < 0) n = 0 - n;
+    *--p = '0' + n % 10; // this case deals with the number "0"
+    n /= 10;
+    while (n) {
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) break;
+
+        *--p = '0' + n % 10;
+        n /= 10;
+        if (n == 0) break;
+
+        *--p = ',';
+        *--p = '0' + n % 10;
+        n /= 10;
+        // For this unrolling, we check if n == 0 in the main while loop
+    }
+    if (i < 0) *--p = '-';
+    return p;
 }
 
 // ----------------------------------------------------------------------
@@ -1420,6 +1476,49 @@ string ItoaKMGT(int64 i) {
     }
 
     return StringPrintf("%s%" PRId64 "%s", sign, val, suffix);
+}
+
+string AccurateItoaKMGT(int64 i) {
+    const char* sign = "";
+    if (i < 0) {
+        // We lose some accuracy if the caller passes LONG_LONG_MIN, but
+        // that's OK as this function is only for human readability
+        if (i == numeric_limits<int64>::min()) i++;
+        sign = "-";
+        i = -i;
+    }
+
+    string ret = std::to_string(i) + " = " + StringPrintf("%s", sign);
+    int64 val;
+    if ((val = (i >> 40)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "T");
+        i = i - (val << 40);
+    }
+    if ((val = (i >> 30)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "G");
+        i = i - (val << 30);
+    }
+    if ((val = (i >> 20)) > 1) {
+        ret += StringPrintf("%" PRId64
+                            "%s"
+                            " + ",
+                            val, "M");
+        i = i - (val << 20);
+    }
+    if ((val = (i >> 10)) > 1) {
+        ret += StringPrintf("%" PRId64 "%s", val, "K");
+        i = i - (val << 10);
+    } else {
+        ret += StringPrintf("%" PRId64 "%s", i, "K");
+    }
+
+    return ret;
 }
 
 // DEPRECATED(wadetregaskis).

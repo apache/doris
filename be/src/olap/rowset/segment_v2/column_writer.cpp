@@ -55,7 +55,7 @@ public:
         _rle_encoder.Put(value, run);
     }
 
-    // Returns whether the building nullmap contains NULL
+    // Returns whether the building nullmap contains nullptr
     bool has_null() const { return _has_null; }
 
     OwnedSlice finish() {
@@ -118,7 +118,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             length_options.meta->set_unique_id(2);
             length_options.meta->set_type(length_type);
             length_options.meta->set_is_nullable(false);
-            length_options.meta->set_length(get_scalar_type_info(length_type)->size());
+            length_options.meta->set_length(
+                    get_scalar_type_info<OLAP_FIELD_TYPE_UNSIGNED_INT>()->size());
             length_options.meta->set_encoding(DEFAULT_ENCODING);
             length_options.meta->set_compression(LZ4F);
 
@@ -145,7 +146,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.meta->set_unique_id(3);
                 null_options.meta->set_type(null_type);
                 null_options.meta->set_is_nullable(false);
-                null_options.meta->set_length(get_scalar_type_info(null_type)->size());
+                null_options.meta->set_length(
+                        get_scalar_type_info<OLAP_FIELD_TYPE_TINYINT>()->size());
                 null_options.meta->set_encoding(DEFAULT_ENCODING);
                 null_options.meta->set_compression(LZ4F);
 
@@ -191,6 +193,47 @@ Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* da
     return Status::OK();
 }
 
+Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                     size_t num_rows) {
+    size_t offset = 0;
+    auto next_run_step = [&]() {
+        size_t step = 1;
+        for (auto i = offset + 1; i < num_rows; ++i) {
+            if (null_map[offset] == null_map[i])
+                step++;
+            else
+                break;
+        }
+        return step;
+    };
+
+    do {
+        auto step = next_run_step();
+        if (null_map[offset]) {
+            RETURN_IF_ERROR(append_nulls(step));
+            *ptr += get_field()->size() * step;
+        } else {
+            // TODO:
+            //  1. `*ptr += get_field()->size() * step;` should do in this function, not append_data;
+            //  2. support array vectorized load and ptr offset add
+            RETURN_IF_ERROR(append_data(ptr, step));
+        }
+        offset += step;
+    } while (offset < num_rows);
+
+    return Status::OK();
+}
+
+Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
+    assert(data && num_rows > 0);
+    const auto* ptr = (const uint8_t*)data;
+    if (nullmap) {
+        return append_nullable(nullmap, &ptr, num_rows);
+    } else {
+        return append_data(&ptr, num_rows);
+    }
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
@@ -221,7 +264,7 @@ ScalarColumnWriter::~ScalarColumnWriter() {
 }
 
 Status ScalarColumnWriter::init() {
-    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
+    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), _compress_codec));
 
     PageBuilder* page_builder = nullptr;
 
@@ -285,10 +328,9 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         size_t num_written = remaining;
         RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
 
-        bool is_page_full = (num_written < remaining);
         remaining -= num_written;
 
-        if (is_page_full) {
+        if (_page_builder->is_page_full()) {
             RETURN_IF_ERROR(finish_current_page());
         }
     }
@@ -378,7 +420,7 @@ Status ScalarColumnWriter::write_data() {
         footer.mutable_dict_page_footer()->set_encoding(PLAIN_ENCODING);
 
         PagePointer dict_pp;
-        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec,
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(_compress_codec.get(),
                                                         _opts.compression_min_space_saving, _wblock,
                                                         {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
@@ -445,11 +487,11 @@ Status ScalarColumnWriter::finish_current_page() {
     body.push_back(encoded_values.slice());
 
     OwnedSlice nullmap;
-    if (is_nullable() && _null_bitmap_builder->has_null()) {
-        nullmap = _null_bitmap_builder->finish();
-        body.push_back(nullmap.slice());
-    }
     if (_null_bitmap_builder != nullptr) {
+        if (is_nullable() && _null_bitmap_builder->has_null()) {
+            nullmap = _null_bitmap_builder->finish();
+            body.push_back(nullmap.slice());
+        }
         _null_bitmap_builder->reset();
     }
 
@@ -466,8 +508,8 @@ Status ScalarColumnWriter::finish_current_page() {
     }
     // trying to compress page body
     OwnedSlice compressed_body;
-    RETURN_IF_ERROR(PageIO::compress_page_body(_compress_codec, _opts.compression_min_space_saving,
-                                               body, &compressed_body));
+    RETURN_IF_ERROR(PageIO::compress_page_body(
+            _compress_codec.get(), _opts.compression_min_space_saving, body, &compressed_body));
     if (compressed_body.slice().empty()) {
         // page body is uncompressed
         page->data.emplace_back(std::move(encoded_values));
@@ -525,8 +567,8 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         if (num_written <
             1) { // page is full, write first item offset and update current length page's start ordinal
             RETURN_IF_ERROR(_length_writer->finish_current_page());
-            _current_length_page_first_ordinal += _lengh_sum_in_cur_page;
-            _lengh_sum_in_cur_page = 0;
+            _current_length_page_first_ordinal += _length_sum_in_cur_page;
+            _length_sum_in_cur_page = 0;
         } else {
             // write child item.
             if (_item_writer->is_nullable()) {
@@ -540,7 +582,7 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                 RETURN_IF_ERROR(_item_writer->append_data(reinterpret_cast<const uint8_t**>(&data),
                                                           col_cursor->length()));
             }
-            _lengh_sum_in_cur_page += col_cursor->length();
+            _length_sum_in_cur_page += col_cursor->length();
         }
         remaining -= num_written;
         col_cursor += num_written;
@@ -580,7 +622,9 @@ Status ArrayColumnWriter::write_ordinal_index() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_ordinal_index());
     }
-    RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    if (!has_empty_items()) {
+        RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    }
     return Status::OK();
 }
 

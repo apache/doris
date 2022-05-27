@@ -195,7 +195,7 @@ TEST_F(BufferedTupleStreamTest, init_bufferStream) {
     BufferedTupleStream* input_stream =
             new BufferedTupleStream(_runtime_state, *_child_row_desc, _runtime_state->block_mgr());
     Status status = input_stream->init(_profile);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     input_stream->close();
     delete input_stream;
 }
@@ -204,15 +204,15 @@ TEST_F(BufferedTupleStreamTest, addRow_bufferStream) {
     BufferedTupleStream* input_stream =
             new BufferedTupleStream(_runtime_state, *_child_row_desc, _runtime_state->block_mgr());
     Status status = input_stream->init(_profile);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     int num_rows = 5;
     RowBatch* batch = create_row_batch(num_rows);
     for (int i = 0; i < num_rows; i++) {
         TupleRow* row = batch->GetRow(i);
         input_stream->add_row(row);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
-    ASSERT_EQ(input_stream->num_rows(), num_rows);
+    EXPECT_EQ(input_stream->num_rows(), num_rows);
     input_stream->close();
     delete input_stream;
 }
@@ -221,51 +221,45 @@ TEST_F(BufferedTupleStreamTest, getNext_bufferStream) {
     BufferedTupleStream* input_stream =
             new BufferedTupleStream(_runtime_state, *_child_row_desc, _runtime_state->block_mgr());
     Status status = input_stream->init(_profile);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
     int num_rows = 5;
     RowBatch* batch = create_row_batch(num_rows * 2);
     for (int i = 0; i < num_rows * 2; i++) {
         TupleRow* row = batch->GetRow(i);
         input_stream->add_row(row);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
     }
 
-    ASSERT_EQ(input_stream->num_rows(), num_rows * 2);
+    EXPECT_EQ(input_stream->num_rows(), num_rows * 2);
 
     RowBatch output_batch(*_child_row_desc, num_rows);
     bool eos;
 
     status = input_stream->get_next(&output_batch, &eos);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    ASSERT_EQ("[(0)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
-    ASSERT_EQ("[(1)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
-    ASSERT_EQ("[(2)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
-    ASSERT_EQ("[(3)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
-    ASSERT_EQ("[(4)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
+    EXPECT_EQ("[(0)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
+    EXPECT_EQ("[(1)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
+    EXPECT_EQ("[(2)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
+    EXPECT_EQ("[(3)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
+    EXPECT_EQ("[(4)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
 
     output_batch.Reset();
 
     status = input_stream->get_next(&output_batch, &eos);
 
-    ASSERT_TRUE(status.ok());
-    ASSERT_EQ("[(5)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
-    ASSERT_EQ("[(6)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
-    ASSERT_EQ("[(7)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
-    ASSERT_EQ("[(8)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
-    ASSERT_EQ("[(9)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
+    EXPECT_TRUE(status.ok());
+    EXPECT_EQ("[(5)]", PrintRow(output_batch.GetRow(0), *_child_row_desc));
+    EXPECT_EQ("[(6)]", PrintRow(output_batch.GetRow(1), *_child_row_desc));
+    EXPECT_EQ("[(7)]", PrintRow(output_batch.GetRow(2), *_child_row_desc));
+    EXPECT_EQ("[(8)]", PrintRow(output_batch.GetRow(3), *_child_row_desc));
+    EXPECT_EQ("[(9)]", PrintRow(output_batch.GetRow(4), *_child_row_desc));
 
-    ASSERT_EQ(input_stream->rows_returned(), num_rows * 2);
+    EXPECT_EQ(input_stream->rows_returned(), num_rows * 2);
     input_stream->close();
     delete input_stream;
 }
 
 } // namespace doris
 
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    impala::CpuInfo::Init();
-    return RUN_ALL_TESTS();
-}
-
-/* vim: set ts=4 sw=4 sts=4 tw=100 noet: */
+\n

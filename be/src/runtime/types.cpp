@@ -14,11 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/types.cpp
+// and modified by Doris
 
 #include "runtime/types.h"
 
 #include <ostream>
-#include <sstream>
 
 namespace doris {
 
@@ -51,32 +53,30 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
-#if 0 // Don't support now
-    case TTypeNodeType::STRUCT:
-        type = TYPE_STRUCT;
-        for (int i = 0; i < node.struct_fields.size(); ++i) {
-            ++(*idx);
-            children.push_back(TypeDescriptor(types, idx));
-            field_names.push_back(node.struct_fields[i].name);
-        }
-        break;
-    case TTypeNodeType::ARRAY:
-        DCHECK(!node.__isset.scalar_type);
-        DCHECK_LT(*idx, types.size() - 1);
-        type = TYPE_ARRAY;
-        ++(*idx);
-        children.push_back(TypeDescriptor(types, idx));
-        break;
-    case TTypeNodeType::MAP:
-        DCHECK(!node.__isset.scalar_type);
-        DCHECK_LT(*idx, types.size() - 2);
-        type = TYPE_MAP;
-        ++(*idx);
-        children.push_back(TypeDescriptor(types, idx));
-        ++(*idx);
-        children.push_back(TypeDescriptor(types, idx));
-        break;
-#endif
+    // case TTypeNodeType::STRUCT:
+    //     type = TYPE_STRUCT;
+    //     for (int i = 0; i < node.struct_fields.size(); ++i) {
+    //         ++(*idx);
+    //         children.push_back(TypeDescriptor(types, idx));
+    //         field_names.push_back(node.struct_fields[i].name);
+    //     }
+    //     break;
+    // case TTypeNodeType::ARRAY:
+    //     DCHECK(!node.__isset.scalar_type);
+    //     DCHECK_LT(*idx, types.size() - 1);
+    //     type = TYPE_ARRAY;
+    //     ++(*idx);
+    //     children.push_back(TypeDescriptor(types, idx));
+    //     break;
+    // case TTypeNodeType::MAP:
+    //     DCHECK(!node.__isset.scalar_type);
+    //     DCHECK_LT(*idx, types.size() - 2);
+    //     type = TYPE_MAP;
+    //     ++(*idx);
+    //     children.push_back(TypeDescriptor(types, idx));
+    //     ++(*idx);
+    //     children.push_back(TypeDescriptor(types, idx));
+    //     break;
     default:
         DCHECK(false) << node.type;
     }

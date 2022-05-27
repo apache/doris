@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.proc;
 
-import java.util.List;
-
 import com.google.common.collect.Lists;
+
+import java.util.List;
 
 public class BaseProcResult implements ProcResult {
     protected List<String> names;

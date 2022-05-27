@@ -1,0 +1,9 @@
+# Please add code that you don’t want to be formatted by clang here
+
+be/src/gutil/*
+be/src/glibc-compatibility/*
+be/src/util/sse2neo.h
+be/src/util/sse2neon.h
+be/src/util/mustache/mustache.h
+be/src/util/mustache/mustache.cc
+be/src/util/utf8_check.cpp

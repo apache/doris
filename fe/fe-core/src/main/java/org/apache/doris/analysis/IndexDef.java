@@ -29,12 +29,14 @@ import java.util.TreeSet;
 
 public class IndexDef {
     private String indexName;
+    private boolean ifNotExists;
     private List<String> columns;
     private IndexType indexType;
     private String comment;
 
-    public IndexDef(String indexName, List<String> columns, IndexType indexType, String comment) {
+    public IndexDef(String indexName, boolean ifNotExists, List<String> columns, IndexType indexType, String comment) {
         this.indexName = indexName;
+        this.ifNotExists = ifNotExists;
         this.columns = columns;
         if (indexType == null) {
             this.indexType = IndexType.BITMAP;
@@ -118,6 +120,10 @@ public class IndexDef {
         return comment;
     }
 
+    public boolean isSetIfNotExists() {
+        return ifNotExists;
+    }
+
     public enum IndexType {
         BITMAP,
 
@@ -127,8 +133,8 @@ public class IndexDef {
         if (indexType == IndexType.BITMAP) {
             String indexColName = column.getName();
             PrimitiveType colType = column.getDataType();
-            if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isFixedPointType() ||
-                          colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
+            if (!(colType.isDateType() || colType.isDecimalV2Type() || colType.isFixedPointType()
+                    || colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
                 throw new AnalysisException(colType + " is not supported in bitmap index. "
                         + "invalid column: " + indexColName);
             } else if ((keysType == KeysType.AGG_KEYS && !column.isKey())) {

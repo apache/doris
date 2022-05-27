@@ -22,37 +22,43 @@
 #include <stdlib.h>
 
 #include "common/logging.h"
+#include "date_func.h"
 #include "gutil/strings/numbers.h"
+#include "runtime/large_int_value.h"
 #include "util/mysql_global.h"
 
 namespace doris {
 
+static uint8_t NEXT_TWO_BYTE = 252;
+static uint8_t NEXT_THREE_BYTE = 253;
+static uint8_t NEXT_EIGHT_BYTE = 254;
+
 // the first byte:
 // <= 250: length
-// = 251: NULL
+// = 251: nullptr
 // = 252: the next two byte is length
 // = 253: the next three byte is length
-// = 254: the next eighth byte is length
+// = 254: the next eight byte is length
 static char* pack_vlen(char* packet, uint64_t length) {
     if (length < 251ULL) {
         int1store(packet, length);
         return packet + 1;
     }
 
-    /* 251 is reserved for NULL */
+    /* 251 is reserved for nullptr */
     if (length < 65536ULL) {
-        *packet++ = 252;
+        *packet++ = NEXT_TWO_BYTE;
         int2store(packet, length);
         return packet + 2;
     }
 
     if (length < 16777216ULL) {
-        *packet++ = 253;
+        *packet++ = NEXT_THREE_BYTE;
         int3store(packet, length);
         return packet + 3;
     }
 
-    *packet++ = 254;
+    *packet++ = NEXT_EIGHT_BYTE;
     int8store(packet, length);
     return packet + 8;
 }
@@ -71,7 +77,7 @@ MysqlRowBuffer::~MysqlRowBuffer() {
 
 void MysqlRowBuffer::open_dynamic_mode() {
     if (!_dynamic_mode) {
-        *_pos++ = 254;
+        *_pos++ = NEXT_EIGHT_BYTE;
         // write length when dynamic mode close
         _len_pos = _pos;
         _pos = _pos + 8;
@@ -88,22 +94,22 @@ void MysqlRowBuffer::close_dynamic_mode() {
     }
 }
 
-int MysqlRowBuffer::reserve(int size) {
+int MysqlRowBuffer::reserve(int64_t size) {
     if (size < 0) {
         LOG(ERROR) << "alloc memory failed. size = " << size;
         return -1;
     }
 
-    int need_size = size + (_pos - _buf);
+    int64_t need_size = size + (_pos - _buf);
 
     if (need_size <= _buf_size) {
         return 0;
     }
 
-    int alloc_size = std::max(need_size, _buf_size * 2);
+    int64_t alloc_size = std::max(need_size, _buf_size * 2);
     char* new_buf = new (std::nothrow) char[alloc_size];
 
-    if (NULL == new_buf) {
+    if (nullptr == new_buf) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
         return -1;
     }
@@ -131,14 +137,48 @@ static char* add_int(T data, char* pos, bool dynamic_mode) {
     memcpy(pos, fi.data(), length);
     return pos + length;
 }
+
+static char* add_largeint(int128_t data, char* pos, bool dynamic_mode) {
+    int length = LargeIntValue::to_buffer(data, pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
 template <typename T>
 static char* add_float(T data, char* pos, bool dynamic_mode) {
     int length = 0;
     if constexpr (std::is_same_v<T, float>) {
-        length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, pos + !dynamic_mode);
+        length = FastFloatToBuffer(data, pos + !dynamic_mode);
     } else if constexpr (std::is_same_v<T, double>) {
-        length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, pos + !dynamic_mode);
+        length = FastDoubleToBuffer(data, pos + !dynamic_mode);
     }
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_time(double data, char* pos, bool dynamic_mode) {
+    int length = time_to_buffer_from_double(data, pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_datetime(const DateTimeValue& data, char* pos, bool dynamic_mode) {
+    int length = data.to_buffer(pos + !dynamic_mode);
+    if (!dynamic_mode) {
+        int1store(pos++, length);
+    }
+    return pos + length;
+}
+
+static char* add_decimal(const DecimalV2Value& data, int round_scale, char* pos,
+                         bool dynamic_mode) {
+    int length = data.to_buffer(pos + !dynamic_mode, round_scale);
     if (!dynamic_mode) {
         int1store(pos++, length);
     }
@@ -210,6 +250,19 @@ int MysqlRowBuffer::push_unsigned_bigint(uint64_t data) {
     return 0;
 }
 
+int MysqlRowBuffer::push_largeint(int128_t data) {
+    // 1 for string trail, 1 for length, 1 for sign, other for digits
+    int ret = reserve(3 + MAX_LARGEINT_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserver failed.";
+        return ret;
+    }
+
+    _pos = add_largeint(data, _pos, _dynamic_mode);
+    return 0;
+}
+
 int MysqlRowBuffer::push_float(float data) {
     // 1 for string trail, 1 for length, 1 for sign, other for digits
     int ret = reserve(3 + MAX_FLOAT_STR_LENGTH);
@@ -236,10 +289,49 @@ int MysqlRowBuffer::push_double(double data) {
     return 0;
 }
 
-int MysqlRowBuffer::push_string(const char* str, int length) {
+int MysqlRowBuffer::push_time(double data) {
+    // 1 for string trail, 1 for length, other for time str
+    int ret = reserve(2 + MAX_TIME_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_time(data, _pos, _dynamic_mode);
+    return 0;
+}
+
+int MysqlRowBuffer::push_datetime(const DateTimeValue& data) {
+    // 1 for string trail, 1 for length, other for datetime str
+    int ret = reserve(2 + MAX_DATETIME_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_datetime(data, _pos, _dynamic_mode);
+    return 0;
+}
+
+int MysqlRowBuffer::push_decimal(const DecimalV2Value& data, int round_scale) {
+    // 1 for string trail, 1 for length, other for decimal str
+    int ret = reserve(2 + MAX_DECIMAL_WIDTH);
+
+    if (0 != ret) {
+        LOG(ERROR) << "mysql row buffer reserve failed.";
+        return ret;
+    }
+
+    _pos = add_decimal(data, round_scale, _pos, _dynamic_mode);
+    return 0;
+}
+
+int MysqlRowBuffer::push_string(const char* str, int64_t length) {
     // 9 for length pack max, 1 for sign, other for digits
-    if (NULL == str) {
-        LOG(ERROR) << "input string is NULL.";
+    if (nullptr == str) {
+        LOG(ERROR) << "input string is nullptr.";
         return -1;
     }
 
@@ -276,12 +368,12 @@ int MysqlRowBuffer::push_null() {
     return 0;
 }
 
-char* MysqlRowBuffer::reserved(int size) {
+char* MysqlRowBuffer::reserved(int64_t size) {
     int ret = reserve(size);
 
     if (0 != ret) {
         LOG(ERROR) << "mysql row buffer reserve failed.";
-        return NULL;
+        return nullptr;
     }
 
     char* old_buf = _pos;

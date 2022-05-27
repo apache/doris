@@ -17,9 +17,10 @@
 
 package org.apache.doris.common.util;
 
-public enum LogKey{
+public enum LogKey {
     ROUTINE_LOAD_JOB,
     ROUTINE_LOAD_TASK,
     LOAD_JOB,
-    LOAD_TASK
+    LOAD_TASK,
+    SYNC_JOB
 }

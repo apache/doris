@@ -25,9 +25,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,14 +38,10 @@ import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.view.RedirectView;
 
-import com.google.common.base.Preconditions;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import java.lang.reflect.Type;
 import java.util.List;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 /*
  * the colocate meta define in {@link ColocateTableIndex}
@@ -110,7 +108,7 @@ public class ColocateMetaService extends RestBaseController {
 
         String method = request.getMethod();
         if ("POST".equalsIgnoreCase(method)) {
-            colocateIndex.markGroupUnstable(groupId, true);
+            colocateIndex.markGroupUnstable(groupId, "mark unstable via http api", true);
         } else if ("DELETE".equalsIgnoreCase(method)) {
             colocateIndex.markGroupStable(groupId, true);
         }
@@ -138,9 +136,9 @@ public class ColocateMetaService extends RestBaseController {
         List<Long> clusterBackendIds = Catalog.getCurrentSystemInfo().getClusterBackendIds(clusterName, true);
         //check the Backend id
         for (List<Long> backendIds : backendsPerBucketSeq) {
-            if (backendIds.size() != groupSchema.getReplicationNum()) {
+            if (backendIds.size() != groupSchema.getReplicaAlloc().getTotalReplicaNum()) {
                 return ResponseEntityBuilder.okWithCommonError("Invalid backend num per bucket. expected: "
-                        + groupSchema.getReplicationNum() + ", actual: " + backendIds.size());
+                        + groupSchema.getReplicaAlloc().getTotalReplicaNum() + ", actual: " + backendIds.size());
             }
             for (Long beId : backendIds) {
                 if (!clusterBackendIds.contains(beId)) {
@@ -158,11 +156,13 @@ public class ColocateMetaService extends RestBaseController {
         return ResponseEntityBuilder.ok();
     }
 
-    private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq) {
+    private void updateBackendPerBucketSeq(GroupId groupId, List<List<Long>> backendsPerBucketSeq)
+            throws DdlException {
+        throw new DdlException("Currently not support");
+        /*
         colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
         ColocatePersistInfo info2 = ColocatePersistInfo.createForBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
         Catalog.getCurrentCatalog().getEditLog().logColocateBackendsPerBucketSeq(info2);
+         */
     }
-
-
 }

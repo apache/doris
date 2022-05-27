@@ -48,10 +48,11 @@ public class InsertLoadJob extends LoadJob {
         super(EtlJobType.INSERT);
     }
 
-    public InsertLoadJob(String label, long dbId, long tableId, long createTimestamp, String failMsg,
+    public InsertLoadJob(String label, long transactionId, long dbId, long tableId, long createTimestamp, String failMsg,
             String trackingUrl) throws MetaNotFoundException {
         super(EtlJobType.INSERT, dbId, label);
         this.tableId = tableId;
+        this.transactionId = transactionId;
         this.createTimestamp = createTimestamp;
         this.loadStartTimestamp = createTimestamp;
         this.finishTimestamp = System.currentTimeMillis();
@@ -68,38 +69,21 @@ public class InsertLoadJob extends LoadJob {
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
         return new AuthorizationInfo(database.getFullName(), getTableNames());
     }
 
     @Override
     public Set<String> getTableNamesForShow() {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            return Sets.newHashSet(String.valueOf(tableId));
-        }
-        // The database will not be locked in here.
-        // The getTable is a thread-safe method called without read lock of database
-        Table table = database.getTable(tableId);
-        if (table == null) {
-            return Sets.newHashSet(String.valueOf(tableId));
-        }
-        return Sets.newHashSet(table.getName());
+        String name = Catalog.getCurrentCatalog().getDb(dbId).flatMap(db -> db.getTable(tableId))
+                .map(Table::getName).orElse(String.valueOf(tableId));
+        return Sets.newHashSet(name);
     }
 
     @Override
     public Set<String> getTableNames() throws MetaNotFoundException {
-        Database database = Catalog.getCurrentCatalog().getDb(dbId);
-        if (database == null) {
-            throw new MetaNotFoundException("Database " + dbId + "has been deleted");
-        }
-        Table table = database.getTable(tableId);
-        if (table == null) {
-            throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
-        }
+        Database database = Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
+        Table table = database.getTableOrMetaException(tableId);
         return Sets.newHashSet(table.getName());
     }
 

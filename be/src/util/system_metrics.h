@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+
 #include <map>
 #include <memory>
 
@@ -23,13 +24,13 @@
 
 namespace doris {
 
-class CpuMetrics;
-class MemoryMetrics;
-class DiskMetrics;
-class NetworkMetrics;
-class FileDescriptorMetrics;
-class SnmpMetrics;
-class LoadAverageMetrics;
+struct CpuMetrics;
+struct MemoryMetrics;
+struct DiskMetrics;
+struct NetworkMetrics;
+struct FileDescriptorMetrics;
+struct SnmpMetrics;
+struct LoadAverageMetrics;
 
 class SystemMetrics {
 public:

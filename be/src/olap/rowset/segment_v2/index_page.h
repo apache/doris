@@ -84,23 +84,23 @@ public:
 
     Status parse(const Slice& body, const IndexPageFooterPB& footer);
 
-    inline size_t count() const {
+    size_t count() const {
         DCHECK(_parsed);
         return _footer.num_entries();
     }
 
-    inline bool is_leaf() const {
+    bool is_leaf() const {
         DCHECK(_parsed);
         return _footer.type() == IndexPageFooterPB::LEAF;
     }
 
-    inline const Slice& get_key(int idx) const {
+    const Slice& get_key(int idx) const {
         DCHECK(_parsed);
         DCHECK(idx >= 0 && idx < _footer.num_entries());
         return _keys[idx];
     }
 
-    inline const PagePointer& get_value(int idx) const {
+    const PagePointer& get_value(int idx) const {
         DCHECK(_parsed);
         DCHECK(idx >= 0 && idx < _footer.num_entries());
         return _values[idx];
@@ -125,6 +125,8 @@ public:
     // Return NotFound when no such entry is found (all keys > search_key).
     // Return other error status otherwise.
     Status seek_at_or_before(const Slice& search_key);
+
+    void seek_to_first() { _pos = 0; }
 
     // Move to the next index entry.
     // Return true on success, false when no more entries can be read.

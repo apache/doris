@@ -33,7 +33,6 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeSet;
 import com.google.common.collect.TreeRangeSet;
-
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -60,7 +59,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     public static ExtractCommonFactorsRule INSTANCE = new ExtractCommonFactorsRule();
 
     @Override
-    public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
+    public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
         if (expr == null) {
             return null;
         } else if (expr instanceof CompoundPredicate
@@ -71,7 +70,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
             }
         } else {
             for (int i = 0; i < expr.getChildren().size(); i++) {
-                Expr rewrittenExpr = apply(expr.getChild(i), analyzer);
+                Expr rewrittenExpr = apply(expr.getChild(i), analyzer, clauseType);
                 if (rewrittenExpr != null) {
                     expr.setChild(i, rewrittenExpr);
                 }
@@ -199,8 +198,8 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                 }
                 SlotRef columnName = (SlotRef) predicate.getChild(0);
                 if (predicate instanceof BinaryPredicate) {
-                    Range<LiteralExpr> predicateRange = ((BinaryPredicate)predicate).convertToRange();
-                    if (predicateRange == null){
+                    Range<LiteralExpr> predicateRange = ((BinaryPredicate) predicate).convertToRange();
+                    if (predicateRange == null) {
                         continue;
                     }
                     Range<LiteralExpr> range = columnNameToRange.get(columnName);
@@ -234,7 +233,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
 
         // 2. merge clause
         Map<SlotRef, RangeSet<LiteralExpr>> resultRangeMap = Maps.newHashMap();
-        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry: columnNameToRangeList.get(0).entrySet()) {
+        for (Map.Entry<SlotRef, Range<LiteralExpr>> entry : columnNameToRangeList.get(0).entrySet()) {
             RangeSet<LiteralExpr> rangeSet = TreeRangeSet.create();
             rangeSet.add(entry.getValue());
             resultRangeMap.put(entry.getKey(), rangeSet);
@@ -311,7 +310,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, RangeSet<LiteralExpr>> mergeTwoClauseRange(Map<SlotRef, RangeSet<LiteralExpr>> clause1,
                                                                     Map<SlotRef, Range<LiteralExpr>> clause2) {
         Map<SlotRef, RangeSet<LiteralExpr>> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, RangeSet<LiteralExpr>> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             Range<LiteralExpr> clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -337,7 +336,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
     private Map<SlotRef, InPredicate> mergeTwoClauseIn(Map<SlotRef, InPredicate> clause1,
                                                        Map<SlotRef, InPredicate> clause2) {
         Map<SlotRef, InPredicate> result = Maps.newHashMap();
-        for (Map.Entry<SlotRef, InPredicate> clause1Entry: clause1.entrySet()) {
+        for (Map.Entry<SlotRef, InPredicate> clause1Entry : clause1.entrySet()) {
             SlotRef columnName = clause1Entry.getKey();
             InPredicate clause2Value = clause2.get(columnName);
             if (clause2Value == null) {
@@ -435,7 +434,7 @@ public class ExtractCommonFactorsRule implements ExprRewriteRule {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.GE, slotRef, lowerBound));
                 }
             }
-            if (upperBound !=null) {
+            if (upperBound != null) {
                 if (range.upperBoundType() == BoundType.OPEN) {
                     binaryPredicateList.add(new BinaryPredicate(BinaryPredicate.Operator.LT, slotRef, upperBound));
                 } else {

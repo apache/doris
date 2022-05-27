@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -44,7 +43,7 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
+import mockit.Expectations;
 
 import java.util.LinkedList;
 import java.util.List;
@@ -56,7 +55,7 @@ public class AccessTestUtil {
         SystemInfoService clusterInfo = new SystemInfoService();
         return clusterInfo;
     }
-    
+
     public static PaloAuth fetchAdminAccess() {
         PaloAuth auth = new PaloAuth();
         try {
@@ -115,19 +114,19 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = paloAuth;
 
-                    catalog.getDb(50000L);
+                    catalog.getDbNullable(50000L);
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:testDb");
+                    catalog.getDbNullable("testCluster:testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:emptyDb");
+                    catalog.getDbNullable("testCluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
@@ -234,11 +233,11 @@ public class AccessTestUtil {
 
         new Expectations(db) {
             {
-                db.getTable("testTable");
+                db.getTableNullable("testTable");
                 minTimes = 0;
                 result = olapTable;
 
-                db.getTable("emptyTable");
+                db.getTableNullable("emptyTable");
                 minTimes = 0;
                 result = null;
 
@@ -281,15 +280,15 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = new DdlException("failed");
 
-                    catalog.getDb("testCluster:testDb");
+                    catalog.getDbNullable("testCluster:testDb");
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb("testCluster:emptyDb");
+                    catalog.getDbNullable("testCluster:emptyDb");
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(anyString);
+                    catalog.getDbNullable(anyString);
                     minTimes = 0;
                     result = new Database();
 
@@ -301,7 +300,7 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = Lists.newArrayList("testCluster:testDb");
 
-                    catalog.getDb("emptyCluster");
+                    catalog.getDbNullable("emptyCluster");
                     minTimes = 0;
                     result = null;
                 }
@@ -322,11 +321,11 @@ public class AccessTestUtil {
             {
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = withCluster? prefix + "testDb" : "testDb";
+                result = withCluster ? prefix + "testDb" : "testDb";
 
                 analyzer.getQualifiedUser();
-                minTimes = 0 ;
-                result = withCluster? prefix + "testUser" : "testUser";
+                minTimes = 0;
+                result = withCluster ? prefix + "testUser" : "testUser";
 
                 analyzer.getClusterName();
                 minTimes = 0;
@@ -388,7 +387,7 @@ public class AccessTestUtil {
         return analyzer;
     }
 
-    public static Analyzer fetchTableAnalyzer() {
+    public static Analyzer fetchTableAnalyzer() throws AnalysisException {
         Column column1 = new Column("k1", PrimitiveType.VARCHAR);
         Column column2 = new Column("k2", PrimitiveType.VARCHAR);
         Column column3 = new Column("k3", PrimitiveType.VARCHAR);
@@ -449,11 +448,11 @@ public class AccessTestUtil {
 
         new Expectations(db) {
             {
-                db.getTable("t");
+                db.getTableNullable("t");
                 minTimes = 0;
                 result = table;
 
-                db.getTable("emptyTable");
+                db.getTableNullable("emptyTable");
                 minTimes = 0;
                 result = null;
 
@@ -484,7 +483,7 @@ public class AccessTestUtil {
                 minTimes = 0;
                 result = "testDb";
 
-                analyzer.getTable((TableName) any);
+                analyzer.getTableOrAnalysisException((TableName) any);
                 minTimes = 0;
                 result = table;
 
@@ -521,4 +520,3 @@ public class AccessTestUtil {
         return analyzer;
     }
 }
-

@@ -18,7 +18,6 @@
 package org.apache.doris.common;
 
 import com.google.common.base.Strings;
-
 import junit.framework.AssertionFailedError;
 
 public class ExceptionChecker {
@@ -67,6 +66,7 @@ public class ExceptionChecker {
         try {
             runnable.run();
         } catch (Throwable e) {
+            e.printStackTrace();
             if (expectedType.isInstance(e)) {
                 if (!Strings.isNullOrEmpty(exceptionMsg)) {
                     if (!e.getMessage().contains(exceptionMsg)) {

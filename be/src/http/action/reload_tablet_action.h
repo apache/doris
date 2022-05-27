@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
-#define DORIS_BE_SRC_HTTP_RELOAD_TABLET_ACTION_H
-
-#include <boost/scoped_ptr.hpp>
+#pragma once
 
 #include "gen_cpp/AgentService_types.h"
 #include "http/http_handler.h"
@@ -43,4 +40,3 @@ private:
 }; // end class ReloadTabletAction
 
 } // end namespace doris
-#endif // DORIS_BE_SRC_COMMON_UTIL_DOWNLOAD_ACTION_H

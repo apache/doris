@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_TYPE_LIMIT_H
-#define DORIS_BE_RUNTIME_TYPE_LIMIT_H
+#pragma once
 
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
@@ -26,7 +25,7 @@ namespace doris {
 
 template <typename T>
 struct type_limit {
-    static T min() { return std::numeric_limits<T>::min(); }
+    static T min() { return std::numeric_limits<T>::lowest(); }
     static T max() { return std::numeric_limits<T>::max(); }
 };
 
@@ -49,5 +48,3 @@ struct type_limit<DateTimeValue> {
 };
 
 } // namespace doris
-
-#endif

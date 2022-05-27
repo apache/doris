@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/case-expr.cpp
+// and modified by Doris
 
 #include "exprs/case_expr.h"
 
@@ -110,6 +113,8 @@ void CaseExpr::get_child_val(int child_idx, ExprContext* ctx, TupleRow* row, Any
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_STRING:
         *reinterpret_cast<StringVal*>(dst) = _children[child_idx]->get_string_val(ctx, row);
         break;
     case TYPE_DECIMALV2:
@@ -154,6 +159,8 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_OBJECT:
+    case TYPE_QUANTILE_STATE:
+    case TYPE_STRING:
         return AnyValUtil::equals(type, *reinterpret_cast<const StringVal*>(v1),
                                   *reinterpret_cast<const StringVal*>(v2));
     case TYPE_DECIMALV2:
@@ -173,8 +180,8 @@ bool CaseExpr::any_val_eq(const TypeDescriptor& type, const AnyVal* v1, const An
         FunctionContext* fn_ctx = ctx->fn_context(_fn_context_index);                 \
         CaseExprState* state = reinterpret_cast<CaseExprState*>(                      \
                 fn_ctx->get_function_state(FunctionContext::THREAD_LOCAL));           \
-        DCHECK(state->case_val != NULL);                                              \
-        DCHECK(state->when_val != NULL);                                              \
+        DCHECK(state->case_val != nullptr);                                           \
+        DCHECK(state->when_val != nullptr);                                           \
         int num_children = _children.size();                                          \
         if (has_case_expr()) {                                                        \
             /* All case and when exprs return the same type */                        \
@@ -216,6 +223,7 @@ CASE_COMPUTE_FN_WRAPPER(TinyIntVal, tiny_int_val)
 CASE_COMPUTE_FN_WRAPPER(SmallIntVal, small_int_val)
 CASE_COMPUTE_FN_WRAPPER(IntVal, int_val)
 CASE_COMPUTE_FN_WRAPPER(BigIntVal, big_int_val)
+CASE_COMPUTE_FN_WRAPPER(LargeIntVal, large_int_val)
 CASE_COMPUTE_FN_WRAPPER(FloatVal, float_val)
 CASE_COMPUTE_FN_WRAPPER(DoubleVal, double_val)
 CASE_COMPUTE_FN_WRAPPER(StringVal, string_val)

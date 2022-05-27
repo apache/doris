@@ -32,10 +32,12 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
+#include "runtime/types.h"
 #include "service/brpc.h"
-#include "util/brpc_stub_cache.h"
+#include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/proto_util.h"
 
 namespace doris {
 namespace stream_load {
@@ -52,14 +54,22 @@ public:
         _env->_thread_mgr = new ThreadResourceMgr();
         _env->_master_info = new TMasterInfo();
         _env->_load_stream_mgr = new LoadStreamMgr();
-        _env->_brpc_stub_cache = new BrpcStubCache();
+        _env->_internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
+        _env->_function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
         _env->_buffer_reservation = new ReservationTracker();
-
+        _env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+        ThreadPoolBuilder("SendBatchThreadPool")
+                .set_min_threads(1)
+                .set_max_threads(5)
+                .set_max_queue_size(100)
+                .build(&_env->_send_batch_thread_pool);
         config::tablet_writer_open_rpc_timeout_sec = 60;
+        config::max_send_batch_parallelism_per_job = 1;
     }
 
     void TearDown() override {
-        SAFE_DELETE(_env->_brpc_stub_cache);
+        SAFE_DELETE(_env->_internal_client_cache);
+        SAFE_DELETE(_env->_function_client_cache);
         SAFE_DELETE(_env->_load_stream_mgr);
         SAFE_DELETE(_env->_master_info);
         SAFE_DELETE(_env->_thread_mgr);
@@ -333,8 +343,9 @@ public:
             k_add_batch_status.to_protobuf(response->mutable_status());
 
             if (request->has_row_batch() && _row_desc != nullptr) {
-                auto tracker = std::make_shared<MemTracker>();
-                RowBatch batch(*_row_desc, request->row_batch(), tracker.get());
+                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
+                RowBatch batch(*_row_desc, request->row_batch());
                 for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
                     _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
@@ -360,7 +371,7 @@ TEST_F(OlapTableSinkTest, normal) {
     // start brpc service first
     _server = new brpc::Server();
     auto service = new TestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
+    EXPECT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
     brpc::ServerOptions options;
     {
         debug::ScopedLeakCheckDisabler disable_lsan;
@@ -382,7 +393,7 @@ TEST_F(OlapTableSinkTest, normal) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
@@ -391,20 +402,19 @@ TEST_F(OlapTableSinkTest, normal) {
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
     OlapTableSink sink(&obj_pool, row_desc, {}, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // init
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // prepare
     st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // open
     st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -450,25 +460,25 @@ TEST_F(OlapTableSinkTest, normal) {
         batch.commit_last_row();
     }
     st = sink.send(&state, &batch);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+    EXPECT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
             << st.to_string();
 
     // each node has a eof
-    ASSERT_EQ(2, service->_eof_counters);
-    ASSERT_EQ(2 * 2, service->_row_counters);
+    EXPECT_EQ(2, service->_eof_counters);
+    EXPECT_EQ(2 * 2, service->_row_counters);
 
     // 2node * 2
-    ASSERT_EQ(1, state.num_rows_load_filtered());
+    EXPECT_EQ(1, state.num_rows_load_filtered());
 }
 
 TEST_F(OlapTableSinkTest, convert) {
     // start brpc service first
     _server = new brpc::Server();
     auto service = new TestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
+    EXPECT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
     brpc::ServerOptions options;
     {
         debug::ScopedLeakCheckDisabler disable_lsan;
@@ -488,7 +498,7 @@ TEST_F(OlapTableSinkTest, convert) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
@@ -523,22 +533,21 @@ TEST_F(OlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
     OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // set output tuple_id
     t_data_sink.olap_table_sink.tuple_id = 1;
     // init
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // prepare
     st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // open
     st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 9, "abc"
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -584,18 +593,18 @@ TEST_F(OlapTableSinkTest, convert) {
         batch.commit_last_row();
     }
     st = sink.send(&state, &batch);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+    EXPECT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
             << st.to_string();
 
     // each node has a eof
-    ASSERT_EQ(2, service->_eof_counters);
-    ASSERT_EQ(2 * 3, service->_row_counters);
+    EXPECT_EQ(2, service->_eof_counters);
+    EXPECT_EQ(2 * 3, service->_row_counters);
 
     // 2node * 2
-    ASSERT_EQ(0, state.num_rows_load_filtered());
+    EXPECT_EQ(0, state.num_rows_load_filtered());
 }
 
 TEST_F(OlapTableSinkTest, init_fail1) {
@@ -612,7 +621,7 @@ TEST_F(OlapTableSinkTest, init_fail1) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
@@ -630,26 +639,26 @@ TEST_F(OlapTableSinkTest, init_fail1) {
 
     {
         OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         // set output tuple_id
         t_data_sink.olap_table_sink.tuple_id = 5;
         // init
         st = sink.init(t_data_sink);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         st = sink.prepare(&state);
         EXPECT_FALSE(st.ok());
         sink.close(&state, st);
     }
     {
         OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
 
         // set output tuple_id
         t_data_sink.olap_table_sink.tuple_id = 1;
         // init
         st = sink.init(t_data_sink);
-        ASSERT_TRUE(st.ok());
+        EXPECT_TRUE(st.ok());
         st = sink.prepare(&state);
         EXPECT_FALSE(st.ok());
         sink.close(&state, st);
@@ -670,7 +679,7 @@ TEST_F(OlapTableSinkTest, init_fail3) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
@@ -703,13 +712,13 @@ TEST_F(OlapTableSinkTest, init_fail3) {
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
     OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // set output tuple_id
     t_data_sink.olap_table_sink.tuple_id = 1;
     // init
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = sink.prepare(&state);
     EXPECT_FALSE(st.ok());
     sink.close(&state, st);
@@ -729,7 +738,7 @@ TEST_F(OlapTableSinkTest, init_fail4) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
@@ -762,14 +771,14 @@ TEST_F(OlapTableSinkTest, init_fail4) {
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
     OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // set output tuple_id
     t_data_sink.olap_table_sink.tuple_id = 1;
     // init
     t_data_sink.olap_table_sink.partition.partitions[0].indexes[0].tablets = {101, 102};
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = sink.prepare(&state);
     EXPECT_FALSE(st.ok());
     sink.close(&state, st);
@@ -779,7 +788,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     // start brpc service first
     _server = new brpc::Server();
     auto service = new TestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
+    EXPECT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
     brpc::ServerOptions options;
     {
         debug::ScopedLeakCheckDisabler disable_lsan;
@@ -801,7 +810,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
@@ -834,20 +843,19 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
     OlapTableSink sink(&obj_pool, row_desc, exprs, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // set output tuple_id
     t_data_sink.olap_table_sink.tuple_id = 1;
     // init
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     // 12, 9, "abc"
     {
@@ -867,7 +875,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     // Channels will be cancelled internally, coz brpc returns k_add_batch_status.
     k_add_batch_status = Status::InternalError("dummy failed");
     st = sink.send(&state, &batch);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // Send batch multiple times, can make _cur_batch or _pending_batches(in channels) not empty.
     // To ensure the order of releasing resource is OK.
@@ -876,14 +884,14 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
 
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_FALSE(st.ok());
+    EXPECT_FALSE(st.ok());
 }
 
 TEST_F(OlapTableSinkTest, decimal) {
     // start brpc service first
     _server = new brpc::Server();
     auto service = new TestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
+    EXPECT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
     brpc::ServerOptions options;
     {
         debug::ScopedLeakCheckDisabler disable_lsan;
@@ -903,7 +911,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     // crate desc_tabl
     DescriptorTbl* desc_tbl = nullptr;
     auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     state._desc_tbl = desc_tbl;
 
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
@@ -915,20 +923,19 @@ TEST_F(OlapTableSinkTest, decimal) {
     service->_output_set = &output_set;
 
     OlapTableSink sink(&obj_pool, row_desc, {}, &st);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
 
     // init
     st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // prepare
     st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // open
     st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // send
-    auto tracker = std::make_shared<MemTracker>();
-    RowBatch batch(row_desc, 1024, tracker.get());
+    RowBatch batch(row_desc, 1024);
     // 12, 12.3
     {
         Tuple* tuple = (Tuple*)batch.tuple_data_pool()->allocate(tuple_desc->byte_size());
@@ -965,23 +972,17 @@ TEST_F(OlapTableSinkTest, decimal) {
         batch.commit_last_row();
     }
     st = sink.send(&state, &batch);
-    ASSERT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok());
     // close
     st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
+    EXPECT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
             << st.to_string();
 
-    ASSERT_EQ(2, output_set.size());
-    ASSERT_TRUE(output_set.count("[(12 12.3)]") > 0);
-    ASSERT_TRUE(output_set.count("[(13 123.12)]") > 0);
-    // ASSERT_TRUE(output_set.count("[(14 999.99)]") > 0);
+    EXPECT_EQ(2, output_set.size());
+    EXPECT_TRUE(output_set.count("[(12 12.3)]") > 0);
+    EXPECT_TRUE(output_set.count("[(13 123.12)]") > 0);
+    // EXPECT_TRUE(output_set.count("[(14 999.99)]") > 0);
 }
 
 } // namespace stream_load
 } // namespace doris
-
-int main(int argc, char* argv[]) {
-    doris::CpuInfo::init();
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

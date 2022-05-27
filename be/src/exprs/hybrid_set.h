@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H
+#pragma once
 
 #include <parallel_hashmap/phmap.h>
 
@@ -35,7 +34,7 @@ class HybridSetBase {
 public:
     HybridSetBase() = default;
     virtual ~HybridSetBase() = default;
-    virtual void insert(void* data) = 0;
+    virtual void insert(const void* data) = 0;
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
@@ -45,8 +44,6 @@ public:
     virtual bool find(void* data) = 0;
     // use in vectorize execute engine
     virtual bool find(void* data, size_t) = 0;
-
-    static HybridSetBase* create_set(PrimitiveType type);
     class IteratorBase {
     public:
         IteratorBase() {}
@@ -66,17 +63,18 @@ public:
 
     ~HybridSet() override = default;
 
-    void insert(void* data) override {
+    void insert(const void* data) override {
+        if (data == nullptr) return;
+
         if (sizeof(T) >= 16) {
             // for largeint, it will core dump with no memcpy
             T value;
             memcpy(&value, data, sizeof(T));
             _set.insert(value);
         } else {
-            _set.insert(*reinterpret_cast<T*>(data));
+            _set.insert(*reinterpret_cast<const T*>(data));
         }
     }
-
     void insert(void* data, size_t) override { insert(data); }
 
     void insert(HybridSetBase* set) override {
@@ -100,9 +98,9 @@ public:
                  typename phmap::flat_hash_set<_iT>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() { return _begin.operator->(); }
-        virtual void next() { ++_begin; }
+        virtual bool has_next() const override { return !(_begin == _end); }
+        virtual const void* get_value() override { return _begin.operator->(); }
+        virtual void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<_iT>::iterator _begin;
@@ -124,12 +122,13 @@ public:
 
     ~StringValueSet() override = default;
 
-    void insert(void* data) override {
-        auto* value = reinterpret_cast<StringValue*>(data);
+    void insert(const void* data) override {
+        if (data == nullptr) return;
+
+        const auto* value = reinterpret_cast<const StringValue*>(data);
         std::string str_value(value->ptr, value->len);
         _set.insert(str_value);
     }
-
     void insert(void* data, size_t size) override {
         std::string str_value(reinterpret_cast<char*>(data), size);
         _set.insert(str_value);
@@ -162,13 +161,13 @@ public:
                  phmap::flat_hash_set<std::string>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
-        virtual bool has_next() const { return !(_begin == _end); }
-        virtual const void* get_value() {
+        virtual bool has_next() const override { return !(_begin == _end); }
+        virtual const void* get_value() override {
             _value.ptr = const_cast<char*>(_begin->data());
             _value.len = _begin->length();
             return &_value;
         }
-        virtual void next() { ++_begin; }
+        virtual void next() override { ++_begin; }
 
     private:
         typename phmap::flat_hash_set<std::string>::iterator _begin;
@@ -186,5 +185,3 @@ private:
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBRID_SET_H

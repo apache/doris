@@ -25,7 +25,6 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
-
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,8 +39,10 @@ import java.util.Map;
 public class RuntimeFilterTypeHelper {
     private static final Logger LOG = LogManager.getLogger(RuntimeFilterTypeHelper.class);
 
-    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue() |
-            TRuntimeFilterType.BLOOM.getValue() | TRuntimeFilterType.MIN_MAX.getValue());
+    public final static long ALLOWED_MASK = (TRuntimeFilterType.IN.getValue()
+            | TRuntimeFilterType.BLOOM.getValue()
+            | TRuntimeFilterType.MIN_MAX.getValue()
+            | TRuntimeFilterType.IN_OR_BLOOM.getValue());
 
     private final static Map<String, Long> varValueSet = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
@@ -49,6 +50,7 @@ public class RuntimeFilterTypeHelper {
         varValueSet.put("IN", (long) TRuntimeFilterType.IN.getValue());
         varValueSet.put("BLOOM_FILTER", (long) TRuntimeFilterType.BLOOM.getValue());
         varValueSet.put("MIN_MAX", (long) TRuntimeFilterType.MIN_MAX.getValue());
+        varValueSet.put("IN_OR_BLOOM_FILTER", (long) TRuntimeFilterType.IN_OR_BLOOM.getValue());
     }
 
     // convert long type variable value to string type that user can read

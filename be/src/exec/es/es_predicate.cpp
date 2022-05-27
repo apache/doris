@@ -79,6 +79,7 @@ std::string ExtLiteral::value_to_string() {
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         ss << get_string();
         break;
     case TYPE_DATE:
@@ -134,7 +135,7 @@ double ExtLiteral::get_double() {
 }
 
 std::string ExtLiteral::get_string() {
-    DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR);
+    DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR || _type == TYPE_STRING);
     return (reinterpret_cast<StringValue*>(_value))->to_string();
 }
 
@@ -166,11 +167,7 @@ std::string ExtLiteral::get_largeint_string() {
 }
 
 EsPredicate::EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc, ObjectPool* pool)
-        : _context(context),
-          _disjuncts_num(0),
-          _tuple_desc(tuple_desc),
-          _es_query_status(Status::OK()),
-          _pool(pool) {}
+        : _context(context), _tuple_desc(tuple_desc), _es_query_status(Status::OK()), _pool(pool) {}
 
 EsPredicate::~EsPredicate() {
     for (int i = 0; i < _disjuncts.size(); i++) {
@@ -184,7 +181,7 @@ Status EsPredicate::build_disjuncts_list() {
 }
 
 // make sure to build by build_disjuncts_list
-const std::vector<ExtPredicate*>& EsPredicate::get_predicate_list() {
+const std::vector<ExtPredicate*>& EsPredicate::get_predicate_list() const {
     return _disjuncts;
 }
 
@@ -256,7 +253,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             return Status::InternalError("build disjuncts failed: expr is not literal type");
         }
 
-        ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+        ExtLiteral literal(expr->type().type, _context->get_value(expr, nullptr));
         std::string col = slot_desc->col_name();
         if (_field_context.find(col) != _field_context.end()) {
             col = _field_context[col];
@@ -275,7 +272,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                 return Status::InternalError("build disjuncts failed: number of children is not 2");
             }
             Expr* expr = conjunct->get_child(1);
-            ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+            ExtLiteral literal(expr->type().type, _context->get_value(expr, nullptr));
             std::vector<ExtLiteral> query_conditions;
             query_conditions.emplace_back(literal);
             std::vector<ExtColumnDesc> cols;
@@ -331,14 +328,14 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             }
 
             PrimitiveType type = expr->type().type;
-            if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
+            if (type != TYPE_VARCHAR && type != TYPE_CHAR && type != TYPE_STRING) {
                 return Status::InternalError("build disjuncts failed: like value is not a string");
             }
             std::string col = slot_desc->col_name();
             if (_field_context.find(col) != _field_context.end()) {
                 col = _field_context[col];
             }
-            ExtLiteral literal(type, _context->get_value(expr, NULL));
+            ExtLiteral literal(type, _context->get_value(expr, nullptr));
             ExtPredicate* predicate =
                     new ExtLikePredicate(TExprNodeType::LIKE_PRED, col, slot_desc->type(), literal);
 
@@ -362,7 +359,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         }
 
         std::vector<ExtLiteral> in_pred_values;
-        const InPredicate* pred = dynamic_cast<const InPredicate*>(conjunct);
+        const InPredicate* pred = static_cast<const InPredicate*>(conjunct);
         const Expr* expr = Expr::expr_without_cast(pred->get_child(0));
         if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return Status::InternalError("build disjuncts failed: node type is not slot ref");

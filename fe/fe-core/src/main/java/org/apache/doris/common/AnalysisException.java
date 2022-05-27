@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/AnalysisException.java
+// and modified by Doris
 
 package org.apache.doris.common;
 
@@ -28,5 +31,10 @@ public class AnalysisException extends UserException {
 
     public AnalysisException(String msg) {
         super(msg);
+    }
+
+    public AnalysisException(String msg, ErrorCode mysqlErrorCode) {
+        super(msg);
+        setMysqlErrorCode(mysqlErrorCode);
     }
 }

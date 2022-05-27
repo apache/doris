@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_CONFIG_H
-#define DORIS_BE_SRC_COMMON_CONFIG_H
+#pragma once
 
 #include "configbase.h"
 
@@ -116,8 +115,6 @@ CONF_mInt32(download_low_speed_limit_kbps, "50");
 CONF_mInt32(download_low_speed_time, "300");
 // sleep time for one second
 CONF_Int32(sleep_one_second, "1");
-// sleep time for five seconds
-CONF_Int32(sleep_five_seconds, "5");
 
 // log dir
 CONF_String(sys_log_dir, "${DORIS_HOME}/log");
@@ -135,9 +132,6 @@ CONF_Int32(sys_log_verbose_level, "10");
 // log buffer level
 CONF_String(log_buffer_level, "");
 
-// Pull load task dir
-CONF_String(pull_load_task_dir, "${DORIS_HOME}/var/pull_load");
-
 // number of threads available to serve backend execution requests
 CONF_Int32(be_service_threads, "64");
 
@@ -149,9 +143,13 @@ CONF_String(doris_cgroups, "");
 // thrashing.
 CONF_Int32(num_threads_per_core, "3");
 // if true, compresses tuple data in Serialize
-CONF_Bool(compress_rowbatches, "true");
+CONF_mBool(compress_rowbatches, "true");
 // interval between profile reports; in seconds
 CONF_mInt32(status_report_interval, "5");
+// if true, each disk will have a separate thread pool for scanner
+CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
+// the timeout of a work thread to wait the blocking priority queue to get a task
+CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "5");
 // number of olap scanner thread pool size
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 // number of olap scanner thread pool queue size
@@ -160,18 +158,20 @@ CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 CONF_Int32(etl_thread_pool_size, "8");
 // number of etl thread pool size
 CONF_Int32(etl_thread_pool_queue_size, "256");
-// port on which to run Doris test backend
-CONF_Int32(port, "20001");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
 // default thrift client retry interval (in milliseconds)
 CONF_mInt64(thrift_client_retry_interval_ms, "1000");
-// max row count number for single scan range
+// max row count number for single scan range, used in segmentv1
 CONF_mInt32(doris_scan_range_row_count, "524288");
+// max bytes number for single scan range, used in segmentv2
+CONF_mInt32(doris_scan_range_max_mb, "0");
 // size of scanner queue between scanner thread and compute thread
 CONF_mInt32(doris_scanner_queue_size, "1024");
-// single read execute fragment row size
+// single read execute fragment row number
 CONF_mInt32(doris_scanner_row_num, "16384");
+// single read execute fragment row bytes
+CONF_mInt32(doris_scanner_row_bytes, "10485760");
 // number of max scan keys
 CONF_mInt32(doris_max_scan_key_num, "1024");
 // the max number of push down values of a single column.
@@ -182,14 +182,16 @@ CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
 // (Advanced) Maximum size of per-query receive-side buffer
 CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
 // push_write_mbytes_per_sec
-CONF_mInt32(push_write_mbytes_per_sec, "10");
+CONF_mInt32(push_write_mbytes_per_sec, "100");
 
 CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
 CONF_mInt64(column_dictionary_key_size_threshold, "0");
-// memory_limitation_per_thread_for_schema_change unit GB
-CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
+// memory_limitation_per_thread_for_schema_change_bytes unit bytes
+CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
+CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
-CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
+// the clean interval of file descriptor cache and segment cache
+CONF_mInt32(cache_clean_interval, "1800");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -210,7 +212,8 @@ CONF_mInt32(tablet_rowset_stale_sweep_time_sec, "1800");
 CONF_Int32(max_garbage_sweep_interval, "3600");
 CONF_Int32(min_garbage_sweep_interval, "180");
 CONF_mInt32(snapshot_expire_time_sec, "172800");
-// 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
+// It is only a recommended value. When the disk space is insufficient,
+// the file storage period under trash dose not have to comply with this parameter.
 CONF_mInt32(trash_file_expire_time_sec, "259200");
 // check row nums for BE/CE and schema change. true is open, false is closed.
 CONF_mBool(row_nums_check, "true");
@@ -229,9 +232,15 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 
+CONF_Bool(enable_storage_vectorization, "false");
+
+CONF_Bool(enable_low_cardinality_optimize, "false");
+
 // be policy
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
+// whether enable vectorized compaction
+CONF_Bool(enable_vectorized_compaction, "true");
 // check the configuration of auto compaction in seconds when auto compaction disabled
 CONF_mInt32(check_auto_compaction_interval_seconds, "5");
 
@@ -277,10 +286,10 @@ CONF_mInt32(cumulative_compaction_skip_window_seconds, "30");
 
 // if compaction of a tablet failed, this tablet should not be chosen to
 // compaction until this interval passes.
-CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
+CONF_mInt64(min_compaction_failure_interval_sec, "5"); // 5 seconds
 
 // This config can be set to limit thread number in compaction thread pool.
-CONF_Int32(max_compaction_threads, "10");
+CONF_mInt32(max_compaction_threads, "10");
 
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 CONF_Int32(max_meta_checkpoint_threads, "-1");
@@ -294,7 +303,11 @@ CONF_mInt32(generate_compaction_tasks_min_interval_ms, "10");
 // Compaction task number per disk.
 // Must be greater than 2, because Base compaction and Cumulative compaction have at least one thread each.
 CONF_mInt32(compaction_task_num_per_disk, "2");
+// compaction thread num for fast disk(typically .SSD), must be greater than 2.
+CONF_mInt32(compaction_task_num_per_fast_disk, "4");
 CONF_Validator(compaction_task_num_per_disk, [](const int config) -> bool { return config >= 2; });
+CONF_Validator(compaction_task_num_per_fast_disk,
+               [](const int config) -> bool { return config >= 2; });
 
 // How many rounds of cumulative compaction for each round of base compaction when compaction tasks generation.
 CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
@@ -303,8 +316,9 @@ CONF_mInt32(cumulative_compaction_rounds_for_each_base_compaction_round, "9");
 CONF_mInt64(row_step_for_compaction_merge_log, "0");
 
 // Threshold to logging compaction trace, in seconds.
-CONF_mInt32(base_compaction_trace_threshold, "10");
-CONF_mInt32(cumulative_compaction_trace_threshold, "2");
+CONF_mInt32(base_compaction_trace_threshold, "60");
+CONF_mInt32(cumulative_compaction_trace_threshold, "10");
+CONF_mBool(disable_compaction_trace_log, "true");
 
 // Threshold to logging agent task trace, in seconds.
 CONF_mInt32(agent_task_trace_threshold_sec, "2");
@@ -320,6 +334,11 @@ CONF_Int32(min_tablet_migration_threads, "1");
 CONF_Int32(max_tablet_migration_threads, "1");
 
 CONF_mInt32(finished_migration_tasks_size, "10000");
+// If size less than this, the remaining rowsets will be force to complete
+CONF_mInt32(migration_remaining_size_threshold_mb, "10");
+// If the task runs longer than this time, the task will be terminated, in seconds.
+// tablet max size / migration min speed * factor = 10GB / 1MBps * 2 = 20480 seconds
+CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
@@ -358,6 +377,7 @@ CONF_mInt32(stream_load_record_batch_size, "50");
 CONF_Int32(stream_load_record_expire_time_secs, "28800");
 // time interval to clean expired stream load records
 CONF_mInt64(clean_stream_load_record_interval_secs, "1800");
+CONF_mBool(disable_stream_load_2pc, "true");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
@@ -367,10 +387,6 @@ CONF_mInt32(olap_table_sink_send_interval_ms, "1");
 CONF_Int32(fragment_pool_thread_num_min, "64");
 CONF_Int32(fragment_pool_thread_num_max, "512");
 CONF_Int32(fragment_pool_queue_size, "2048");
-
-// Spill to disk when query
-// Writable scratch directories, split by ";"
-CONF_String(query_scratch_dirs, "${DORIS_HOME}");
 
 // Control the number of disks on the machine.  If 0, this comes from the system settings.
 CONF_Int32(num_disks, "0");
@@ -409,9 +425,6 @@ CONF_Bool(enable_quadratic_probing, "false");
 // for pprof
 CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
 
-// for partition
-CONF_Bool(enable_partitioned_aggregation, "true");
-
 // to forward compatibility, will be removed later
 CONF_mBool(enable_token_check, "true");
 
@@ -435,10 +448,12 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // max memory can be allocated by buffer pool
-CONF_String(buffer_pool_limit, "80G");
+// This is the percentage of mem_limit
+CONF_String(buffer_pool_limit, "20%");
 
 // clean page can be hold by buffer pool
-CONF_String(buffer_pool_clean_pages_limit, "20G");
+// This is the percentage of buffer_pool_limit
+CONF_String(buffer_pool_clean_pages_limit, "50%");
 
 // Sleep time in seconds between memory maintenance iterations
 CONF_mInt64(memory_maintenance_sleep_time_s, "10");
@@ -447,7 +462,10 @@ CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 CONF_Int32(memory_max_alignment, "16");
 
 // write buffer size before flush
-CONF_mInt64(write_buffer_size, "104857600");
+CONF_mInt64(write_buffer_size, "209715200");
+
+// max buffer size used in memtable for the aggregated table
+CONF_mInt64(memtable_max_buffer_size, "419430400");
 
 // following 2 configs limit the memory consumption of load process on a Backend.
 // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -456,9 +474,6 @@ CONF_mInt64(write_buffer_size, "104857600");
 // user should set these configs properly if necessary.
 CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
 CONF_Int32(load_process_max_memory_limit_percent, "80");         // 80%
-
-// update interval of tablet stat cache
-CONF_mInt32(tablet_stat_cache_update_interval_second, "300");
 
 // result buffer cancelled time (unit: second)
 CONF_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -470,7 +485,7 @@ CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 CONF_mBool(sync_tablet_meta, "false");
 
 // default thrift rpc timeout ms
-CONF_mInt32(thrift_rpc_timeout_ms, "5000");
+CONF_mInt32(thrift_rpc_timeout_ms, "10000");
 
 // txn commit rpc timeout
 CONF_mInt32(txn_commit_rpc_timeout_ms, "10000");
@@ -482,7 +497,7 @@ CONF_Bool(enable_metric_calculator, "true");
 CONF_mInt32(max_consumer_num_per_group, "3");
 
 // the size of thread pool for routine load task.
-// this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+// this should be larger than FE config 'max_routine_load_task_num_per_be' (default 5)
 CONF_Int32(routine_load_thread_pool_size, "10");
 
 // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
@@ -522,6 +537,8 @@ CONF_mInt32(storage_flood_stage_usage_percent, "90"); // 90%
 CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824"); // 1GB
 // number of thread for flushing memtable per store
 CONF_Int32(flush_thread_num_per_store, "2");
+// number of thread for flushing memtable per store, for high priority load task
+CONF_Int32(high_priority_flush_thread_num_per_store, "1");
 
 // config for tablet meta checkpoint
 CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
@@ -533,9 +550,12 @@ CONF_Int32(generate_tablet_meta_checkpoint_tasks_interval_secs, "600");
 CONF_String(default_rowset_type, "BETA");
 
 // Maximum size of a single message body in all protocols
-CONF_Int64(brpc_max_body_size, "209715200");
+CONF_Int64(brpc_max_body_size, "3147483648");
 // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
+CONF_Int64(brpc_socket_max_unwritten_bytes, "1073741824");
+// Whether to transfer RowBatch in ProtoBuf Request to Controller Attachment and send it
+// through brpc, this will be faster and avoid the error of Request length overflow.
+CONF_mBool(transfer_data_by_brpc_attachment, "false");
 
 // max number of txns for every txn_partition_map in txn manager
 // this is a self protection to avoid too many txns saving in manager
@@ -544,8 +564,6 @@ CONF_mInt64(max_runnings_transactions_per_txn_map, "100");
 // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage tablet
 CONF_Int32(tablet_map_shard_size, "1");
-
-CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
 // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
 // this is a an enhancement for better performance to manage txn
@@ -596,14 +614,34 @@ CONF_mInt32(zone_map_row_num_threshold, "20");
 CONF_Int32(aws_log_level, "3");
 
 // the buffer size when read data from remote storage like s3
-CONF_mInt32(remote_storage_read_buffer_mb, "256");
+CONF_mInt32(remote_storage_read_buffer_mb, "16");
+
+// Whether Hook TCmalloc new/delete, currently consume/release tls mem tracker in Hook.
+CONF_Bool(track_new_delete, "true");
+
+// If true, switch TLS MemTracker to count more detailed memory,
+// including caches such as ExecNode operators and TabletManager.
+CONF_Bool(memory_verbose_track, "true");
 
 // Default level of MemTracker to show in web page
 // now MemTracker support two level:
-//      RELEASE: 0
-//      DEBUG: 1
+//      OVERVIEW: 0
+//      TASK: 1
+//      INSTANCE: 2
+//      VERBOSE: 3
 // the level equal or lower than mem_tracker_level will show in web page
-CONF_Int16(mem_tracker_level, "0");
+CONF_mInt16(mem_tracker_level, "0");
+
+// The minimum length when TCMalloc Hook consumes/releases MemTracker, consume size
+// smaller than this value will continue to accumulate. specified as number of bytes.
+// Decreasing this value will increase the frequency of consume/release.
+// Increasing this value will cause MemTracker statistics to be inaccurate.
+CONF_mInt32(mem_tracker_consume_min_size_bytes, "2097152");
+
+// When MemTracker is a negative value, it is considered that a memory leak has occurred,
+// but the actual MemTracker records inaccurately will also cause a negative value,
+// so this feature is in the experimental stage.
+CONF_mBool(memory_leak_detection, "false");
 
 // The version information of the tablet will be stored in the memory
 // in an adjacency graph data structure.
@@ -618,8 +656,93 @@ CONF_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // if set runtime_filter_use_async_rpc true, publish runtime filter will be a async method
 // else we will call sync method
 CONF_mBool(runtime_filter_use_async_rpc, "true");
+
+// max send batch parallelism for OlapTableSink
+// The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
+// if exceed, the value of send_batch_parallelism would be max_send_batch_parallelism_per_job
+CONF_mInt32(max_send_batch_parallelism_per_job, "5");
+CONF_Validator(max_send_batch_parallelism_per_job,
+               [](const int config) -> bool { return config >= 1; });
+
+// number of send batch thread pool size
+CONF_Int32(send_batch_thread_pool_thread_num, "64");
+// number of send batch thread pool queue size
+CONF_Int32(send_batch_thread_pool_queue_size, "102400");
+
+// Limit the number of segment of a newly created rowset.
+// The newly created rowset may to be compacted after loading,
+// so if there are too many segment in a rowset, the compaction process
+// will run out of memory.
+// When doing compaction, each segment may take at least 1MB buffer.
+CONF_mInt32(max_segment_num_per_rowset, "200");
+
+// The connection timeout when connecting to external table such as odbc table.
+CONF_mInt32(external_table_connect_timeout_sec, "5");
+
+// The capacity of lur cache in segment loader.
+// Althought it is called "segment cache", but it caches segments in rowset granularity.
+// So the value of this config should corresponding to the number of rowsets on this BE.
+CONF_mInt32(segment_cache_capacity, "1000000");
+
+// s3 config
+CONF_mInt32(max_remote_storage_count, "10");
+
+// Set to true to disable the minidump feature.
+CONF_Bool(disable_minidump, "false");
+
+// The dir to save minidump file.
+// Make sure that the user who run Doris has permission to create and visit this dir,
+// So Doris will fail to start.
+CONF_String(minidump_dir, "${DORIS_HOME}/minidump");
+
+// The max minidump file size in MB.
+CONF_Int32(max_minidump_file_size_mb, "200");
+
+// The max number of minidump file.
+// Doris will only keep latest 10 minidump files by default.
+CONF_Int32(max_minidump_file_number, "10");
+
+// If the dependent Kafka version is lower than the Kafka client version that routine load depends on,
+// the value set by the fallback version kafka_broker_version_fallback will be used,
+// and the valid values are: 0.9.0, 0.8.2, 0.8.1, 0.8.0.
+CONF_String(kafka_broker_version_fallback, "0.10.0");
+
+// The number of pool siz of routine load consumer.
+// If you meet the error describe in https://github.com/edenhill/librdkafka/issues/3608
+// Change this size to 0 to fix it temporarily.
+CONF_Int32(routine_load_consumer_pool_size, "10");
+
+// When the timeout of a load task is less than this threshold,
+// Doris treats it as a high priority task.
+// high priority tasks use a separate thread pool for flush and do not block rpc by memory cleanup logic.
+// this threshold is mainly used to identify routine load tasks and should not be modified if not necessary.
+CONF_mInt32(load_task_high_priority_threshold_second, "120");
+
+// The min timeout of load rpc (add batch, close, etc.)
+// Because a load rpc may be blocked for a while.
+// Increase this config may avoid rpc timeout.
+CONF_mInt32(min_load_rpc_timeout_ms, "20000");
+
+// use which protocol to access function service, candicate is baidu_std/h2:grpc
+CONF_String(function_service_protocol, "h2:grpc");
+
+// use which load balancer to select server to connect
+CONF_String(rpc_load_balancer, "rr");
+
+// a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
+// so we set a soft limit, default is 1MB
+CONF_mInt32(string_type_length_soft_limit_bytes, "1048576");
+
+CONF_Validator(string_type_length_soft_limit_bytes,
+               [](const int config) -> bool { return config > 0 && config <= 2147483643; });
+
+// used for olap scanner to save memory, when the size of unused_object_pool
+// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
+CONF_Int32(object_pool_buffer_size, "100");
+
+// ParquetReaderWrap prefetch buffer size
+CONF_Int32(parquet_reader_max_buffer_size, "50");
+
 } // namespace config
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_COMMON_CONFIG_H

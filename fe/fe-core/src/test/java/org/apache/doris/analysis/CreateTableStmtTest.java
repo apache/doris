@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import mockit.Expectations;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -29,7 +28,8 @@ import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -38,13 +38,13 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
-
-import mockit.Mocked;
+import java.util.Map;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
-    
+
     // used to get default db
     private TableName tblName;
     private TableName tblNameNoDb;
@@ -53,7 +53,7 @@ public class CreateTableStmtTest {
     private List<String> colsName;
     private List<String> invalidColsName;
     private Analyzer analyzer;
-    
+
     @Mocked
     private PaloAuth auth;
     @Mocked
@@ -91,7 +91,7 @@ public class CreateTableStmtTest {
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
-    
+
     @Test
     public void testNormal() throws UserException, AnalysisException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
@@ -101,6 +101,18 @@ public class CreateTableStmtTest {
         Assert.assertEquals("testCluster:db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getProperties());
+    }
+
+    @Test
+    public void testCreateTableWithRandomDistribution() throws UserException {
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.DUP_KEYS, colsName), null,
+                new RandomDistributionDesc(6), null, null, "");
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
     }
 
     @Test
@@ -117,9 +129,9 @@ public class CreateTableStmtTest {
         Assert.assertNull(stmt.getProperties());
         Assert.assertTrue(stmt.toSql().contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
     }
-    
+
     @Test
-    public void testDefaultDbNormal() throws UserException, AnalysisException {
+    public void testDefaultDbNormal() throws UserException {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
@@ -129,7 +141,7 @@ public class CreateTableStmtTest {
         Assert.assertNull(stmt.getPartitionDesc());
         Assert.assertNull(stmt.getProperties());
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
         // make default db return empty;
@@ -149,7 +161,7 @@ public class CreateTableStmtTest {
                 new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(noDbAnalyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testEmptyCol() throws UserException, AnalysisException {
         // make default db return empty;
@@ -159,7 +171,7 @@ public class CreateTableStmtTest {
                 new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
-    
+
     @Test(expected = AnalysisException.class)
     public void testDupCol() throws UserException, AnalysisException {
         // make default db return empty;
@@ -172,7 +184,6 @@ public class CreateTableStmtTest {
 
     @Test
     public void testBmpHllKey() throws Exception {
-
         ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
         cols.add(bitmap);
         colsName.add("col3");
@@ -245,5 +256,39 @@ public class CreateTableStmtTest {
         expectedEx.expectMessage(String.format("Aggregate type %s is not compatible with primitive type %s",
                 hll.toString(), hll.getTypeDef().getType().toSql()));
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testCreateIcebergTable() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("iceberg.database", "doris");
+        properties.put("iceberg.table", "test");
+        properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "iceberg", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = iceberg\n"
+                + "PROPERTIES (\"iceberg.database\"  =  \"doris\",\n"
+                + "\"iceberg.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"iceberg.table\"  =  \"test\")", stmt.toString());
+    }
+
+    @Test
+    public void testCreateHudiTable() throws UserException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("hudi.database", "doris");
+        properties.put("hudi.table", "test");
+        properties.put("hudi.hive.metastore.uris", "thrift://127.0.0.1:9087");
+        CreateTableStmt stmt = new CreateTableStmt(false, true, tblName, "hudi", properties, "");
+        stmt.analyze(analyzer);
+
+        Assert.assertEquals("CREATE EXTERNAL TABLE `testCluster:db1`.`table1` (\n"
+                + "\n"
+                + ") ENGINE = hudi\n"
+                + "PROPERTIES (\"hudi.database\"  =  \"doris\",\n"
+                + "\"hudi.hive.metastore.uris\"  =  \"thrift://127.0.0.1:9087\",\n"
+                + "\"hudi.table\"  =  \"test\")", stmt.toString());
     }
 }

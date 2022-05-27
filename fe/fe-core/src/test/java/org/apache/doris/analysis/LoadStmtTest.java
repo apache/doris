@@ -32,18 +32,16 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 
+import com.google.common.collect.Lists;
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.google.common.collect.Lists;
-
 import java.io.StringReader;
 import java.util.List;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mocked;
 
 public class LoadStmtTest {
     private List<DataDescription> dataDescriptions;
@@ -86,7 +84,7 @@ public class LoadStmtTest {
         String resourceName = "spark0";
         SparkResource resource = new SparkResource(resourceName);
 
-        new Expectations(){
+        new Expectations() {
             {
                 desc.getMergeType();
                 result = LoadTask.MergeType.APPEND;
@@ -140,7 +138,7 @@ public class LoadStmtTest {
     }
 
     @Test
-    public void testRewrite() throws Exception{
+    public void testRewrite() throws Exception {
         LoadTaskInfo.ImportColumnDescs columnDescs = new LoadTaskInfo.ImportColumnDescs();
         List<ImportColumnDesc> columns1 = getColumns("c1,c2,c3,tmp_c4=c1 + 1, tmp_c5 = tmp_c4+1");
         columnDescs.descs = columns1;
@@ -182,8 +180,6 @@ public class LoadStmtTest {
     private List<ImportColumnDesc> getColumns(String columns) throws Exception {
         String columnsSQL = "COLUMNS (" + columns + ")";
         return ((ImportColumnsStmt) SqlParserUtils.getFirstStmt(
-            new SqlParser(
-                new SqlScanner(
-                    new StringReader(columnsSQL))))).getColumns();
+                new SqlParser(new SqlScanner(new StringReader(columnsSQL))))).getColumns();
     }
 }

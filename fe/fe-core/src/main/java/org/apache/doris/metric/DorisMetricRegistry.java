@@ -17,21 +17,31 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Catalog;
+
 import com.google.common.collect.Lists;
 
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.PriorityQueue;
 import java.util.stream.Collectors;
 
 public class DorisMetricRegistry {
 
-    private List<Metric> paloMetrics = Lists.newArrayList();
+    private Collection<Metric> paloMetrics = new PriorityQueue<>(Comparator.comparing(Metric::getName));
 
     public DorisMetricRegistry() {
 
     }
 
     public synchronized void addPaloMetrics(Metric paloMetric) {
-        paloMetrics.add(paloMetric);
+        // No metric needs to be added to the Checkpoint thread.
+        // And if you add a metric in Checkpoint thread, it will cause the metric to be added repeatedly,
+        // and the Checkpoint Catalog may be saved incorrectly, resulting in FE memory leaks.
+        if (!Catalog.isCheckpointThread()) {
+            paloMetrics.add(paloMetric);
+        }
     }
 
     public synchronized List<Metric> getPaloMetrics() {
@@ -44,6 +54,9 @@ public class DorisMetricRegistry {
     }
 
     public synchronized void removeMetrics(String name) {
-        paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
+        // Same reason as comment in addPaloMetrics()
+        if (!Catalog.isCheckpointThread()) {
+            paloMetrics = paloMetrics.stream().filter(m -> !(m.getName().equals(name))).collect(Collectors.toList());
+        }
     }
 }

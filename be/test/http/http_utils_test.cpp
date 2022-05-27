@@ -48,9 +48,9 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_TRUE(res);
-        ASSERT_STREQ("doris", user.data());
-        ASSERT_STREQ("passwd", passwd.data());
+        EXPECT_TRUE(res);
+        EXPECT_STREQ("doris", user.data());
+        EXPECT_STREQ("passwd", passwd.data());
     }
     {
         HttpRequest req(_evhttp_req);
@@ -61,7 +61,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
     {
         HttpRequest req(_evhttp_req);
@@ -73,7 +73,7 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
     {
         HttpRequest req(_evhttp_req);
@@ -85,13 +85,8 @@ TEST_F(HttpUtilsTest, parse_basic_auth) {
         std::string user;
         std::string passwd;
         auto res = parse_basic_auth(req, &user, &passwd);
-        ASSERT_FALSE(res);
+        EXPECT_FALSE(res);
     }
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

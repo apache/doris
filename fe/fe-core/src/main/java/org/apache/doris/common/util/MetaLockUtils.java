@@ -19,6 +19,9 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -60,13 +63,43 @@ public class MetaLockUtils {
         }
     }
 
-    public static boolean tryWriteLockTables(List<Table> tableList, long timeout, TimeUnit unit) {
+    public static List<Table> writeLockTablesIfExist(List<Table> tableList) {
+        List<Table> lockedTablesList = Lists.newArrayListWithCapacity(tableList.size());
+        for (Table table : tableList) {
+            if (table.writeLockIfExist()) {
+                lockedTablesList.add(table);
+            }
+        }
+        return lockedTablesList;
+    }
+
+    public static void writeLockTablesOrMetaException(List<Table> tableList) throws MetaNotFoundException {
         for (int i = 0; i < tableList.size(); i++) {
-            if (!tableList.get(i).tryWriteLock(timeout, unit)) {
+            try {
+                tableList.get(i).writeLockOrMetaException();
+            } catch (MetaNotFoundException e) {
                 for (int j = i - 1; j >= 0; j--) {
                     tableList.get(j).writeUnlock();
                 }
-                return false;
+                throw e;
+            }
+        }
+    }
+
+    public static boolean tryWriteLockTablesOrMetaException(List<Table> tableList, long timeout, TimeUnit unit) throws MetaNotFoundException {
+        for (int i = 0; i < tableList.size(); i++) {
+            try {
+                if (!tableList.get(i).tryWriteLockOrMetaException(timeout, unit)) {
+                    for (int j = i - 1; j >= 0; j--) {
+                        tableList.get(j).writeUnlock();
+                    }
+                    return false;
+                }
+            } catch (MetaNotFoundException e) {
+                for (int j = i - 1; j >= 0; j--) {
+                    tableList.get(j).writeUnlock();
+                }
+                throw e;
             }
         }
         return true;

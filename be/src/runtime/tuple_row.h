@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/tuple-row.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_TUPLE_ROW_H
-#define DORIS_BE_RUNTIME_TUPLE_ROW_H
+#pragma once
 
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
@@ -54,8 +56,8 @@ public:
     void deep_copy(TupleRow* dst, const std::vector<TupleDescriptor*>& descs, MemPool* pool,
                    bool reuse_tuple_mem) {
         for (int i = 0; i < descs.size(); ++i) {
-            if (this->get_tuple(i) != NULL) {
-                if (reuse_tuple_mem && dst->get_tuple(i) != NULL) {
+            if (this->get_tuple(i) != nullptr) {
+                if (reuse_tuple_mem && dst->get_tuple(i) != nullptr) {
                     this->get_tuple(i)->deep_copy(dst->get_tuple(i), *descs[i], pool);
                 } else {
                     dst->set_tuple(i, this->get_tuple(i)->deep_copy(*descs[i], pool));
@@ -63,7 +65,7 @@ public:
             } else {
                 // TODO: this is wasteful.  If we have 'reuse_tuple_mem', we should be able
                 // to save the tuple buffer and reuse it (i.e. freelist).
-                dst->set_tuple(i, NULL);
+                dst->set_tuple(i, nullptr);
             }
         }
     }
@@ -81,8 +83,8 @@ public:
         int64_t bytes = 0;
         for (int i = 0; i < descs.size(); ++i) {
             Tuple* old_tuple = dst->get_tuple(i);
-            if (_tuples[i] != NULL) {
-                if (reuse_tuple_mem && old_tuple != NULL) {
+            if (_tuples[i] != nullptr) {
+                if (reuse_tuple_mem && old_tuple != nullptr) {
                     bytes += _tuples[i]->dcopy_with_new(dst->get_tuple(i), *descs[i]);
                 } else {
                     int64_t new_bytes = 0;
@@ -90,7 +92,7 @@ public:
                     bytes += new_bytes;
                 }
             } else {
-                dst->set_tuple(i, NULL);
+                dst->set_tuple(i, nullptr);
             }
         }
         return bytes;
@@ -113,5 +115,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

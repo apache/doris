@@ -53,6 +53,9 @@ LoadPathMgr::~LoadPathMgr() {
 Status LoadPathMgr::init() {
     _path_vec.clear();
     for (auto& path : _exec_env->store_paths()) {
+        if (FilePathDesc::is_remote(path.storage_medium)) {
+            continue;
+        }
         _path_vec.push_back(path.path + MINI_PREFIX);
     }
     LOG(INFO) << "Load path configured to [" << boost::join(_path_vec, ",") << "]";
@@ -68,7 +71,7 @@ Status LoadPathMgr::init() {
             "LoadPathMgr", "clean_expired_temp_path",
             [this]() {
                 // TODO(zc): add this thread to cgroup for control resource it use
-                while (!_stop_background_threads_latch.wait_for(MonoDelta::FromSeconds(3600))) {
+                while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(3600))) {
                     this->clean();
                 }
             },

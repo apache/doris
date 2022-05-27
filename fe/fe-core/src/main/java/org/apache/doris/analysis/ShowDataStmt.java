@@ -70,13 +70,12 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .build();
-    public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN = new ImmutableList.Builder<String>()
-        .add("TableName").add("Size").add("ReplicaCount")
-        .build();
+    public static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
+            new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount").build();
 
-    public static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN = new ImmutableList.Builder<String>()
-        .add("TableName").add("IndexName").add("Size").add("ReplicaCount").add("RowCount")
-        .build();
+    public static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN =
+            new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
+                    .add("RowCount").build();
 
     private String dbName;
     private String tableName;
@@ -105,11 +104,8 @@ public class ShowDataStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
-        
-        Database db = Catalog.getCurrentCatalog().getDb(dbName);
-        if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
-        }
+
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException(dbName);
 
         // order by
         if (orderByElements != null && !orderByElements.isEmpty()) {
@@ -118,8 +114,8 @@ public class ShowDataStmt extends ShowStmt {
                 if (!(orderByElement.getExpr() instanceof SlotRef)) {
                     throw new AnalysisException("Should order by column");
                 }
-                SlotRef slotRef = (SlotRef)orderByElement.getExpr();
-                int index = analyzeColumn(slotRef.getColumnName(),tableName);
+                SlotRef slotRef = (SlotRef) orderByElement.getExpr();
+                int index = analyzeColumn(slotRef.getColumnName(), tableName);
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
@@ -186,11 +182,11 @@ public class ShowDataStmt extends ShowStmt {
                 // for output
                 for (List<Object> row : totalRowsObject) {
                     //|TableName|Size|ReplicaCount|
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(1));
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(1));
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
-                        + tableSizePair.second;
-                    List<String> result = Arrays.asList(String.valueOf(row.get(0)), readableSize,
-                        String.valueOf(row.get(2)));
+                            + tableSizePair.second;
+                    List<String> result = Arrays.asList(String.valueOf(row.get(0)),
+                            readableSize, String.valueOf(row.get(2)));
                     totalRows.add(result);
                 }
 
@@ -228,11 +224,10 @@ public class ShowDataStmt extends ShowStmt {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),
                         ConnectContext.get().getRemoteIP(),
-                        tableName);
+                        dbName + ": " + tableName);
             }
 
-            OlapTable olapTable = (OlapTable) db.getTableOrThrowException(tableName, TableType.OLAP);
-            int i = 0;
+            OlapTable olapTable = db.getTableOrMetaException(tableName, TableType.OLAP);
             long totalSize = 0;
             long totalReplicaCount = 0;
 
@@ -263,8 +258,6 @@ public class ShowDataStmt extends ShowStmt {
 
                     totalSize += indexSize;
                     totalReplicaCount += indexReplicaCount;
-
-                    i++;
                 } // end for indices
 
                 // sort by
@@ -279,13 +272,13 @@ public class ShowDataStmt extends ShowStmt {
                 }
 
                 // for output
-                for (int index = 0;index<= totalRowsObject.size() -1;index++) {
+                for (int index = 0; index <= totalRowsObject.size() - 1; index++) {
                     //| TableName| IndexName | Size | ReplicaCount | RowCount |
                     List<Object> row = totalRowsObject.get(index);
                     List<String> result;
-                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long)row.get(2));
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
-                        + tableSizePair.second;
+                    Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) row.get(2));
+                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first)
+                            + " " + tableSizePair.second;
                     if (index == 0) {
                         result = Arrays.asList(tableName, String.valueOf(row.get(1)),
                                 readableSize, String.valueOf(row.get(3)),
@@ -309,9 +302,9 @@ public class ShowDataStmt extends ShowStmt {
         }
     }
 
-    public static int analyzeColumn(String columnName,String tableName) throws AnalysisException {
+    public static int analyzeColumn(String columnName, String tableName) throws AnalysisException {
         ImmutableList<String> titles = SHOW_TABLE_DATA_META_DATA_ORIGIN;
-        if(tableName != null){
+        if (tableName != null) {
             titles = SHOW_INDEX_DATA_META_DATA_ORIGIN;
         }
         for (String title : titles) {
@@ -389,4 +382,3 @@ public class ShowDataStmt extends ShowStmt {
         return toSql();
     }
 }
-

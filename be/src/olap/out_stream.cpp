@@ -21,15 +21,14 @@
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 #include "util/mem_util.hpp"
-#include "util/monotime.h"
 
 namespace doris {
 
 OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size)
-        : _compress_kind(compress_kind), _stream_buffer_size(stream_buffer_size) {
+        : _stream_buffer_size(stream_buffer_size) {
     switch (compress_kind) {
     case COMPRESS_NONE:
-        _compressor = NULL;
+        _compressor = nullptr;
         break;
 
 #ifdef DORIS_WITH_LZO
@@ -56,17 +55,17 @@ OutStreamFactory::~OutStreamFactory() {
 
 OutStream* OutStreamFactory::create_stream(uint32_t column_unique_id,
                                            StreamInfoMessage::Kind kind) {
-    OutStream* stream = NULL;
+    OutStream* stream = nullptr;
 
     if (StreamInfoMessage::ROW_INDEX == kind || StreamInfoMessage::BLOOM_FILTER == kind) {
-        stream = new (std::nothrow) OutStream(_stream_buffer_size, NULL);
+        stream = new (std::nothrow) OutStream(_stream_buffer_size, nullptr);
     } else {
         stream = new (std::nothrow) OutStream(_stream_buffer_size, _compressor);
     }
 
-    if (NULL == stream) {
-        OLAP_LOG_WARNING("fail to allocate OutStream.");
-        return NULL;
+    if (nullptr == stream) {
+        LOG(WARNING) << "fail to allocate OutStream.";
+        return nullptr;
     }
 
     StreamName stream_name(column_unique_id, kind);
@@ -78,9 +77,9 @@ OutStream::OutStream(uint32_t buffer_size, Compressor compressor)
         : _buffer_size(buffer_size),
           _compressor(compressor),
           _is_suppressed(false),
-          _current(NULL),
-          _compressed(NULL),
-          _overflow(NULL),
+          _current(nullptr),
+          _compressed(nullptr),
+          _overflow(nullptr),
           _spilled_bytes(0) {}
 
 OutStream::~OutStream() {
@@ -94,38 +93,38 @@ OutStream::~OutStream() {
     }
 }
 
-OLAPStatus OutStream::_create_new_input_buffer() {
+Status OutStream::_create_new_input_buffer() {
     SAFE_DELETE(_current);
     _current = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
-    if (NULL != _current) {
+    if (nullptr != _current) {
         _current->set_position(sizeof(StreamHead));
-        return OLAP_SUCCESS;
+        return Status::OK();
     } else {
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
 }
 
-OLAPStatus OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
-                                  StreamHead::StreamType type, uint32_t length) {
+Status OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
+                              StreamHead::StreamType type, uint32_t length) {
     if (buf->limit() < sizeof(StreamHead) + length) {
-        return OLAP_ERR_BUFFER_OVERFLOW;
+        return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
     }
 
     StreamHead* head = reinterpret_cast<StreamHead*>(&(buf->array()[position]));
     head->type = type;
     head->length = length;
     head->checksum = 0;
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
-                                StorageByteBuffer* overflow, bool* smaller) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
+                            StorageByteBuffer* overflow, bool* smaller) {
+    Status res = Status::OK();
 
     res = _compressor(input, overflow, smaller);
 
-    if (OLAP_SUCCESS == res && *smaller) {
+    if (res.ok() && *smaller) {
         if (output->remaining() >= overflow->position()) {
             memory_copy(&(output->array()[output->position()]), overflow->array(),
                         overflow->position());
@@ -142,79 +141,79 @@ OLAPStatus OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* out
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void OutStream::_output_uncompress() {
     _spilled_bytes += _current->limit();
     _write_head(_current, 0, StreamHead::UNCOMPRESSED, _current->limit() - sizeof(StreamHead));
     _output_buffers.push_back(_current);
-    _current = NULL;
+    _current = nullptr;
 }
 
 void OutStream::_output_compressed() {
     _compressed->flip();
     _output_buffers.push_back(_compressed);
     _compressed = _overflow;
-    _overflow = NULL;
+    _overflow = nullptr;
 }
 
-OLAPStatus OutStream::_make_sure_output_buffer() {
-    if (NULL == _compressed) {
+Status OutStream::_make_sure_output_buffer() {
+    if (nullptr == _compressed) {
         _compressed = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
-        if (NULL == _compressed) {
-            return OLAP_ERR_MALLOC_ERROR;
+        if (nullptr == _compressed) {
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
     }
 
-    if (NULL == _overflow) {
+    if (nullptr == _overflow) {
         _overflow = StorageByteBuffer::create(_buffer_size + sizeof(StreamHead));
 
-        if (NULL == _overflow) {
-            return OLAP_ERR_MALLOC_ERROR;
+        if (nullptr == _overflow) {
+            return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OutStream::_spill() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status OutStream::_spill() {
+    Status res = Status::OK();
 
-    if (_current == NULL || _current->position() == sizeof(StreamHead)) {
-        return OLAP_SUCCESS;
+    if (_current == nullptr || _current->position() == sizeof(StreamHead)) {
+        return Status::OK();
     }
 
-    // 如果不压缩，直接读取current，注意output之后 current会被清空并设置为NULL
-    if (_compressor == NULL) {
+    // If it is not compressed, read current directly. Note that current will be cleared and set to NULL after output
+    if (_compressor == nullptr) {
         _current->flip();
         _output_uncompress();
     } else {
-        // 如果需要压缩，
-        // current移动到head后边的位置，留出head的空间
+        //If compression is required,
+        // The current moves to the position behind the head, leaving space for the head
         _current->set_limit(_current->position());
         _current->set_position(sizeof(StreamHead));
 
-        // 分配compress和overflow，这两个buffer大小其实是一样的
-        if (OLAP_SUCCESS != (res = _make_sure_output_buffer())) {
+        //Allocate compress and overflow, the two buffer sizes are actually the same
+        if (!(res = _make_sure_output_buffer())) {
             return res;
         }
 
-        // 吧 current解压到compress和overflow
+        // Decompress current to compress and overflow
         uint64_t head_pos = _compressed->position();
         _compressed->set_position(head_pos + sizeof(StreamHead));
         bool smaller = false;
         res = _compress(_current, _compressed, _overflow, &smaller);
 
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to compress data.");
-            return OLAP_ERR_COMPRESS_ERROR;
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to compress data.";
+            return Status::OLAPInternalError(OLAP_ERR_COMPRESS_ERROR);
         }
 
         if (smaller) {
-            // 数据都压缩到_output和_overflow里, 重置_current
-            // 注意这种情况下，current并没有被释放，因为实际上输出的compress
+            // Data are compressed into _output and _overflow, reset _current
+            // Note that in this case, current is not released, because the compress actually output
             _current->set_position(sizeof(StreamHead));
             _current->set_limit(_current->capacity());
 
@@ -228,15 +227,14 @@ OLAPStatus OutStream::_spill() {
 
             _spilled_bytes += sizeof(StreamHead) + output_bytes;
         } else {
-            // 直接将_current输出
-
-            // 如果之前还有_compress, 先输出m_compress
-            // 注意此时一定没有_overflow
+            // directly output _current
+            // If there is _compress before, output m_compress first
+            // Note that there must be no _overflow at this time
             _compressed->set_position(head_pos);
 
             if (head_pos != 0) {
-                // 之前_compressed里有数据, 这种情况下先输出compressed,
-                // 此时_overflow一定是空的
+                // There was data in _compressed before, in this case, output compressed first,
+                // At this time _overflow must be empty
                 _output_compressed();
             }
 
@@ -244,23 +242,23 @@ OLAPStatus OutStream::_spill() {
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status OutStream::write(const char* buffer, uint64_t length) {
+    Status res = Status::OK();
     uint64_t offset = 0;
     uint64_t remain = length;
 
     while (remain > 0) {
-        // 之所以扔进来，是因为在压缩的情况下，_current只会被创建一次
-        // 之后一直在复用，输出的是compress
-        // 而在未压缩的情况下，current会被放进列表，而无法复用，原因是
-        // 如果复用的话，会修改之前的内容，因此需要重新分配。
-        // 只分配一次那么第二块就会挂掉
-        if (NULL == _current) {
+        // The reason why it was thrown in is because in the case of compression, _current will only be created once
+        // It has been multiplexing since then, and the output is compress
+        // In the case of uncompressed, current will be put into the list and cannot be reused. The reason is
+        // If it is reused, the previous content will be modified, so it needs to be redistributed.
+        // Only allocate once and the second block will hang up
+        if (nullptr == _current) {
             res = _create_new_input_buffer();
-            if (OLAP_SUCCESS != res) {
+            if (!res.ok()) {
                 return res;
             }
         }
@@ -269,8 +267,8 @@ OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
 
         if (OLAP_LIKELY(0 != to_put)) {
             res = _current->put(&buffer[offset], to_put);
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to put buffer.");
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to put buffer.";
                 return res;
             }
 
@@ -280,20 +278,20 @@ OLAPStatus OutStream::write(const char* buffer, uint64_t length) {
 
         if (_current->remaining() == 0) {
             res = _spill();
-            if (OLAP_SUCCESS != res) {
-                OLAP_LOG_WARNING("fail to spill current buffer.");
+            if (!res.ok()) {
+                LOG(WARNING) << "fail to spill current buffer.";
                 return res;
             }
         }
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void OutStream::get_position(PositionEntryWriter* index_entry) const {
     index_entry->add_position(_spilled_bytes);
 
-    if (NULL != _current) {
+    if (nullptr != _current) {
         index_entry->add_position(_current->position() - sizeof(StreamHead));
     } else {
         index_entry->add_position(0);
@@ -334,8 +332,8 @@ uint64_t OutStream::get_total_buffer_size() const {
     return result;
 }
 
-OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const {
-    OLAPStatus res = OLAP_SUCCESS;
+Status OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const {
+    Status res = Status::OK();
 
     uint64_t total_stream_len = 0;
     OlapStopWatch speed_limit_watch;
@@ -347,8 +345,8 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mby
         VLOG_TRACE << "write stream begin:" << file_handle->tell();
 
         res = file_handle->write((*it)->array(), (*it)->limit());
-        if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to write stream to fail.");
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to write stream to fail.";
             return res;
         }
 
@@ -360,8 +358,8 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mby
             int64_t sleep_time = total_stream_len / write_mbytes_per_sec - delta_time_us;
             if (sleep_time > 0) {
                 VLOG_TRACE << "sleep to limit merge speed. time=" << sleep_time
-                         << ", bytes=" << total_stream_len;
-                SleepFor(MonoDelta::FromMicroseconds(sleep_time));
+                           << ", bytes=" << total_stream_len;
+                std::this_thread::sleep_for(std::chrono::microseconds(sleep_time));
             }
         }
     }
@@ -369,16 +367,16 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mby
     return res;
 }
 
-OLAPStatus OutStream::flush() {
-    OLAPStatus res = OLAP_SUCCESS;
+Status OutStream::flush() {
+    Status res = Status::OK();
 
     res = _spill();
-    if (OLAP_SUCCESS != res) {
-        OLAP_LOG_WARNING("fail to spill stream.");
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to spill stream.";
         return res;
     }
 
-    if (NULL != _compressed && 0 != _compressed->position()) {
+    if (nullptr != _compressed && 0 != _compressed->position()) {
         _output_compressed();
         SAFE_DELETE(_compressed);
     }

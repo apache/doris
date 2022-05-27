@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/operators.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_OPERATORS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_OPERATORS_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -27,13 +29,6 @@ class Operators {
 public:
     // Do nothing, just get its symbols
     static void init();
-
-#if 0
-    static BigIntVal factorial_tiny_int_val(FunctionContext*, const TinyIntVal&);
-    static BigIntVal factorial_small_int_val(FunctionContext*, const SmallIntVal&);
-    static BigIntVal factorial_int_val(FunctionContext*, const IntVal&);
-    static BigIntVal factorial_big_int_val(FunctionContext*, const BigIntVal&);
-#endif
 
     // Bit operator
     static TinyIntVal bitnot_tiny_int_val(FunctionContext*, const TinyIntVal&);
@@ -254,5 +249,3 @@ public:
 };
 
 } // namespace doris
-
-#endif

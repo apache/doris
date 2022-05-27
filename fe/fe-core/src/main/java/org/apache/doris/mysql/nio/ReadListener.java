@@ -14,10 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.mysql.nio;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.xnio.ChannelListener;
@@ -28,7 +30,7 @@ import org.xnio.conduits.ConduitStreamSourceChannel;
  * listener for handle mysql cmd.
  */
 public class ReadListener implements ChannelListener<ConduitStreamSourceChannel> {
-    private final Logger LOG = LogManager.getLogger(this.getClass());
+    private static final Logger LOG = LogManager.getLogger(ReadListener.class);
     private NConnectContext ctx;
     private ConnectProcessor connectProcessor;
 

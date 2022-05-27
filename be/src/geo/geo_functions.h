@@ -18,6 +18,7 @@
 #pragma once
 
 #include "geo/geo_common.h"
+#include "geo/geo_types.h"
 #include "udf/udf.h"
 
 namespace doris {
@@ -105,6 +106,21 @@ public:
                                     doris_udf::FunctionContext::FunctionStateScope);
     static void st_contains_close(doris_udf::FunctionContext*,
                                   doris_udf::FunctionContext::FunctionStateScope);
+};
+
+struct StConstructState {
+    StConstructState() : is_null(false) {}
+    ~StConstructState() {}
+
+    bool is_null;
+    std::string encoded_buf;
+};
+
+struct StContainsState {
+    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
+    ~StContainsState() {}
+    bool is_null;
+    std::vector<std::shared_ptr<GeoShape>> shapes;
 };
 
 } // namespace doris

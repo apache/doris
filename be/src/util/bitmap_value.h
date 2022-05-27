@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
-#define DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
+#pragma once
+
+#include <parallel_hashmap/btree.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -75,12 +76,15 @@ struct BitmapTypeCode {
 namespace detail {
 
 class Roaring64MapSetBitForwardIterator;
+class Roaring64MapSetBitBiDirectionalIterator;
 
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
 // What we change includes
 // - a custom serialization format is used inside read()/write()/getSizeInBytes()
 // - added clear() and is32BitsEnough()
 class Roaring64Map {
+    typedef roaring::api::roaring_bitmap_t roaring_bitmap_t;
+
 public:
     /**
      * Create an empty bitmap
@@ -100,14 +104,29 @@ public:
     /**
      * Construct a 64-bit map from a 32-bit one
      */
-    Roaring64Map(const Roaring& r) { emplaceOrInsert(0, r); }
+    explicit Roaring64Map(const roaring::Roaring& r) { emplaceOrInsert(0, r); }
 
     /**
      * Construct a roaring object from the C struct.
      *
-     * Passing a NULL point is unsafe.
+     * Passing a nullptr point is unsafe.
      */
-    Roaring64Map(roaring_bitmap_t* s) { emplaceOrInsert(0, s); }
+    explicit Roaring64Map(roaring_bitmap_t* s) {
+        roaring::Roaring r(s);
+        emplaceOrInsert(0, r);
+    }
+
+    Roaring64Map(const Roaring64Map& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
+
+    Roaring64Map(Roaring64Map&& r) : roarings(r.roarings), copyOnWrite(r.copyOnWrite) {}
+
+    /**
+     * Assignment operator.
+     */
+    Roaring64Map& operator=(const Roaring64Map& r) {
+        roarings = r.roarings;
+        return *this;
+    }
 
     /**
      * Construct a bitmap from a list of integer values.
@@ -243,7 +262,7 @@ public:
             if (r.roarings.count(map_entry.first) == 1)
                 map_entry.second &= r.roarings.at(map_entry.first);
             else
-                map_entry.second = Roaring();
+                map_entry.second = roaring::Roaring();
         }
         return *this;
     }
@@ -314,11 +333,79 @@ public:
                     "bitmap is full, cardinality is 2^64, "
                     "unable to represent in a 64-bit integer");
         }
-        return std::accumulate(
-                roarings.cbegin(), roarings.cend(), (uint64_t)0,
-                [](uint64_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
-                    return previous + map_entry.second.cardinality();
-                });
+        return std::accumulate(roarings.cbegin(), roarings.cend(), (uint64_t)0,
+                               [](uint64_t previous,
+                                  const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                                   return previous + map_entry.second.cardinality();
+                               });
+    }
+    /**
+     * Computes the size of the intersection between two bitmaps.
+     *
+     */
+    uint64_t andCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (auto& map_entry : roarings) {
+            if (r.roarings.count(map_entry.first) == 1) {
+                card += map_entry.second.and_cardinality(r.roarings.at(map_entry.first));
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the union between two bitmaps.
+     *
+     */
+    uint64_t orCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            if (r.roarings.count(map_entry.first) == 0) {
+                card += map_entry.second.cardinality();
+            }
+        }
+        for (const auto& map_entry : r.roarings) {
+            if (roarings.count(map_entry.first) == 0) {
+                card += map_entry.second.cardinality();
+            } else {
+                card += roarings.at(map_entry.first).or_cardinality(map_entry.second);
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the difference (andnot) between two bitmaps.
+     * r1.cardinality - (r1 & r2).cardinality
+     */
+    uint64_t andnotCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            card += map_entry.second.cardinality();
+            if (r.roarings.count(map_entry.first) == 1) {
+                card -= r.roarings.at(map_entry.first).and_cardinality(map_entry.second);
+            }
+        }
+        return card;
+    }
+
+    /**
+     * Computes the size of the symmetric difference (andnot) between two
+     * bitmaps.
+     * r1.cardinality + r2.cardinality - 2 * (r1 & r2).cardinality
+     */
+    uint64_t xorCardinality(const Roaring64Map& r) const {
+        uint64_t card = 0;
+        for (const auto& map_entry : roarings) {
+            card += map_entry.second.cardinality();
+        }
+        for (const auto& map_entry : r.roarings) {
+            card += map_entry.second.cardinality();
+            if (roarings.count(map_entry.first) == 1) {
+                card -= 2 * roarings.at(map_entry.first).and_cardinality(map_entry.second);
+            }
+        }
+        return card;
     }
 
     /**
@@ -326,7 +413,7 @@ public:
     */
     bool isEmpty() const {
         return std::all_of(roarings.cbegin(), roarings.cend(),
-                           [](const std::pair<const uint32_t, Roaring>& map_entry) {
+                           [](const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                                return map_entry.second.isEmpty();
                            });
     }
@@ -339,9 +426,10 @@ public:
         //
         // we put std::numeric_limits<>::max/min in parenthesis
         // to avoid a clash with the Windows.h header under Windows
-        return roarings.size() == ((size_t)(std::numeric_limits<uint32_t>::max)()) + 1
+        return roarings.size() == ((uint64_t)(std::numeric_limits<uint32_t>::max)()) + 1
                        ? std::all_of(roarings.cbegin(), roarings.cend(),
-                                     [](const std::pair<const uint32_t, Roaring>& roaring_map_entry) {
+                                     [](const std::pair<const uint32_t, roaring::Roaring>&
+                                                roaring_map_entry) {
                                          // roarings within map are saturated if cardinality
                                          // is uint32_t max + 1
                                          return roaring_map_entry.second.cardinality() ==
@@ -357,7 +445,7 @@ public:
     bool isSubset(const Roaring64Map& r) const {
         for (const auto& map_entry : roarings) {
             auto roaring_iter = r.roarings.find(map_entry.first);
-            if (roaring_iter == roarings.cend())
+            if (roaring_iter == r.roarings.cend())
                 return false;
             else if (!map_entry.second.isSubset(roaring_iter->second))
                 return false;
@@ -382,13 +470,13 @@ public:
      */
     void toUint64Array(uint64_t* ans) const {
         // Annoyingly, VS 2017 marks std::accumulate() as [[nodiscard]]
-        (void)std::accumulate(
-                roarings.cbegin(), roarings.cend(), ans,
-                [](uint64_t* previous, const std::pair<const uint32_t, Roaring>& map_entry) {
-                    for (uint32_t low_bits : map_entry.second)
-                        *previous++ = uniteBytes(map_entry.first, low_bits);
-                    return previous;
-                });
+        (void)std::accumulate(roarings.cbegin(), roarings.cend(), ans,
+                              [](uint64_t* previous,
+                                 const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                                  for (uint32_t low_bits : map_entry.second)
+                                      *previous++ = uniteBytes(map_entry.first, low_bits);
+                                  return previous;
+                              });
     }
 
     /**
@@ -477,10 +565,11 @@ public:
      *  return whether a change was applied
      */
     bool removeRunCompression() {
-        return std::accumulate(roarings.begin(), roarings.end(), false,
-                               [](bool previous, std::pair<const uint32_t, Roaring>& map_entry) {
-                                   return map_entry.second.removeRunCompression() && previous;
-                               });
+        return std::accumulate(
+                roarings.begin(), roarings.end(), true,
+                [](bool previous, std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                    return map_entry.second.removeRunCompression() && previous;
+                });
     }
 
     /** convert array and bitmap containers to run containers when it is more
@@ -490,10 +579,11 @@ public:
      * Additional savings might be possible by calling shrinkToFit().
      */
     bool runOptimize() {
-        return std::accumulate(roarings.begin(), roarings.end(), false,
-                               [](bool previous, std::pair<const uint32_t, Roaring>& map_entry) {
-                                   return map_entry.second.runOptimize() && previous;
-                               });
+        return std::accumulate(
+                roarings.begin(), roarings.end(), true,
+                [](bool previous, std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                    return map_entry.second.runOptimize() && previous;
+                });
     }
 
     /**
@@ -507,7 +597,7 @@ public:
             if (iter->second.isEmpty()) {
                 // empty Roarings are 84 bytes
                 savedBytes += 88;
-                roarings.erase(iter++);
+                iter = roarings.erase(iter);
             } else {
                 savedBytes += iter->second.shrinkToFit();
                 iter++;
@@ -518,19 +608,21 @@ public:
 
     /**
      * Iterate over the bitmap elements. The function iterator is called once
-     * for all the values with ptr (can be NULL) as the second parameter of each
+     * for all the values with ptr (can be nullptr) as the second parameter of each
      * call.
      *
      * roaring_iterator is simply a pointer to a function that returns bool
      * (true means that the iteration should continue while false means that it
      * should stop), and takes (uint32_t,void*) as inputs.
      */
-    void iterate(roaring_iterator64 iterator, void* ptr) const {
-        std::for_each(roarings.begin(), roarings.cend(),
-                      [=](const std::pair<const uint32_t, Roaring>& map_entry) {
-                          roaring_iterate64(&map_entry.second.roaring, iterator,
-                                            uint64_t(map_entry.first) << 32, ptr);
-                      });
+    void iterate(roaring::api::roaring_iterator64 iterator, void* ptr) const {
+        for (const auto& map_entry : roarings) {
+            bool should_continue = roaring_iterate64(&map_entry.second.roaring, iterator,
+                                                     uint64_t(map_entry.first) << 32, ptr);
+            if (!should_continue) {
+                break;
+            }
+        }
     }
 
     /**
@@ -583,7 +675,7 @@ public:
             *(buf++) = BitmapTypeCode::type::BITMAP32;
             auto it = roarings.find(0);
             if (it == roarings.end()) { // empty bitmap
-                Roaring r;
+                roaring::Roaring r;
                 return r.write(buf) + 1;
             }
             return it->second.write(buf) + 1;
@@ -595,7 +687,7 @@ public:
         // push map size
         buf = (char*)encode_varint64((uint8_t*)buf, roarings.size());
         std::for_each(roarings.cbegin(), roarings.cend(),
-                      [&buf](const std::pair<const uint32_t, Roaring>& map_entry) {
+                      [&buf](const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                           // push map key
                           encode_fixed32_le((uint8_t*)buf, map_entry.first);
                           buf += sizeof(uint32_t);
@@ -615,8 +707,8 @@ public:
         Roaring64Map result;
 
         if (*buf == BitmapTypeCode::BITMAP32) {
-            Roaring read = Roaring::read(buf + 1);
-            result.emplaceOrInsert(0, read);
+            roaring::Roaring read = roaring::Roaring::read(buf + 1);
+            result.emplaceOrInsert(0, std::move(read));
             return result;
         }
 
@@ -634,10 +726,10 @@ public:
             uint32_t key = decode_fixed32_le(reinterpret_cast<const uint8_t*>(buf));
             buf += sizeof(uint32_t);
             // read map value Roaring
-            Roaring read = Roaring::read(buf);
-            result.emplaceOrInsert(key, read);
+            roaring::Roaring read_var = roaring::Roaring::read(buf);
             // forward buffer past the last Roaring Bitmap
-            buf += read.getSizeInBytes();
+            buf += read_var.getSizeInBytes();
+            result.emplaceOrInsert(key, std::move(read_var));
         }
         return result;
     }
@@ -649,18 +741,19 @@ public:
         if (is32BitsEnough()) {
             auto it = roarings.find(0);
             if (it == roarings.end()) { // empty bitmap
-                Roaring r;
+                roaring::Roaring r;
                 return r.getSizeInBytes() + 1;
             }
             return it->second.getSizeInBytes() + 1;
         }
         // start with type code, map size and size of keys for each map entry
         size_t init = 1 + varint_length(roarings.size()) + roarings.size() * sizeof(uint32_t);
-        return std::accumulate(roarings.cbegin(), roarings.cend(), init,
-                               [=](size_t previous, const std::pair<const uint32_t, Roaring>& map_entry) {
-                                   // add in bytes used by each Roaring
-                                   return previous + map_entry.second.getSizeInBytes();
-                               });
+        return std::accumulate(
+                roarings.cbegin(), roarings.cend(), init,
+                [=](size_t previous, const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                    // add in bytes used by each Roaring
+                    return previous + map_entry.second.getSizeInBytes();
+                });
     }
 
     /**
@@ -704,7 +797,7 @@ public:
         if (copyOnWrite == val) return;
         copyOnWrite = val;
         std::for_each(roarings.begin(), roarings.end(),
-                      [=](std::pair<const uint32_t, Roaring>& map_entry) {
+                      [=](std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                           map_entry.second.setCopyOnWrite(val);
                       });
     }
@@ -730,16 +823,17 @@ public:
                         return true;
                     },
                     (void*)&outer_iter_data);
-            std::for_each(
-                    ++map_iter, roarings.cend(), [](const std::pair<const uint32_t, Roaring>& map_entry) {
-                        map_entry.second.iterate(
-                                [](uint32_t low_bits, void* high_bits) -> bool {
-                                    std::printf(",%llu", (long long unsigned)uniteBytes(
-                                                                 *(uint32_t*)high_bits, low_bits));
-                                    return true;
-                                },
-                                (void*)&map_entry.first);
-                    });
+            std::for_each(++map_iter, roarings.cend(),
+                          [](const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
+                              map_entry.second.iterate(
+                                      [](uint32_t low_bits, void* high_bits) -> bool {
+                                          std::printf(",%llu",
+                                                      (long long unsigned)uniteBytes(
+                                                              *(uint32_t*)high_bits, low_bits));
+                                          return true;
+                                      },
+                                      (void*)&map_entry.first);
+                          });
         } else
             std::printf("{");
         std::printf("}\n");
@@ -750,9 +844,9 @@ public:
      */
     std::string toString() const {
         struct iter_data {
-            std::string str;
+            std::string str {};
             uint32_t high_bits;
-            char first_char = '{';
+            char first_char {'{'};
         } outer_iter_data;
         if (!isEmpty()) {
             auto map_iter = roarings.cbegin();
@@ -770,7 +864,8 @@ public:
                     (void*)&outer_iter_data);
             std::for_each(
                     ++map_iter, roarings.cend(),
-                    [&outer_iter_data](const std::pair<const uint32_t, Roaring>& map_entry) {
+                    [&outer_iter_data](
+                            const std::pair<const uint32_t, roaring::Roaring>& map_entry) {
                         outer_iter_data.high_bits = map_entry.first;
                         map_entry.second.iterate(
                                 [](uint32_t low_bits, void* inner_iter_data) -> bool {
@@ -807,7 +902,9 @@ public:
     }
 
     friend class Roaring64MapSetBitForwardIterator;
+    friend class Roaring64MapSetBitBiDirectionalIterator;
     typedef Roaring64MapSetBitForwardIterator const_iterator;
+    typedef Roaring64MapSetBitBiDirectionalIterator const_bidirectional_iterator;
 
     /**
     * Returns an iterator that can be used to access the position of the
@@ -830,27 +927,25 @@ public:
     const_iterator end() const;
 
 private:
-    std::map<uint32_t, Roaring> roarings;
-    bool copyOnWrite = false;
+    phmap::btree_map<uint32_t, roaring::Roaring> roarings {};
+    bool copyOnWrite {false};
     static uint32_t highBytes(const uint64_t in) { return uint32_t(in >> 32); }
     static uint32_t lowBytes(const uint64_t in) { return uint32_t(in); }
     static uint64_t uniteBytes(const uint32_t highBytes, const uint32_t lowBytes) {
         return (uint64_t(highBytes) << 32) | uint64_t(lowBytes);
     }
-    // this is needed to tolerate gcc's C++11 libstdc++ lacking emplace
-    // prior to version 4.8
-    void emplaceOrInsert(const uint32_t key, const Roaring& value) {
-#if defined(__GLIBCXX__) && __GLIBCXX__ < 20130322
-        roarings.insert(std::make_pair(key, value));
-#else
+    void emplaceOrInsert(const uint32_t key, const roaring::Roaring& value) {
         roarings.emplace(std::make_pair(key, value));
-#endif
+    }
+
+    void emplaceOrInsert(const uint32_t key, roaring::Roaring&& value) {
+        roarings.emplace(key, value);
     }
 };
 
-// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
+// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.4.0/cpp/roaring64map.hh
 // Used to go through the set bits. Not optimally fast, but convenient.
-class Roaring64MapSetBitForwardIterator final {
+class Roaring64MapSetBitForwardIterator {
 public:
     typedef std::forward_iterator_tag iterator_category;
     typedef uint64_t* pointer;
@@ -866,25 +961,25 @@ public:
         return Roaring64Map::uniteBytes(map_iter->first, i.current_value);
     }
 
-    bool operator<(const type_of_iterator& o) {
+    bool operator<(const type_of_iterator& o) const {
         if (map_iter == map_end) return false;
         if (o.map_iter == o.map_end) return true;
         return **this < *o;
     }
 
-    bool operator<=(const type_of_iterator& o) {
+    bool operator<=(const type_of_iterator& o) const {
         if (o.map_iter == o.map_end) return true;
         if (map_iter == map_end) return false;
         return **this <= *o;
     }
 
-    bool operator>(const type_of_iterator& o) {
+    bool operator>(const type_of_iterator& o) const {
         if (o.map_iter == o.map_end) return false;
         if (map_iter == map_end) return true;
         return **this > *o;
     }
 
-    bool operator>=(const type_of_iterator& o) {
+    bool operator>=(const type_of_iterator& o) const {
         if (map_iter == map_end) return true;
         if (o.map_iter == o.map_end) return false;
         return **this >= *o;
@@ -911,6 +1006,22 @@ public:
         return orig;
     }
 
+    bool move(const value_type& x) {
+        map_iter = p.lower_bound(Roaring64Map::highBytes(x));
+        if (map_iter != p.cend()) {
+            roaring_init_iterator(&map_iter->second.roaring, &i);
+            if (map_iter->first == Roaring64Map::highBytes(x)) {
+                if (roaring_move_uint32_iterator_equalorlarger(&i, Roaring64Map::lowBytes(x)))
+                    return true;
+                map_iter++;
+                if (map_iter == map_end) return false;
+                roaring_init_iterator(&map_iter->second.roaring, &i);
+            }
+            return true;
+        }
+        return false;
+    }
+
     bool operator==(const Roaring64MapSetBitForwardIterator& o) {
         if (map_iter == map_end && o.map_iter == o.map_end) return true;
         if (o.map_iter == o.map_end) return false;
@@ -922,9 +1033,18 @@ public:
         if (o.map_iter == o.map_end) return true;
         return **this != *o;
     }
+    Roaring64MapSetBitForwardIterator& operator=(const Roaring64MapSetBitForwardIterator& r) {
+        map_iter = r.map_iter;
+        map_end = r.map_end;
+        i = r.i;
+        return *this;
+    }
+
+    Roaring64MapSetBitForwardIterator(const Roaring64MapSetBitForwardIterator& r)
+            : p(r.p), map_iter(r.map_iter), map_end(r.map_end), i(r.i) {}
 
     Roaring64MapSetBitForwardIterator(const Roaring64Map& parent, bool exhausted = false)
-            : map_end(parent.roarings.cend()) {
+            : p(parent.roarings), map_end(parent.roarings.cend()) {
         if (exhausted || parent.roarings.empty()) {
             map_iter = parent.roarings.cend();
         } else {
@@ -938,10 +1058,60 @@ public:
         }
     }
 
-private:
-    std::map<uint32_t, Roaring>::const_iterator map_iter;
-    std::map<uint32_t, Roaring>::const_iterator map_end;
-    roaring_uint32_iterator_t i;
+protected:
+    const phmap::btree_map<uint32_t, roaring::Roaring>& p;
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_iter {};
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_end {};
+    roaring::api::roaring_uint32_iterator_t i {};
+};
+
+class Roaring64MapSetBitBiDirectionalIterator final : public Roaring64MapSetBitForwardIterator {
+public:
+    explicit Roaring64MapSetBitBiDirectionalIterator(const Roaring64Map& parent,
+                                                     bool exhausted = false)
+            : Roaring64MapSetBitForwardIterator(parent, exhausted),
+              map_begin(parent.roarings.cbegin()) {}
+
+    Roaring64MapSetBitBiDirectionalIterator& operator=(const Roaring64MapSetBitForwardIterator& r) {
+        *(Roaring64MapSetBitForwardIterator*)this = r;
+        return *this;
+    }
+
+    Roaring64MapSetBitBiDirectionalIterator& operator--() { //  --i, must return dec.value
+        if (map_iter == map_end) {
+            --map_iter;
+            roaring_init_iterator_last(&map_iter->second.roaring, &i);
+            if (i.has_value) return *this;
+        }
+
+        roaring_previous_uint32_iterator(&i);
+        while (!i.has_value) {
+            if (map_iter == map_begin) return *this;
+            map_iter--;
+            roaring_init_iterator_last(&map_iter->second.roaring, &i);
+        }
+        return *this;
+    }
+
+    Roaring64MapSetBitBiDirectionalIterator operator--(int) { // i--, must return orig. value
+        Roaring64MapSetBitBiDirectionalIterator orig(*this);
+        if (map_iter == map_end) {
+            --map_iter;
+            roaring_init_iterator_last(&map_iter->second.roaring, &i);
+            return orig;
+        }
+
+        roaring_previous_uint32_iterator(&i);
+        while (!i.has_value) {
+            if (map_iter == map_begin) return orig;
+            map_iter--;
+            roaring_init_iterator_last(&map_iter->second.roaring, &i);
+        }
+        return orig;
+    }
+
+protected:
+    phmap::btree_map<uint32_t, roaring::Roaring>::const_iterator map_begin;
 };
 
 inline Roaring64MapSetBitForwardIterator Roaring64Map::begin() const {
@@ -957,6 +1127,7 @@ inline Roaring64MapSetBitForwardIterator Roaring64Map::end() const {
 // Represent the in-memory and on-disk structure of Doris's BITMAP data type.
 // Optimize for the case where the bitmap contains 0 or 1 element which is common
 // for streaming load scenario.
+class BitmapValueIterator;
 class BitmapValue {
 public:
     // Construct an empty bitmap.
@@ -1009,43 +1180,43 @@ public:
 
     void remove(uint64_t value) {
         switch (_type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                //there is need to convert the type if two variables are equal
-                if (_sv == value) {
-                    _type = EMPTY;
-                }
-                break;
-            case BITMAP:
-                _bitmap.remove(value);
-                _convert_to_smaller_type();
+        case EMPTY:
+            break;
+        case SINGLE:
+            //there is need to convert the type if two variables are equal
+            if (_sv == value) {
+                _type = EMPTY;
+            }
+            break;
+        case BITMAP:
+            _bitmap.remove(value);
+            _convert_to_smaller_type();
         }
     }
 
     // Compute the union between the current bitmap and the provided bitmap.
     BitmapValue& operator-=(const BitmapValue& rhs) {
         switch (rhs._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            remove(rhs._sv);
+            break;
+        case BITMAP:
+            switch (_type) {
             case EMPTY:
                 break;
             case SINGLE:
-                remove(rhs._sv);
-                break;
-            case BITMAP:
-                switch (_type) {
-                    case EMPTY:
-                        break;
-                    case SINGLE:
-                        if (rhs._bitmap.contains(_sv)) {
-                            _type = EMPTY;
-                        }
-                        break;
-                    case BITMAP:
-                        _bitmap -= rhs._bitmap;
-                        _convert_to_smaller_type();
-                        break;
+                if (rhs._bitmap.contains(_sv)) {
+                    _type = EMPTY;
                 }
                 break;
+            case BITMAP:
+                _bitmap -= rhs._bitmap;
+                _convert_to_smaller_type();
+                break;
+            }
+            break;
         }
         return *this;
     }
@@ -1138,58 +1309,57 @@ public:
     // BITMAP -> SINGLE
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
+        case EMPTY:
+            break;
+        case SINGLE:
+            switch (_type) {
             case EMPTY:
+                add(rhs._sv);
                 break;
             case SINGLE:
-                switch (_type) {
-                    case EMPTY:
-                        add(rhs._sv);
-                        break;
-                    case SINGLE:
-                        if (_sv == rhs._sv) {
-                            _type = EMPTY;
-                            _bitmap.clear();
-                        } else {
-                            add(rhs._sv);
-                        }
-                        break;
-                    case BITMAP:
-                        if (!_bitmap.contains(rhs._sv)) {
-                            add(rhs._sv);
-                        } else {
-                            _bitmap.remove(rhs._sv);
-                        }
-                        break;
+                if (_sv == rhs._sv) {
+                    _type = EMPTY;
+                    _bitmap.clear();
+                } else {
+                    add(rhs._sv);
                 }
                 break;
             case BITMAP:
-                switch (_type) {
-                    case EMPTY:
-                        _bitmap = rhs._bitmap;
-                        _type = BITMAP;
-                        break;
-                    case SINGLE:
-                        _bitmap = rhs._bitmap;
-                        _type = BITMAP;
-                        if (!rhs._bitmap.contains(_sv)) {
-                            _bitmap.add(_sv);
-                        } else {
-                            _bitmap.remove(_sv);
-                        }
-                        break;
-                    case BITMAP:
-                        _bitmap ^= rhs._bitmap;
-                        _convert_to_smaller_type();
-                        break;
+                if (!_bitmap.contains(rhs._sv)) {
+                    add(rhs._sv);
+                } else {
+                    _bitmap.remove(rhs._sv);
                 }
                 break;
+            }
+            break;
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                _bitmap = rhs._bitmap;
+                _type = BITMAP;
+                break;
+            case SINGLE:
+                _bitmap = rhs._bitmap;
+                _type = BITMAP;
+                if (!rhs._bitmap.contains(_sv)) {
+                    _bitmap.add(_sv);
+                } else {
+                    _bitmap.remove(_sv);
+                }
+                break;
+            case BITMAP:
+                _bitmap ^= rhs._bitmap;
+                _convert_to_smaller_type();
+                break;
+            }
+            break;
         }
         return *this;
     }
 
-
     // check if value x is present
-    bool contains(uint64_t x) {
+    bool contains(uint64_t x) const {
         switch (_type) {
         case EMPTY:
             return false;
@@ -1201,8 +1371,7 @@ public:
         return false;
     }
 
-    // TODO should the return type be uint64_t?
-    int64_t cardinality() const {
+    uint64_t cardinality() const {
         switch (_type) {
         case EMPTY:
             return 0;
@@ -1210,6 +1379,110 @@ public:
             return 1;
         case BITMAP:
             return _bitmap.cardinality();
+        }
+        return 0;
+    }
+
+    uint64_t and_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return 0;
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return _sv == rhs._sv;
+            case BITMAP:
+                return _bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.andCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t or_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return 1 + (_sv != rhs._sv);
+            case BITMAP:
+                return cardinality() + !_bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + !rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.orCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t xor_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 1;
+            case SINGLE:
+                return 2 - 2 * (_sv == rhs._sv);
+            case BITMAP:
+                return cardinality() + 1 - 2 * (_bitmap.contains(rhs._sv));
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return rhs.cardinality();
+            case SINGLE:
+                return rhs.cardinality() + 1 - 2 * (rhs._bitmap.contains(_sv));
+            case BITMAP:
+                return _bitmap.xorCardinality(rhs._bitmap);
+            }
+        }
+        return 0;
+    }
+
+    uint64_t andnot_cardinality(const BitmapValue& rhs) const {
+        switch (rhs._type) {
+        case EMPTY:
+            return cardinality();
+        case SINGLE:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return 1 - _sv == rhs._sv;
+            case BITMAP:
+                return cardinality() - _bitmap.contains(rhs._sv);
+            }
+        case BITMAP:
+            switch (_type) {
+            case EMPTY:
+                return 0;
+            case SINGLE:
+                return !rhs._bitmap.contains(_sv);
+            case BITMAP:
+                return _bitmap.andnotCardinality(rhs._bitmap);
+            }
         }
         return 0;
     }
@@ -1230,7 +1503,6 @@ public:
             }
             break;
         case BITMAP:
-            DCHECK(_bitmap.cardinality() > 1);
             _bitmap.runOptimize();
             _bitmap.shrinkToFit();
             res = _bitmap.getSizeInBytes();
@@ -1288,7 +1560,7 @@ public:
         return true;
     }
 
-    doris_udf::BigIntVal minimum() {
+    doris_udf::BigIntVal minimum() const {
         switch (_type) {
         case SINGLE:
             return doris_udf::BigIntVal(_sv);
@@ -1333,6 +1605,99 @@ public:
         return ss.str();
     }
 
+    doris_udf::BigIntVal maximum() const {
+        switch (_type) {
+        case SINGLE:
+            return doris_udf::BigIntVal(_sv);
+        case BITMAP:
+            return doris_udf::BigIntVal(_bitmap.maximum());
+        default:
+            return doris_udf::BigIntVal::null();
+        }
+    }
+
+    /**
+     * Return new set with specified range (not include the range_end)
+     */
+    int64_t sub_range(const int64_t& range_start, const int64_t& range_end,
+                      BitmapValue* ret_bitmap) {
+        int64_t count = 0;
+        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+            if (*it < range_start) {
+                continue;
+            }
+            if (*it < range_end) {
+                ret_bitmap->add(*it);
+                ++count;
+            } else {
+                break;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Return new set with specified start and limit
+     * @param range_start the start value for the range
+     * @param cardinality_limit the length of the subset
+     * @return the real count for subset, maybe less than cardinality_limit
+     */
+    int64_t sub_limit(const int64_t& range_start, const int64_t& cardinality_limit,
+                      BitmapValue* ret_bitmap) {
+        int64_t count = 0;
+        for (auto it = _bitmap.begin(); it != _bitmap.end(); ++it) {
+            if (*it < range_start) {
+                continue;
+            }
+            if (count < cardinality_limit) {
+                ret_bitmap->add(*it);
+                ++count;
+            } else {
+                break;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * Returns the bitmap elements, starting from the offset position.
+     * The number of returned elements is limited by the cardinality_limit parameter.
+     * Analog of the substring string function, but for bitmap.
+     */
+    int64_t offset_limit(const int64_t& offset, const int64_t& limit, BitmapValue* ret_bitmap) {
+        if (std::abs(offset) >= _bitmap.cardinality()) {
+            return 0;
+        }
+        int64_t abs_offset = offset;
+        if (offset < 0) {
+            abs_offset = _bitmap.cardinality() + offset;
+        }
+
+        int64_t count = 0;
+        int64_t offset_count = 0;
+        auto it = _bitmap.begin();
+        for (; it != _bitmap.end() && offset_count < abs_offset; ++it) {
+            ++offset_count;
+        }
+        for (; it != _bitmap.end() && count < limit; ++it, ++count) {
+            ret_bitmap->add(*it);
+        }
+        return count;
+    }
+
+    void clear() {
+        _type = EMPTY;
+        _bitmap.clear();
+        _sv = 0;
+    }
+
+    // Implement an iterator for convenience
+    friend class BitmapValueIterator;
+    typedef BitmapValueIterator b_iterator;
+
+    b_iterator begin() const;
+    b_iterator end() const;
+
 private:
     void _convert_to_smaller_type() {
         if (_type == BITMAP) {
@@ -1358,6 +1723,117 @@ private:
     BitmapDataType _type;
 };
 
-} // namespace doris
+// A simple implement of bitmap value iterator(Read only)
+// Usage:
+//  BitmapValueIterator iter = bitmap_value.begin();
+//  BitmapValueIterator end = bitmap_value.end();
+//  for (; iter != end(); ++iter) {
+//      uint64_t v = *iter;
+//      ... do something with "v" ...
+//  }
+class BitmapValueIterator {
+public:
+    BitmapValueIterator(const BitmapValue& bitmap, bool end = false) : _bitmap(bitmap), _end(end) {
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::EMPTY:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::SINGLE:
+            _sv = _bitmap._sv;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            _iter = new detail::Roaring64MapSetBitForwardIterator(_bitmap._bitmap, _end);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
+        }
+    }
 
-#endif //DORIS_BE_SRC_UTIL_BITMAP_VALUE_H
+    BitmapValueIterator(const BitmapValueIterator& other)
+            : _bitmap(other._bitmap), _iter(other._iter), _sv(other._sv), _end(other._end) {}
+
+    ~BitmapValueIterator() {
+        if (_iter != nullptr) {
+            delete _iter;
+            _iter = nullptr;
+        }
+    }
+
+    uint64_t operator*() const {
+        CHECK(!_end) << "should not get value of end iterator";
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return *(*_iter);
+        default:
+            CHECK(false) << _bitmap._type;
+        }
+        return 0;
+    }
+
+    BitmapValueIterator& operator++() { // ++i, must returned inc. value
+        CHECK(!_end) << "should not forward when iterator ends";
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::SINGLE:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            ++(*_iter);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
+        }
+        return *this;
+    }
+
+    BitmapValueIterator operator++(int) { // i++, must return orig. value
+        CHECK(!_end) << "should not forward when iterator ends";
+        BitmapValueIterator orig(*this);
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::SINGLE:
+            _end = true;
+            break;
+        case BitmapValue::BitmapDataType::BITMAP:
+            ++(*_iter);
+            break;
+        default:
+            CHECK(false) << _bitmap._type;
+        }
+        return orig;
+    }
+
+    bool operator==(const BitmapValueIterator& other) const {
+        if (_end && other._end) return true;
+
+        switch (_bitmap._type) {
+        case BitmapValue::BitmapDataType::EMPTY:
+            return other._bitmap._type == BitmapValue::BitmapDataType::EMPTY;
+        case BitmapValue::BitmapDataType::SINGLE:
+            return _sv == other._sv;
+        case BitmapValue::BitmapDataType::BITMAP:
+            return *_iter == *(other._iter);
+        default:
+            CHECK(false) << _bitmap._type;
+        }
+        return false;
+    }
+
+    bool operator!=(const BitmapValueIterator& other) const { return !(*this == other); }
+
+private:
+    const BitmapValue& _bitmap;
+    detail::Roaring64MapSetBitForwardIterator* _iter = nullptr;
+    uint64_t _sv = 0;
+    bool _end = false;
+};
+
+inline BitmapValueIterator BitmapValue::begin() const {
+    return BitmapValueIterator(*this);
+}
+
+inline BitmapValueIterator BitmapValue::end() const {
+    return BitmapValueIterator(*this, true);
+}
+
+} // namespace doris

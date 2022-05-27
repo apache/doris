@@ -18,7 +18,6 @@
 #include "olap/compaction.h"
 
 #include "gutil/strings/substitute.h"
-#include "olap/rowset/rowset_factory.h"
 #include "util/time.h"
 #include "util/trace.h"
 
@@ -26,45 +25,47 @@ using std::vector;
 
 namespace doris {
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label,
-                       const std::shared_ptr<MemTracker>& parent_tracker)
-        : _mem_tracker(MemTracker::CreateTracker(-1, label, parent_tracker, true, false, MemTrackerLevel::TASK)),
-          _readers_tracker(MemTracker::CreateTracker(-1, "CompactionReaderTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
-          _writer_tracker(MemTracker::CreateTracker(-1, "CompationWriterTracker:" + std::to_string(tablet->tablet_id()), _mem_tracker,
-                  true, false)),
-          _tablet(tablet),
+Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
+        : _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
-          _state(CompactionState::INITED) {}
+          _state(CompactionState::INITED) {
+#ifndef BE_TEST
+    _mem_tracker = MemTracker::create_tracker(-1, label,
+                                              StorageEngine::instance()->compaction_mem_tracker(),
+                                              MemTrackerLevel::INSTANCE);
+#else
+    _mem_tracker = MemTracker::get_process_tracker();
+#endif
+}
 
 Compaction::~Compaction() {}
 
-OLAPStatus Compaction::compact() {
+Status Compaction::compact() {
     RETURN_NOT_OK(prepare_compact());
     RETURN_NOT_OK(execute_compact());
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Compaction::execute_compact() {
-    OLAPStatus st = execute_compact_impl();
-    if (st != OLAP_SUCCESS) {
+Status Compaction::execute_compact() {
+    Status st = execute_compact_impl();
+    if (!st.ok()) {
         gc_output_rowset();
     }
     return st;
 }
 
-OLAPStatus Compaction::do_compaction(int64_t permits) {
+Status Compaction::do_compaction(int64_t permits) {
     TRACE("start to do compaction");
     _tablet->data_dir()->disks_compaction_score_increment(permits);
     _tablet->data_dir()->disks_compaction_num_increment(1);
-    OLAPStatus st = do_compaction_impl(permits);
+    Status st = do_compaction_impl(permits);
     _tablet->data_dir()->disks_compaction_score_increment(-permits);
     _tablet->data_dir()->disks_compaction_num_increment(-1);
     return st;
 }
 
-OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
+Status Compaction::do_compaction_impl(int64_t permits) {
     OlapStopWatch watch;
 
     // 1. prepare input and output parameters
@@ -80,9 +81,11 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
-    _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
 
-    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
+    auto use_vectorized_compaction = _should_use_vectorized_compaction();
+    string merge_type = use_vectorized_compaction ? "v" : "";
+
+    LOG(INFO) << "start " << merge_type << compaction_name() << ". tablet=" << _tablet->full_name()
               << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
@@ -92,10 +95,18 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    auto res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+    Status res;
+
+    if (use_vectorized_compaction) {
+        res = Merger::vmerge_rowsets(_tablet, compaction_type(), _input_rs_readers,
                                      _output_rs_writer.get(), &stats);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to do " << compaction_name() << ". res=" << res
+    } else {
+        res = Merger::merge_rowsets(_tablet, compaction_type(), _input_rs_readers,
+                                    _output_rs_writer.get(), &stats);
+    }
+
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
                      << ", tablet=" << _tablet->full_name()
                      << ", output_version=" << _output_version;
         return res;
@@ -108,7 +119,7 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
     if (_output_rowset == nullptr) {
         LOG(WARNING) << "rowset writer build failed. writer version:"
                      << ", output_version=" << _output_version;
-        return OLAP_ERR_MALLOC_ERROR;
+        return Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
     }
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
@@ -134,61 +145,45 @@ OLAPStatus Compaction::do_compaction_impl(int64_t permits) {
 
     int64_t current_max_version;
     {
-        ReadLock rdlock(_tablet->get_header_lock_ptr());
-        current_max_version = _tablet->rowset_with_max_version()->end_version();
+        std::shared_lock rdlock(_tablet->get_header_lock());
+        RowsetSharedPtr max_rowset = _tablet->rowset_with_max_version();
+        if (max_rowset == nullptr) {
+            current_max_version = -1;
+        } else {
+            current_max_version = _tablet->rowset_with_max_version()->end_version();
+        }
     }
 
-    LOG(INFO) << "succeed to do " << compaction_name() << ". tablet=" << _tablet->full_name()
-              << ", output_version=" << _output_version
+    LOG(INFO) << "succeed to do " << merge_type << compaction_name()
+              << ". tablet=" << _tablet->full_name() << ", output_version=" << _output_version
               << ", current_max_version=" << current_max_version
               << ", disk=" << _tablet->data_dir()->path() << ", segments=" << segments_num
-              << ". elapsed time=" << watch.get_elapse_second() << "s. cumulative_compaction_policy="
+              << ". elapsed time=" << watch.get_elapse_second()
+              << "s. cumulative_compaction_policy="
               << _tablet->cumulative_compaction_policy()->name() << ".";
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Compaction::construct_output_rowset_writer() {
-    RowsetWriterContext context;
-    context.rowset_id = StorageEngine::instance()->next_rowset_id();
-    context.tablet_uid = _tablet->tablet_uid();
-    context.tablet_id = _tablet->tablet_id();
-    context.partition_id = _tablet->partition_id();
-    context.tablet_schema_hash = _tablet->schema_hash();
-    context.rowset_type = StorageEngine::instance()->default_rowset_type();
-    if (_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
-        context.rowset_type = BETA_ROWSET;
-    }
-    context.rowset_path_prefix = _tablet->tablet_path();
-    context.tablet_schema = &(_tablet->tablet_schema());
-    context.rowset_state = VISIBLE;
-    context.version = _output_version;
-    context.version_hash = _output_version_hash;
-    context.segments_overlap = NONOVERLAPPING;
-    context.parent_mem_tracker = _writer_tracker;
-    // The test results show that one rs writer is low-memory-footprint, there is no need to tracker its mem pool
-    RETURN_NOT_OK(RowsetFactory::create_rowset_writer(context, &_output_rs_writer));
-    return OLAP_SUCCESS;
+Status Compaction::construct_output_rowset_writer() {
+    return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
+                                         &_output_rs_writer);
 }
 
-OLAPStatus Compaction::construct_input_rowset_readers() {
+Status Compaction::construct_input_rowset_readers() {
     for (auto& rowset : _input_rowsets) {
         RowsetReaderSharedPtr rs_reader;
-        RETURN_NOT_OK(rowset->create_reader(
-                MemTracker::CreateTracker(
-                        -1, "Compaction:RowsetReader:" + rowset->rowset_id().to_string(),
-                        _readers_tracker, true, true),
-                &rs_reader));
+        RETURN_NOT_OK(rowset->create_reader(&rs_reader));
         _input_rs_readers.push_back(std::move(rs_reader));
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 void Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
 
-    WriteLock wrlock(_tablet->get_header_lock_ptr());
+    std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
     _tablet->modify_rowsets(output_rowsets, _input_rowsets);
     _tablet->save_meta();
 }
@@ -199,13 +194,13 @@ void Compaction::gc_output_rowset() {
     }
 }
 
-// Find the longest consecutive version path in "rowset", from begining.
+// Find the longest consecutive version path in "rowset", from beginning.
 // Two versions before and after the missing version will be saved in missing_version,
 // if missing_version is not null.
-OLAPStatus Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
-                                                        std::vector<Version>* missing_version) {
+Status Compaction::find_longest_consecutive_version(std::vector<RowsetSharedPtr>* rowsets,
+                                                    std::vector<Version>* missing_version) {
     if (rowsets->empty()) {
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
     RowsetSharedPtr prev_rowset = rowsets->front();
     size_t i = 1;
@@ -222,10 +217,10 @@ OLAPStatus Compaction::find_longest_consecutive_version(std::vector<RowsetShared
     }
 
     rowsets->resize(i);
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
+Status Compaction::check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
     RowsetSharedPtr prev_rowset = rowsets.front();
     for (size_t i = 1; i < rowsets.size(); ++i) {
         RowsetSharedPtr rowset = rowsets[i];
@@ -235,15 +230,15 @@ OLAPStatus Compaction::check_version_continuity(const std::vector<RowsetSharedPt
                          << prev_rowset->end_version()
                          << ", rowset version=" << rowset->start_version() << "-"
                          << rowset->end_version();
-            return OLAP_ERR_CUMULATIVE_MISS_VERSION;
+            return Status::OLAPInternalError(OLAP_ERR_CUMULATIVE_MISS_VERSION);
         }
         prev_rowset = rowset;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
+Status Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
         LOG(WARNING) << "row_num does not match between cumulative input and output! "
@@ -260,7 +255,7 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
         // Only handle alpha rowset because we only find this bug in alpha rowset
         int64_t num_rows = _get_input_num_rows_from_seg_grps();
         if (num_rows == -1) {
-            return OLAP_ERR_CHECK_LINES_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
         }
         if (num_rows != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
             // If it is still incorrect, it may be another problem
@@ -270,10 +265,10 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
                          << ", filtered_row_num=" << stats.filtered_rows
                          << ", output_row_num=" << _output_rowset->num_rows();
 
-            return OLAP_ERR_CHECK_LINES_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_CHECK_LINES_ERROR);
         }
     }
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 int64_t Compaction::_get_input_num_rows_from_seg_grps() {
@@ -289,6 +284,16 @@ int64_t Compaction::_get_input_num_rows_from_seg_grps() {
     return num_rows;
 }
 
+bool Compaction::_should_use_vectorized_compaction() {
+    auto cols = _tablet->tablet_schema().columns();
+    for (auto it = cols.begin(); it != cols.end(); it++) {
+        if ((*it).type() == FieldType::OLAP_FIELD_TYPE_STRING) {
+            return false;
+        }
+    }
+    return config::enable_vectorized_compaction;
+}
+
 int64_t Compaction::get_compaction_permits() {
     int64_t permits = 0;
     for (auto rowset : _input_rowsets) {
@@ -297,4 +302,4 @@ int64_t Compaction::get_compaction_permits() {
     return permits;
 }
 
-}  // namespace doris
+} // namespace doris

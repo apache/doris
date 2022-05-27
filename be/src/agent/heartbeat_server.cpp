@@ -19,8 +19,8 @@
 
 #include <thrift/TProcessor.h>
 
-#include <filesystem>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 
 #include "common/status.h"
@@ -104,7 +104,7 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            OLAP_LOG_WARNING("invalid cluster id: %d. ignore.", master_info.cluster_id);
+            LOG(WARNING) << "invalid cluster id: " << master_info.cluster_id << ". ignore.";
             return Status::InternalError("invalid cluster id. ignore.");
         }
     }
@@ -170,21 +170,21 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     return Status::OK();
 }
 
-AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
-                                    ThriftServer** thrift_server, uint32_t worker_thread_num,
-                                    TMasterInfo* local_master_info) {
+Status create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
+                               ThriftServer** thrift_server, uint32_t worker_thread_num,
+                               TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
-    if (heartbeat_server == NULL) {
-        return DORIS_ERROR;
+    if (heartbeat_server == nullptr) {
+        return Status::InternalError("Get heartbeat server failed");
     }
 
     heartbeat_server->init_cluster_id();
 
-    boost::shared_ptr<HeartbeatServer> handler(heartbeat_server);
-    boost::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
+    std::shared_ptr<HeartbeatServer> handler(heartbeat_server);
+    std::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
     string server_name("heartbeat");
     *thrift_server =
             new ThriftServer(server_name, server_processor, server_port, worker_thread_num);
-    return DORIS_SUCCESS;
+    return Status::OK();
 }
 } // namespace doris

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/tuple-is-null-predicate.cc
+// and modified by Doris
 
 #include "exprs/tuple_is_null_predicate.h"
 
@@ -47,7 +50,7 @@ Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& r
 BooleanVal TupleIsNullPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     int count = 0;
     for (int i = 0; i < _tuple_idxs.size(); ++i) {
-        count += row->get_tuple(_tuple_idxs[i]) == NULL;
+        count += row->get_tuple(_tuple_idxs[i]) == nullptr;
     }
     return BooleanVal(!_tuple_idxs.empty() && count == _tuple_idxs.size());
 }

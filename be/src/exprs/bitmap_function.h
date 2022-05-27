@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H
+#pragma once
 
 #include "udf/udf.h"
 
@@ -55,7 +54,16 @@ public:
     static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_and_not_count(FunctionContext* ctx, const StringVal& src,
+                                          const StringVal& dst);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& src,
+                                      const StringVal& dst);
     static BigIntVal bitmap_min(FunctionContext* ctx, const StringVal& str);
+
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs);
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
@@ -64,16 +72,36 @@ public:
     static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
     static StringVal bitmap_not(FunctionContext* ctx, const StringVal& src, const StringVal& dst);
+    static StringVal bitmap_and_not(FunctionContext* ctx, const StringVal& src,
+                                    const StringVal& dst);
+
+    //TODO: this functions support variable parameter, but in order to version compatible
+    //so have not remove old functions, and now is the version of 0.15, in the future could remove that functions
+    static StringVal bitmap_or(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                               const StringVal* bitmap_strs);
+    static StringVal bitmap_and(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static StringVal bitmap_xor(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                const StringVal* bitmap_strs);
+    static BigIntVal bitmap_or_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                     const StringVal* bitmap_strs);
+    static BigIntVal bitmap_and_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                      const StringVal* bitmap_strs);
+    static BigIntVal bitmap_xor_count(FunctionContext* ctx, const StringVal& lhs, int num_args,
+                                      const StringVal* bitmap_strs);
+
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
     // Example:
     //      "" will be converted to an empty Bitmap
     //      "1,2,3" will be converted to Bitmap with its Bit 1, 2, 3 set.
-    //      "-1, 1" will get NULL, because -1 is not a valid bit for Bitmap
+    //      "-1, 1" will get nullptr, because -1 is not a valid bit for Bitmap
     static StringVal bitmap_from_string(FunctionContext* ctx, const StringVal& input);
     static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src,
                                       const BigIntVal& input);
     static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs);
+    static BooleanVal bitmap_has_all(FunctionContext* ctx, const StringVal& lhs,
                                      const StringVal& rhs);
 
     // intersect count
@@ -91,6 +119,39 @@ public:
     static StringVal bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src);
     template <typename T>
     static BigIntVal bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src);
+    static BigIntVal bitmap_max(FunctionContext* ctx, const StringVal& str);
+    static StringVal bitmap_subset_in_range(FunctionContext* ctx, const StringVal& src,
+                                            const BigIntVal& range_start,
+                                            const BigIntVal& range_end);
+    static StringVal bitmap_subset_limit(FunctionContext* ctx, const StringVal& src,
+                                         const BigIntVal& range_start,
+                                         const BigIntVal& cardinality_limit);
+    static StringVal sub_bitmap(FunctionContext* ctx, const StringVal& src, const BigIntVal& offset,
+                                const BigIntVal& cardinality_limit);
+
+    static void orthogonal_bitmap_union_count_init(FunctionContext* ctx, StringVal* slot);
+    static StringVal orthogonal_bitmap_count_serialize(FunctionContext* ctx, const StringVal& src);
+    static void orthogonal_bitmap_count_merge(FunctionContext* context, const StringVal& src,
+                                              StringVal* dst);
+    static BigIntVal orthogonal_bitmap_count_finalize(FunctionContext* context,
+                                                      const StringVal& src);
+
+    // orthogonal intersect and intersect count
+    template <typename T, typename ValType>
+    static void orthogonal_bitmap_intersect_count_init(FunctionContext* ctx, StringVal* dst);
+    template <typename T, typename ValType>
+    static void orthogonal_bitmap_intersect_init(FunctionContext* ctx, StringVal* dst);
+
+    template <typename T>
+    static StringVal orthogonal_bitmap_intersect_serialize(FunctionContext* ctx,
+                                                           const StringVal& src);
+    template <typename T>
+    static BigIntVal orthogonal_bitmap_intersect_finalize(FunctionContext* ctx,
+                                                          const StringVal& src);
+
+    // orthogonal_bitmap_intersect_count_serialize
+    template <typename T>
+    static StringVal orthogonal_bitmap_intersect_count_serialize(FunctionContext* ctx,
+                                                                 const StringVal& src);
 };
 } // namespace doris
-#endif //DORIS_BE_SRC_QUERY_EXPRS_BITMAP_FUNCTION_H

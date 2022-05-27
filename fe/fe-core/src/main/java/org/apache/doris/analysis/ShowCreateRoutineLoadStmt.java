@@ -27,9 +27,9 @@ public class ShowCreateRoutineLoadStmt extends ShowStmt {
 
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("Routine Load Id", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Routine Load Name", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Create Routine Load", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("JobName", ScalarType.createVarchar(128)))
+                    .addColumn(new Column("CreateStmt", ScalarType.createVarchar(65535)))
                     .build();
 
     private final LabelName labelName;

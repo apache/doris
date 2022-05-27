@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
-#define DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H
-
-#include <boost/shared_ptr.hpp>
+#pragma once
 
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
@@ -26,73 +23,73 @@
 
 namespace doris {
 
-// ByteBuffer是用于数据缓存的一个类
-// ByteBuffer内部维护一个char数组用于缓存数据;
-// 同时ByteBuffer维护内部指针用于数据读写;
+// ByteBuffer is a class used for data caching
+// ByteBuffer maintains an internal char array for caching data;
+// ByteBuffer maintains internal Pointers for reading and writing data;
 //
-// ByteBuffer有如下几个重要的使用概念:
-//     capacity - 缓存区的容量, 在初始化时设立, 是内部char数组的大小
-//     position - 当前内部指针的位置
-//     limit - 最大使用限制, 这个值小于等于capacity, position始终小于limit
+// ByteBuffer has the following important usage concepts:
+// capacity - the capacity of the buffer, set at initialization, is the size of the internal char array
+// position - the current internal pointer position
+// limit - maximum usage limit, this value is less than or equal to capacity, position is always less than limit
 //
-// ByteBuffer支持直接利用拷贝构造函数或者=操作符安全的进行数据的浅拷贝
+// ByteBuffer supports safe shallow copying of data directly using the copy constructor or = operator
 class StorageByteBuffer {
 public:
-    // 通过new方法创建一个容量为capacity的StorageByteBuffer.
-    // 新buffer的position为0, limit为capacity
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
+    // Create a StorageByteBuffer of capacity with the new method.
+    // The position of the new buffer is 0, and the limit is capacity
+    // The caller obtains the ownership of the newly created ByteBuffer, and needs to use delete method to delete the obtained StorageByteBuffer
     //
-    // TODO. 我认为这里create用法应该是直接返回ByteBuffer本身而不是智能指
-    // 针，否则智能指针就无法发挥作用
-    //  目前内存的管理还是手动的。而且需要认为delete。
+    // TODO. I think the use of create here should directly return the ByteBuffer itself instead of the smart pointer,
+    // otherwise the smart pointer will not work,
+    // and the current memory management is still manual.and need to think delete.
     static StorageByteBuffer* create(uint64_t capacity);
 
-    // 通过引用另一个ByteBuffer的内存创建一个新的StorageByteBuffer
-    // 新buffer的position为0, limit为length
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
+    // Create a new StorageByteBuffer by referencing another ByteBuffer's memory
+    // The position of the new buffer is 0, and the limit is length
+    // The caller obtains the ownership of the newly created ByteBuffer, and needs to use delete method to delete the obtained StorageByteBuffer
     // Inputs:
-    //   - reference 引用的内存
-    //   - offset 引用的Buffer在原ByteBuffer中的位置, 即&reference->array()[offset]
-    //   - length 引用的Buffer的长度
+    //   - reference referenced memory
+    //   - offset The position of the referenced Buffer in the original ByteBuffer, i.e.&reference->array()[offset]
+    //   - length The length of the referenced Buffer
     // Notes:
     //   offset + length < reference->capacity
     //
-    // TODO. 同create
+    // TODO. same as create
     static StorageByteBuffer* reference_buffer(StorageByteBuffer* reference, uint64_t offset,
                                                uint64_t length);
 
-    // 通过mmap创建一个ByteBuffer, mmap成功后的内存由ByteBuffer托管
-    // start, length, prot, flags, fd, offset都是mmap函数的参数
-    // 调用者获得新建的ByteBuffer的所有权,并需使用delete删除获得的StorageByteBuffer
+    // Create a ByteBuffer through mmap, and the memory after successful mmap is managed by ByteBuffer
+    // start, length, prot, flags, fd, offset are all parameters of mmap function
+    // The caller obtains the ownership of the newly created ByteBuffer, and needs to use delete method to delete the obtained StorageByteBuffer
     static StorageByteBuffer* mmap(void* start, uint64_t length, int prot, int flags, int fd,
                                    uint64_t offset);
 
-    // 由于olap的文件都是用FileHandler封装的，因此稍微修?
-    // ??下接口，省略掉的参数可以在handler中取到
-    // 旧接口仍然保留，或许会用到？
+    // Since olap files are encapsulated with FileHandler, the interface is slightly modified
+    // and the omitted parameters can be obtained in the handler.
+    // The old interface is still preserved, maybe it will be used?
     static StorageByteBuffer* mmap(FileHandler* handler, uint64_t offset, int prot, int flags);
 
-    inline uint64_t capacity() const { return _capacity; }
+    uint64_t capacity() const { return _capacity; }
 
-    inline uint64_t position() const { return _position; }
-    // 设置内部指针的位置
-    // 如果新位置大于等于limit, 则返回OLAP_ERR_INPUT_PARAMETER_ERROR
-    OLAPStatus set_position(uint64_t new_position) {
+    uint64_t position() const { return _position; }
+    // Set the position of the internal pointer
+    // If the new position is greater than or equal to limit, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+    Status set_position(uint64_t new_position) {
         if (new_position <= _limit) {
             _position = new_position;
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
     }
 
-    inline uint64_t limit() const { return _limit; }
-    //设置新的limit
-    //如果limit超过capacity, 返回OLAP_ERR_INPUT_PARAMETER_ERROR
-    //如果position大于新的limit, 设置position等于limit
-    OLAPStatus set_limit(uint64_t new_limit) {
+    uint64_t limit() const { return _limit; }
+    //set new limit
+    //If limit is greater than capacity, return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR)
+    //If position is greater than the new limit, set position equal to limit
+    Status set_limit(uint64_t new_limit) {
         if (new_limit > _capacity) {
-            return OLAP_ERR_INPUT_PARAMETER_ERROR;
+            return Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         }
 
         _limit = new_limit;
@@ -101,108 +98,108 @@ public:
             _position = _limit;
         }
 
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    inline uint64_t remaining() const { return _limit - _position; }
+    uint64_t remaining() const { return _limit - _position; }
 
-    // 将limit设置为当前position
-    // 将position设置为0
-    // 这个函数可以用于将ByteBuffer从写状态转为读状态, 即在进行一些写之后
-    // 调用本函数,之后可以对ByteBuffer做读操作.
+    // Set limit to current position
+    // set position to 0
+    // This function can be used to change the ByteBuffer from the write state to the read state,
+    //  that is, call this function after some writes, and then read the ByteBuffer.
     void flip() {
         _limit = _position;
         _position = 0;
     }
 
-    // 以下三个读取函数进行inline优化
+    // The following three read functions are inline optimized
 
-    // 读取一个字节的数据, 完成后增加position
-    inline OLAPStatus get(char* result) {
+    // Read one byte of data, increase position after completion
+    Status get(char* result) {
         if (OLAP_LIKELY(_position < _limit)) {
             *result = _array[_position++];
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
     }
 
-    // 读取指定位置的一个字节的数据
-    inline OLAPStatus get(uint64_t index, char* result) {
+    // Read one byte of data at the specified location
+    Status get(uint64_t index, char* result) {
         if (OLAP_LIKELY(index < _limit)) {
             *result = _array[index];
-            return OLAP_SUCCESS;
+            return Status::OK();
         } else {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
     }
 
-    // 读取length长度的一段数据到dst, 完成后增加position
-    inline OLAPStatus get(char* dst, uint64_t dst_size, uint64_t length) {
-        //没有足够的数据可读
+    // Read a piece of data of length length to dst, and increase the position after completion
+    Status get(char* dst, uint64_t dst_size, uint64_t length) {
+        // Not enough data to read
         if (OLAP_UNLIKELY(length > remaining())) {
-            return OLAP_ERR_OUT_OF_BOUND;
+            return Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND);
         }
 
-        //dst不够大
+        // dst is not big enough
         if (OLAP_UNLIKELY(length > dst_size)) {
-            return OLAP_ERR_BUFFER_OVERFLOW;
+            return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW);
         }
 
         memory_copy(dst, &_array[_position], length);
         _position += length;
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
-    // 读取dst_size长的数据到dst
-    inline OLAPStatus get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
+    // Read dst_size long data to dst
+    Status get(char* dst, uint64_t dst_size) { return get(dst, dst_size, dst_size); }
 
-    // 写入一个字节, 完成后增加position
-    // 如果写入前position >= limit, 则返回OLAP_ERR_BUFFER_OVERFLOW
-    OLAPStatus put(char src);
+    // Write a byte, increment position when done
+    // If position >= limit before writing, return Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW)
+    Status put(char src);
 
-    // 在index位置写入数据, 不会改变position
+    // Write data at the index position without changing the position
     // Returns:
-    //   OLAP_ERR_BUFFER_OVERFLOW : index >= limit
-    OLAPStatus put(uint64_t index, char src);
+    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW) : index >= limit
+    Status put(uint64_t index, char src);
 
-    // 从&src[offset]读取length字节数据, 并写入buffer, 完成后增加position
+    // Read length bytes from &src[offset], write to buffer, and increase position after completion
     // Returns:
-    //   OLAP_ERR_BUFFER_OVERFLOW: remaining() < length
-    //   OLAP_ERR_OUT_OF_BOUND: offset + length > src_size
-    OLAPStatus put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
+    //   Status::OLAPInternalError(OLAP_ERR_BUFFER_OVERFLOW): remaining() < length
+    //   Status::OLAPInternalError(OLAP_ERR_OUT_OF_BOUND): offset + length > src_size
+    Status put(const char* src, uint64_t src_size, uint64_t offset, uint64_t length);
 
-    // 写入一组数据
-    OLAPStatus put(const char* src, uint64_t src_size) { return put(src, src_size, 0, src_size); }
+    // write a set of data
+    Status put(const char* src, uint64_t src_size) { return put(src, src_size, 0, src_size); }
 
-    // 返回ByteBuffer内部的char数组
+    // Returns the char array inside the ByteBuffer
     const char* array() const { return _array; }
     const char* array(size_t position) const {
-        return position >= _limit ? NULL : &_array[position];
+        return position >= _limit ? nullptr : &_array[position];
     }
     char* array() { return _array; }
 
 private:
-    // 自定义析构类,支持对new[]和mmap的内存进行析构
-    // 默认使用delete进行释放
+    // A custom destructor class that supports destructing the memory of new[] and mmap
+    // Use delete to release by default
     class BufDeleter {
     public:
         BufDeleter();
-        // 设置使用mmap方式
+        // Set to use mmap method
         void set_mmap(size_t mmap_length);
         void operator()(char* p);
 
     private:
-        bool _is_mmap;       // 是否使用mmap
-        size_t _mmap_length; // 如果使用mmap,记录mmap的长度
+        bool _is_mmap;       // whether to use mmap
+        size_t _mmap_length; // If mmap is used, record the length of mmap
     };
 
 private:
-    // 不支持直接创建ByteBuffer, 而是通过create方法创建
+    // Direct creation of ByteBuffer is not supported, but created through the create method
     StorageByteBuffer();
 
 private:
-    boost::shared_ptr<char> _buf; // 托管的内存
+    std::shared_ptr<char> _buf; // managed memory
     char* _array;
     uint64_t _capacity;
     uint64_t _limit;
@@ -211,4 +208,3 @@ private:
 };
 
 } // namespace doris
-#endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_BYTE_BUFFER_H

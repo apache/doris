@@ -14,12 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/union-node.h
+// and modified by Doris
 
 #pragma once
 
-#include <boost/scoped_ptr.hpp>
-
-#include "codegen/doris_ir.h"
 #include "exec/exec_node.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -80,7 +80,7 @@ private:
 
     /// Current row batch of current child. We reset the pointer to a new RowBatch
     /// when switching to a different child.
-    boost::scoped_ptr<RowBatch> _child_batch;
+    std::unique_ptr<RowBatch> _child_batch;
 
     /// Index of current row in child_row_batch_.
     int _child_row_idx;
@@ -88,8 +88,8 @@ private:
     typedef void (*UnionMaterializeBatchFn)(UnionNode*, RowBatch*, uint8_t**);
     /// Vector of pointers to codegen'ed materialize_batch functions. The vector contains one
     /// function for each child. The size of the vector should be equal to the number of
-    /// children. If a child is passthrough, there should be a NULL for that child. If
-    /// Codegen is disabled, there should be a NULL for every child.
+    /// children. If a child is passthrough, there should be a nullptr for that child. If
+    /// Codegen is disabled, there should be a nullptr for every child.
     std::vector<UnionMaterializeBatchFn> _codegend_union_materialize_batch_fns;
 
     /// Saved from the last to GetNext() on the current child.

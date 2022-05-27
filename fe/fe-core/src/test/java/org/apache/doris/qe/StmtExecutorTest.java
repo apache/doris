@@ -44,8 +44,10 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-
-import org.glassfish.jersey.internal.guava.Sets;
+import com.google.common.collect.Sets;
+import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -58,10 +60,6 @@ import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import java_cup.runtime.Symbol;
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class StmtExecutorTest {
     private ConnectContext ctx;
@@ -342,7 +340,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = ctx;
             }
         };
@@ -399,7 +397,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = killCtx;
             }
         };
@@ -420,7 +418,7 @@ public class StmtExecutorTest {
 
                 killStmt.getConnectionId();
                 minTimes = 0;
-                result = 1L;
+                result = 1;
 
                 killStmt.isConnectionKill();
                 minTimes = 0;
@@ -455,7 +453,7 @@ public class StmtExecutorTest {
         new Expectations(scheduler) {
             {
                 // suicide
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = killCtx;
             }
         };
@@ -475,7 +473,7 @@ public class StmtExecutorTest {
 
                 killStmt.getConnectionId();
                 minTimes = 0;
-                result = 1L;
+                result = 1;
 
                 killStmt.getRedirectStatus();
                 minTimes = 0;
@@ -490,7 +488,7 @@ public class StmtExecutorTest {
 
         new Expectations(scheduler) {
             {
-                scheduler.getContext(1L);
+                scheduler.getContext(1);
                 result = null;
             }
         };
@@ -535,8 +533,8 @@ public class StmtExecutorTest {
         Deencapsulation.setField(stmtExecutor, "parsedStmt", null);
         Deencapsulation.setField(stmtExecutor, "originStmt", new OriginStatement("show databases;", 1));
         stmtExecutor.execute();
-        StatementBase newstmt = (StatementBase)Deencapsulation.getField(stmtExecutor, "parsedStmt");
-        Assert.assertTrue(newstmt.getUserInfo() != null);
+        StatementBase newstmt = Deencapsulation.getField(stmtExecutor, "parsedStmt");
+        Assert.assertNotNull(newstmt.getUserInfo());
     }
 
     @Test
@@ -733,4 +731,3 @@ public class StmtExecutorTest {
         Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
     }
 }
-

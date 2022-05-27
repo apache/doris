@@ -16,8 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_EXEC_ES_HTTP_SCANNER_H
-#define BE_EXEC_ES_HTTP_SCANNER_H
+#pragma once
 
 #include <map>
 #include <memory>
@@ -43,7 +42,6 @@ class TextConverter;
 class TupleDescriptor;
 class TupleRow;
 class RowDescriptor;
-class MemTracker;
 class RuntimeProfile;
 
 struct EsScanCounter {
@@ -68,7 +66,7 @@ public:
 
     void close();
 
-private:
+protected:
     RuntimeState* _state;
     RuntimeProfile* _profile;
     TupleId _tuple_id;
@@ -82,8 +80,7 @@ private:
     std::vector<SlotDescriptor*> _slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
 
-    std::shared_ptr<MemTracker> _mem_tracker;
-    MemPool _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 
     const TupleDescriptor* _tuple_desc;
     EsScanCounter* _counter;
@@ -99,5 +96,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

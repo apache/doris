@@ -17,15 +17,79 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.util.SqlParserUtils;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 
 import java.io.StringReader;
 import java.lang.reflect.Method;
 
-public class AdminShowReplicaTest {
+public class AdminShowReplicaTest extends TestWithFeService {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        createDatabase("test");
+        createTable("create table test.tbl1\n"
+                + "(k1 date, k2 int)\n"
+                + "partition by range(k1)\n"
+                + "(\n"
+                + "    partition p1 values less than(\"2021-07-01\"),\n"
+                + "    partition p2 values less than(\"2021-08-01\")\n"
+                + ")\n" + "distributed by hash(k2) buckets 10\n"
+                + "properties(\"replication_num\" = \"1\");");
+    }
+
+    @Test
+    public void testShowReplicaDistribution() throws Exception {
+        String stmtStr = "admin show replica distribution from test.tbl1 partition(p1)";
+        AdminShowReplicaDistributionStmt stmt = (AdminShowReplicaDistributionStmt) parseAndAnalyzeStmt(
+                stmtStr);
+        ShowExecutor executor = new ShowExecutor(connectContext, stmt);
+        ShowResultSet resultSet = executor.execute();
+        Assert.assertEquals(1, resultSet.getResultRows().size());
+        Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
+
+        stmtStr = "show data skew from test.tbl1 partition(p1)";
+        ShowDataSkewStmt skewStmt = (ShowDataSkewStmt) parseAndAnalyzeStmt(stmtStr);
+        executor = new ShowExecutor(connectContext, skewStmt);
+        resultSet = executor.execute();
+        Assert.assertEquals(10, resultSet.getResultRows().size());
+        Assert.assertEquals(4, resultSet.getResultRows().get(0).size());
+
+        // update tablets' data size and row count
+        Database db = Catalog.getCurrentCatalog().getDbOrAnalysisException("default_cluster:test");
+        OlapTable olapTable = db.getOlapTableOrAnalysisException("tbl1");
+        for (Partition partition : olapTable.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replica.updateStat(1024, 2);
+                    }
+                }
+            }
+        }
+
+        executor = new ShowExecutor(connectContext, stmt);
+        resultSet = executor.execute();
+        Assert.assertEquals(1, resultSet.getResultRows().size());
+        Assert.assertEquals(7, resultSet.getResultRows().get(0).size());
+
+        executor = new ShowExecutor(connectContext, skewStmt);
+        resultSet = executor.execute();
+        Assert.assertEquals(10, resultSet.getResultRows().size());
+        Assert.assertEquals("4", resultSet.getResultRows().get(4).get(0));
+        Assert.assertEquals(4, resultSet.getResultRows().get(0).size());
+    }
 
     @Test
     public void testShowReplicaStatus() {
@@ -91,6 +155,5 @@ public class AdminShowReplicaTest {
         }
         return true;
     }
-
 
 }

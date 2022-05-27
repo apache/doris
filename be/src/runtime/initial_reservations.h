@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.10.0/be/src/runtime/initial-reservations.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_INITIAL_RESERVATIONS_H
-#define DORIS_BE_RUNTIME_INITIAL_RESERVATIONS_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
@@ -77,5 +79,3 @@ private:
     int64_t remaining_initial_reservation_claims_;
 };
 } // namespace doris
-
-#endif

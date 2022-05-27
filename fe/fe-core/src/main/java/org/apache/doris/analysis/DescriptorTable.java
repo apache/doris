@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/DescriptorTable.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -23,7 +26,6 @@ import org.apache.doris.thrift.TDescriptorTable;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,28 +46,28 @@ public class DescriptorTable {
     private final HashMap<TupleId, TupleDescriptor> tupleDescs = new HashMap<TupleId, TupleDescriptor>();
     // List of referenced tables with no associated TupleDescriptor to ship to the BE.
     // For example, the output table of an insert query.
-    private final List<Table> referencedTables = new ArrayList<Table>();;
-    private final IdGenerator<TupleId> tupleIdGenerator_ = TupleId.createGenerator();
-    private final IdGenerator<SlotId> slotIdGenerator_ = SlotId.createGenerator();
+    private final List<Table> referencedTables = new ArrayList<Table>();
+    private final IdGenerator<TupleId> tupleIdGenerator = TupleId.createGenerator();
+    private final IdGenerator<SlotId> slotIdGenerator = SlotId.createGenerator();
     private final HashMap<SlotId, SlotDescriptor> slotDescs = Maps.newHashMap();
 
     public DescriptorTable() {
     }
 
     public TupleDescriptor createTupleDescriptor() {
-        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator_.getNextId());
+        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator.getNextId());
         tupleDescs.put(d.getId(), d);
         return d;
     }
 
     public TupleDescriptor createTupleDescriptor(String debugName) {
-        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator_.getNextId(), debugName);
+        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator.getNextId(), debugName);
         tupleDescs.put(d.getId(), d);
         return d;
     }
 
     public SlotDescriptor addSlotDescriptor(TupleDescriptor d) {
-        SlotDescriptor result = new SlotDescriptor(slotIdGenerator_.getNextId(), d);
+        SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), d);
         d.addSlot(result);
         slotDescs.put(result.getId(), result);
         return result;
@@ -76,11 +78,11 @@ public class DescriptorTable {
      * computed.
      */
     public TupleDescriptor copyTupleDescriptor(TupleId srcId, String debugName) {
-        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator_.getNextId(), debugName);
+        TupleDescriptor d = new TupleDescriptor(tupleIdGenerator.getNextId(), debugName);
         tupleDescs.put(d.getId(), d);
         // create copies of slots
         TupleDescriptor src = tupleDescs.get(srcId);
-        for (SlotDescriptor slot: src.getSlots()) {
+        for (SlotDescriptor slot : src.getSlots()) {
             copySlotDescriptor(d, slot);
         }
         d.computeStatAndMemLayout();
@@ -91,7 +93,7 @@ public class DescriptorTable {
      * Append copy of src to dest.
      */
     public SlotDescriptor copySlotDescriptor(TupleDescriptor dest, SlotDescriptor src) {
-        SlotDescriptor result = new SlotDescriptor(slotIdGenerator_.getNextId(), dest, src);
+        SlotDescriptor result = new SlotDescriptor(slotIdGenerator.getNextId(), dest, src);
         dest.addSlot(result);
         slotDescs.put(result.getId(), result);
         return result;
@@ -117,7 +119,7 @@ public class DescriptorTable {
      * Marks all slots in list as materialized.
      */
     public void markSlotsMaterialized(List<SlotId> ids) {
-        for (SlotId id: ids) {
+        for (SlotId id : ids) {
             getSlotDesc(id).setIsMaterialized(true);
         }
     }

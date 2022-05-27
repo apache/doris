@@ -1,22 +1,20 @@
-/*
-  Licensed to the Apache Software Foundation (ASF) under one
-  or more contributor license agreements.  See the NOTICE file
-  distributed with this work for additional information
-  regarding copyright ownership.  The ASF licenses this file
-  to you under the Apache License, Version 2.0 (the
-  "License"); you may not use this file except in compliance
-  with the License.  You may obtain a copy of the License at
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing,
-  software distributed under the License is distributed on an
-  "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-  KIND, either express or implied.  See the License for the
-  specific language governing permissions and limitations
-  under the License.
-  -->
- */
 package com.alibaba.datax.plugin.writer.doriswriter;
 
 import com.alibaba.datax.common.exception.DataXException;
@@ -36,6 +34,7 @@ public class Key implements Serializable {
     public static final String DATABASE = "database";
     public static final String TABLE = "table";
     public static final String COLUMN = "column";
+    public static final String TIME_ZONE = "timeZone";
 
     public static final String USERNAME = "username";
     public static final String PASSWORD = "password";
@@ -48,15 +47,20 @@ public class Key implements Serializable {
     public static final String MAX_BATCH_BYTE_SIZE = "maxBatchByteSize";
     public static final String LABEL_PREFIX = "labelPrefix";
     public static final String LINE_DELIMITER = "lineDelimiter";
+    public static final String CONNECT_TIMEOUT = "connectTimeout";
     private final Configuration options;
-    
+    private final String lineDelimiterDesc;
+
     private static final long DEFAULT_MAX_BATCH_ROWS = 50_0000;
     private static final long DEFAULT_MAX_BATCH_BYTE_SIZE = 100 * 1024 * 1024; // 100MB
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
+    private static final String DEFAULT_TIME_ZONE = "+08:00";
+    private static final int DEFAULT_CONNECT_TIMEOUT = -1;
 
     public Key(final Configuration options) {
         this.options = options;
+        this.lineDelimiterDesc = parseHexReadable(this.getLineDelimiter());
     }
 
     public void doPretreatment() {
@@ -96,6 +100,10 @@ public class Key implements Serializable {
         return this.options.getList(COLUMN, String.class);
     }
 
+    public String getTimeZone() {
+        return this.options.getString(TIME_ZONE, DEFAULT_TIME_ZONE);
+    }
+
     public List<String> getPreSqlList() {
         return this.options.getList(PRE_SQL, String.class);
     }
@@ -124,6 +132,14 @@ public class Key implements Serializable {
         return this.options.getString(LINE_DELIMITER, DEFAULT_LINE_DELIMITER);
     }
 
+    public int getConnectTimeout() {
+        return this.options.getInt(CONNECT_TIMEOUT, DEFAULT_CONNECT_TIMEOUT);
+    }
+
+    public String getLineDelimiterDesc() {
+        return lineDelimiterDesc;
+    }
+
     private void validateStreamLoadUrl() {
         List<String> urlList = this.getBeLoadUrlList();
         if (urlList == null) {
@@ -137,13 +153,23 @@ public class Key implements Serializable {
             if (host.split(":").length < 2) {
                 throw DataXException.asDataXException(DBUtilErrorCode.CONF_ERROR,
                         "Invalid load url format. IF use FE hosts, should be like: fe_host:fe_http_port."
-					  + " If use BE hosts, should be like: be_host:be_webserver_port");
+                                + " If use BE hosts, should be like: be_host:be_webserver_port");
             }
         }
     }
 
+    private String parseHexReadable(String s) {
+        byte[] separatorBytes = s.getBytes();
+        StringBuilder desc = new StringBuilder();
+
+        for (byte separatorByte : separatorBytes) {
+            desc.append(String.format("\\x%02x", separatorByte));
+        }
+        return desc.toString();
+    }
+
     private void validateRequired() {
-        final String[] requiredOptionKeys =  new String[] { JDBC_URL, USERNAME, DATABASE, TABLE, COLUMN };
+        final String[] requiredOptionKeys = new String[]{JDBC_URL, USERNAME, DATABASE, TABLE, COLUMN};
         for (final String optionKey : requiredOptionKeys) {
             this.options.getNecessaryValue(optionKey, DBUtilErrorCode.REQUIRED_VALUE);
         }

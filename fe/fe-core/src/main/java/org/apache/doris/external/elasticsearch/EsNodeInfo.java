@@ -164,8 +164,12 @@ public class EsNodeInfo {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
 
         EsNodeInfo nodeInfo = (EsNodeInfo) o;
 
@@ -214,18 +218,18 @@ public class EsNodeInfo {
 
     @Override
     public String toString() {
-        return "EsNodeInfo{" +
-                "id='" + id + '\'' +
-                ", name='" + name + '\'' +
-                ", host='" + host + '\'' +
-                ", ip='" + ip + '\'' +
-                ", publishAddress=" + publishAddress +
-                ", hasHttp=" + hasHttp +
-                ", isClient=" + isClient +
-                ", isData=" + isData +
-                ", isIngest=" + isIngest +
-                ", hasThrift=" + hasThrift +
-                ", thriftAddress=" + thriftAddress +
-                '}';
+        return "EsNodeInfo{"
+                + "id='" + id + '\''
+                + ", name='" + name + '\''
+                + ", host='" + host + '\''
+                + ", ip='" + ip + '\''
+                + ", publishAddress=" + publishAddress
+                + ", hasHttp=" + hasHttp
+                + ", isClient=" + isClient
+                + ", isData=" + isData
+                + ", isIngest=" + isIngest
+                + ", hasThrift=" + hasThrift
+                + ", thriftAddress=" + thriftAddress
+                + '}';
     }
 }

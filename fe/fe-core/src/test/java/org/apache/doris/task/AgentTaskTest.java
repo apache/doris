@@ -28,7 +28,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.thrift.TAgentTaskRequest;
 import org.apache.doris.thrift.TBackend;
-import org.apache.doris.thrift.TKeysType;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TStorageMedium;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Range;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -74,7 +72,6 @@ public class AgentTaskTest {
     private int schemaHash1 = 60000;
     private int schemaHash2 = 60001;
     private long version = 1L;
-    private long versionHash = 70000L;
 
     private TStorageType storageType = TStorageType.COLUMN;
     private List<Column> columns;
@@ -87,9 +84,8 @@ public class AgentTaskTest {
     private AgentTask dropTask;
     private AgentTask pushTask;
     private AgentTask cloneTask;
-    private AgentTask rollupTask;
-    private AgentTask schemaChangeTask;
     private AgentTask cancelDeleteTask;
+    private AgentTask storageMediaMigrationTask;
 
     @Before
     public void setUp() throws AnalysisException {
@@ -111,7 +107,7 @@ public class AgentTaskTest {
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                                                   indexId1, tabletId1, shortKeyNum, schemaHash1,
-                                                  version, versionHash, KeysType.AGG_KEYS,
+                                                  version, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
                                                   columns, null, 0, latch, null,
                                                   false, TTabletType.TABLET_TYPE_DISK);
@@ -122,25 +118,18 @@ public class AgentTaskTest {
         // push
         pushTask =
                 new PushTask(null, backendId1, dbId, tableId, partitionId, indexId1, tabletId1,
-                             replicaId1, schemaHash1, version, versionHash, "/home/a", 10L, 200, 80000L,
+                             replicaId1, schemaHash1, version, "/home/a", 10L, 200, 80000L,
                              TPushType.LOAD, null, false, TPriority.NORMAL);
 
         // clone
         cloneTask =
                 new CloneTask(backendId1, dbId, tableId, partitionId, indexId1, tabletId1, schemaHash1,
-                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, -1, 3600);
+                        Arrays.asList(new TBackend("host1", 8290, 8390)), TStorageMedium.HDD, -1, 3600);
 
-        // rollup
-        rollupTask =
-                new CreateRollupTask(null, backendId1, dbId, tableId, partitionId, indexId2, indexId1,
-                                     tabletId2, tabletId1, replicaId2, shortKeyNum, schemaHash2, schemaHash1,
-                                     storageType, columns, null, 0, TKeysType.AGG_KEYS);
-
-        // schemaChange
-        schemaChangeTask =
-                new SchemaChangeTask(null, backendId1, dbId, tableId, partitionId, indexId1, 
-                                     tabletId1, replicaId1, columns, schemaHash2, schemaHash1, 
-                                     shortKeyNum, storageType, null, 0, TKeysType.AGG_KEYS);
+        // storageMediaMigrationTask
+        storageMediaMigrationTask =
+                new StorageMediaMigrationTask(backendId1, tabletId1, schemaHash1, TStorageMedium.HDD);
+        ((StorageMediaMigrationTask) storageMediaMigrationTask).setDataDir("/home/a");
     }
 
     @Test
@@ -148,22 +137,17 @@ public class AgentTaskTest {
         // add null
         agentBatchTask.addTask(null);
         Assert.assertEquals(0, agentBatchTask.getTaskNum());
-        
+
         // normal
         agentBatchTask.addTask(createReplicaTask);
         Assert.assertEquals(1, agentBatchTask.getTaskNum());
 
-        agentBatchTask.addTask(rollupTask);
-        Assert.assertEquals(2, agentBatchTask.getTaskNum());
-
         List<AgentTask> allTasks = agentBatchTask.getAllTasks();
-        Assert.assertEquals(2, allTasks.size());
+        Assert.assertEquals(1, allTasks.size());
 
         for (AgentTask agentTask : allTasks) {
             if (agentTask instanceof CreateReplicaTask) {
                 Assert.assertEquals(createReplicaTask, agentTask);
-            } else if (agentTask instanceof CreateRollupTask) {
-                Assert.assertEquals(rollupTask, agentTask);
             } else {
                 Assert.fail();
             }
@@ -201,17 +185,14 @@ public class AgentTaskTest {
         Assert.assertEquals(cloneTask.getSignature(), request4.getSignature());
         Assert.assertNotNull(request4.getCloneReq());
 
-        // rollup
-        TAgentTaskRequest request5 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, rollupTask);
-        Assert.assertEquals(TTaskType.ROLLUP, request5.getTaskType());
-        Assert.assertEquals(rollupTask.getSignature(), request5.getSignature());
-        Assert.assertNotNull(request5.getAlterTabletReq());
-
-        // schemaChange
-        TAgentTaskRequest request6 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, schemaChangeTask);
-        Assert.assertEquals(TTaskType.SCHEMA_CHANGE, request6.getTaskType());
-        Assert.assertEquals(schemaChangeTask.getSignature(), request6.getSignature());
-        Assert.assertNotNull(request6.getAlterTabletReq());
+        // storageMediaMigrationTask
+        TAgentTaskRequest request7 =
+                (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, storageMediaMigrationTask);
+        Assert.assertEquals(TTaskType.STORAGE_MEDIUM_MIGRATE, request7.getTaskType());
+        Assert.assertEquals(storageMediaMigrationTask.getSignature(), request7.getSignature());
+        Assert.assertNotNull(request7.getStorageMediumMigrateReq());
+        Assert.assertTrue(request7.getStorageMediumMigrateReq().isSetDataDir());
+        Assert.assertEquals(request7.getStorageMediumMigrateReq().getDataDir(), "/home/a");
     }
 
     @Test
@@ -228,24 +209,18 @@ public class AgentTaskTest {
         AgentTask task = AgentTaskQueue.getTask(backendId1, TTaskType.CREATE, createReplicaTask.getSignature());
         Assert.assertEquals(createReplicaTask, task);
 
-        // diff
-        AgentTaskQueue.addTask(rollupTask);
-
         Map<TTaskType, Set<Long>> runningTasks = new HashMap<TTaskType, Set<Long>>();
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId1, runningTasks);
-        Assert.assertEquals(2, diffTasks.size());
+        Assert.assertEquals(1, diffTasks.size());
 
         Set<Long> set = new HashSet<Long>();
         set.add(createReplicaTask.getSignature());
         runningTasks.put(TTaskType.CREATE, set);
         diffTasks = AgentTaskQueue.getDiffTasks(backendId1, runningTasks);
-        Assert.assertEquals(1, diffTasks.size());
-        Assert.assertEquals(rollupTask, diffTasks.get(0));
+        Assert.assertEquals(0, diffTasks.size());
 
         // remove
         AgentTaskQueue.removeTask(backendId1, TTaskType.CREATE, createReplicaTask.getSignature());
-        Assert.assertEquals(1, AgentTaskQueue.getTaskNum());
-        AgentTaskQueue.removeTask(backendId1, TTaskType.ROLLUP, rollupTask.getSignature());
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
     }
 

@@ -21,11 +21,11 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
-
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -35,14 +35,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import mockit.Expectations;
-import mockit.Mocked;
-
 public class MetadataViewerTest {
-    
+
     private static Method getTabletStatusMethod;
     private static Method getTabletDistributionMethod;
-    
+
     @Mocked
     private Catalog catalog;
 
@@ -52,8 +49,7 @@ public class MetadataViewerTest {
     private static Database db;
 
     @BeforeClass
-    public static void setUp() throws NoSuchMethodException, SecurityException, InstantiationException,
-            IllegalAccessException, IllegalArgumentException, InvocationTargetException, AnalysisException {
+    public static void setUp() throws Exception {
         Class[] argTypes = new Class[] { String.class, String.class, List.class, ReplicaStatus.class, Operator.class };
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
@@ -66,7 +62,7 @@ public class MetadataViewerTest {
     }
 
     @Before
-    public void before() {
+    public void before() throws Exception {
 
         new Expectations() {
             {
@@ -74,7 +70,7 @@ public class MetadataViewerTest {
                 minTimes = 0;
                 result = catalog;
 
-                catalog.getDb(anyString);
+                catalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
             }

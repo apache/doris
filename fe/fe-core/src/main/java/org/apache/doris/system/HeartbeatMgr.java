@@ -25,8 +25,6 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
@@ -44,15 +42,14 @@ import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
+import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 
 import java.util.List;
 import java.util.Map;
@@ -101,7 +98,7 @@ public class HeartbeatMgr extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
-        
+
         // send backend heartbeat
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend);
@@ -212,17 +209,31 @@ public class HeartbeatMgr extends MasterDaemon {
         public HeartbeatResponse call() {
             long backendId = backend.getId();
             HeartbeatService.Client client = null;
+
             TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
             boolean ok = false;
             try {
-                client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
-
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackendIp(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
-                THeartbeatResult result = client.heartbeat(copiedMasterInfo);
+                THeartbeatResult result;
+                if (!FeConstants.runningUnitTest) {
+                    client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
+                    result = client.heartbeat(copiedMasterInfo);
+                } else {
+                    // Mocked result
+                    TBackendInfo backendInfo = new TBackendInfo();
+                    backendInfo.setBePort(1);
+                    backendInfo.setHttpPort(2);
+                    backendInfo.setBeRpcPort(3);
+                    backendInfo.setBrpcPort(4);
+                    backendInfo.setVersion("test-1234");
+                    result = new THeartbeatResult();
+                    result.setStatus(new TStatus(TStatusCode.OK));
+                    result.setBackendInfo(backendInfo);
+                }
 
                 ok = true;
                 if (result.getStatus().getStatusCode() == TStatusCode.OK) {
@@ -241,18 +252,20 @@ public class HeartbeatMgr extends MasterDaemon {
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
                     return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), beStartTime, version);
                 } else {
-                    return new BackendHbResponse(backendId, result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
+                    return new BackendHbResponse(backendId, backend.getHost(), result.getStatus().getErrorMsgs().isEmpty() ? "Unknown error"
                             : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);
-                return new BackendHbResponse(backendId,
+                return new BackendHbResponse(backendId, backend.getHost(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
-                if (ok) {
-                    ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
-                } else {
-                    ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                if (client != null) {
+                    if (ok) {
+                        ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
+                    } else {
+                        ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
+                    }
                 }
             }
         }
@@ -282,65 +295,11 @@ public class HeartbeatMgr extends MasterDaemon {
                     return new FrontendHbResponse(fe.getNodeName(), "not ready");
                 }
             }
-            if (Config.enable_fe_heartbeat_by_thrift) {
-                return getHeartbeatResponseByThrift();
-            } else {
-                return getHeartbeatResponseByHttp();
-            }
+
+            return getHeartbeatResponse();
         }
 
-        private HeartbeatResponse getHeartbeatResponseByHttp() {
-            String url = "http://" + fe.getHost() + ":" + Config.http_port
-                    + "/api/bootstrap?cluster_id=" + clusterId + "&token=" + token;
-            try {
-                String result = Util.getResultForUrl(url, null, 2000, 2000);
-                /*
-                 * Old return:
-                 * {"replayedJournalId":191224,"queryPort":9131,"rpcPort":9121,"status":"OK","msg":"Success"}
-                 * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"not ready"}
-                 *
-                 * New return:
-                 * {"msg":"success","code":0,"data":{"queryPort":9333,"rpcPort":9222,"replayedJournalId":197},"count":0}
-                 * {"msg":"not ready","code":1,"data":null,"count":0}
-                 */
-                JSONObject root = new JSONObject(result);
-                if (root.has("status")) {
-                    // old return
-                    String status = root.getString("status");
-                    if (!"OK".equals(status)) {
-                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
-                    } else {
-                        long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                        int queryPort = root.getInt(BootstrapFinishAction.QUERY_PORT);
-                        int rpcPort = root.getInt(BootstrapFinishAction.RPC_PORT);
-                        String version = root.getString(BootstrapFinishAction.VERSION);
-                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version == null ? "unknown" : version);
-                    }
-                } else if (root.has("code")) {
-                    // new return
-                    int code = root.getInt("code");
-                    if (code != 0) {
-                        return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
-                    } else {
-                        JSONObject dataObj = root.getJSONObject("data");
-                        long replayedJournalId = dataObj.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);
-                        int queryPort = dataObj.getInt(BootstrapFinishAction.QUERY_PORT);
-                        int rpcPort = dataObj.getInt(BootstrapFinishAction.RPC_PORT);
-                        String version = dataObj.getString(BootstrapFinishAction.VERSION);
-                        return new FrontendHbResponse(fe.getNodeName(), queryPort, rpcPort, replayedJournalId,
-                                System.currentTimeMillis(), version);
-                    }
-                } else {
-                    throw new Exception("invalid return value: " + result);
-                }
-            } catch (Exception e) {
-                return new FrontendHbResponse(fe.getNodeName(),
-                        Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
-            }
-        }
-
-        private HeartbeatResponse getHeartbeatResponseByThrift() {
+        private HeartbeatResponse getHeartbeatResponse() {
             FrontendService.Client client = null;
             TNetworkAddress addr = new TNetworkAddress(fe.getHost(), Config.rpc_port);
             boolean ok = false;
@@ -420,4 +379,3 @@ public class HeartbeatMgr extends MasterDaemon {
     }
 
 }
-

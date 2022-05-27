@@ -21,7 +21,6 @@
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/logging.h"
@@ -55,17 +54,22 @@ protected:
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
 
-        system("mkdir -p ./test_run/output/");
-        system("pwd");
-        system("cp -r ./be/test/util/test_data/ ./test_run/.");
+        EXPECT_EQ(system("mkdir -p ./test_run/output/"), 0);
+        EXPECT_EQ(system("pwd"), 0);
+        EXPECT_EQ(system("cp -r ./be/test/util/test_data/ ./test_run/."), 0);
 
         init();
     }
     virtual void TearDown() {
         _obj_pool.clear();
-        system("rm -rf ./test_run");
+        EXPECT_EQ(system("rm -rf ./test_run"), 0);
 
         delete _state;
+        if (_exec_env) {
+            delete _exec_env->_result_queue_mgr;
+            delete _exec_env->_thread_mgr;
+            delete _exec_env->_buffer_reservation;
+        }
     }
 
     void init();
@@ -92,6 +96,8 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _exec_env->_result_queue_mgr = new ResultQueueMgr();
     _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
+    _exec_env->_task_pool_mem_tracker_registry.reset(new MemTrackerTaskPool());
+    _exec_env->_is_init = true;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
@@ -100,7 +106,7 @@ void ArrowWorkFlowTest::init_runtime_state() {
     _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
     _mem_tracker =
-            MemTracker::CreateTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
+            MemTracker::create_tracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
     _state->_load_dir = "./test_run/output/";
     _state->init_mem_trackers(TUniqueId());
@@ -298,45 +304,39 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     _tnode.csv_scan_node.__set_file_paths(file_paths);
 
     CsvScanNode scan_node(&_obj_pool, _tnode, *_desc_tbl);
+    scan_node.init(_tnode);
     Status status = scan_node.prepare(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
     status = scan_node.open(_state);
-    ASSERT_TRUE(status.ok());
+    EXPECT_TRUE(status.ok());
 
-    auto mem_tracker = std::make_shared<MemTracker>(-1);
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size());
     bool eos = false;
 
     while (!eos) {
         status = scan_node.get_next(_state, &row_batch, &eos);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         // int num = std::min(row_batch.num_rows(), 10);
         int num = row_batch.num_rows();
-        ASSERT_EQ(6, num);
+        EXPECT_EQ(6, num);
         std::shared_ptr<arrow::Schema> schema;
         status = convert_to_arrow_schema(scan_node._row_descriptor, &schema);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         std::shared_ptr<arrow::RecordBatch> record_batch;
         status = convert_to_arrow_batch(row_batch, schema, arrow::default_memory_pool(),
                                         &record_batch);
-        ASSERT_TRUE(status.ok());
-        ASSERT_EQ(6, record_batch->num_rows());
-        ASSERT_EQ(5, record_batch->num_columns());
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(6, record_batch->num_rows());
+        EXPECT_EQ(5, record_batch->num_columns());
         std::string result;
         status = serialize_record_batch(*record_batch, &result);
-        ASSERT_TRUE(status.ok());
+        EXPECT_TRUE(status.ok());
         size_t len = result.length();
-        ASSERT_TRUE(len > 0);
+        EXPECT_TRUE(len > 0);
     }
 
-    ASSERT_TRUE(scan_node.close(_state).ok());
+    EXPECT_TRUE(scan_node.close(_state).ok());
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

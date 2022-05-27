@@ -28,7 +28,7 @@ namespace doris {
 SpillSortNode::SpillSortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-          _sorter(NULL),
+          _sorter(nullptr),
           _num_rows_skipped(0) {}
 
 SpillSortNode::~SpillSortNode() {}
@@ -44,6 +44,7 @@ Status SpillSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SpillSortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
                                              expr_mem_tracker()));
     // AddExprCtxsToFree(_sort_exec_exprs);
@@ -52,6 +53,7 @@ Status SpillSortNode::prepare(RuntimeState* state) {
 
 Status SpillSortNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_MEM_TRACKER(mem_tracker());
     RETURN_IF_ERROR(ExecNode::open(state));
     RETURN_IF_ERROR(_sort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
@@ -60,7 +62,7 @@ Status SpillSortNode::open(RuntimeState* state) {
 
     // These objects must be created after opening the _sort_exec_exprs. Avoid creating
     // them after every reset()/open().
-    if (_sorter.get() == NULL) {
+    if (_sorter.get() == nullptr) {
         TupleRowComparator less_than(_sort_exec_exprs, _is_asc_order, _nulls_first);
         // Create and initialize the external sort impl object
         _sorter.reset(new SpillSorter(less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
@@ -82,6 +84,7 @@ Status SpillSortNode::open(RuntimeState* state) {
 
 Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
+    SCOPED_SWITCH_TASK_THREAD_LOCAL_EXISTED_MEM_TRACKER(mem_tracker());
     // RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT, state));
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
@@ -124,7 +127,7 @@ Status SpillSortNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
 
 Status SpillSortNode::reset(RuntimeState* state) {
     _num_rows_skipped = 0;
-    if (_sorter.get() != NULL) {
+    if (_sorter.get() != nullptr) {
         _sorter->reset();
     }
     // return ExecNode::reset(state);
@@ -153,7 +156,7 @@ void SpillSortNode::debug_string(int indentation_level, stringstream* out) const
 }
 
 Status SpillSortNode::sort_input(RuntimeState* state) {
-    RowBatch batch(child(0)->row_desc(), state->batch_size(), mem_tracker().get());
+    RowBatch batch(child(0)->row_desc(), state->batch_size());
     bool eos = false;
     do {
         batch.reset();

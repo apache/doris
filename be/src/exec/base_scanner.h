@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef BE_SRC_EXEC_BASE_SCANNER_H_
-#define BE_SRC_EXEC_BASE_SCANNER_H_
+#pragma once
 
 #include "common/status.h"
 #include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -33,6 +34,15 @@ class MemTracker;
 class RuntimeState;
 class ExprContext;
 
+namespace vectorized {
+class VExprContext;
+class IColumn;
+using MutableColumnPtr = IColumn::MutablePtr;
+} // namespace vectorized
+
+// The counter will be passed to each scanner.
+// Note that this struct is not thread safe.
+// So if we support concurrent scan in the future, we need to modify this struct.
 struct ScannerCounter {
     ScannerCounter() : num_rows_filtered(0), num_rows_unselected(0) {}
 
@@ -43,27 +53,49 @@ struct ScannerCounter {
 class BaseScanner {
 public:
     BaseScanner(RuntimeState* state, RuntimeProfile* profile, const TBrokerScanRangeParams& params,
-                const std::vector<ExprContext*>& pre_filter_ctxs, ScannerCounter* counter);
-    virtual ~BaseScanner() { Expr::close(_dest_expr_ctx, _state); };
+                const std::vector<TBrokerRangeDesc>& ranges,
+                const std::vector<TNetworkAddress>& broker_addresses,
+                const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
+
+    virtual ~BaseScanner() {
+        Expr::close(_dest_expr_ctx, _state);
+        if (_state->enable_vectorized_exec()) {
+            vectorized::VExpr::close(_dest_vexpr_ctx, _state);
+        }
+    }
 
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) = 0;
+    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) = 0;
+
+    // Get next block
+    virtual Status get_next(vectorized::Block* block, bool* eof) {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
     virtual void close() = 0;
-    bool fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
+    Status fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple);
 
     void fill_slots_of_columns_from_path(int start,
                                          const std::vector<std::string>& columns_from_path);
 
     void free_expr_local_allocations();
+
 protected:
+    Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
+    virtual Status _init_src_block();
+
     RuntimeState* _state;
     const TBrokerScanRangeParams& _params;
+
+    //const TBrokerScanRangeParams& _params;
+    const std::vector<TBrokerRangeDesc>& _ranges;
+    const std::vector<TNetworkAddress>& _broker_addresses;
+    int _next_range;
     // used for process stat
     ScannerCounter* _counter;
 
@@ -76,7 +108,7 @@ protected:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     // Mem pool used to allocate _src_tuple and _src_tuple_row
-    MemPool _mem_pool;
+    std::unique_ptr<MemPool> _mem_pool;
 
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;
@@ -86,20 +118,35 @@ protected:
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
 
     // to filter src tuple directly
-	const std::vector<ExprContext*>& _pre_filter_ctxs;
+    // the `_pre_filter_texprs` is the origin thrift exprs passed from scan node,
+    // and will be converted to `_pre_filter_ctxs` when scanner is open.
+    const std::vector<TExpr> _pre_filter_texprs;
+    std::vector<ExprContext*> _pre_filter_ctxs;
 
     bool _strict_mode;
 
     int32_t _line_counter;
-    // reference to HASH_JOIN_NODE::RELEASE_CONTEXT_COUNTER
-    const static constexpr int32_t RELEASE_CONTEXT_COUNTER = 1 << 5;
     // Profile
     RuntimeProfile* _profile;
     RuntimeProfile::Counter* _rows_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _materialize_timer;
+
+    // Used to record whether a row of data is successfully read.
+    bool _success = false;
+    bool _scanner_eof = false;
+
+    // for vectorized load
+    std::vector<vectorized::VExprContext*> _dest_vexpr_ctx;
+    std::unique_ptr<vectorized::VExprContext*> _vpre_filter_ctx_ptr;
+    vectorized::Block _src_block;
+    int _num_of_columns_from_file;
+
+private:
+    Status _filter_src_block();
+    void _fill_columns_from_path();
+    Status _materialize_dest_block(vectorized::Block* output_block);
+    Status _fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool);
 };
 
 } /* namespace doris */
-
-#endif /* BE_SRC_EXEC_BASE_SCANNER_H_ */

@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/LiteralExpr.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -23,7 +26,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,6 +74,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 literalExpr = new StringLiteral(value);
                 break;
             case DATE:
@@ -80,6 +83,41 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
                 break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
+        }
+
+        Preconditions.checkNotNull(literalExpr);
+        return literalExpr;
+    }
+
+    /**
+     * Init LiteralExpr's Type information
+     * only use in rewrite alias function
+     * @param expr
+     * @return
+     * @throws AnalysisException
+     */
+    public static LiteralExpr init(LiteralExpr expr) throws AnalysisException {
+        Preconditions.checkArgument(expr.getType().equals(Type.INVALID));
+        String value = expr.getStringValue();
+        LiteralExpr literalExpr = null;
+        if (expr instanceof NullLiteral) {
+            literalExpr = new NullLiteral();
+        } else if (expr instanceof BoolLiteral) {
+            literalExpr = new BoolLiteral(value);
+        } else if (expr instanceof IntLiteral) {
+            literalExpr = new IntLiteral(Long.parseLong(value));
+        } else if (expr instanceof LargeIntLiteral) {
+            literalExpr = new LargeIntLiteral(value);
+        } else if (expr instanceof FloatLiteral) {
+            literalExpr = new FloatLiteral(value);
+        } else if (expr instanceof DecimalLiteral) {
+            literalExpr = new DecimalLiteral(value);
+        } else if (expr instanceof StringLiteral) {
+            literalExpr = new StringLiteral(value);
+        } else if (expr instanceof DateLiteral) {
+            literalExpr = new DateLiteral(value, expr.getType());
+        } else {
+            throw new AnalysisException("Type[" + expr.getType().toSql() + "] not supported.");
         }
 
         Preconditions.checkNotNull(literalExpr);
@@ -159,6 +197,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return buffer;
     }
 
+    @Override
+    public String toDigestImpl() {
+        return " ? ";
+    }
+
     // Swaps the sign of numeric literals.
     // Throws for non-numeric literals.
     public void swapSign() throws NotImplementedException {
@@ -176,7 +219,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
 
     public void readFields(DataInput in) throws IOException {
     }
-    
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) {
@@ -194,5 +237,9 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
         return this.compareLiteral(((LiteralExpr) obj)) == 0;
     }
-}
 
+    @Override
+    public boolean isNullable() {
+        return this instanceof NullLiteral;
+    }
+}

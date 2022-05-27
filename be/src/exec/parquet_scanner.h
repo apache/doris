@@ -35,7 +35,7 @@ namespace doris {
 
 class Tuple;
 class SlotDescriptor;
-class Slice;
+struct Slice;
 class ParquetReaderWrap;
 class RuntimeState;
 class ExprContext;
@@ -52,34 +52,31 @@ public:
                    const TBrokerScanRangeParams& params,
                    const std::vector<TBrokerRangeDesc>& ranges,
                    const std::vector<TNetworkAddress>& broker_addresses,
-                   const std::vector<ExprContext*>& pre_filter_ctxs,
-                   ScannerCounter* counter);
+                   const std::vector<TExpr>& pre_filter_texprs, ScannerCounter* counter);
 
-    ~ParquetScanner();
+    ~ParquetScanner() override;
 
     // Open this scanner, will initialize information need to
-    virtual Status open();
+    Status open() override;
 
     // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof);
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) override;
+
+    Status get_next(vectorized::Block* block, bool* eof) override {
+        return Status::NotSupported("Not Implemented get block");
+    }
 
     // Close this scanner
-    virtual void close();
+    void close() override;
 
-private:
+protected:
     // Read next buffer from reader
     Status open_next_reader();
 
-private:
-    //const TBrokerScanRangeParams& _params;
-    const std::vector<TBrokerRangeDesc>& _ranges;
-    const std::vector<TNetworkAddress>& _broker_addresses;
-
+protected:
     // Reader
     ParquetReaderWrap* _cur_file_reader;
-    int _next_range;
     bool _cur_file_eof; // is read over?
-    bool _scanner_eof;
 
     // used to hold current StreamLoadPipe
     std::shared_ptr<StreamLoadPipe> _stream_load_pipe;

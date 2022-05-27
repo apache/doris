@@ -14,11 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-3.0.0/be/src/runtime/buffered-tuple-stream.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
-#define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
+#pragma once
 
-#include <boost/scoped_ptr.hpp>
 #include <functional>
 #include <set>
 #include <vector>
@@ -31,7 +32,6 @@
 
 namespace doris {
 
-class MemTracker;
 class RuntimeState;
 class RowDescriptor;
 class SlotDescriptor;
@@ -137,7 +137,7 @@ class TupleRow;
 /// +--------+-----------+-----------+-----------+-------------+
 ///  <--4b--> <---12b---> <----8b---> <---12b---> <----10b---->
 ///
-/// Example layout for a row with the second tuple nullable ((1, "hello"), NULL)
+/// Example layout for a row with the second tuple nullable ((1, "hello"), nullptr)
 /// with all var len data stored in the stream:
 /// <- null tuple bitstring -> <---- tuple 1 -----> <- var len -> <- next row ...
 /// +-------------------------+--------+-----------+------------+
@@ -211,7 +211,6 @@ public:
     /// ext_varlen_slots: set of varlen slots with data stored externally to the stream
     BufferedTupleStream3(RuntimeState* state, const RowDescriptor* row_desc,
                          BufferPool::ClientHandle* buffer_pool_client, int64_t default_page_len,
-                         int64_t max_page_len,
                          const std::set<SlotId>& ext_varlen_slots = std::set<SlotId>());
 
     virtual ~BufferedTupleStream3();
@@ -335,10 +334,9 @@ public:
     /// process. If the current unused reservation is not sufficient to pin the stream in
     /// memory, this will try to increase the reservation. If that fails, 'got_rows' is set
     /// to false.
-    Status GetRows(const std::shared_ptr<MemTracker>& tracker, boost::scoped_ptr<RowBatch>* batch,
-                   bool* got_rows) WARN_UNUSED_RESULT;
+    Status GetRows(std::unique_ptr<RowBatch>* batch, bool* got_rows) WARN_UNUSED_RESULT;
 
-    /// Must be called once at the end to cleanup all resources. If 'batch' is non-NULL,
+    /// Must be called once at the end to cleanup all resources. If 'batch' is non-nullptr,
     /// attaches buffers from pinned pages that rows returned from GetNext() may reference.
     /// Otherwise deletes all pages. Does nothing if the stream was already closed. The
     /// 'flush' mode is forwarded to RowBatch::AddBuffer() when attaching buffers.
@@ -380,9 +378,9 @@ private:
     struct Page {
         Page() : num_rows(0), retrieved_buffer(true) {}
 
-        inline int len() const { return handle.len(); }
-        inline bool is_pinned() const { return handle.is_pinned(); }
-        inline int pin_count() const { return handle.pin_count(); }
+        int len() const { return handle.len(); }
+        bool is_pinned() const { return handle.is_pinned(); }
+        int pin_count() const { return handle.pin_count(); }
         Status GetBuffer(const BufferPool::BufferHandle** buffer) {
             RETURN_IF_ERROR(handle.GetBuffer(buffer));
             retrieved_buffer = true;
@@ -476,7 +474,7 @@ private:
     /// True if there is currently an active write iterator into the stream.
     bool has_write_iterator_;
 
-    /// The current page for writing. NULL if there is no write iterator or no current
+    /// The current page for writing. nullptr if there is no write iterator or no current
     /// write page. Always pinned. Size is 'default_page_len_', except temporarily while
     /// appending a larger row between AddRowCustomBegin() and AddRowCustomEnd().
     Page* write_page_;
@@ -501,11 +499,6 @@ private:
     /// The default length in bytes of pages used to store the stream's rows. All rows that
     /// fit in a default-sized page are stored in default-sized page.
     const int64_t default_page_len_;
-
-    /// The maximum length in bytes of pages used to store the stream's rows. This is a
-    /// hard limit on the maximum size of row that can be stored in the stream and the
-    /// amount of reservation required to read or write to an unpinned stream.
-    const int64_t max_page_len_;
 
     /// Whether any tuple in the rows is nullable.
     const bool has_nullable_tuple_;
@@ -569,7 +562,7 @@ private:
 
     /// Determines what page size is needed to fit a row of 'row_size' bytes.
     /// Returns an error if the row cannot fit in a page.
-    Status CalcPageLenForRow(int64_t row_size, int64_t* page_len);
+    void CalcPageLenForRow(int64_t row_size, int64_t* page_len);
 
     /// Wrapper around NewWritePage() that allocates a new write page that fits a row of
     /// 'row_size' bytes. Increases reservation if needed to allocate the next page.
@@ -696,5 +689,3 @@ private:
     void CheckPageConsistency(const Page* page) const;
 };
 } // namespace doris
-
-#endif

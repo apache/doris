@@ -99,7 +99,7 @@ public class MysqlChannelTest {
                 minTimes = 0;
                 result = new Delegate() {
                     int fakeRead(ByteBuffer buffer) {
-                        int maxLen = 0xffffff - 1;
+                        int maxLen = MysqlChannel.MAX_PHYSICAL_PACKET_LENGTH;
                         MysqlSerializer serializer = MysqlSerializer.newInstance();
                         if (readIdx == 0) {
                             // packet
@@ -147,8 +147,8 @@ public class MysqlChannelTest {
         MysqlChannel channel1 = new MysqlChannel(channel);
 
         ByteBuffer buf = channel1.fetchOnePacket();
-        Assert.assertEquals(0xffffff - 1 + 10, buf.remaining());
-        for (int i = 0; i < 0xffffff - 1 + 10; ++i) {
+        Assert.assertEquals(MysqlChannel.MAX_PHYSICAL_PACKET_LENGTH + 10, buf.remaining());
+        for (int i = 0; i < MysqlChannel.MAX_PHYSICAL_PACKET_LENGTH + 10; ++i) {
             Assert.assertEquals('a' + (i % 26), buf.get());
         }
     }
@@ -162,7 +162,7 @@ public class MysqlChannelTest {
                 minTimes = 0;
                 result = new Delegate() {
                     int fakeRead(ByteBuffer buffer) {
-                        int maxLen = 0xffffff - 1;
+                        int maxLen = MysqlChannel.MAX_PHYSICAL_PACKET_LENGTH;
                         MysqlSerializer serializer = MysqlSerializer.newInstance();
                         if (readIdx == 0) {
                             // packet
@@ -209,7 +209,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
     }
 
     @Test(expected = IOException.class)
@@ -225,7 +225,7 @@ public class MysqlChannelTest {
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
-        ByteBuffer buf = channel1.fetchOnePacket();
+        channel1.fetchOnePacket();
         Assert.fail("No Exception throws.");
     }
 

@@ -31,6 +31,8 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.proto.Data;
 import org.apache.doris.thrift.TUniqueId;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -39,9 +41,6 @@ import org.junit.Test;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-
-import mockit.Expectations;
-import mockit.Mocked;
 
 public class ConnectProcessorTest {
     private static ByteBuffer initDbPacket;
@@ -60,43 +59,43 @@ public class ConnectProcessorTest {
     @BeforeClass
     public static void setUpClass() {
         // Init Database packet
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1(2);
             serializer.writeEofString("testCluster:testDb");
             initDbPacket = serializer.toByteBuffer();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // Ping packet
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1(14);
             pingPacket = serializer.toByteBuffer();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // Quit packet
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1(1);
             quitPacket = serializer.toByteBuffer();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // Query packet
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1(3);
             serializer.writeEofString("select * from a");
             queryPacket = serializer.toByteBuffer();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // Field list packet
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             MysqlSerializer serializer = MysqlSerializer.newInstance();
             serializer.writeInt1(4);
             serializer.writeNulTerminateString("testTbl");
             serializer.writeEofString("");
             fieldListPacket = serializer.toByteBuffer();
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
         statistics = statistics.toBuilder().setCpuMs(0L).setScanRows(0).setScanBytes(0).build();
 
         MetricRepo.init();

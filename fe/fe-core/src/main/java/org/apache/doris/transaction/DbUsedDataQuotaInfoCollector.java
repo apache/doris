@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -44,7 +45,7 @@ public class DbUsedDataQuotaInfoCollector extends MasterDaemon {
         List<Long> dbIdList = catalog.getDbIds();
         GlobalTransactionMgr globalTransactionMgr = catalog.getGlobalTransactionMgr();
         for (Long dbId : dbIdList) {
-            Database db = catalog.getDb(dbId);
+            Database db = catalog.getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("Database [" + dbId + "] does not exist, skip to update database used data quota");
                 continue;

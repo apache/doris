@@ -20,16 +20,16 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include <boost/thread.hpp>
 #include <mutex>
+#include <thread>
 
 #include "common/configbase.h"
-#include "test_util/test_util.h"
+#include "testutil/test_util.h"
 #include "util/logging.h"
+#include "util/thread_group.h"
 
 using std::vector;
-using boost::thread;
-using boost::thread_group;
+using std::thread;
 
 namespace doris {
 
@@ -47,47 +47,47 @@ TEST(InternalQueue, TestBasic) {
     IntNode four(4);
 
     InternalQueue<IntNode> list;
-    ASSERT_TRUE(list.empty());
-    ASSERT_EQ(list.size(), 0);
-    ASSERT_TRUE(list.dequeue() == NULL);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(list.empty());
+    EXPECT_EQ(list.size(), 0);
+    EXPECT_TRUE(list.dequeue() == nullptr);
+    EXPECT_TRUE(list.validate());
 
     list.enqueue(&one);
-    ASSERT_TRUE(!list.empty());
-    ASSERT_EQ(list.size(), 1);
+    EXPECT_TRUE(!list.empty());
+    EXPECT_EQ(list.size(), 1);
     IntNode* i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
-    ASSERT_TRUE(list.empty());
-    ASSERT_EQ(list.size(), 0);
-    ASSERT_EQ(i->value, 1);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(i != nullptr);
+    EXPECT_TRUE(list.empty());
+    EXPECT_EQ(list.size(), 0);
+    EXPECT_EQ(i->value, 1);
+    EXPECT_TRUE(list.validate());
 
     list.enqueue(&one);
     list.enqueue(&two);
     list.enqueue(&three);
     list.enqueue(&four);
-    ASSERT_EQ(list.size(), 4);
-    ASSERT_TRUE(list.validate());
+    EXPECT_EQ(list.size(), 4);
+    EXPECT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
-    ASSERT_EQ(i->value, 1);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(i != nullptr);
+    EXPECT_EQ(i->value, 1);
+    EXPECT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
-    ASSERT_EQ(i->value, 2);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(i != nullptr);
+    EXPECT_EQ(i->value, 2);
+    EXPECT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
-    ASSERT_EQ(i->value, 3);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(i != nullptr);
+    EXPECT_EQ(i->value, 3);
+    EXPECT_TRUE(list.validate());
 
     i = list.dequeue();
-    ASSERT_TRUE(i != NULL);
-    ASSERT_EQ(i->value, 4);
-    ASSERT_TRUE(list.validate());
+    EXPECT_TRUE(i != nullptr);
+    EXPECT_EQ(i->value, 4);
+    EXPECT_TRUE(list.validate());
 
     list.enqueue(&one);
     list.enqueue(&two);
@@ -96,29 +96,29 @@ TEST(InternalQueue, TestBasic) {
 
     IntNode* node = list.head();
     int val = 1;
-    while (node != NULL) {
-        ASSERT_EQ(node->value, val);
+    while (node != nullptr) {
+        EXPECT_EQ(node->value, val);
         node = node->next();
         ++val;
     }
 
     node = list.tail();
     val = 4;
-    while (node != NULL) {
-        ASSERT_EQ(node->value, val);
+    while (node != nullptr) {
+        EXPECT_EQ(node->value, val);
         node = node->prev();
         --val;
     }
 
     for (int i = 0; i < 4; ++i) {
         node = list.pop_back();
-        ASSERT_TRUE(node != NULL);
-        ASSERT_EQ(node->value, 4 - i);
-        ASSERT_TRUE(list.validate());
+        EXPECT_TRUE(node != nullptr);
+        EXPECT_EQ(node->value, 4 - i);
+        EXPECT_TRUE(list.validate());
     }
-    ASSERT_TRUE(list.pop_back() == NULL);
-    ASSERT_EQ(list.size(), 0);
-    ASSERT_TRUE(list.empty());
+    EXPECT_TRUE(list.pop_back() == nullptr);
+    EXPECT_EQ(list.size(), 0);
+    EXPECT_TRUE(list.empty());
 }
 
 // Add all the nodes and then remove every other one.
@@ -130,11 +130,11 @@ TEST(InternalQueue, TestRemove) {
 
     queue.enqueue(&nodes[0]);
     queue.remove(&nodes[1]);
-    ASSERT_TRUE(queue.validate());
+    EXPECT_TRUE(queue.validate());
     queue.remove(&nodes[0]);
-    ASSERT_TRUE(queue.validate());
+    EXPECT_TRUE(queue.validate());
     queue.remove(&nodes[0]);
-    ASSERT_TRUE(queue.validate());
+    EXPECT_TRUE(queue.validate());
 
     for (int i = 0; i < nodes.size(); ++i) {
         nodes[i].value = i;
@@ -143,14 +143,14 @@ TEST(InternalQueue, TestRemove) {
 
     for (int i = 0; i < nodes.size(); i += 2) {
         queue.remove(&nodes[i]);
-        ASSERT_TRUE(queue.validate());
+        EXPECT_TRUE(queue.validate());
     }
 
-    ASSERT_EQ(queue.size(), nodes.size() / 2);
+    EXPECT_EQ(queue.size(), nodes.size() / 2);
     for (int i = 0; i < nodes.size() / 2; ++i) {
         IntNode* node = queue.dequeue();
-        ASSERT_TRUE(node != NULL);
-        ASSERT_EQ(node->value, i * 2 + 1);
+        EXPECT_TRUE(node != nullptr);
+        EXPECT_EQ(node->value, i * 2 + 1);
     }
 }
 
@@ -158,10 +158,10 @@ const int VALIDATE_INTERVAL = 10000;
 
 // CHECK() is not thread safe so return the result in *failed.
 void ProducerThread(InternalQueue<IntNode>* queue, int num_inserts, std::vector<IntNode>* nodes,
-                    AtomicInt<int32_t>* counter, bool* failed) {
+                    std::atomic<int32_t>* counter, bool* failed) {
     for (int i = 0; i < num_inserts && !*failed; ++i) {
         // Get the next index to queue.
-        AtomicInt<int32_t> value = (*counter)++;
+        int32_t value = (*counter)++;
         nodes->at(value).value = value;
         queue->enqueue(&nodes->at(value));
         if (i % VALIDATE_INTERVAL == 0) {
@@ -178,7 +178,7 @@ void ConsumerThread(InternalQueue<IntNode>* queue, int num_consumes, int delta,
     int previous_value = -1;
     for (int i = 0; i < num_consumes && !*failed;) {
         IntNode* node = queue->dequeue();
-        if (node == NULL) {
+        if (node == nullptr) {
             continue;
         }
         ++i;
@@ -210,19 +210,19 @@ TEST(InternalQueue, TestClear) {
     queue.enqueue(&nodes[2]);
 
     queue.clear();
-    ASSERT_TRUE(queue.validate());
-    ASSERT_TRUE(queue.empty());
+    EXPECT_TRUE(queue.validate());
+    EXPECT_TRUE(queue.empty());
 
     queue.enqueue(&nodes[0]);
     queue.enqueue(&nodes[1]);
     queue.enqueue(&nodes[2]);
-    ASSERT_TRUE(queue.validate());
-    ASSERT_EQ(queue.size(), 3);
+    EXPECT_TRUE(queue.validate());
+    EXPECT_EQ(queue.size(), 3);
 }
 
 TEST(InternalQueue, TestSingleProducerSingleConsumer) {
     std::vector<IntNode> nodes;
-    AtomicInt<int32_t> counter;
+    std::atomic<int32_t> counter = 0;
     nodes.resize(LOOP_LESS_OR_MORE(100, 1000000));
     std::vector<int> results;
 
@@ -230,9 +230,9 @@ TEST(InternalQueue, TestSingleProducerSingleConsumer) {
     bool failed = false;
     ProducerThread(&queue, nodes.size(), &nodes, &counter, &failed);
     ConsumerThread(&queue, nodes.size(), 1, &results, &failed);
-    ASSERT_TRUE(!failed);
-    ASSERT_TRUE(queue.empty());
-    ASSERT_EQ(results.size(), nodes.size());
+    EXPECT_TRUE(!failed);
+    EXPECT_TRUE(queue.empty());
+    EXPECT_EQ(results.size(), nodes.size());
 
     counter = 0;
     results.clear();
@@ -240,9 +240,9 @@ TEST(InternalQueue, TestSingleProducerSingleConsumer) {
     thread consumer_thread(ConsumerThread, &queue, nodes.size(), 1, &results, &failed);
     producer_thread.join();
     consumer_thread.join();
-    ASSERT_TRUE(!failed);
-    ASSERT_TRUE(queue.empty());
-    ASSERT_EQ(results.size(), nodes.size());
+    EXPECT_TRUE(!failed);
+    EXPECT_TRUE(queue.empty());
+    EXPECT_EQ(results.size(), nodes.size());
 }
 
 TEST(InternalQueue, TestMultiProducerMultiConsumer) {
@@ -251,10 +251,10 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
 
     bool failed = false;
     for (int num_producers = 1; num_producers < 5; num_producers += 3) {
-        AtomicInt<int32_t> counter;
+        std::atomic<int32_t> counter = 0;
         const int NUM_CONSUMERS = 4;
-        ASSERT_EQ(nodes.size() % NUM_CONSUMERS, 0);
-        ASSERT_EQ(nodes.size() % num_producers, 0);
+        EXPECT_EQ(nodes.size() % NUM_CONSUMERS, 0);
+        EXPECT_EQ(nodes.size() % num_producers, 0);
         const int num_per_consumer = nodes.size() / NUM_CONSUMERS;
         const int num_per_producer = nodes.size() / num_producers;
 
@@ -277,8 +277,8 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
         }
 
         InternalQueue<IntNode> queue;
-        thread_group consumers;
-        thread_group producers;
+        ThreadGroup consumers;
+        ThreadGroup producers;
 
         for (int i = 0; i < num_producers; ++i) {
             producers.add_thread(new thread(ProducerThread, &queue, num_per_producer, &nodes,
@@ -292,31 +292,20 @@ TEST(InternalQueue, TestMultiProducerMultiConsumer) {
 
         producers.join_all();
         consumers.join_all();
-        ASSERT_TRUE(queue.empty());
-        ASSERT_TRUE(!failed);
+        EXPECT_TRUE(queue.empty());
+        EXPECT_TRUE(!failed);
 
         std::vector<int> all_results;
         for (int i = 0; i < NUM_CONSUMERS; ++i) {
-            ASSERT_EQ(results[i].size(), num_per_consumer);
+            EXPECT_EQ(results[i].size(), num_per_consumer);
             all_results.insert(all_results.end(), results[i].begin(), results[i].end());
         }
-        ASSERT_EQ(all_results.size(), nodes.size());
+        EXPECT_EQ(all_results.size(), nodes.size());
         sort(all_results.begin(), all_results.end());
         for (int i = 0; i < all_results.size(); ++i) {
-            ASSERT_EQ(i, all_results[i]) << all_results[i - 1] << " " << all_results[i + 1];
+            EXPECT_EQ(i, all_results[i]) << all_results[i - 1] << " " << all_results[i + 1];
         }
     }
 }
 
 } // end namespace doris
-
-int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
-}

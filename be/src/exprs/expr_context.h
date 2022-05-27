@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/expr-context.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_EXPR_CONTEXT_H
-#define DORIS_BE_SRC_QUERY_EXPRS_EXPR_CONTEXT_H
+#pragma once
 
 #include <memory>
 
@@ -69,7 +71,7 @@ public:
     /// originals but have their own MemPool and thread-local state. Clone() should be used
     /// to create an ExprContext for each execution thread that needs to evaluate
     /// 'root'. Note that clones are already opened. '*new_context' must be initialized by
-    /// the caller to NULL.
+    /// the caller to nullptr.
     Status clone(RuntimeState* state, ExprContext** new_context);
 
     Status clone(RuntimeState* state, ExprContext** new_ctx, Expr* root);
@@ -81,7 +83,7 @@ public:
     /// result in result_.
     void* get_value(TupleRow* row);
 
-    /// Convenience functions: print value into 'str' or 'stream'.  NULL turns into "NULL".
+    /// Convenience functions: print value into 'str' or 'stream'.  nullptr turns into "NULL".
     void print_value(TupleRow* row, std::string* str);
     void print_value(void* value, std::string* str);
     void print_value(void* value, std::stringstream* stream);
@@ -132,7 +134,7 @@ public:
     bool opened() { return _opened; }
 
     /// If 'expr' is constant, evaluates it with no input row argument and returns the
-    /// result in 'const_val'. Sets 'const_val' to NULL if the argument is not constant.
+    /// result in 'const_val'. Sets 'const_val' to nullptr if the argument is not constant.
     /// The returned AnyVal and associated varlen data is owned by this evaluator. This
     /// should only be called after Open() has been called on this expr. Returns an error
     /// if there was an error evaluating the expression or if memory could not be allocated
@@ -153,21 +155,19 @@ public:
 private:
     friend class Expr;
     friend class ScalarFnCall;
+    friend class RPCFn;
     friend class InPredicate;
     friend class RuntimePredicateWrapper;
     friend class BloomFilterPredicate;
     friend class OlapScanNode;
-    friend class EsScanNode;
     friend class EsPredicate;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this ExprContext.
     std::vector<FunctionContext*> _fn_contexts;
 
-    /// Array access to fn_contexts_. Used by ScalarFnCall's codegen'd compute function
-    /// to access the correct FunctionContext.
-    /// TODO: revisit this
-    FunctionContext** _fn_contexts_ptr;
+    // Used to create _pool, if change to raw pointer later, be careful about tracker's life cycle.
+    std::shared_ptr<MemTracker> _mem_tracker;
 
     /// Pool backing fn_contexts_. Counts against the runtime state's UDF mem tracker.
     std::unique_ptr<MemPool> _pool;
@@ -200,5 +200,3 @@ inline void* ExprContext::get_value(TupleRow* row) {
 }
 
 } // namespace doris
-
-#endif

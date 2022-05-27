@@ -21,17 +21,13 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.meta.MetaContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,14 +45,14 @@ public class Partition extends MetaObject implements Writable {
     private static final Logger LOG = LogManager.getLogger(Partition.class);
 
     public static final long PARTITION_INIT_VERSION = 1L;
-    public static final long PARTITION_INIT_VERSION_HASH = 0L;
 
     public enum PartitionState {
         NORMAL,
         @Deprecated
         ROLLUP,
         @Deprecated
-        SCHEMA_CHANGE
+        SCHEMA_CHANGE,
+        RESTORE
     }
 
     @SerializedName(value = "id")
@@ -88,16 +84,19 @@ public class Partition extends MetaObject implements Writable {
      */
 
     // not have committedVersion because committedVersion = nextVersion - 1
+    @Deprecated
     @SerializedName(value = "committedVersionHash")
     private long committedVersionHash;
     @SerializedName(value = "visibleVersion")
     private long visibleVersion;
     @SerializedName(value = "visibleVersionTime")
     private long visibleVersionTime;
+    @Deprecated
     @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
     @SerializedName(value = "nextVersion")
     private long nextVersion;
+    @Deprecated
     @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
     @SerializedName(value = "distributionInfo")
@@ -106,21 +105,18 @@ public class Partition extends MetaObject implements Writable {
     private Partition() {
     }
 
-    public Partition(long id, String name, 
+    public Partition(long id, String name,
             MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
         this.id = id;
         this.name = name;
         this.state = PartitionState.NORMAL;
-        
+
         this.baseIndex = baseIndex;
 
         this.visibleVersion = PARTITION_INIT_VERSION;
         this.visibleVersionTime = System.currentTimeMillis();
-        this.visibleVersionHash = PARTITION_INIT_VERSION_HASH;
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
         this.nextVersion = PARTITION_INIT_VERSION + 1;
-        this.nextVersionHash = Util.generateVersionHash();
-        this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
 
         this.distributionInfo = distributionInfo;
     }
@@ -149,39 +145,21 @@ public class Partition extends MetaObject implements Writable {
      * If a partition is overwritten by a restore job, we need to reset all version info to
      * the restored partition version info》
      */
-    public void updateVersionForRestore(long visibleVersion, long visibleVersionHash) {
-        this.setVisibleVersion(visibleVersion, visibleVersionHash);
+    public void updateVersionForRestore(long visibleVersion) {
+        this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
-        this.nextVersionHash = Util.generateVersionHash();
-        this.committedVersionHash = visibleVersionHash;
-        LOG.info("update partition {} version for restore: visible: {}-{}, next: {}-{}",
-                name, visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
+        LOG.info("update partition {} version for restore: visible: {}, next: {}",
+                name, visibleVersion, nextVersion);
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {
-        updateVisibleVersionAndVersionHash(visibleVersion, System.currentTimeMillis(), visibleVersionHash);
+    public void updateVisibleVersion(long visibleVersion) {
+        updateVisibleVersionAndTime(visibleVersion, System.currentTimeMillis());
     }
 
-    public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
-        this.setVisibleVersion(visibleVersion, visibleVersionTime, visibleVersionHash);
-        if (MetaContext.get() != null) {
-            // MetaContext is not null means we are in a edit log replay thread.
-            // if it is upgrade from old palo cluster, then should update next version info
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_45) {
-                // the partition is created and not import any data
-                if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                    this.nextVersion = PARTITION_INIT_VERSION + 1;
-                    this.nextVersionHash = Util.generateVersionHash();
-                    this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-                } else {
-                    this.nextVersion = visibleVersion + 1;
-                    this.nextVersionHash = Util.generateVersionHash();
-                    this.committedVersionHash = visibleVersionHash;
-                }
-            }
-        }
+    public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
+        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
-    
+
     public long getVisibleVersion() {
         return visibleVersion;
     }
@@ -190,21 +168,15 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersionTime;
     }
 
-    public long getVisibleVersionHash() {
-        return visibleVersionHash;
-    }
-    
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
-    private void setVisibleVersion(long visibleVersion, long visibleVersionHash) {
+    private void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = System.currentTimeMillis();
-        this.visibleVersionHash = visibleVersionHash;
     }
 
-    public void setVisibleVersion(long visibleVersion, long visibleVersionTime, long visibleVersionHash) {
+    public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
         this.visibleVersion = visibleVersion;
         this.visibleVersionTime = visibleVersionTime;
-        this.visibleVersionHash = visibleVersionHash;
     }
 
     public PartitionState getState() {
@@ -243,21 +215,8 @@ public class Partition extends MetaObject implements Writable {
         this.nextVersion = nextVersion;
     }
 
-    public long getNextVersionHash() {
-        return nextVersionHash;
-    }
-
-    public void setNextVersionHash(long nextVersionHash, long committedVersionHash) {
-        this.nextVersionHash = nextVersionHash;
-        this.committedVersionHash = committedVersionHash;
-    }
-    
     public long getCommittedVersion() {
         return this.nextVersion - 1;
-    }
-    
-    public long getCommittedVersionHash() {
-        return committedVersionHash;
     }
 
     public MaterializedIndex getIndex(long indexId) {
@@ -285,6 +244,7 @@ public class Partition extends MetaObject implements Writable {
                 break;
             case SHADOW:
                 indices.addAll(idToShadowIndex.values());
+                break;
             default:
                 break;
         }
@@ -312,7 +272,6 @@ public class Partition extends MetaObject implements Writable {
         // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
         // And the test case can continue to execute the logic of 'select best roll up'
         return ((visibleVersion != PARTITION_INIT_VERSION)
-                || (visibleVersionHash != PARTITION_INIT_VERSION_HASH)
                 || FeConstants.runningUnitTest);
     }
 
@@ -349,7 +308,7 @@ public class Partition extends MetaObject implements Writable {
         out.writeLong(id);
         Text.writeString(out, name);
         Text.writeString(out, state.name());
-        
+
         baseIndex.write(out);
 
         int rollupCount = (idToVisibleRollupIndex != null) ? idToVisibleRollupIndex.size() : 0;
@@ -384,7 +343,7 @@ public class Partition extends MetaObject implements Writable {
         id = in.readLong();
         name = Text.readString(in);
         state = PartitionState.valueOf(Text.readString(in));
-        
+
         baseIndex = MaterializedIndex.read(in);
 
         int rollupCount = in.readInt();
@@ -392,38 +351,19 @@ public class Partition extends MetaObject implements Writable {
             MaterializedIndex rollupTable = MaterializedIndex.read(in);
             idToVisibleRollupIndex.put(rollupTable.getId(), rollupTable);
         }
-        
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_61) {
-            int shadowIndexCount = in.readInt();
-            for (int i = 0; i < shadowIndexCount; i++) {
-                MaterializedIndex shadowIndex = MaterializedIndex.read(in);
-                idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
-            }
+
+        int shadowIndexCount = in.readInt();
+        for (int i = 0; i < shadowIndexCount; i++) {
+            MaterializedIndex shadowIndex = MaterializedIndex.read(in);
+            idToShadowIndex.put(shadowIndex.getId(), shadowIndex);
         }
 
         visibleVersion = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_88) {
-            visibleVersionTime = in.readLong();
-        } else {
-            visibleVersionTime = System.currentTimeMillis();             
-        }
+        visibleVersionTime = in.readLong();
         visibleVersionHash = in.readLong();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_45) {
-            nextVersion = in.readLong();
-            nextVersionHash = in.readLong();
-            committedVersionHash = in.readLong();
-        } else {
-            // the partition is created and not import any data
-            if (visibleVersion == PARTITION_INIT_VERSION + 1 && visibleVersionHash == PARTITION_INIT_VERSION_HASH) {
-                this.nextVersion = PARTITION_INIT_VERSION + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = PARTITION_INIT_VERSION_HASH;
-            } else {
-                this.nextVersion = visibleVersion + 1;
-                this.nextVersionHash = Util.generateVersionHash();
-                this.committedVersionHash = visibleVersionHash;
-            }
-        }
+        nextVersion = in.readLong();
+        nextVersionHash = in.readLong();
+        committedVersionHash = in.readLong();
         DistributionInfoType distriType = DistributionInfoType.valueOf(Text.readString(in));
         if (distriType == DistributionInfoType.HASH) {
             distributionInfo = HashDistributionInfo.read(in);
@@ -460,7 +400,6 @@ public class Partition extends MetaObject implements Writable {
         }
 
         return (visibleVersion == partition.visibleVersion)
-                && (visibleVersionHash == partition.visibleVersionHash)
                 && (baseIndex.equals(partition.baseIndex)
                 && distributionInfo.equals(partition.distributionInfo));
     }
@@ -484,20 +423,15 @@ public class Partition extends MetaObject implements Writable {
         }
 
         buffer.append("committedVersion: ").append(visibleVersion).append("; ");
-        buffer.append("committedVersionHash: ").append(visibleVersionHash).append("; ");
-
         buffer.append("distribution_info.type: ").append(distributionInfo.getType().name()).append("; ");
         buffer.append("distribution_info: ").append(distributionInfo.toString());
 
         return buffer.toString();
     }
 
-    public boolean convertRandomDistributionToHashDistribution(List<Column> baseSchema) {
-        boolean hasChanged = false;
-        if (distributionInfo.getType() == DistributionInfoType.RANDOM) {
-            distributionInfo = ((RandomDistributionInfo) distributionInfo).toHashDistributionInfo(baseSchema);
-            hasChanged = true;
+    public void convertHashDistributionToRandomDistribution() {
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            distributionInfo = ((HashDistributionInfo) distributionInfo).toRandomDistributionInfo();
         }
-        return hasChanged;
     }
 }

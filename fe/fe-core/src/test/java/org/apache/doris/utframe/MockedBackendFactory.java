@@ -21,7 +21,7 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
-import org.apache.doris.proto.Status;
+import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
@@ -32,7 +32,10 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
+import org.apache.doris.thrift.TCheckStorageFormatResult;
+import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TDeleteEtlFilesRequest;
+import org.apache.doris.thrift.TDiskTrashInfo;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentResult;
@@ -58,15 +61,17 @@ import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
+import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 import io.grpc.stub.StreamObserver;
-
 import org.apache.thrift.TException;
 
 import java.io.IOException;
@@ -76,8 +81,8 @@ import java.util.concurrent.BlockingQueue;
 /*
  * This class is used to create mock backends.
  * Usage can be found in Demon.java's beforeClass()
- * 
- * 
+ *
+ *
  */
 public class MockedBackendFactory {
 
@@ -111,14 +116,14 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
+        public THeartbeatResult heartbeat(TMasterInfo masterInfo) throws TException {
             TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
             backendInfo.setBrpcPort(beBrpcPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }
     }
-    
+
     // abstract BeThriftService.
     // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {
@@ -156,7 +161,20 @@ public class MockedBackendFactory {
                                     + ", signature: " + request.getSignature() + ", fe addr: " + backend.getFeAddress());
                             TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
                                     request.getTaskType(), request.getSignature(), new TStatus(TStatusCode.OK));
-                            finishTaskRequest.setReportVersion(++reportVersion);
+                            TTaskType taskType = request.getTaskType();
+                            switch (taskType) {
+                                case CREATE:
+                                case PUSH:
+                                case ALTER:
+                                    ++reportVersion;
+                                    break;
+                                case CLONE:
+                                    handleClone(request, finishTaskRequest);
+                                    break;
+                                default:
+                                    break;
+                            }
+                            finishTaskRequest.setReportVersion(reportVersion);
 
                             FrontendService.Client client = ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
                             System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
@@ -165,6 +183,18 @@ public class MockedBackendFactory {
                             e.printStackTrace();
                         }
                     }
+                }
+
+                private void handleClone(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TCloneReq req = request.getCloneReq();
+                    List<TTabletInfo> tabletInfos = Lists.newArrayList();
+                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
+                            req.committed_version_hash, 1, 1);
+                    tabletInfo.setStorageMedium(req.storage_medium);
+                    tabletInfo.setPathHash(req.dest_path_hash);
+                    tabletInfo.setUsed(true);
+                    tabletInfos.add(tabletInfo);
+                    finishTaskRequest.setFinishTabletInfos(tabletInfos);
                 }
             }).start();
         }
@@ -200,12 +230,12 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TAgentResult makeSnapshot(TSnapshotRequest snapshot_request) throws TException {
+        public TAgentResult makeSnapshot(TSnapshotRequest snapshotRequest) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
         @Override
-        public TAgentResult releaseSnapshot(String snapshot_path) throws TException {
+        public TAgentResult releaseSnapshot(String snapshotPath) throws TException {
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 
@@ -235,13 +265,23 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TExportStatusResult getExportStatus(TUniqueId task_id) throws TException {
+        public TExportStatusResult getExportStatus(TUniqueId taskId) throws TException {
             return new TExportStatusResult(new TStatus(TStatusCode.OK), TExportState.FINISHED);
         }
 
         @Override
-        public TStatus eraseExportTask(TUniqueId task_id) throws TException {
+        public TStatus eraseExportTask(TUniqueId taskId) throws TException {
             return new TStatus(TStatusCode.OK);
+        }
+
+        @Override
+        public long getTrashUsedCapacity() throws TException {
+            return  0L;
+        }
+
+        @Override
+        public List<TDiskTrashInfo> getDiskTrashUsedCapacity() throws TException {
+            return null;
         }
 
         @Override
@@ -270,25 +310,36 @@ public class MockedBackendFactory {
         }
 
         @Override
-        public TStreamLoadRecordResult getStreamLoadRecord(long last_stream_record_time) throws TException {
+        public TStreamLoadRecordResult getStreamLoadRecord(long lastStreamRecordTime) throws TException {
             return new TStreamLoadRecordResult(Maps.newHashMap());
+        }
+
+        @Override
+        public void cleanTrash() throws TException {
+            return;
+        }
+
+        @Override
+        public TCheckStorageFormatResult checkStorageFormat() throws TException {
+            return new TCheckStorageFormatResult();
         }
     }
 
     // The default Brpc service.
     public static class DefaultPBackendServiceImpl extends PBackendServiceGrpc.PBackendServiceImplBase {
-       @Override
-        public void transmitData(InternalService.PTransmitDataParams request, StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
-           responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
-                   .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
-           responseObserver.onCompleted();
+        @Override
+        public void transmitData(InternalService.PTransmitDataParams request,
+                StreamObserver<InternalService.PTransmitDataResult> responseObserver) {
+            responseObserver.onNext(InternalService.PTransmitDataResult.newBuilder()
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
+            responseObserver.onCompleted();
         }
 
         @Override
         public void execPlanFragment(InternalService.PExecPlanFragmentRequest request, StreamObserver<InternalService.PExecPlanFragmentResult> responseObserver) {
             System.out.println("get exec_plan_fragment request");
             responseObserver.onNext(InternalService.PExecPlanFragmentResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
@@ -296,7 +347,7 @@ public class MockedBackendFactory {
         public void cancelPlanFragment(InternalService.PCancelPlanFragmentRequest request, StreamObserver<InternalService.PCancelPlanFragmentResult> responseObserver) {
             System.out.println("get cancel_plan_fragment request");
             responseObserver.onNext(InternalService.PCancelPlanFragmentResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 
@@ -304,7 +355,7 @@ public class MockedBackendFactory {
         public void fetchData(InternalService.PFetchDataRequest request, StreamObserver<InternalService.PFetchDataResult> responseObserver) {
             System.out.println("get fetch_data request");
             responseObserver.onNext(InternalService.PFetchDataResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0))
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0))
                     .setQueryStatistics(Data.PQueryStatistics.newBuilder()
                             .setScanRows(0L)
                             .setScanBytes(0L))
@@ -336,7 +387,7 @@ public class MockedBackendFactory {
         public void getInfo(InternalService.PProxyRequest request, StreamObserver<InternalService.PProxyResult> responseObserver) {
             System.out.println("get get_info request");
             responseObserver.onNext(InternalService.PProxyResult.newBuilder()
-                    .setStatus(Status.PStatus.newBuilder().setStatusCode(0)).build());
+                    .setStatus(Types.PStatus.newBuilder().setStatusCode(0)).build());
             responseObserver.onCompleted();
         }
 

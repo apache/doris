@@ -59,7 +59,6 @@ import org.apache.doris.thrift.TPaloBrokerService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -127,7 +126,7 @@ public class BrokerUtil {
             boolean failed = true;
             try {
                 TBrokerListPathRequest request = new TBrokerListPathRequest(
-                    TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
+                        TBrokerVersion.VERSION_ONE, path, false, brokerDesc.getProperties());
                 TBrokerListResponse tBrokerListResponse = null;
                 try {
                     tBrokerListResponse = client.listPath(request);
@@ -147,7 +146,7 @@ public class BrokerUtil {
                     fileStatuses.add(tBrokerFileStatus);
                 }
             } catch (TException e) {
-                LOG.warn("Broker list path exception, path={}, address={}, exception={}", path, address, e);
+                LOG.warn("Broker list path exception, path={}, address={}", path, address, e);
                 throw new UserException("Broker list path exception. path=" + path + ", broker=" + address);
             } finally {
                 returnClient(client, address, failed);
@@ -155,10 +154,15 @@ public class BrokerUtil {
         } else if (brokerDesc.getStorageType() == StorageBackend.StorageType.S3) {
             S3Storage s3 = new S3Storage(brokerDesc.getProperties());
             List<RemoteFile> rfiles = new ArrayList<>();
-            Status st = s3.list(path, rfiles, false);
-            if (!st.ok()) {
-                throw new UserException("S3 list path failed. path=" + path
-                    + ",msg=" + st.getErrMsg());
+            try {
+                Status st = s3.list(path, rfiles, false);
+                if (!st.ok()) {
+                    throw new UserException("S3 list path failed. path=" + path
+                            + ",msg=" + st.getErrMsg());
+                }
+            } catch (Exception e) {
+                LOG.warn("s3 list path exception, path={}", path, e);
+                throw new UserException("s3 list path exception. path=" + path + ", err: " + e.getMessage());
             }
             for (RemoteFile r : rfiles) {
                 if (r.isFile()) {
@@ -182,7 +186,7 @@ public class BrokerUtil {
             }
             try {
                 FileSystem fs = FileSystem.get(new URI(hdfsFsName), conf, user);
-                FileStatus[] statusList = fs.listStatus(new Path(path));
+                FileStatus[] statusList = fs.globStatus(new Path(path));
                 for (FileStatus status : statusList) {
                     if (status.isFile()) {
                         fileStatuses.add(new TBrokerFileStatus(status.getPath().toUri().getPath(),
@@ -453,8 +457,8 @@ public class BrokerUtil {
                     remotePath, brokerDesc.getProperties());
             TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
             if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address +
-                        ", msg=" + rep.getOpStatus().getMessage());
+                throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address
+                        + ", msg=" + rep.getOpStatus().getMessage());
             }
             failed = false;
             return rep.isPathExist;
@@ -476,15 +480,15 @@ public class BrokerUtil {
                     destFilePath, brokerDesc.getProperties());
             TBrokerOperationStatus rep = client.renamePath(req);
             if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath +
-                        ", msg: " + rep.getMessage() + ", broker: " + address);
+                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath
+                        + ", msg: " + rep.getMessage() + ", broker: " + address);
             }
             failed = false;
         } catch (TException e) {
             LOG.warn("Broker rename file failed, origin path={}, dest path={}, address={}, exception={}",
                     origFilePath, destFilePath, address, e);
-            throw new UserException("Broker rename file exception. origin path=" + origFilePath +
-                    ", dest path=" + destFilePath + ", broker=" + address);
+            throw new UserException("Broker rename file exception. origin path=" + origFilePath
+                    + ", dest path=" + destFilePath + ", broker=" + address);
         } finally {
             returnClient(client, address, failed);
         }

@@ -40,46 +40,45 @@ MemIndex::MemIndex()
           _index_size(0),
           _data_size(0),
           _num_rows(0),
-          _tracker(new MemTracker(-1)),
-          _mem_pool(new MemPool(_tracker.get())) {}
+          _mem_pool(new MemPool("MemIndex")) {}
 
 MemIndex::~MemIndex() {
     _num_entries = 0;
     for (vector<SegmentMetaInfo>::iterator it = _meta.begin(); it != _meta.end(); ++it) {
         free(it->buffer.data);
-        it->buffer.data = NULL;
+        it->buffer.data = nullptr;
         it->buffer.length = 0;
     }
 }
 
-OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row_block,
-                                  bool use_cache) {
-    OLAPStatus res = OLAP_SUCCESS;
+Status MemIndex::load_segment(const char* file, size_t* current_num_rows_per_row_block,
+                              bool use_cache) {
+    Status res = Status::OK();
 
     SegmentMetaInfo meta;
     uint32_t adler_checksum = 0;
     uint32_t num_entries = 0;
 
-    if (file == NULL) {
-        res = OLAP_ERR_INPUT_PARAMETER_ERROR;
+    if (file == nullptr) {
+        res = Status::OLAPInternalError(OLAP_ERR_INPUT_PARAMETER_ERROR);
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         return res;
     }
 
     FileHandler file_handler;
     if (use_cache) {
-        if ((res = file_handler.open_with_cache(file, O_RDONLY)) != OLAP_SUCCESS) {
+        if ((res = file_handler.open_with_cache(file, O_RDONLY)) != Status::OK()) {
             LOG(WARNING) << "open index error. file=" << file << ", res=" << res;
             return res;
         }
     } else {
-        if ((res = file_handler.open(file, O_RDONLY)) != OLAP_SUCCESS) {
+        if ((res = file_handler.open(file, O_RDONLY)) != Status::OK()) {
             LOG(WARNING) << "open index error. file=" << file << ", res=" << res;
             return res;
         }
     }
 
-    if ((res = meta.file_header.unserialize(&file_handler)) != OLAP_SUCCESS) {
+    if ((res = meta.file_header.unserialize(&file_handler)) != Status::OK()) {
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
@@ -105,7 +104,7 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
         is_align = (0 == storage_length % entry_length());
     }
     if (!is_align) {
-        res = OLAP_ERR_INDEX_LOAD_ERROR;
+        res = Status::OLAPInternalError(OLAP_ERR_INDEX_LOAD_ERROR);
         LOG(WARNING) << "load index error. file=" << file << ", res=" << res;
         file_handler.close();
         return res;
@@ -127,12 +126,12 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     _num_entries = meta.range.last;
     _meta.push_back(meta);
 
-    (current_num_rows_per_row_block == NULL ||
+    (current_num_rows_per_row_block == nullptr ||
      (*current_num_rows_per_row_block = meta.file_header.message().num_rows_per_block()));
 
     if (OLAP_UNLIKELY(num_entries == 0)) {
         file_handler.close();
-        return OLAP_SUCCESS;
+        return Status::OK();
     }
 
     // convert index memory layout for string type
@@ -140,17 +139,17 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     // target type is ptr|size, ptr pointer to data
     char* storage_data = reinterpret_cast<char*>(calloc(storage_length, 1));
     if (storage_data == nullptr) {
-        res = OLAP_ERR_MALLOC_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        res = Status::OLAPInternalError(OLAP_ERR_MALLOC_ERROR);
+        LOG(WARNING) << "load segment for loading index error. file=" << file << " res=" << res;
         file_handler.close();
         return res;
     }
 
     // 读取索引内容
     // 为了启动加速，此处可使用mmap方式。
-    if (file_handler.pread(storage_data, storage_length, meta.file_header.size()) != OLAP_SUCCESS) {
-        res = OLAP_ERR_IO_ERROR;
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+    if (file_handler.pread(storage_data, storage_length, meta.file_header.size()) != Status::OK()) {
+        res = Status::OLAPInternalError(OLAP_ERR_IO_ERROR);
+        LOG(WARNING) << "load segment for loading index error. file=" << file << "res=" << res;
         file_handler.close();
         free(storage_data);
         return res;
@@ -159,9 +158,9 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     // checksum validation
     adler_checksum = olap_adler32(ADLER32_INIT, storage_data, storage_length);
     if (adler_checksum != meta.file_header.checksum()) {
-        res = OLAP_ERR_INDEX_CHECKSUM_ERROR;
-        OLAP_LOG_WARNING("checksum validation error.");
-        OLAP_LOG_WARNING("load segment for loading index error. [file=%s; res=%d]", file, res);
+        res = Status::OLAPInternalError(OLAP_ERR_INDEX_CHECKSUM_ERROR);
+        LOG(WARNING) << "checksum validation error.";
+        LOG(WARNING) << "load segment for loading index error. file=" << file << "res=" << res;
         file_handler.close();
         free(storage_data);
         return res;
@@ -197,6 +196,36 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
                 /*
                  * Varchar is null_byte|length|content in OlapIndex storage
                  * Varchar is in nullbyte|length|ptr in memory
+                 * We need copy three part: nullbyte|length|content
+                 * 1. copy null byte
+                 * 2. copy length and content into addrs pointed by ptr
+                 */
+
+                // 1. copy null_byte
+                memory_copy(mem_ptr, storage_ptr, null_byte);
+
+                // 2. copy length and content
+                bool is_null = *reinterpret_cast<bool*>(mem_ptr);
+                if (!is_null) {
+                    size_t storage_field_bytes =
+                            *reinterpret_cast<VarcharLengthType*>(storage_ptr + null_byte);
+                    Slice* slice = reinterpret_cast<Slice*>(mem_ptr + 1);
+                    char* data = reinterpret_cast<char*>(_mem_pool->allocate(storage_field_bytes));
+                    memory_copy(data, storage_ptr + sizeof(VarcharLengthType) + null_byte,
+                                storage_field_bytes);
+                    slice->data = data;
+                    slice->size = storage_field_bytes;
+                }
+
+                mem_ptr += mem_row_bytes;
+                storage_ptr += storage_row_bytes;
+            }
+        } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
+            mem_field_offset += sizeof(Slice) + 1;
+            for (size_t j = 0; j < num_entries; ++j) {
+                /*
+                 * string is null_byte|length|content in OlapIndex storage
+                 * string is in nullbyte|length|ptr in memory
                  * We need copy three part: nullbyte|length|content
                  * 1. copy null byte
                  * 2. copy length and content into addrs pointed by ptr
@@ -282,14 +311,14 @@ OLAPStatus MemIndex::load_segment(const char* file, size_t* current_num_rows_per
     free(storage_data);
 
     file_handler.close();
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
-                          std::vector<TabletColumn>* short_key_columns) {
+Status MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t short_key_num,
+                      std::vector<TabletColumn>* short_key_columns) {
     if (short_key_columns == nullptr) {
-        LOG(WARNING) << "fail to init MemIndex, NULL short key columns.";
-        return OLAP_ERR_INDEX_LOAD_ERROR;
+        LOG(WARNING) << "fail to init MemIndex, nullptr short key columns.";
+        return Status::OLAPInternalError(OLAP_ERR_INDEX_LOAD_ERROR);
     }
 
     _key_length = short_key_len;
@@ -297,7 +326,7 @@ OLAPStatus MemIndex::init(size_t short_key_len, size_t new_short_key_len, size_t
     _key_num = short_key_num;
     _short_key_columns = short_key_columns;
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 // Find and return the IndexOffset of the element prior to the first element which
@@ -347,8 +376,8 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
         BinarySearchIterator index_beg(0);
         BinarySearchIterator index_fin(_meta[off].count());
 
-        if (index_comparator.set_segment_id(off) != OLAP_SUCCESS) {
-            throw "index of of range";
+        if (index_comparator.set_segment_id(off) != Status::OK()) {
+            throw "index of range";
         }
 
         if (!find_last) {
@@ -359,10 +388,11 @@ const OLAPIndexOffset MemIndex::find(const RowCursor& k, RowCursor* helper_curso
 
         offset.offset = *it;
         VLOG_NOTICE << "show real offset iterator value. off=" << *it;
-        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment << ", off=" << offset.offset;
+        VLOG_NOTICE << "show result offset. seg_off=" << offset.segment
+                    << ", off=" << offset.offset;
     } catch (...) {
-        OLAP_LOG_WARNING("fail to compare value in memindex. [cursor='%s' find_last=%d]",
-                         k.to_string().c_str(), find_last);
+        LOG(WARNING) << "fail to compare value in memindex. [cursor='" << k.to_string()
+                     << "' find_last=" << find_last << "]";
         return end();
     }
 
@@ -428,30 +458,29 @@ const OLAPIndexOffset MemIndex::get_offset(const RowBlockPosition& pos) const {
     return off;
 }
 
-OLAPStatus MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const {
+Status MemIndex::get_entry(const OLAPIndexOffset& pos, EntrySlice* slice) const {
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
-        return OLAP_ERR_INDEX_EOF;
+        return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 
     slice->length = new_entry_length();
     slice->data = _meta[pos.segment].buffer.data + pos.offset * new_entry_length();
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
-OLAPStatus MemIndex::get_row_block_position(const OLAPIndexOffset& pos,
-                                            RowBlockPosition* rbp) const {
+Status MemIndex::get_row_block_position(const OLAPIndexOffset& pos, RowBlockPosition* rbp) const {
     if (zero_num_rows()) {
-        return OLAP_ERR_INDEX_EOF;
+        return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 
     if (pos.segment >= segment_count() || pos.offset >= _meta[pos.segment].count()) {
-        OLAP_LOG_WARNING(
-                "fail to get RowBlockPosition from OLAPIndexOffset. "
-                "[IndexOffset={segment=%u offset=%u} segment_count=%lu items_count=%lu]",
-                pos.segment, pos.offset, segment_count(),
-                pos.segment < segment_count() ? _meta[pos.segment].count() : 0);
-        return OLAP_ERR_INDEX_EOF;
+        LOG(WARNING) << "fail to get RowBlockPosition from OLAPIndexOffset. "
+                        "[IndexOffset={segment="
+                     << pos.segment << " offset=" << pos.offset
+                     << "} segment_count=" << segment_count() << " items_count="
+                     << (pos.segment < segment_count() ? _meta[pos.segment].count() : 0) << "]";
+        return Status::OLAPInternalError(OLAP_ERR_INDEX_EOF);
     }
 
     rbp->segment = pos.segment;
@@ -469,7 +498,7 @@ OLAPStatus MemIndex::get_row_block_position(const OLAPIndexOffset& pos,
         rbp->block_size = next_offset - rbp->data_offset;
     }
 
-    return OLAP_SUCCESS;
+    return Status::OK();
 }
 
 const OLAPIndexOffset MemIndex::get_relative_offset(iterator_offset_t absolute_offset) const {

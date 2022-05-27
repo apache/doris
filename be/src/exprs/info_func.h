@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_INFO_FUNC_H
-#define DORIS_BE_SRC_QUERY_EXPRS_INFO_FUNC_H
+#pragma once
 
 #include <iostream>
 #include <string>
@@ -38,10 +37,10 @@ protected:
 
     InfoFunc(const TExprNode& node);
 
-    virtual StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
+    virtual StringVal get_string_val(ExprContext* context, TupleRow*) override;
+    virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
 
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
 
 private:
     static void* compute_fn(Expr* e, TupleRow* row);
@@ -50,5 +49,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

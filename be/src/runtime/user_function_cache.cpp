@@ -17,9 +17,8 @@
 
 #include "runtime/user_function_cache.h"
 
-#include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::ends_with
 #include <atomic>
+#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::ends_with
 #include <regex>
 #include <vector>
 
@@ -28,6 +27,9 @@
 #include "http/http_client.h"
 #include "util/dynamic_util.h"
 #include "util/file_utils.h"
+#ifdef LIBJVM
+#include "util/jni-util.h"
+#endif
 #include "util/md5.h"
 #include "util/spinlock.h"
 
@@ -37,8 +39,9 @@ static const int kLibShardNum = 128;
 
 // function cache entry, store information for
 struct UserFunctionCacheEntry {
-    UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_)
-            : function_id(fid_), checksum(checksum_), lib_file(lib_file_) {}
+    UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_,
+                           LibType type)
+            : function_id(fid_), checksum(checksum_), lib_file(lib_file_), type(type) {}
     ~UserFunctionCacheEntry();
 
     void ref() { _refs.fetch_add(1); }
@@ -54,11 +57,11 @@ struct UserFunctionCacheEntry {
     std::string lib_file;
 
     // make it atomic variable instead of holding a lock
-    std::atomic<bool> is_loaded{false};
+    std::atomic<bool> is_loaded {false};
 
     // Set to true when this library is not needed.
     // e.g. deleting some unused library to re
-    std::atomic<bool> should_delete_library{false};
+    std::atomic<bool> should_delete_library {false};
 
     // lock to make sure only one can load this cache
     std::mutex load_lock;
@@ -75,8 +78,10 @@ struct UserFunctionCacheEntry {
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
 
+    LibType type;
+
 private:
-    std::atomic<int> _refs{0};
+    std::atomic<int> _refs {0};
 };
 
 UserFunctionCacheEntry::~UserFunctionCacheEntry() {
@@ -112,7 +117,10 @@ UserFunctionCache* UserFunctionCache::instance() {
 }
 
 Status UserFunctionCache::init(const std::string& lib_dir) {
-    DCHECK(_lib_dir.empty());
+#ifndef BE_TEST
+    // _lib_dir may reuesd bettween unit tests
+    DCHECK(_lib_dir.empty()) << _lib_dir;
+#endif
     _lib_dir = lib_dir;
     // 1. dynamic open current process
     RETURN_IF_ERROR(dynamic_open(nullptr, &_current_process_handle));
@@ -141,7 +149,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     }
     // create a cache entry and put it into entry map
     UserFunctionCacheEntry* entry =
-            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file);
+            new UserFunctionCacheEntry(function_id, checksum, dir + "/" + file, LibType::SO);
     entry->is_downloaded = true;
 
     entry->ref();
@@ -199,7 +207,7 @@ Status UserFunctionCache::get_function_ptr(int64_t fid, const std::string& orig_
     if (output_entry != nullptr && *output_entry != nullptr) {
         entry = *output_entry;
     } else {
-        RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, &entry));
+        RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, &entry, LibType::SO));
         need_unref_entry = true;
     }
 
@@ -237,7 +245,7 @@ Status UserFunctionCache::get_function_ptr(int64_t fid, const std::string& orig_
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
                                            const std::string& checksum,
-                                           UserFunctionCacheEntry** output_entry) {
+                                           UserFunctionCacheEntry** output_entry, LibType type) {
     UserFunctionCacheEntry* entry = nullptr;
     {
         std::lock_guard<std::mutex> l(_cache_lock);
@@ -245,7 +253,8 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
-            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum));
+            entry = new UserFunctionCacheEntry(fid, checksum, _make_lib_file(fid, checksum, type),
+                                               type);
 
             entry->ref();
             _entry_map.emplace(fid, entry);
@@ -292,7 +301,14 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url, UserFunction
         RETURN_IF_ERROR(_download_lib(url, entry));
     }
 
-    RETURN_IF_ERROR(_load_cache_entry_internal(entry));
+    if (entry->type == LibType::SO) {
+        RETURN_IF_ERROR(_load_cache_entry_internal(entry));
+    } else if (entry->type == LibType::JAR) {
+        RETURN_IF_ERROR(_add_to_classpath(entry));
+    } else {
+        return Status::InvalidArgument(
+                "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar'!");
+    }
     return Status::OK();
 }
 
@@ -305,7 +321,7 @@ Status UserFunctionCache::_download_lib(const std::string& url, UserFunctionCach
     auto fp_closer = [](FILE* fp) { fclose(fp); };
     std::unique_ptr<FILE, decltype(fp_closer)> fp(fopen(tmp_file.c_str(), "w"), fp_closer);
     if (fp == nullptr) {
-        LOG(WARNING) << "fail to open file, file=" << tmp_file << ", error=" << ferror(fp.get());
+        LOG(WARNING) << "fail to open file, file=" << tmp_file;
         return Status::InternalError("fail to open file");
     }
 
@@ -356,10 +372,40 @@ Status UserFunctionCache::_load_cache_entry_internal(UserFunctionCacheEntry* ent
     return Status::OK();
 }
 
-std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum) {
+Status UserFunctionCache::_add_to_classpath(UserFunctionCacheEntry* entry) {
+#ifdef LIBJVM
+    const std::string path = "file://" + entry->lib_file;
+    LOG(INFO) << "Add jar " << path << " to classpath";
+    JNIEnv* env;
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    jclass class_class_loader = env->FindClass("java/lang/ClassLoader");
+    jmethodID method_get_system_class_loader = env->GetStaticMethodID(
+            class_class_loader, "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+    jobject class_loader =
+            env->CallStaticObjectMethod(class_class_loader, method_get_system_class_loader);
+    jclass class_url_class_loader = env->FindClass("java/net/URLClassLoader");
+    jmethodID method_add_url =
+            env->GetMethodID(class_url_class_loader, "addURL", "(Ljava/net/URL;)V");
+    jclass class_url = env->FindClass("java/net/URL");
+    jmethodID url_ctor = env->GetMethodID(class_url, "<init>", "(Ljava/lang/String;)V");
+    jobject urlInstance = env->NewObject(class_url, url_ctor, env->NewStringUTF(path.c_str()));
+    env->CallVoidMethod(class_loader, method_add_url, urlInstance);
+    return Status::OK();
+#else
+    return Status::InternalError("No libjvm is found!");
+#endif
+}
+
+std::string UserFunctionCache::_make_lib_file(int64_t function_id, const std::string& checksum,
+                                              LibType type) {
     int shard = function_id % kLibShardNum;
     std::stringstream ss;
-    ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum << ".so";
+    ss << _lib_dir << '/' << shard << '/' << function_id << '.' << checksum;
+    if (type == LibType::JAR) {
+        ss << ".jar";
+    } else {
+        ss << ".so";
+    }
     return ss.str();
 }
 
@@ -370,6 +416,14 @@ void UserFunctionCache::release_entry(UserFunctionCacheEntry* entry) {
     if (entry->unref()) {
         delete entry;
     }
+}
+
+Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
+                                      const std::string& checksum, std::string* libpath) {
+    UserFunctionCacheEntry* entry = nullptr;
+    RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, &entry, LibType::JAR));
+    *libpath = entry->lib_file;
+    return Status::OK();
 }
 
 } // namespace doris

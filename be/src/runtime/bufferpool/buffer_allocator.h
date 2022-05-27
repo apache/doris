@@ -15,13 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
-#define DORIS_BE_RUNTIME_BUFFER_ALLOCATOR_H
-
-#include <boost/scoped_ptr.hpp>
+#pragma once
 
 #include "runtime/bufferpool/buffer_pool_internal.h"
 #include "runtime/bufferpool/free_list.h"
+#include "runtime/mem_tracker.h"
 #include "util/aligned_new.h"
 
 namespace doris {
@@ -168,7 +166,7 @@ private:
     /// 'min_buffer_len' so that there is at least one valid buffer size.
     static int64_t CalcMaxBufferLen(int64_t min_buffer_len, int64_t system_bytes_limit);
 
-    /// Same as Allocate() but leaves 'buffer->client_' NULL and does not update counters.
+    /// Same as Allocate() but leaves 'buffer->client_' nullptr and does not update counters.
     Status AllocateInternal(int64_t len, BufferPool::BufferHandle* buffer) WARN_UNUSED_RESULT;
 
     /// Tries to reclaim enough memory from various sources so that the caller can allocate
@@ -193,7 +191,7 @@ private:
     BufferPool* const pool_;
 
     /// System allocator that is ultimately used to allocate and free buffers.
-    const boost::scoped_ptr<SystemAllocator> system_allocator_;
+    const std::unique_ptr<SystemAllocator> system_allocator_;
 
     /// The minimum power-of-two buffer length that can be allocated.
     const int64_t min_buffer_len_;
@@ -214,7 +212,7 @@ private:
     /// The remaining number of bytes of 'system_bytes_limit_' that can be used for
     /// allocating new buffers. Must be updated atomically before a new buffer is
     /// allocated or after an existing buffer is freed with the system allocator.
-    AtomicInt64 system_bytes_remaining_;
+    std::atomic<int64_t> system_bytes_remaining_;
 
     /// The maximum bytes of clean pages that can accumulate across all arenas before
     /// they will be evicted.
@@ -224,7 +222,7 @@ private:
     /// (clean_page_bytes_limit - bytes of clean pages in the BufferAllocator).
     /// 'clean_pages_bytes_limit_' is enforced by increasing this value before a
     /// clean page is added and decreasing it after a clean page is reclaimed or evicted.
-    AtomicInt64 clean_page_bytes_remaining_;
+    std::atomic<int64_t> clean_page_bytes_remaining_;
 
     /// Free and clean pages. One arena per core.
     std::vector<std::unique_ptr<FreeBufferArena>> per_core_arenas_;
@@ -237,7 +235,7 @@ private:
     /// all arenas so may fail. The final attempt locks all arenas, which is expensive
     /// but is guaranteed to succeed.
     int max_scavenge_attempts_;
+
+    std::shared_ptr<MemTracker> _mem_tracker;
 };
 } // namespace doris
-
-#endif

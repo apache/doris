@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_QSORTER_H
-#define DORIS_BE_RUNTIME_QSORTER_H
+#pragma once
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
 
 #include "common/status.h"
@@ -71,9 +69,7 @@ private:
     std::vector<TupleRow*>::iterator _next_iter;
 
     // Stores everything referenced in _priority_queue
-    boost::scoped_ptr<MemPool> _tuple_pool;
+    std::unique_ptr<MemPool> _tuple_pool;
 };
 
 } // namespace doris
-
-#endif

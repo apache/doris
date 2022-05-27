@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/ColumnDef.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -23,10 +26,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,11 +48,11 @@ public class ColumnDef {
      *     k1 INT NOT NULL DEFAULT "10"
      *     k1 INT NULL
      *     k1 INT NULL DEFAULT NULL
-     *     
+     *
      * ColumnnDef will be transformed to Column in Analysis phase, and in Column, default value is a String.
      * No matter does the user set the default value as NULL explicitly, or not set default value,
      * the default value in Column will be "null", so that Doris can not distinguish between "not set" and "set as null".
-     * 
+     *
      * But this is OK because Column has another attribute "isAllowNull".
      * If the column is not allowed to be null, and user does not set the default value,
      * even if default value saved in Column is null, the "null" value can not be loaded into this column,
@@ -128,15 +131,45 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
-    public boolean isAllowNull() { return isAllowNull; }
-    public String getDefaultValue() { return defaultValue.value; }
-    public String getName() { return name; }
-    public AggregateType getAggregateType() { return aggregateType; }
-    public void setAggregateType(AggregateType aggregateType) { this.aggregateType = aggregateType; }
-    public boolean isKey() { return isKey; }
-    public void setIsKey(boolean isKey) { this.isKey = isKey; }
-    public TypeDef getTypeDef() { return typeDef; }
-    public Type getType() { return typeDef.getType(); }
+    public boolean isAllowNull() {
+        return isAllowNull;
+    }
+
+    public String getDefaultValue() {
+        return defaultValue.value;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public AggregateType getAggregateType() {
+        return aggregateType;
+    }
+
+    public void setAggregateType(AggregateType aggregateType) {
+        this.aggregateType = aggregateType;
+    }
+
+    public boolean isKey() {
+        return isKey;
+    }
+
+    public void setIsKey(boolean isKey) {
+        this.isKey = isKey;
+    }
+
+    public TypeDef getTypeDef() {
+        return typeDef;
+    }
+
+    public Type getType() {
+        return typeDef.getType();
+    }
+
+    public String getComment() {
+        return comment;
+    }
 
     public boolean isVisible() {
         return visible;
@@ -160,6 +193,11 @@ public class ColumnDef {
         typeDef.analyze(null);
 
         Type type = typeDef.getType();
+
+        if (!Config.enable_quantile_state_type && type.isQuantileStateType()) {
+            throw new AnalysisException("quantile_state is disabled"
+                    + "Set config 'enable_quantile_state_type' = 'true' to enable this column type.");
+        }
 
         // disable Bitmap Hll type in keys, values without aggregate function.
         if (type.isBitmapType() || type.isHllType()) {
@@ -211,7 +249,10 @@ public class ColumnDef {
                 throw new AnalysisException("Array type column default value only support null");
             }
         }
-
+        if (isKey() && type.getPrimitiveType() == PrimitiveType.STRING) {
+            throw new AnalysisException("String Type should not be used in key column[" + getName()
+                    + "].");
+        }
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Map type column default value just support null");
@@ -255,18 +296,19 @@ public class ColumnDef {
             case SMALLINT:
             case INT:
             case BIGINT:
-                IntLiteral intLiteral = new IntLiteral(defaultValue, type);
+                new IntLiteral(defaultValue, type);
                 break;
             case LARGEINT:
-                LargeIntLiteral largeIntLiteral = new LargeIntLiteral(defaultValue);
+                new LargeIntLiteral(defaultValue);
                 break;
             case FLOAT:
                 FloatLiteral floatLiteral = new FloatLiteral(defaultValue);
                 if (floatLiteral.getType().equals(Type.DOUBLE)) {
                     throw new AnalysisException("Default value will loose precision: " + defaultValue);
                 }
+                break;
             case DOUBLE:
-                FloatLiteral doubleLiteral = new FloatLiteral(defaultValue);
+                new FloatLiteral(defaultValue);
                 break;
             case DECIMALV2:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(defaultValue);
@@ -274,11 +316,12 @@ public class ColumnDef {
                 break;
             case DATE:
             case DATETIME:
-                DateLiteral dateLiteral = new DateLiteral(defaultValue, type);
+                new DateLiteral(defaultValue, type);
                 break;
             case CHAR:
             case VARCHAR:
             case HLL:
+            case STRING:
                 if (defaultValue.length() > scalarType.getLength()) {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }
@@ -292,7 +335,7 @@ public class ColumnDef {
             case STRUCT:
                 break;
             case BOOLEAN:
-                BoolLiteral boolLiteral = new BoolLiteral(defaultValue);
+                new BoolLiteral(defaultValue);
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
@@ -329,5 +372,7 @@ public class ColumnDef {
     }
 
     @Override
-    public String toString() { return toSql(); }
+    public String toString() {
+        return toSql();
+    }
 }

@@ -38,9 +38,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.DirMoveTask;
@@ -53,6 +51,15 @@ import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -67,16 +74,6 @@ import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class BackupHandlerTest {
 
@@ -100,7 +97,7 @@ public class BackupHandlerTest {
     private TabletInvertedIndex invertedIndex = new TabletInvertedIndex();
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         Config.tmp_dir = tmpPath;
         rootDir = new File(Config.tmp_dir);
         rootDir.mkdirs();
@@ -133,16 +130,11 @@ public class BackupHandlerTest {
             }
         };
 
-        try {
-            db = CatalogMocker.mockDb();
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        db = CatalogMocker.mockDb();
 
         new Expectations() {
             {
-                catalog.getDb(anyString);
+                catalog.getDbOrDdlException(anyString);
                 minTimes = 0;
                 result = db;
             }
@@ -172,7 +164,7 @@ public class BackupHandlerTest {
     }
 
     @Test
-    public void testCreateAndDropRepository() {
+    public void testCreateAndDropRepository() throws Exception {
         new Expectations() {
             {
                 editLog.logCreateRepository((Repository) any);
@@ -206,8 +198,8 @@ public class BackupHandlerTest {
             }
 
             @Mock
-            public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) {
-                OlapTable tbl = (OlapTable) db.getTable(CatalogMocker.TEST_TBL_NAME);
+            public Status getSnapshotInfoFile(String label, String backupTimestamp, List<BackupJobInfo> infos) throws Exception {
+                OlapTable tbl = (OlapTable) db.getTableOrMetaException(CatalogMocker.TEST_TBL_NAME);
                 List<Table> tbls = Lists.newArrayList();
                 tbls.add(tbl);
                 List<Resource> resources = Lists.newArrayList();
@@ -218,7 +210,7 @@ public class BackupHandlerTest {
                         for (Tablet tablet : idx.getTablets()) {
                             List<String> files = Lists.newArrayList();
                             SnapshotInfo sinfo = new SnapshotInfo(db.getId(), tbl.getId(), part.getId(), idx.getId(),
-                                                                  tablet.getId(), -1, 0, "./path", files);
+                                    tablet.getId(), -1, 0, "./path", files);
                             snapshotInfos.put(tablet.getId(), sinfo);
                         }
                     }
@@ -244,14 +236,9 @@ public class BackupHandlerTest {
         // add repo
         handler = new BackupHandler(catalog);
         StorageBackend storageBackend = new StorageBackend("broker", "bos://location",
-                StorageBackend.StorageType.BROKER ,Maps.newHashMap());
+                StorageBackend.StorageType.BROKER, Maps.newHashMap());
         CreateRepositoryStmt stmt = new CreateRepositoryStmt(false, "repo", storageBackend);
-        try {
-            handler.createRepository(stmt);
-        } catch (DdlException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        handler.createRepository(stmt);
 
         // process backup
         List<TableRef> tblRefs = Lists.newArrayList();
@@ -259,17 +246,12 @@ public class BackupHandlerTest {
         AbstractBackupTableRefClause tableRefClause = new AbstractBackupTableRefClause(false, tblRefs);
         BackupStmt backupStmt = new BackupStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "label1"), "repo",
                 tableRefClause, null);
-        try {
-            handler.process(backupStmt);
-        } catch (DdlException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        handler.process(backupStmt);
 
         // handleFinishedSnapshotTask
         BackupJob backupJob = (BackupJob) handler.getJob(CatalogMocker.TEST_DB_ID);
         SnapshotTask snapshotTask = new SnapshotTask(null, 0, 0, backupJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                                                     0, 0, 0, 0, 0, 0, 0, 1, false);
+                0, 0, 0, 0, 0, 0, 1, false);
         TFinishTaskRequest request = new TFinishTaskRequest();
         List<String> snapshotFiles = Lists.newArrayList();
         request.setSnapshotFiles(snapshotFiles);
@@ -297,20 +279,12 @@ public class BackupHandlerTest {
             DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
             BackupHandler.read(in);
             in.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            Assert.fail();
         } finally {
             tmpFile.delete();
         }
 
         // cancel backup
-        try {
-            handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
-        } catch (DdlException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, false));
 
         // process restore
         List<TableRef> tblRefs2 = Lists.newArrayList();
@@ -320,24 +294,14 @@ public class BackupHandlerTest {
         AbstractBackupTableRefClause abstractBackupTableRefClause = new AbstractBackupTableRefClause(false, tblRefs2);
         RestoreStmt restoreStmt = new RestoreStmt(new LabelName(CatalogMocker.TEST_DB_NAME, "ss2"), "repo",
                 abstractBackupTableRefClause, properties);
-        try {
-            restoreStmt.analyzeProperties();
-        } catch (AnalysisException e2) {
-            e2.printStackTrace();
-            Assert.fail();
-        }
 
-        try {
-            handler.process(restoreStmt);
-        } catch (DdlException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        restoreStmt.analyzeProperties();
+        handler.process(restoreStmt);
 
         // handleFinishedSnapshotTask
         RestoreJob restoreJob = (RestoreJob) handler.getJob(CatalogMocker.TEST_DB_ID);
         snapshotTask = new SnapshotTask(null, 0, 0, restoreJob.getJobId(), CatalogMocker.TEST_DB_ID,
-                0, 0, 0, 0, 0, 0, 0, 1, true);
+                0, 0, 0, 0, 0, 0, 1, true);
         request = new TFinishTaskRequest();
         request.setSnapshotPath("./snapshot/path");
         request.setTaskStatus(new TStatus(TStatusCode.OK));
@@ -369,27 +333,14 @@ public class BackupHandlerTest {
             DataInputStream in = new DataInputStream(new FileInputStream(tmpFile));
             BackupHandler.read(in);
             in.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            Assert.fail();
         } finally {
             tmpFile.delete();
         }
 
         // cancel restore
-        try {
-            handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
-        } catch (DdlException e1) {
-            e1.printStackTrace();
-            Assert.fail();
-        }
+        handler.cancel(new CancelBackupStmt(CatalogMocker.TEST_DB_NAME, true));
 
         // drop repo
-        try {
-            handler.dropRepository(new DropRepositoryStmt("repo"));
-        } catch (DdlException e) {
-            e.printStackTrace();
-            Assert.fail();
-        }
+        handler.dropRepository(new DropRepositoryStmt("repo"));
     }
 }

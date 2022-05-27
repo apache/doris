@@ -127,6 +127,12 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
       - 必选：是
       - 默认值：否
 
+* **timeZone**
+
+  - 描述：Doris 的时区。
+  - 必选：否
+  - 默认值：`+08:00`
+
 * **preSql**
 
   - 描述：写入数据到目的表前，会先执行这里的标准语句。
@@ -160,13 +166,18 @@ DorisWriter 通过Doris原生支持Stream load方式导入数据， DorisWriter�
 
 * **lineDelimiter**
 
-  - 描述：每批次数据包含多行，每行为 Json 格式，每行的的分隔符即为 lineDelimiter。
+  - 描述：每批次数据包含多行，每行为 Json 格式，每行的分隔符即为 lineDelimiter。支持多个字节, 例如'\x02\x03'。
   - 必选：否
   - 默认值：`\n`
-
+  
 * **loadProps**
 
   - 描述：StreamLoad 的请求参数，详情参照StreamLoad介绍页面。
   - 必选：否
   - 默认值：无
 
+* **connectTimeout**
+
+  - 描述：StreamLoad单次请求的超时时间, 单位毫秒(ms)。
+  - 必选：否
+  - 默认值：-1

@@ -25,12 +25,10 @@
 #include "olap/schema.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/condition_variable.h"
+#include "testutil/test_util.h"
 #include "util/hash_util.hpp"
-#include "util/mutex.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/random.h"
-#include "test_util/test_util.h"
 
 namespace doris {
 
@@ -55,18 +53,19 @@ TEST_F(SkipTest, Empty) {
     std::shared_ptr<MemTracker> tracker(new MemTracker(-1));
     std::unique_ptr<MemPool> mem_pool(new MemPool(tracker.get()));
 
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
-    ASSERT_TRUE(!list.Contains(10));
+    EXPECT_TRUE(!list.Contains(10));
 
     SkipList<Key, TestComparator>::Iterator iter(&list);
-    ASSERT_TRUE(!iter.Valid());
+    EXPECT_TRUE(!iter.Valid());
     iter.SeekToFirst();
-    ASSERT_TRUE(!iter.Valid());
+    EXPECT_TRUE(!iter.Valid());
     iter.Seek(100);
-    ASSERT_TRUE(!iter.Valid());
+    EXPECT_TRUE(!iter.Valid());
     iter.SeekToLast();
-    ASSERT_TRUE(!iter.Valid());
+    EXPECT_TRUE(!iter.Valid());
+    delete cmp;
 }
 
 TEST_F(SkipTest, InsertAndLookup) {
@@ -77,7 +76,7 @@ TEST_F(SkipTest, InsertAndLookup) {
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
@@ -89,28 +88,28 @@ TEST_F(SkipTest, InsertAndLookup) {
 
     for (int i = 0; i < R; i++) {
         if (list.Contains(i)) {
-            ASSERT_EQ(keys.count(i), 1);
+            EXPECT_EQ(keys.count(i), 1);
         } else {
-            ASSERT_EQ(keys.count(i), 0);
+            EXPECT_EQ(keys.count(i), 0);
         }
     }
 
     // Simple iterator tests
     {
         SkipList<Key, TestComparator>::Iterator iter(&list);
-        ASSERT_TRUE(!iter.Valid());
+        EXPECT_TRUE(!iter.Valid());
 
         iter.Seek(0);
-        ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*(keys.begin()), iter.key());
+        EXPECT_TRUE(iter.Valid());
+        EXPECT_EQ(*(keys.begin()), iter.key());
 
         iter.SeekToFirst();
-        ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*(keys.begin()), iter.key());
+        EXPECT_TRUE(iter.Valid());
+        EXPECT_EQ(*(keys.begin()), iter.key());
 
         iter.SeekToLast();
-        ASSERT_TRUE(iter.Valid());
-        ASSERT_EQ(*(keys.rbegin()), iter.key());
+        EXPECT_TRUE(iter.Valid());
+        EXPECT_EQ(*(keys.rbegin()), iter.key());
     }
 
     // Forward iteration test
@@ -122,11 +121,11 @@ TEST_F(SkipTest, InsertAndLookup) {
         std::set<Key>::iterator model_iter = keys.lower_bound(i);
         for (int j = 0; j < 3; j++) {
             if (model_iter == keys.end()) {
-                ASSERT_TRUE(!iter.Valid());
+                EXPECT_TRUE(!iter.Valid());
                 break;
             } else {
-                ASSERT_TRUE(iter.Valid());
-                ASSERT_EQ(*model_iter, iter.key());
+                EXPECT_TRUE(iter.Valid());
+                EXPECT_EQ(*model_iter, iter.key());
                 ++model_iter;
                 iter.Next();
             }
@@ -141,12 +140,13 @@ TEST_F(SkipTest, InsertAndLookup) {
         // Compare against model iterator
         for (std::set<Key>::reverse_iterator model_iter = keys.rbegin(); model_iter != keys.rend();
              ++model_iter) {
-            ASSERT_TRUE(iter.Valid());
-            ASSERT_EQ(*model_iter, iter.key());
+            EXPECT_TRUE(iter.Valid());
+            EXPECT_EQ(*model_iter, iter.key());
             iter.Prev();
         }
-        ASSERT_TRUE(!iter.Valid());
+        EXPECT_TRUE(!iter.Valid());
     }
+    delete cmp;
 }
 
 // Only non-DUP model will use Find() and InsertWithHint().
@@ -158,27 +158,28 @@ TEST_F(SkipTest, InsertWithHintNoneDupModel) {
     const int R = 5000;
     Random rnd(1000);
     std::set<Key> keys;
-    TestComparator cmp;
+    TestComparator* cmp = new TestComparator();
     SkipList<Key, TestComparator> list(cmp, mem_pool.get(), false);
     SkipList<Key, TestComparator>::Hint hint;
     for (int i = 0; i < N; i++) {
         Key key = rnd.Next() % R;
         bool is_exist = list.Find(key, &hint);
         if (keys.insert(key).second) {
-            ASSERT_FALSE(is_exist);
+            EXPECT_FALSE(is_exist);
             list.InsertWithHint(key, is_exist, &hint);
         } else {
-            ASSERT_TRUE(is_exist);
+            EXPECT_TRUE(is_exist);
         }
     }
 
     for (int i = 0; i < R; i++) {
         if (list.Contains(i)) {
-            ASSERT_EQ(keys.count(i), 1);
+            EXPECT_EQ(keys.count(i), 1);
         } else {
-            ASSERT_EQ(keys.count(i), 0);
+            EXPECT_EQ(keys.count(i), 0);
         }
     }
+    delete cmp;
 }
 
 // We want to make sure that with a single writer and multiple
@@ -219,9 +220,9 @@ private:
     }
 
     static Key make_key(uint64_t k, uint64_t g) {
-        assert(sizeof(Key) == sizeof(uint64_t));
-        assert(k <= K); // We sometimes pass K to seek to the end of the skiplist
-        assert(g <= 0xffffffffu);
+        EXPECT_EQ(sizeof(Key), sizeof(uint64_t));
+        EXPECT_LE(k, K); // We sometimes pass K to seek to the end of the skiplist
+        EXPECT_LE(g, 0xffffffffu);
         return ((k << 40) | (g << 8) | (hash_numbers(k, g) & 0xff));
     }
 
@@ -259,7 +260,7 @@ private:
 
     std::shared_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
-
+    std::shared_ptr<TestComparator> _comparator;
     // SkipList is not protected by _mu.  We just use a single writer
     // thread to modify it.
     SkipList<Key, TestComparator> _list;
@@ -268,7 +269,8 @@ public:
     ConcurrentTest()
             : _mem_tracker(new MemTracker(-1)),
               _mem_pool(new MemPool(_mem_tracker.get())),
-              _list(TestComparator(), _mem_pool.get(), false) {}
+              _comparator(new TestComparator()),
+              _list(_comparator.get(), _mem_pool.get(), false) {}
 
     // REQUIRES: External synchronization
     void write_step(Random* rnd) {
@@ -296,18 +298,18 @@ public:
                 current = make_key(K, 0);
             } else {
                 current = iter.key();
-                ASSERT_TRUE(is_valid_key(current)) << current;
+                EXPECT_TRUE(is_valid_key(current)) << current;
             }
-            ASSERT_LE(pos, current) << "should not go backwards";
+            EXPECT_LE(pos, current) << "should not go backwards";
 
             // Verify that everything in [pos,current) was not present in
             // initial_state.
             while (pos < current) {
-                ASSERT_LT(key(pos), K) << pos;
+                EXPECT_LT(key(pos), K) << pos;
 
                 // Note that generation 0 is never inserted, so it is ok if
                 // <*,0,*> is missing.
-                ASSERT_TRUE((gen(pos) == 0) ||
+                EXPECT_TRUE((gen(pos) == 0) ||
                             (gen(pos) > static_cast<Key>(initial_state.get(key(pos)))))
                         << "key: " << key(pos) << "; gen: " << gen(pos)
                         << "; initgen: " << initial_state.get(key(pos));
@@ -358,27 +360,25 @@ public:
 
     enum ReaderState { STARTING, RUNNING, DONE };
 
-    explicit TestState(int s) : _seed(s), _quit_flag(NULL), _state(STARTING), _cv_state(&_mu) {}
+    explicit TestState(int s) : _seed(s), _quit_flag(false), _state(STARTING) {}
 
     void wait(ReaderState s) {
-        _mu.lock();
+        std::unique_lock l(_mu);
         while (_state != s) {
-            _cv_state.wait();
+            _cv_state.wait(l);
         }
-        _mu.unlock();
     }
 
     void change(ReaderState s) {
-        _mu.lock();
+        std::lock_guard l(_mu);
         _state = s;
         _cv_state.notify_one();
-        _mu.unlock();
     }
 
 private:
-    Mutex _mu;
+    std::mutex _mu;
     ReaderState _state;
-    ConditionVariable _cv_state;
+    std::condition_variable _cv_state;
 };
 
 static void concurrent_reader(void* arg) {
@@ -409,7 +409,7 @@ static void run_concurrent(int run) {
         for (int i = 0; i < kSize; i++) {
             state._t.write_step(&rnd);
         }
-        state._quit_flag.store(true, std::memory_order_release); // Any non-NULL arg will do
+        state._quit_flag.store(true, std::memory_order_release); // Any non-nullptr arg will do
         state.wait(TestState::DONE);
     }
 }
@@ -421,9 +421,3 @@ TEST_F(SkipTest, Concurrent) {
 }
 
 } // namespace doris
-
-int main(int argc, char** argv) {
-    ::testing::InitGoogleTest(&argc, argv);
-    doris::CpuInfo::init();
-    return RUN_ALL_TESTS();
-}

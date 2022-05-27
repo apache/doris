@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
-#define DORIS_BE_SRC_COMMON_UTIL_DISK_INFO_H
+#pragma once
 
-#include <boost/cstdint.hpp>
 #include <map>
 #include <set>
 #include <string>
@@ -43,22 +41,6 @@ public:
         DCHECK(_s_initialized);
         return _s_disks.size();
     }
-
-#if 0
-    // Returns the number of (logical) disks the data node is using.
-    // It is possible for this to be more than num_disks since the datanode
-    // can be configured to have multiple data directories on the same physical
-    // disk.
-    static int num_datanode_dirs() {
-        DCHECK(_initialized);
-        return _num_datanode_dirs;
-    }
-
-    // Returns a 0-based disk index for the data node dirs index.
-    static int disk_id(int datanode_dir_idx) {
-        return 0;
-    }
-#endif
 
     // Returns the 0-based disk index for 'path' (path must be a FS path, not
     // hdfs path).
@@ -118,4 +100,3 @@ private:
 };
 
 } // namespace doris
-#endif

@@ -17,10 +17,11 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <functional>
 #include <memory>
 #include <string>
-#include <parallel_hashmap/phmap.h>
 
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/hash/string_hash.h"
@@ -28,11 +29,11 @@
 #include "olap/column_vector.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
+#include "olap/rowset/segment_v2/bitshuffle_page.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -46,7 +47,7 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 // Either header + embedded codeword page, which can be encoded with any
 //        int PageBuilder, when mode_ = DICT_ENCODING.
 // Or     header + embedded BinaryPlainPage, when mode_ = PLAIN_ENCODING.
-// Data pages start with mode_ = DICT_ENCODING, when the the size of dictionary
+// Data pages start with mode_ = DICT_ENCODING, when the size of dictionary
 // page go beyond the option_->dict_page_size, the subsequent data pages will switch
 // to string plain page automatically.
 class BinaryDictPageBuilder : public PageBuilder {
@@ -90,7 +91,6 @@ private:
     // used to remember the insertion order of dict keys
     std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this mem pool
-    std::shared_ptr<MemTracker> _tracker;
     MemPool _pool;
     faststring _buffer;
     faststring _first_value;
@@ -106,23 +106,30 @@ public:
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
+
     size_t count() const override { return _data_page_decoder->count(); }
 
     size_t current_index() const override { return _data_page_decoder->current_index(); }
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(PageDecoder* dict_decoder);
+    void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
+
+    ~BinaryDictPageDecoder();
 
 private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    const BinaryPlainPageDecoder* _dict_decoder = nullptr;
+    BinaryPlainPageDecoder* _dict_decoder = nullptr;
+    BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
     // use as data buf.
     std::unique_ptr<ColumnVectorBatch> _batch;
+
+    StringRef* _dict_word_info = nullptr;
 };
 
 } // namespace segment_v2

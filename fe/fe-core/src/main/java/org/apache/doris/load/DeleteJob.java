@@ -18,8 +18,8 @@
 package org.apache.doris.load;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
@@ -28,11 +28,10 @@ import org.apache.doris.task.PushTask;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionState;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.Map;
@@ -86,11 +85,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
      */
     public void checkAndUpdateQuorum() throws MetaNotFoundException {
         long dbId = deleteInfo.getDbId();
-        long tableId = deleteInfo.getTableId();
-        Database db = Catalog.getCurrentCatalog().getDb(dbId);
-        if (db == null) {
-            throw new MetaNotFoundException("can not find database "+ dbId +" when commit delete");
-        }
+        Catalog.getCurrentCatalog().getDbOrMetaException(dbId);
 
         for (TabletDeleteInfo tDeleteInfo : getTabletDeleteInfo()) {
             Short replicaNum = partitionReplicaNum.get(tDeleteInfo.getPartitionId());
@@ -105,8 +100,24 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
                 quorumTablets.add(tDeleteInfo.getTabletId());
             }
         }
-        LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {},",
-                signature, totalTablets.size(), quorumTablets.size());
+
+        int dropCounter = 0;
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        for (long tabletId : totalTablets) {
+            if (invertedIndex.getTabletMeta(tabletId) == null) {
+                // tablet does not exist.
+                // This may happen during the delete operation, and the schema change task ends,
+                // causing the old tablet to be deleted.
+                // We think this situation is normal. In order to ensure that the delete task can end normally
+                // here we regard these deleted tablets as completed.
+                finishedTablets.add(tabletId);
+                dropCounter++;
+                LOG.warn("tablet {} has been dropped when checking delete job {}", tabletId, id);
+            }
+        }
+
+        LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {}, dropped tablets: {}",
+                signature, totalTablets.size(), quorumTablets.size(), dropCounter);
 
         if (finishedTablets.containsAll(totalTablets)) {
             setState(DeleteState.FINISHED);

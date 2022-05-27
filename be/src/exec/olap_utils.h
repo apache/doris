@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
-#define DORIS_BE_SRC_QUERY_EXEC_OLAP_UTILS_H
+#pragma once
 
 #include <math.h>
 
@@ -70,11 +69,13 @@ inline CompareLargeFunc get_compare_func(PrimitiveType type) {
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
+    case TYPE_STRING:
         return compare_large<StringValue>;
 
     default:
         DCHECK(false) << "Unsupported Compare type";
     }
+    __builtin_unreachable();
 }
 
 static const char* NEGATIVE_INFINITY = "-oo";
@@ -111,7 +112,7 @@ static const char base64_pad = '=';
 inline size_t base64_encode(const char* data, size_t length, char* encoded_data) {
     size_t output_length = (size_t)(4.0 * ceil((double)length / 3.0));
 
-    if (encoded_data == NULL) {
+    if (encoded_data == nullptr) {
         return 0;
     }
 
@@ -215,5 +216,3 @@ inline SQLFilterOp to_olap_filter_type(TExprOpcode::type type, bool opposite) {
 }
 
 } // namespace doris
-
-#endif

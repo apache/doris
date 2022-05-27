@@ -22,33 +22,14 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Column;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class ShowResultSetMetaData {
-    private List<Column> columns;
-
-    public int getColumnCount() {
-        return columns.size();
-    }
-
-    public List<Column> getColumns() {
-        return columns;
-    }
-
-    public Column getColumn(int idx) {
-        return columns.get(idx);
-    }
-
-    public void removeColumn(int idx) {
-        Preconditions.checkArgument(idx < columns.size());
-        columns.remove(idx);
-    }
+public class ShowResultSetMetaData extends AbstractResultSetMetaData {
 
     public ShowResultSetMetaData(List<Column> columns) {
-        this.columns = columns;
+        super(columns);
     }
 
     public static Builder builder() {

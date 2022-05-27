@@ -1,5 +1,3 @@
-package org.apache.doris.persist;
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,6 +14,8 @@ package org.apache.doris.persist;
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+package org.apache.doris.persist;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -34,7 +34,7 @@ public class ReplaceTableOperationLogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1,2,3,true);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, true);
         log.write(dos);
 
         dos.flush();
@@ -54,4 +54,3 @@ public class ReplaceTableOperationLogTest {
         file.delete();
     }
 }
-

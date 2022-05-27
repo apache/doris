@@ -24,9 +24,9 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/string_value.h"
 #include "util/bitmap_value.h"
+#include "util/quantile_state.h"
 
 namespace doris {
 
@@ -46,8 +46,8 @@ public:
     // Memory Note: For plain memory can be allocated from *mem_pool, whose lifetime
     // will last util finalize function is called. Memory allocated from heap should
     // be freed in finalize function to avoid memory leak.
-    inline void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                     ObjectPool* agg_pool) const {
+    void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+              ObjectPool* agg_pool) const {
         _init_fn(dst, src, src_null, mem_pool, agg_pool);
     }
 
@@ -58,7 +58,7 @@ public:
     // will be added to sum.
 
     // Memory Note: Same with init function.
-    inline void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) const {
+    void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) const {
         _update_fn(dst, src, mem_pool);
     }
 
@@ -70,9 +70,7 @@ public:
     // Memory Note: All heap memory allocated in init and update function should be freed
     // before this function return. Memory allocated from *mem_pool will be still available
     // and will be freed by client.
-    inline void finalize(RowCursorCell* src, MemPool* mem_pool) const {
-        _finalize_fn(src, mem_pool);
-    }
+    void finalize(RowCursorCell* src, MemPool* mem_pool) const { _finalize_fn(src, mem_pool); }
 
     FieldAggregationMethod agg_method() const { return _agg_method; }
 
@@ -98,12 +96,29 @@ struct BaseAggregateFuncs {
         if (src_null) {
             return;
         }
-        if constexpr (field_type == OLAP_FIELD_TYPE_ARRAY) {
-            const TypeInfo* _type_info = get_collection_type_info(sub_type);
-            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
-        } else {
-            const TypeInfo* _type_info = get_type_info(field_type);
-            _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+        const auto* type_info = get_scalar_type_info<field_type>();
+        type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
+    }
+
+    // Default update do nothing.
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {}
+
+    // Default finalize do nothing.
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {}
+};
+
+template <FieldType sub_type>
+struct BaseAggregateFuncs<OLAP_FIELD_TYPE_ARRAY, sub_type> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
+        dst->set_is_null(src_null);
+        if (src_null) {
+            return;
+        }
+        // nested array type is unsupported for base aggregate function now
+        if (sub_type != OLAP_FIELD_TYPE_ARRAY) {
+            const auto* type_info = get_collection_type_info<sub_type>();
+            type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
         }
     }
 
@@ -235,9 +250,14 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_VARCHAR>
                 memory_copy(dst_slice->data, src_slice->data, src_slice->size);
                 dst_slice->size = src_slice->size;
             }
+            dst->set_is_null(false);
         }
     }
 };
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_CHAR>
@@ -312,6 +332,10 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR>
 
 template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_CHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_STRING>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_MAX, OLAP_FIELD_TYPE_VARCHAR> {};
 
 template <FieldType field_type>
@@ -403,6 +427,10 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {};
+
 // REPLACE_IF_NOT_NULL
 
 template <FieldType field_type>
@@ -413,7 +441,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_typ
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -428,7 +456,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIEL
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         bool src_null = src.is_null();
         if (src_null) {
-            // Ignore it if src is NULL
+            // Ignore it if src is nullptr
             return;
         }
 
@@ -451,6 +479,12 @@ template <>
 struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
                                      OLAP_FIELD_TYPE_VARCHAR> {};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL,
+                                     OLAP_FIELD_TYPE_VARCHAR> {};
+
 // when data load, after hll_hash function, hll_union column won't be null
 // so when init, update hll, the src is not null
 template <>
@@ -496,6 +530,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 
         slice->data = (char*)mem_pool->allocate(hll->max_serialized_size());
         slice->size = hll->serialize((uint8_t*)slice->data);
+        hll->clear();
     }
 };
 // when data load, after bitmap_init function, bitmap_union column won't be null
@@ -512,7 +547,6 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
         auto bitmap = new BitmapValue(src_slice->data);
-        mem_pool->mem_tracker()->Consume(sizeof(BitmapValue));
         dst_slice->data = (char*)bitmap;
 
         agg_pool->add(bitmap);
@@ -553,6 +587,56 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
 };
 
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_STRING>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_QUANTILE_UNION, OLAP_FIELD_TYPE_QUANTILE_STATE> {
+    static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
+                     ObjectPool* agg_pool) {
+        DCHECK_EQ(src_null, false);
+        dst->set_not_null();
+
+        auto* src_slice = reinterpret_cast<const Slice*>(src);
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+
+        // we use zero size represent this slice is a agg object
+        dst_slice->size = 0;
+        auto* dst_quantile_state = new QuantileState<double>(*src_slice);
+
+        dst_slice->data = reinterpret_cast<char*>(dst_quantile_state);
+
+        agg_pool->add(dst_quantile_state);
+    }
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
+        DCHECK_EQ(src.is_null(), false);
+
+        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        auto* dst_quantile_state = reinterpret_cast<QuantileState<double>*>(dst_slice->data);
+
+        if (mem_pool == nullptr) { // for query
+            QuantileState<double> src_state(*src_slice);
+            dst_quantile_state->merge(src_state);
+        } else { // for stream load
+            auto* src_state = reinterpret_cast<QuantileState<double>*>(src_slice->data);
+            dst_quantile_state->merge(*src_state);
+        }
+    }
+
+    // The quantile_state object memory will be released by ObjectPool
+    static void finalize(RowCursorCell* src, MemPool* mem_pool) {
+        auto* slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        auto* quantile_state = reinterpret_cast<QuantileState<double>*>(slice->data);
+
+        slice->data = (char*)mem_pool->allocate(quantile_state->get_serialized_size());
+        slice->size = quantile_state->serialize((uint8_t*)slice->data);
+        quantile_state->clear();
+    }
+};
 template <FieldAggregationMethod aggMethod, FieldType fieldType,
           FieldType subType = OLAP_FIELD_TYPE_NONE>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType, subType> {

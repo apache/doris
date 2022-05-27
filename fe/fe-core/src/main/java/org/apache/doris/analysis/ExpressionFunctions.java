@@ -24,7 +24,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.rewrite.FEFunction;
 import org.apache.doris.rewrite.FEFunctionList;
 import org.apache.doris.rewrite.FEFunctions;
@@ -34,7 +33,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -76,7 +74,8 @@ public enum ExpressionFunctions {
             // 1. Not UDF
             // 2. Not in NonNullResultWithNullParamFunctions
             // 3. Has null parameter
-            if (!Catalog.getCurrentCatalog().isNonNullResultWithNullParamFunction(fn.getFunctionName().getFunction())
+            if ((fn.getNullableMode() == Function.NullableMode.DEPEND_ON_ARGUMENT
+                    || Catalog.getCurrentCatalog().isNullResultWithOneNullParamFunction(fn.getFunctionName().getFunction()))
                     && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
                     if (e instanceof NullLiteral) {
@@ -109,13 +108,7 @@ public enum ExpressionFunctions {
                 }
             }
         } else if (constExpr instanceof SysVariableDesc) {
-            try {
-                VariableMgr.fillValue(ConnectContext.get().getSessionVariable(), (SysVariableDesc) constExpr);
-                return ((SysVariableDesc) constExpr).getLiteralExpr();
-            } catch (AnalysisException e) {
-                LOG.warn("failed to get session variable value: " + ((SysVariableDesc) constExpr).getName());
-                return constExpr;
-            }
+            return ((SysVariableDesc) constExpr).getLiteralExpr();
         }
         return constExpr;
     }
@@ -199,7 +192,7 @@ public enum ExpressionFunctions {
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
             final List<Object> invokeArgs = createInvokeArgs(args);
             try {
-                return (LiteralExpr)method.invoke(null, invokeArgs.toArray());
+                return (LiteralExpr) method.invoke(null, invokeArgs.toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
                 throw new AnalysisException(e.getLocalizedMessage());
             }
@@ -251,7 +244,7 @@ public enum ExpressionFunctions {
             } else {
                 throw new IllegalArgumentException("Doris doesn't support type:" + argType);
             }
-        
+
             // if args all is NullLiteral
             long size = args.stream().filter(e -> e instanceof NullLiteral).count();
             if (args.size() == size) {
@@ -295,10 +288,12 @@ public enum ExpressionFunctions {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o)
+            if (this == o) {
                 return true;
-            if (o == null || getClass() != o.getClass())
+            }
+            if (o == null || getClass() != o.getClass()) {
                 return false;
+            }
             FEFunctionSignature signature = (FEFunctionSignature) o;
             return Objects.equals(name, signature.name) && Arrays.equals(argTypes, signature.argTypes)
                     && Objects.equals(returnType, signature.returnType);
@@ -310,4 +305,3 @@ public enum ExpressionFunctions {
         }
     }
 }
-

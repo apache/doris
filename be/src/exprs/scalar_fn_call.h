@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exprs/scalar-fn-call.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
-#define DORIS_BE_SRC_QUERY_EXPRS_SCALAR_FN_CALL_H
+#pragma once
 
 #include <string>
 
@@ -45,39 +47,45 @@ class TExprNode;
 /// - Testing
 ///    - Test cancellation
 ///    - Type descs in UDA test harness
-///    - Allow more functions to be NULL in UDA test harness
+///    - Allow more functions to be nullptr in UDA test harness
 class ScalarFnCall : public Expr {
 public:
-    virtual std::string debug_string() const;
+    virtual std::string debug_string() const override;
     virtual ~ScalarFnCall();
     virtual Expr* clone(ObjectPool* pool) const override {
         return pool->add(new ScalarFnCall(*this));
     }
 
+    // TODO: just for table function.
+    // It is not good to expose this field to public.
+    // We should refactor it after implementing real table functions.
+    int get_fn_context_index() const { return _fn_context_index; }
+
 protected:
     friend class Expr;
 
     ScalarFnCall(const TExprNode& node);
-    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc, ExprContext* context);
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& desc,
+                           ExprContext* context) override;
     virtual Status open(RuntimeState* state, ExprContext* context,
-                        FunctionContext::FunctionStateScope scope);
+                        FunctionContext::FunctionStateScope scope) override;
     virtual void close(RuntimeState* state, ExprContext* context,
-                       FunctionContext::FunctionStateScope scope);
+                       FunctionContext::FunctionStateScope scope) override;
 
-    virtual bool is_constant() const;
+    virtual bool is_constant() const override;
 
-    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
-    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
-    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::SmallIntVal get_small_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::IntVal get_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::BigIntVal get_big_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::LargeIntVal get_large_int_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::FloatVal get_float_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DoubleVal get_double_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::StringVal get_string_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*) override;
+    virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*) override;
+    virtual CollectionVal get_array_val(ExprContext* context, TupleRow*) override;
 
 private:
     /// If this function has var args, children()[_vararg_start_idx] is the first vararg
@@ -124,5 +132,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

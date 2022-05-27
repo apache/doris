@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-
 import org.apache.commons.lang3.math.NumberUtils;
 
 import java.util.List;
@@ -51,6 +50,8 @@ public class RoutineLoadDataSourceProperties {
             .build();
 
     private static final ImmutableSet<String> CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET = new ImmutableSet.Builder<String>()
+            .add(CreateRoutineLoadStmt.KAFKA_BROKER_LIST_PROPERTY)
+            .add(CreateRoutineLoadStmt.KAFKA_TOPIC_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_PARTITIONS_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY)
             .add(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS)
@@ -160,9 +161,10 @@ public class RoutineLoadDataSourceProperties {
      */
     private void checkKafkaProperties() throws UserException {
         ImmutableSet<String> propertySet = isAlter ? CONFIGURABLE_DATA_SOURCE_PROPERTIES_SET : DATA_SOURCE_PROPERTIES_SET;
-        Optional<String> optional = properties.keySet().stream().filter(
-                entity -> !propertySet.contains(entity)).filter(
-                entity -> !entity.startsWith("property.")).findFirst();
+        Optional<String> optional = properties.keySet().stream()
+                .filter(entity -> !propertySet.contains(entity))
+                .filter(entity -> !entity.startsWith("property."))
+                .findFirst();
         if (optional.isPresent()) {
             throw new AnalysisException(optional.get() + " is invalid kafka property or can not be set");
         }
@@ -218,8 +220,8 @@ public class RoutineLoadDataSourceProperties {
         String kafkaOffsetsString = properties.get(CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY);
         String kafkaDefaultOffsetString = customKafkaProperties.get(CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS);
         if (kafkaOffsetsString != null && kafkaDefaultOffsetString != null) {
-            throw new AnalysisException("Only one of " + CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY +
-                    " and " + CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS + " can be set.");
+            throw new AnalysisException("Only one of " + CreateRoutineLoadStmt.KAFKA_OFFSETS_PROPERTY
+                    + " and " + CreateRoutineLoadStmt.KAFKA_DEFAULT_OFFSETS + " can be set.");
         }
         if (isAlter && kafkaPartitionsString != null && kafkaOffsetsString == null && kafkaDefaultOffsetString == null) {
             // if this is an alter operation, the partition and (default)offset must be set together.
@@ -327,8 +329,8 @@ public class RoutineLoadDataSourceProperties {
             }
         }
         if (foundTime && foundOffset) {
-            throw new AnalysisException("The offset of the partition cannot be specified by the timestamp " +
-                    "and the offset at the same time");
+            throw new AnalysisException("The offset of the partition cannot be specified by the timestamp "
+                    + "and the offset at the same time");
         }
 
         if (foundTime) {

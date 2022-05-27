@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateResourceStmt;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DeepCopy;
@@ -26,10 +27,10 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -42,7 +43,9 @@ public abstract class Resource implements Writable {
     public enum ResourceType {
         UNKNOWN,
         SPARK,
-        ODBC_CATALOG;
+        ODBC_CATALOG,
+        S3,
+        STORAGE_POLICY;
 
         public static ResourceType fromString(String resourceType) {
             for (ResourceType type : ResourceType.values()) {
@@ -68,20 +71,38 @@ public abstract class Resource implements Writable {
     }
 
     public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
-        Resource resource = null;
-        ResourceType type = stmt.getResourceType();
+        Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
+        resource.setProperties(stmt.getProperties());
+
+        return resource;
+    }
+
+    /**
+     * Get resource instance by resource name and type
+     * @param type
+     * @param name
+     * @return
+     * @throws DdlException
+     */
+    private static Resource getResourceInstance(ResourceType type, String name) throws DdlException {
+        Resource resource;
         switch (type) {
             case SPARK:
-                resource = new SparkResource(stmt.getResourceName());
+                resource = new SparkResource(name);
                 break;
             case ODBC_CATALOG:
-                resource = new OdbcCatalogResource(stmt.getResourceName());
+                resource = new OdbcCatalogResource(name);
+                break;
+            case S3:
+                resource = new S3Resource(name);
+                break;
+            case STORAGE_POLICY:
+                resource = new StoragePolicyResource(name);
                 break;
             default:
-                throw new DdlException("Only support Spark resource.");
+                throw new DdlException("Unknown resource type: " + type);
         }
 
-        resource.setProperties(stmt.getProperties());
         return resource;
     }
 
@@ -94,10 +115,32 @@ public abstract class Resource implements Writable {
     }
 
     /**
+     * Modify properties in child resources
+     * @param properties
+     * @throws DdlException
+     */
+    public abstract void modifyProperties(Map<String, String> properties) throws DdlException;
+
+    /**
+     * Check properties in child resources
+     * @param properties
+     * @throws AnalysisException
+     */
+    public abstract void checkProperties(Map<String, String> properties) throws AnalysisException;
+
+    protected void replaceIfEffectiveValue(Map<String, String> properties, String key, String value) {
+        if (!Strings.isNullOrEmpty(value)) {
+            properties.put(key, value);
+        }
+    }
+
+    /**
      * Set and check the properties in child resources
      */
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
 
+
+    public abstract Map<String, String> getCopiedProperties();
     /**
      * Fill BaseProcResult with different properties in child resources
      * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:
@@ -131,4 +174,3 @@ public abstract class Resource implements Writable {
         return copied;
     }
 }
-

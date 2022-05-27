@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/StatementBase.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -69,7 +72,9 @@ public abstract class StatementBase implements ParseNode {
      * tables/views get collected in the Analyzer before failing analyze().
      */
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (isAnalyzed()) return;
+        if (isAnalyzed()) {
+            return;
+        }
         this.analyzer = analyzer;
         if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
@@ -118,7 +123,9 @@ public abstract class StatementBase implements ParseNode {
      * if not applicable (not all statements produce an output result set).
      * Subclasses must override this as necessary.
      */
-    public List<String> getColLabels() { return Collections.<String>emptyList();  }
+    public List<String> getColLabels() {
+        return Collections.<String>emptyList();
+    }
 
     /**
      * Sets the column labels of this statement, if applicable. No-op of the statement does
@@ -126,7 +133,9 @@ public abstract class StatementBase implements ParseNode {
      */
     public void setColLabels(List<String> colLabels) {
         List<String> oldLabels = getColLabels();
-        if (oldLabels == colLabels) return;
+        if (oldLabels == colLabels) {
+            return;
+        }
         oldLabels.clear();
         oldLabels.addAll(colLabels);
     }
@@ -136,7 +145,9 @@ public abstract class StatementBase implements ParseNode {
      * empty list if not applicable (not all statements produce an output result set).
      * Subclasses must override this as necessary.
      */
-    public List<Expr> getResultExprs() { return Collections.<Expr>emptyList(); }
+    public List<Expr> getResultExprs() {
+        return Collections.<Expr>emptyList();
+    }
 
     /**
      * Casts the result expressions and derived members (e.g., destination column types for
@@ -148,11 +159,11 @@ public abstract class StatementBase implements ParseNode {
         Preconditions.checkNotNull(resultExprs);
         Preconditions.checkState(resultExprs.size() == types.size());
         for (int i = 0; i < types.size(); ++i) {
-            //The specific type of the date type is determined by the 
+            //The specific type of the date type is determined by the
             //actual type of the return value, not by the function return value type in FE Function
             //such as the result of str_to_date may be either DATE or DATETIME
             if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
-                continue;                               
+                continue;
             }
             if (!resultExprs.get(i).getType().equals(types.get(i))) {
                 resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));

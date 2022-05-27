@@ -25,19 +25,17 @@
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
 #include "olap/types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 
 namespace segment_v2 {
 
-ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field)
-        : _field(field), _tracker(new MemTracker(-1, "ZoneMapIndexWriter")), _pool(_tracker.get()) {
-    _page_zone_map.min_value = _field->allocate_value(&_pool);
-    _page_zone_map.max_value = _field->allocate_value(&_pool);
+ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field), _pool() {
+    _page_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
+    _page_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_page_zone_map);
-    _segment_zone_map.min_value = _field->allocate_value(&_pool);
-    _segment_zone_map.max_value = _field->allocate_value(&_pool);
+    _segment_zone_map.min_value = _field->allocate_zone_map_value(&_pool);
+    _segment_zone_map.max_value = _field->allocate_zone_map_value(&_pool);
     _reset_zone_map(&_segment_zone_map);
 }
 
@@ -48,17 +46,21 @@ void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
     const char* vals = reinterpret_cast<const char*>(values);
     for (int i = 0; i < count; ++i) {
         if (_field->compare(_page_zone_map.min_value, vals) > 0) {
-            _field->type_info()->direct_copy(_page_zone_map.min_value, vals);
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.min_value, vals);
         }
         if (_field->compare(_page_zone_map.max_value, vals) < 0) {
-            _field->type_info()->direct_copy(_page_zone_map.max_value, vals);
+            _field->type_info()->direct_copy_may_cut(_page_zone_map.max_value, vals);
         }
         vals += _field->size();
     }
 }
 
+void ZoneMapIndexWriter::moidfy_index_before_flush(struct doris::segment_v2::ZoneMap& zone_map) {
+    _field->modify_zone_map_index(zone_map.max_value);
+}
+
 void ZoneMapIndexWriter::reset_page_zone_map() {
-    _page_zone_map.pass_all  = true;
+    _page_zone_map.pass_all = true;
 }
 
 void ZoneMapIndexWriter::reset_segment_zone_map() {
@@ -81,6 +83,7 @@ Status ZoneMapIndexWriter::flush() {
     }
 
     ZoneMapPB zone_map_pb;
+    moidfy_index_before_flush(_page_zone_map);
     _page_zone_map.to_proto(&zone_map_pb, _field);
     _reset_zone_map(&_page_zone_map);
 
@@ -98,17 +101,18 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
+    moidfy_index_before_flush(_segment_zone_map);
     _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
 
     // write out zone map for each data pages
-    const TypeInfo* typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+    const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_OBJECT>();
     IndexedColumnWriterOptions options;
     options.write_ordinal_index = true;
     options.write_value_index = false;
-    options.encoding = EncodingInfo::get_default_encoding(typeinfo, false);
+    options.encoding = EncodingInfo::get_default_encoding(type_info, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, typeinfo, wblock);
+    IndexedColumnWriter writer(options, type_info, wblock);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
@@ -119,12 +123,11 @@ Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* 
 }
 
 Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
-    IndexedColumnReader reader(_filename, _index_meta->page_zone_maps());
+    IndexedColumnReader reader(_path_desc, _index_meta->page_zone_maps());
     RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
     IndexedColumnIterator iter(&reader);
 
-    auto tracker = std::make_shared<MemTracker>(-1, "temp in ZoneMapIndexReader");
-    MemPool pool(tracker.get());
+    MemPool pool;
     _page_zone_maps.resize(reader.num_values());
 
     // read and cache all page zone maps

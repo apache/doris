@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/perf-counters.cpp
+// and modified by Doris
 
 #include "util/perf_counters.h"
 
@@ -480,7 +483,7 @@ void PerfCounters::snapshot(const string& name) {
 
 const std::vector<int64_t>* PerfCounters::counters(int snapshot) const {
     if (snapshot < 0 || snapshot >= _snapshots.size()) {
-        return NULL;
+        return nullptr;
     }
 
     return &_snapshots[snapshot];

@@ -22,8 +22,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
@@ -65,17 +65,14 @@ public class TablesProcDir implements ProcDirInterface {
             throw new AnalysisException("TableIdStr is null");
         }
 
-        long tableId = -1L;
+        long tableId;
         try {
-            tableId = Long.valueOf(tableIdStr);
+            tableId = Long.parseLong(tableIdStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        Table table = db.getTable(tableId);
-        if (table == null) {
-            throw new AnalysisException("Table[" + tableId + "] does not exist");
-        }
+        Table table = db.getTableOrAnalysisException(tableId);
 
         return new TableProcDir(db, table);
     }

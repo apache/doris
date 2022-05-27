@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MERGER_H
-#define DORIS_BE_SRC_OLAP_MERGER_H
+#pragma once
 
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset_writer.h"
@@ -36,11 +35,13 @@ public:
     // merge rows from `src_rowset_readers` and write into `dst_rowset_writer`.
     // return OLAP_SUCCESS and set statistics into `*stats_output`.
     // return others on error
-    static OLAPStatus merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
-                                    const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
-                                    RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+    static Status merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                                const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                RowsetWriter* dst_rowset_writer, Statistics* stats_output);
+
+    static Status vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+                                 const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
+                                 RowsetWriter* dst_rowset_writer, Statistics* stats_output);
 };
 
 } // namespace doris
-
-#endif // DORIS_BE_SRC_OLAP_MERGER_H

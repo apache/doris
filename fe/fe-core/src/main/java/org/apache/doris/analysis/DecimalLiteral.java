@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,6 +34,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
@@ -193,7 +193,6 @@ public class DecimalLiteral extends LiteralExpr {
     protected void toThrift(TExprNode msg) {
         // TODO(hujie01) deal with loss information
         msg.node_type = TExprNodeType.DECIMAL_LITERAL;
-        BigDecimal v = new BigDecimal(value.toBigInteger());
         msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
@@ -229,6 +228,14 @@ public class DecimalLiteral extends LiteralExpr {
         fracPart = fracPart.movePointRight(9);
 
         return fracPart.intValue();
+    }
+
+    public void roundCeiling() {
+        value = value.setScale(0, RoundingMode.CEILING);
+    }
+
+    public void roundFloor() {
+        value = value.setScale(0, RoundingMode.FLOOR);
     }
 
     @Override

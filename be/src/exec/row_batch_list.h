@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/be/src/exec/row-batch-list.h
+// and modified by Doris
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
-#define DORIS_BE_SRC_QUERY_EXEC_ROW_BATCH_LIST_H
+#pragma once
 
 #include <string>
 #include <vector>
@@ -42,7 +44,7 @@ public:
     class TupleRowIterator {
     public:
         // Dummy constructor
-        TupleRowIterator() : _list(NULL), _row_idx(0) {}
+        TupleRowIterator() : _list(nullptr), _row_idx(0) {}
         virtual ~TupleRowIterator() {}
 
         // Returns true if this iterator is at the end, i.e. get_row() cannot be called.
@@ -127,5 +129,3 @@ private:
 };
 
 } // namespace doris
-
-#endif

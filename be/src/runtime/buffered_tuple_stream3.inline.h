@@ -14,9 +14,11 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-3.0.0/be/src/runtime/buffered-tuple-stream.inline.h
+// and modified by Doris
 
-#ifndef DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_INLINE_H
-#define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_INLINE_H
+#pragma once
 
 #include "runtime/buffered_tuple_stream3.h"
 #include "runtime/descriptors.h"
@@ -51,5 +53,3 @@ inline void BufferedTupleStream3::AddRowCustomEnd(int64_t size) {
     if (UNLIKELY(size > default_page_len_)) AddLargeRowCustomEnd(size);
 }
 } // namespace doris
-
-#endif

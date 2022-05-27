@@ -57,7 +57,7 @@ public class ShowIndexStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
-        
+
         if (!Strings.isNullOrEmpty(dbName)) {
             // if user specify the `from db`, overwrite the db in tableName with this db.
             // for example:
@@ -72,7 +72,7 @@ public class ShowIndexStmt extends ShowStmt {
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
-                    tableName.toString());
+                    tableName.getDb() + ": " + tableName.toString());
         }
     }
 

@@ -17,34 +17,22 @@
 
 package org.apache.doris.utframe;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
-import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -52,13 +40,11 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /*
- * This demo is mainly used to confirm that 
+ * This demo is mainly used to confirm that
  * repeatedly starting FE and BE in 2 UnitTest will not cause conflict
  */
 public class AnotherDemoTest {
@@ -82,11 +68,11 @@ public class AnotherDemoTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.default_scheduler_interval_millisecond = 10;
-        UtFrameUtils.createMinDorisCluster(runningDir, 1);
+        UtFrameUtils.createDorisCluster(runningDir, 1);
     }
 
     @AfterClass
-    public static void TearDown() {
+    public static void tearDown() {
         UtFrameUtils.cleanDorisFeDir(runningDir);
     }
 
@@ -117,9 +103,8 @@ public class AnotherDemoTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
         // 4. get and test the created db and table
-        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
-        Assert.assertNotNull(db);
-        OlapTable tbl = (OlapTable) db.getTable("tbl1");
+        Database db = Catalog.getCurrentCatalog().getDbOrMetaException("default_cluster:db1");
+        OlapTable tbl = db.getTableOrMetaException("tbl1", Table.TableType.OLAP);
         tbl.readLock();
         try {
             Assert.assertNotNull(tbl);

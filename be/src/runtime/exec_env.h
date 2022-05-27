@@ -15,17 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_RUNTIME_EXEC_ENV_H
-#define DORIS_BE_RUNTIME_EXEC_ENV_H
+#pragma once
 
 #include "common/status.h"
 #include "olap/options.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/mem_tracker_task_pool.h"
+#include "util/threadpool.h"
 
 namespace doris {
-
+namespace vectorized {
+class VDataStreamMgr;
+}
 class BfdParser;
 class BrokerMgr;
-class BrpcStubCache;
+
+template <class T>
+class BrpcClientCache;
+
 class BufferPool;
 class CgroupsMgr;
 class DataStreamMgr;
@@ -39,30 +46,30 @@ class LoadPathMgr;
 class LoadStreamMgr;
 class MemTracker;
 class StorageEngine;
-class PoolMemTrackerRegistry;
+class MemTrackerTaskPool;
 class PriorityThreadPool;
+class PriorityWorkStealingThreadPool;
 class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class TestExecEnv;
 class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
-class FileBlockManager;
-class PluginMgr;
-class FoldConstantMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
-class TExtDataSourceServiceClient;
+class PBackendService_Stub;
+class PFunctionService_Stub;
+
 template <class T>
 class ClientCache;
+
 class HeartbeatFlags;
 
 // Execution environment for queries/plan fragments.
@@ -90,17 +97,16 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
+    const bool initialized() { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
+    doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
-    ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() {
-        return _extdatasource_client_cache;
-    }
 
     // using template to simplify client cache management
     template <typename T>
@@ -108,11 +114,16 @@ public:
         return nullptr;
     }
 
-    std::shared_ptr<MemTracker> process_mem_tracker() { return _mem_tracker; }
-    PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
+    std::shared_ptr<MemTracker> query_pool_mem_tracker() { return _query_pool_mem_tracker; }
+    std::shared_ptr<MemTracker> load_pool_mem_tracker() { return _load_pool_mem_tracker; }
+    MemTrackerTaskPool* task_pool_mem_tracker_registry() {
+        return _task_pool_mem_tracker_registry.get();
+    }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
-    PriorityThreadPool* thread_pool() { return _thread_pool; }
+    PriorityThreadPool* scan_thread_pool() { return _scan_thread_pool; }
+    ThreadPool* limited_scan_thread_pool() { return _limited_scan_thread_pool.get(); }
     PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
@@ -123,27 +134,26 @@ public:
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
-    BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
+    BrpcClientCache<PBackendService_Stub>* brpc_internal_client_cache() const {
+        return _internal_client_cache;
+    }
+    BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
+        return _function_client_cache;
+    }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
     BufferPool* buffer_pool() { return _buffer_pool; }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    FoldConstantMgr* fold_constant_mgr() { return _fold_constant_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
-    void set_store_paths(const std::vector<StorePath>& paths) { _store_paths = paths; }
+    size_t store_path_to_index(const std::string& path) { return _store_path_map[path]; }
     StorageEngine* storage_engine() { return _storage_engine; }
     void set_storage_engine(StorageEngine* storage_engine) { _storage_engine = storage_engine; }
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
-
-    PluginMgr* plugin_mgr() { return _plugin_mgr; }
-
-    // The root tracker should be set before calling ExecEnv::init();
-    void set_root_mem_tracker(std::shared_ptr<MemTracker> root_tracker);
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -159,19 +169,39 @@ private:
 private:
     bool _is_init;
     std::vector<StorePath> _store_paths;
+    // path => store index
+    std::map<std::string, size_t> _store_path_map;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
     DataStreamMgr* _stream_mgr = nullptr;
+    doris::vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
-    ClientCache<TExtDataSourceServiceClient>* _extdatasource_client_cache = nullptr;
-    std::shared_ptr<MemTracker> _mem_tracker;
-    PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
-    PriorityThreadPool* _thread_pool = nullptr;
+
+    // The ancestor for all querys tracker.
+    std::shared_ptr<MemTracker> _query_pool_mem_tracker = nullptr;
+    // The ancestor for all load tracker.
+    std::shared_ptr<MemTracker> _load_pool_mem_tracker = nullptr;
+    std::unique_ptr<MemTrackerTaskPool> _task_pool_mem_tracker_registry;
+
+    // The following two thread pools are used in different scenarios.
+    // _scan_thread_pool is a priority thread pool.
+    // Scanner threads for common queries will use this thread pool,
+    // and the priority of each scan task is set according to the size of the query.
+
+    // _limited_scan_thread_pool is also the thread pool used for scanner.
+    // The difference is that it is no longer a priority queue, but according to the concurrency
+    // set by the user to control the number of threads that can be used by a query.
+
+    // TODO(cmy): find a better way to unify these 2 pools.
+    PriorityThreadPool* _scan_thread_pool = nullptr;
+    std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
+
+    std::unique_ptr<ThreadPool> _send_batch_thread_pool;
     PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
@@ -181,13 +211,13 @@ private:
     LoadPathMgr* _load_path_mgr = nullptr;
     DiskIoMgr* _disk_io_mgr = nullptr;
     TmpFileMgr* _tmp_file_mgr = nullptr;
-    FoldConstantMgr* _fold_constant_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
-    BrpcStubCache* _brpc_stub_cache = nullptr;
+    BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
+    BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
 
     ReservationTracker* _buffer_reservation = nullptr;
     BufferPool* _buffer_pool = nullptr;
@@ -198,8 +228,6 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-
-    PluginMgr* _plugin_mgr = nullptr;
 };
 
 template <>
@@ -215,12 +243,5 @@ inline ClientCache<TPaloBrokerServiceClient>*
 ExecEnv::get_client_cache<TPaloBrokerServiceClient>() {
     return _broker_client_cache;
 }
-template <>
-inline ClientCache<TExtDataSourceServiceClient>*
-ExecEnv::get_client_cache<TExtDataSourceServiceClient>() {
-    return _extdatasource_client_cache;
-}
 
 } // namespace doris
-
-#endif

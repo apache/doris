@@ -17,8 +17,6 @@
 
 package org.apache.doris.system;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.ha.FrontendNodeType;
@@ -34,7 +32,7 @@ public class Frontend implements Writable {
     private String host;
     private int editLogPort;
     private String version;
-    
+
     private int queryPort;
     private int rpcPort;
 
@@ -46,7 +44,7 @@ public class Frontend implements Writable {
 
     public Frontend() {
     }
-    
+
     public Frontend(FrontendNodeType role, String nodeName, String host, int editLogPort) {
         this.role = role;
         this.nodeName = nodeName;
@@ -57,7 +55,7 @@ public class Frontend implements Writable {
     public FrontendNodeType getRole() {
         return this.role;
     }
-    
+
     public String getHost() {
         return this.host;
     }
@@ -65,7 +63,7 @@ public class Frontend implements Writable {
     public String getVersion() {
         return version;
     }
-    
+
     public String getNodeName() {
         return nodeName;
     }
@@ -81,7 +79,7 @@ public class Frontend implements Writable {
     public boolean isAlive() {
         return isAlive;
     }
-    
+
     public int getEditLogPort() {
         return this.editLogPort;
     }
@@ -142,19 +140,15 @@ public class Frontend implements Writable {
         }
         host = Text.readString(in);
         editLogPort = in.readInt();
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_41) {
-            nodeName = Text.readString(in);
-        } else {
-            nodeName = Catalog.genFeNodeName(host, editLogPort, true /* old style */);
-        }
+        nodeName = Text.readString(in);
     }
-    
+
     public static Frontend read(DataInput in) throws IOException {
         Frontend frontend = new Frontend();
         frontend.readFields(in);
         return frontend;
     }
-    
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();

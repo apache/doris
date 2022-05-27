@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
-#define DORIS_BE_SRC_QUERY_EXPRS_HLL_FUNCTION_H
+#pragma once
+
+#include <string>
 
 #include "udf/udf.h"
 
@@ -26,6 +27,8 @@ class HllFunctions {
 public:
     static void init();
     static StringVal hll_hash(FunctionContext* ctx, const StringVal& dest_base);
+    static std::string hll_hash(const StringVal& dest_base);
+
     static StringVal hll_empty(FunctionContext* ctx);
     static void hll_init(FunctionContext*, StringVal* dst);
 
@@ -45,5 +48,3 @@ public:
     static BigIntVal hll_cardinality(FunctionContext* ctx, const StringVal& src);
 };
 } // namespace doris
-
-#endif

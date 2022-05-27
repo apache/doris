@@ -21,7 +21,6 @@ import org.apache.doris.analysis.PartitionName;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Test;
 

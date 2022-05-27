@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.web.servlet.view.RedirectView;
@@ -39,7 +38,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
-
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -49,6 +47,8 @@ public class RestBaseController extends BaseController {
     protected static final String DB_KEY = "db";
     protected static final String TABLE_KEY = "table";
     protected static final String LABEL_KEY = "label";
+    protected static final String TXN_ID_KEY = "txn_id";
+    protected static final String TXN_OPERATION_KEY = "txn_operation";
     private static final Logger LOG = LogManager.getLogger(RestBaseController.class);
 
     public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
@@ -66,14 +66,31 @@ public class RestBaseController extends BaseController {
         return authInfo;
     }
 
-
     public RedirectView redirectTo(HttpServletRequest request, TNetworkAddress addr) {
         URI urlObj = null;
         URI resultUriObj = null;
         String urlStr = request.getRequestURI();
+        String userInfo = null;
+        if (!Strings.isNullOrEmpty(request.getHeader("Authorization"))) {
+            ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
+            //username@cluster:password
+            //This is a Doris-specific parsing format in the parseAuthInfo of BaseController.
+            //This is to go directly to BE, but in fact,
+            //BE still needs to take this authentication information and send RPC
+            // to FE to parse the authentication information,
+            //so in the end, the format of this authentication information is parsed on the FE side.
+            //The normal format for fullUserName is actually default_cluster:username
+            //I don't know why the format username@default_cluster is used in parseAuthInfo.
+            //It is estimated that it is compatible with the standard format of username:password.
+            //So here we feel that we can assemble it completely by hand.
+            String clusterName = ConnectContext.get() == null
+                    ? SystemInfoService.DEFAULT_CLUSTER : ConnectContext.get().getClusterName();
+            userInfo = ClusterNamespace.getNameFromFullName(authInfo.fullUserName)
+                    + "@" + clusterName  + ":" + authInfo.password;
+        }
         try {
             urlObj = new URI(urlStr);
-            resultUriObj = new URI("http", null, addr.getHostname(),
+            resultUriObj = new URI("http", userInfo, addr.getHostname(),
                     addr.getPort(), urlObj.getPath(), "", null);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -94,8 +111,7 @@ public class RestBaseController extends BaseController {
         if (catalog.isMaster()) {
             return null;
         }
-        RedirectView redirectView = redirectTo(request, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
-        return redirectView;
+        return redirectTo(request, new TNetworkAddress(catalog.getMasterIp(), catalog.getMasterHttpPort()));
     }
 
     public void getFile(HttpServletRequest request, HttpServletResponse response, Object obj, String fileName)

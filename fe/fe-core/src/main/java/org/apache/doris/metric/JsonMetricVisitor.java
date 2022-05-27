@@ -18,7 +18,9 @@
 package org.apache.doris.metric;
 
 import org.apache.doris.monitor.jvm.JvmStats;
+
 import com.codahale.metrics.Histogram;
+
 import java.util.List;
 
 public class JsonMetricVisitor extends MetricVisitor {
@@ -61,7 +63,7 @@ public class JsonMetricVisitor extends MetricVisitor {
             }
         }
         sb.append("\n\t},\n");
-        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append( "\",\n");
+        sb.append("\t\"unit\":\"").append(metric.getUnit().name().toLowerCase()).append("\",\n");
 
         // value
         sb.append("\t\"value\":").append(metric.getValue().toString()).append("\n}");
@@ -83,4 +85,3 @@ public class JsonMetricVisitor extends MetricVisitor {
         return;
     }
 }
-

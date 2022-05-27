@@ -49,7 +49,7 @@ void HyperLogLog::_convert_explicit_to_register() {
         _update_registers(value);
     }
     // clear _hash_set
-    std::set<uint64_t>().swap(_hash_set);
+    phmap::flat_hash_set<uint64_t>().swap(_hash_set);
 }
 
 // Change HLL_DATA_EXPLICIT to HLL_DATA_FULL directly, because HLL_DATA_SPARSE
@@ -100,7 +100,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
     }
     case HLL_DATA_EXPLICIT: {
         switch (other._type) {
-        case HLL_DATA_EXPLICIT:
+        case HLL_DATA_EXPLICIT: {
             // Merge other's explicit values first, then check if the number is exceed
             // HLL_EXPLICIT_INT64_NUM. This is OK because the max value is 2 * 160.
             _hash_set.insert(other._hash_set.begin(), other._hash_set.end());
@@ -108,7 +108,7 @@ void HyperLogLog::merge(const HyperLogLog& other) {
                 _convert_explicit_to_register();
                 _type = HLL_DATA_FULL;
             }
-            break;
+        } break;
         case HLL_DATA_SPARSE:
         case HLL_DATA_FULL:
             _convert_explicit_to_register();
@@ -178,11 +178,10 @@ size_t HyperLogLog::serialize(uint8_t* dst) const {
     case HLL_DATA_SPARSE:
     case HLL_DATA_FULL: {
         uint32_t num_non_zero_registers = 0;
-        for (int i = 0; i < HLL_REGISTERS_COUNT; i++) {
-            if (_registers[i] != 0) {
-                num_non_zero_registers++;
-            }
+        for (int i = 0; i < HLL_REGISTERS_COUNT; ++i) {
+            num_non_zero_registers += (_registers[i] != 0);
         }
+
         // each register in sparse format will occupy 3bytes, 2 for index and
         // 1 for register value. So if num_non_zero_registers is greater than
         // 4K we use full encode format.
@@ -288,7 +287,6 @@ bool HyperLogLog::deserialize(const Slice& slice) {
     case HLL_DATA_SPARSE: {
         _registers = new uint8_t[HLL_REGISTERS_COUNT];
         memset(_registers, 0, HLL_REGISTERS_COUNT);
-
         // 2-5(4 byte): number of registers
         uint32_t num_registers = decode_fixed32_le(ptr);
         ptr += 4;
@@ -374,7 +372,7 @@ void HllSetResolver::parse() {
     // skip LengthValueType
     char* pdata = _buf_ref;
     _set_type = (HllDataType)pdata[0];
-    char* sparse_data = NULL;
+    char* sparse_data = nullptr;
     switch (_set_type) {
     case HLL_DATA_EXPLICIT:
         // first byte : type

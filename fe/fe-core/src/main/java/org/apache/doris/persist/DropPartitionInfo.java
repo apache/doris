@@ -17,8 +17,6 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -40,7 +38,7 @@ public class DropPartitionInfo implements Writable {
     private boolean isTempPartition = false;
     @SerializedName(value = "forceDrop")
     private boolean forceDrop = false;
-    
+
     private DropPartitionInfo() {
     }
 
@@ -51,11 +49,11 @@ public class DropPartitionInfo implements Writable {
         this.isTempPartition = isTempPartition;
         this.forceDrop = forceDrop;
     }
-    
+
     public Long getDbId() {
         return dbId;
     }
-    
+
     public Long getTableId() {
         return tableId;
     }
@@ -80,14 +78,8 @@ public class DropPartitionInfo implements Writable {
     }
 
     public static DropPartitionInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_74) {
-            DropPartitionInfo info = new DropPartitionInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, DropPartitionInfo.class);
-        }
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DropPartitionInfo.class);
     }
 
     @Override
@@ -104,9 +96,9 @@ public class DropPartitionInfo implements Writable {
         if (!(obj instanceof DropPartitionInfo)) {
             return false;
         }
-        
+
         DropPartitionInfo info = (DropPartitionInfo) obj;
-        
+
         return (dbId.equals(info.dbId))
                 && (tableId.equals(info.tableId))
                 && (partitionName.equals(info.partitionName))

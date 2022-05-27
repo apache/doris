@@ -21,16 +21,16 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.MetaNotFoundException;
-
 import org.apache.doris.common.jmockit.Deencapsulation;
-import org.junit.Assert;
-import org.junit.Test;
-
-import java.util.Set;
 
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
+import org.junit.Assert;
+import org.junit.Test;
+
+import java.util.Optional;
+import java.util.Set;
 
 public class InsertLoadJobTest {
 
@@ -38,21 +38,21 @@ public class InsertLoadJobTest {
     public void testGetTableNames(@Mocked Catalog catalog,
                                   @Injectable Database database,
                                   @Injectable Table table) throws MetaNotFoundException {
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1000, "", "");
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "");
         String tableName = "table1";
         new Expectations() {
             {
                 catalog.getDb(anyLong);
-                result = database;
+                result = Optional.of(database);
                 database.getTable(anyLong);
-                result = table;
+                result = Optional.of(table);
                 table.getName();
                 result = tableName;
             }
         };
         Set<String> tableNames = insertLoadJob.getTableNamesForShow();
         Assert.assertEquals(1, tableNames.size());
-        Assert.assertEquals(true, tableNames.contains(tableName));
+        Assert.assertTrue(tableNames.contains(tableName));
         Assert.assertEquals(JobState.FINISHED, insertLoadJob.getState());
         Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
 

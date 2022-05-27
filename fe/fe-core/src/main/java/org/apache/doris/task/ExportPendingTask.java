@@ -58,7 +58,7 @@ public class ExportPendingTask extends MasterTask {
         }
 
         long dbId = job.getDbId();
-        db = Catalog.getCurrentCatalog().getDb(dbId);
+        db = Catalog.getCurrentCatalog().getDbNullable(dbId);
         if (db == null) {
             job.cancel(ExportFailMsg.CancelType.RUN_FAIL, "database does not exist");
             return;
@@ -84,7 +84,7 @@ public class ExportPendingTask extends MasterTask {
             return;
         }
     }
-    
+
     private Status makeSnapshots() {
         List<TScanRangeLocations> tabletLocations = job.getTabletLocations();
         if (tabletLocations == null) {
@@ -106,14 +106,13 @@ public class ExportPendingTask extends MasterTask {
                     return Status.CANCELLED;
                 }
                 long backendId = backend.getId();
-                if (!Catalog.getCurrentSystemInfo().checkBackendAvailable(backendId)) {
+                if (!Catalog.getCurrentSystemInfo().checkBackendQueryAvailable(backendId)) {
                     return Status.CANCELLED;
                 }
                 TSnapshotRequest snapshotRequest = new TSnapshotRequest();
                 snapshotRequest.setTabletId(paloScanRange.getTabletId());
                 snapshotRequest.setSchemaHash(Integer.parseInt(paloScanRange.getSchemaHash()));
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
-                snapshotRequest.setVersionHash(Long.parseLong(paloScanRange.getVersionHash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
                 snapshotRequest.setPreferredSnapshotVersion(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 

@@ -17,6 +17,8 @@
 
 #include "olap/wrapper_field.h"
 
+#include "olap/row_cursor.h"
+
 namespace doris {
 
 const size_t DEFAULT_STRING_LENGTH = 50;
@@ -24,10 +26,14 @@ const size_t DEFAULT_STRING_LENGTH = 50;
 WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
             (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-             column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT);
-    if (is_string_type && len > OLAP_STRING_MAX_LENGTH) {
-        OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].", len,
-                         OLAP_STRING_MAX_LENGTH);
+             column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT ||
+             column.type() == OLAP_FIELD_TYPE_STRING);
+    size_t max_length = column.type() == OLAP_FIELD_TYPE_STRING
+                                ? config::string_type_length_soft_limit_bytes
+                                : OLAP_VARCHAR_MAX_LENGTH;
+    if (is_string_type && len > max_length) {
+        LOG(WARNING) << "length of string parameter is too long[len=" << len
+                     << ", max_len=" << max_length << "].";
         return nullptr;
     }
 
@@ -40,6 +46,12 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     if (column.type() == OLAP_FIELD_TYPE_CHAR) {
         variable_len = std::max(len, (uint32_t)(column.length()));
     } else if (column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL) {
+        // column.length is the serialized varchar length
+        // the first sizeof(VarcharLengthType) bytes is the length of varchar
+        // variable_len is the real length of varchar
+        variable_len =
+                std::max(len, static_cast<uint32_t>(column.length() - sizeof(VarcharLengthType)));
+    } else if (column.type() == OLAP_FIELD_TYPE_STRING) {
         // column.length is the serialized varchar length
         // the first sizeof(StringLengthType) bytes is the length of varchar
         // variable_len is the real length of varchar
@@ -58,8 +70,10 @@ WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_le
     if (rep == nullptr) {
         return nullptr;
     }
-    bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
-                           type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT);
+    bool is_string_type =
+            (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR ||
+             type == OLAP_FIELD_TYPE_HLL || type == OLAP_FIELD_TYPE_OBJECT ||
+             type == OLAP_FIELD_TYPE_STRING || type == OLAP_FIELD_TYPE_QUANTILE_STATE);
     auto wrapper = new WrapperField(rep, var_length, is_string_type);
     return wrapper;
 }
@@ -79,6 +93,10 @@ WrapperField::WrapperField(Field* rep, size_t variable_len, bool is_string_type)
         slice->size = _var_length;
         _string_content.reset(new char[slice->size]);
         slice->data = _string_content.get();
+    }
+    if (_rep->type() == OLAP_FIELD_TYPE_STRING) {
+        _long_text_buf = (char*)malloc(RowCursor::DEFAULT_TEXT_LENGTH * sizeof(char));
+        rep->set_long_text_buf(&_long_text_buf);
     }
 }
 

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
-#define INF_DORIS_BE_SRC_UTIL_TUPLE_ROW_COMPARE_H
+#pragma once
 
 #include "exec/sort_exec_exprs.h"
 #include "exprs/expr.h"
@@ -94,13 +93,13 @@ public:
             void* rhs_value = _key_expr_ctxs_rhs[i]->get_value(rhs);
 
             // The sort order of NULLs is independent of asc/desc.
-            if (lhs_value == NULL && rhs_value == NULL) {
+            if (lhs_value == nullptr && rhs_value == nullptr) {
                 continue;
             }
-            if (lhs_value == NULL && rhs_value != NULL) {
+            if (lhs_value == nullptr && rhs_value != nullptr) {
                 return _nulls_first[i];
             }
-            if (lhs_value != NULL && rhs_value == NULL) {
+            if (lhs_value != nullptr && rhs_value == nullptr) {
                 return -_nulls_first[i];
             }
 
@@ -143,5 +142,3 @@ private:
     typedef int (*CompareFn)(ExprContext* const*, ExprContext* const*, TupleRow*, TupleRow*);
 };
 } // namespace doris
-
-#endif

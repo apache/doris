@@ -17,11 +17,10 @@
 
 package org.apache.doris.external.elasticsearch;
 
-
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.commons.lang.StringUtils;
-import org.json.JSONObject;
 
+import com.google.common.base.Strings;
+import org.json.simple.JSONObject;
 
 public class EsShardRouting {
 
@@ -32,7 +31,7 @@ public class EsShardRouting {
 
     private TNetworkAddress httpAddress;
     private final String nodeId;
-    
+
     public EsShardRouting(String indexName, int shardId, boolean isPrimary, TNetworkAddress address, String nodeId) {
         this.indexName = indexName;
         this.shardId = shardId;
@@ -40,21 +39,21 @@ public class EsShardRouting {
         this.address = address;
         this.nodeId = nodeId;
     }
-    
+
     public static EsShardRouting newSearchShard(String indexName, int shardId, boolean isPrimary,
             String nodeId, JSONObject nodesMap) {
-        JSONObject nodeInfo = nodesMap.getJSONObject(nodeId);
-        String[] transportAddr = nodeInfo.getString("transport_address").split(":");
+        JSONObject nodeInfo = (JSONObject) nodesMap.get(nodeId);
+        String[] transportAddr = ((String) nodeInfo.get("transport_address")).split(":");
         // get thrift port from node info
-        String thriftPort = nodeInfo.getJSONObject("attributes").optString("thrift_port");
+        String thriftPort = (String) ((JSONObject) nodeInfo.get("attributes")).get("thrift_port");
         // In http transport mode, should ignore thrift_port, set address to null
         TNetworkAddress addr = null;
-        if (!StringUtils.isEmpty(thriftPort)) {
+        if (!Strings.isNullOrEmpty(thriftPort)) {
             addr = new TNetworkAddress(transportAddr[0], Integer.parseInt(thriftPort));
         }
         return new EsShardRouting(indexName, shardId, isPrimary, addr, nodeId);
     }
-    
+
     public int getShardId() {
         return shardId;
     }
@@ -85,13 +84,13 @@ public class EsShardRouting {
 
     @Override
     public String toString() {
-        return "EsShardRouting{" +
-                "indexName='" + indexName + '\'' +
-                ", shardId=" + shardId +
-                ", isPrimary=" + isPrimary +
-                ", address=" + address +
-                ", httpAddress=" + httpAddress +
-                ", nodeId='" + nodeId + '\'' +
-                '}';
+        return "EsShardRouting{"
+                + "indexName='" + indexName + '\''
+                + ", shardId=" + shardId
+                + ", isPrimary=" + isPrimary
+                + ", address=" + address
+                + ", httpAddress=" + httpAddress
+                + ", nodeId='" + nodeId + '\''
+                + '}';
     }
 }

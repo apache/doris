@@ -19,17 +19,16 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.PartitionKeyDesc.PartitionKeyValueType;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.thrift.TTabletType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
-import org.apache.doris.thrift.TTabletType;
 
 import java.util.Map;
 
@@ -43,10 +42,10 @@ public class SinglePartitionDesc {
     private Map<String, String> properties;
 
     private DataProperty partitionDataProperty;
-    private Short replicationNum;
+    private ReplicaAllocation replicaAlloc;
     private boolean isInMemory = false;
     private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
-    private Pair<Long, Long> versionInfo;
+    private Long versionInfo;
 
     public SinglePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
                                Map<String, String> properties) {
@@ -59,7 +58,7 @@ public class SinglePartitionDesc {
         this.properties = properties;
 
         this.partitionDataProperty = DataProperty.DEFAULT_DATA_PROPERTY;
-        this.replicationNum = FeConstants.default_replication_num;
+        this.replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
     }
 
     public boolean isSetIfNotExists() {
@@ -78,17 +77,19 @@ public class SinglePartitionDesc {
         return partitionDataProperty;
     }
 
-    public short getReplicationNum() {
-        return replicationNum;
+    public ReplicaAllocation getReplicaAlloc() {
+        return replicaAlloc;
     }
 
     public boolean isInMemory() {
         return isInMemory;
     }
 
-    public TTabletType getTabletType() { return tabletType; }
+    public TTabletType getTabletType() {
+        return tabletType;
+    }
 
-    public Pair<Long, Long> getVersionInfo() {
+    public Long getVersionInfo() {
         return versionInfo;
     }
 
@@ -111,13 +112,13 @@ public class SinglePartitionDesc {
 
         // analyze data property
         partitionDataProperty = PropertyAnalyzer.analyzeDataProperty(properties,
-                                                                     DataProperty.DEFAULT_DATA_PROPERTY);
+                DataProperty.DEFAULT_DATA_PROPERTY);
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
-        replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-        if (replicationNum == null) {
-            throw new AnalysisException("Invalid replication number: " + replicationNum);
+        replicaAlloc = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
+        if (replicaAlloc.isNotSet()) {
+            replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
 
         // analyze version info

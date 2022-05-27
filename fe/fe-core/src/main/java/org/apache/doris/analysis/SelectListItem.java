@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/apache/impala/blob/branch-2.9.0/fe/src/main/java/org/apache/impala/SelectListItem.java
+// and modified by Doris
 
 package org.apache.doris.analysis;
 
@@ -74,7 +77,11 @@ public class SelectListItem {
     public Expr getExpr() {
         return expr;
     }
-    public void setExpr(Expr expr) { this.expr = expr; }
+
+    public void setExpr(Expr expr) {
+        this.expr = expr;
+    }
+
     public String getAlias() {
         return alias;
     }
@@ -94,6 +101,20 @@ public class SelectListItem {
         }
     }
 
+    public String toDigest() {
+        if (!isStar) {
+            Preconditions.checkNotNull(expr);
+            String aliasSql = null;
+            if (alias != null) {
+                aliasSql = "`" + alias + "`";
+            }
+            return expr.toDigest() + ((aliasSql == null) ? "" : " " + aliasSql);
+        } else if (tblName != null) {
+            return tblName.toString() + ".*";
+        } else {
+            return "*";
+        }
+    }
     /**
      * Return a column label for the select list item.
      */

@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_AGENT_AGENT_SERVER_H
-#define DORIS_BE_SRC_AGENT_AGENT_SERVER_H
+#pragma once
 
 #include <memory>
 #include <string>
@@ -45,6 +44,7 @@ public:
 
     // Deprecated
     // TODO(lingbin): This method is deprecated, should be removed later.
+    // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
     // Multi-Load will still use the following 3 methods for now.
@@ -86,9 +86,11 @@ private:
     std::unique_ptr<TaskWorkerPool> _recover_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _update_tablet_meta_info_workers;
 
+    std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
+
+    std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_v2_workers;
+
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

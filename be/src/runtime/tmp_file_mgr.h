@@ -15,12 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_RUNTIME_TMP_FILE_MGR_H
-#define DORIS_BE_SRC_QUERY_RUNTIME_TMP_FILE_MGR_H
+#pragma once
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h" // for TUniqueId
-// #include "util/collection_metrics.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 
@@ -59,9 +57,6 @@ public:
         Status allocate_space(int64_t write_size, int64_t* offset);
 
         // Called to notify TmpFileMgr that an IO error was encountered for this file
-#if 0
-        void report_io_error(const ErrorMsg& msg);
-#endif
         void report_io_error(const std::string& error_msg);
 
         // Delete the physical file on disk, if one was created.
@@ -130,6 +125,9 @@ public:
     // Return the scratch directory path for the device.
     std::string get_tmp_dir_path(DeviceId device_id) const;
 
+    // Return a random scratch directory path from the devices.
+    std::string get_tmp_dir_path();
+
     // Total number of devices with tmp directories that are active. There is one tmp
     // directory per device.
     int num_active_tmp_devices();
@@ -183,5 +181,3 @@ private:
 };
 
 } // end namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_RUNTIME_TMP_FILE_MGR_H
