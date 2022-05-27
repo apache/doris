@@ -205,7 +205,7 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(FieldType type)
     case OLAP_FIELD_TYPE_VARCHAR:
     case OLAP_FIELD_TYPE_STRING:
         if (config::enable_low_cardinality_optimize) {
-            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create();
+            return doris::vectorized::ColumnDictionary<doris::vectorized::Int32>::create(type);
         }
         return doris::vectorized::PredicateColumnType<StringValue>::create();
 

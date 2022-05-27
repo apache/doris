@@ -119,8 +119,10 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
         // deal ColumnDict
         if (nullable_col->get_nested_column().is_column_dictionary()) {
-            auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(nullable_col->get_nested_column());
-            const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values();
+            auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(
+                    nullable_col->get_nested_column());
+            const_cast<vectorized::ColumnDictI32*>(dict_col)
+                    ->generate_hash_values_for_runtime_filter();
             for (uint16_t i = 0; i < *size; i++) {
                 uint16_t idx = sel[i];
                 sel[new_size] = idx;
@@ -139,7 +141,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
         }
     } else if (column.is_column_dictionary()) {
         auto* dict_col = vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
-        const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values();
+        const_cast<vectorized::ColumnDictI32*>(dict_col)->generate_hash_values_for_runtime_filter();
         for (uint16_t i = 0; i < *size; i++) {
             uint16_t idx = sel[i];
             sel[new_size] = idx;
