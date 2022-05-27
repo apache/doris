@@ -36,6 +36,7 @@ public class ArrayType extends Type {
 
     @SerializedName(value = "itemType")
     private Type itemType;
+
     @SerializedName(value = "containsNull")
     private boolean containsNull;
 
@@ -57,7 +58,9 @@ public class ArrayType extends Type {
         return itemType;
     }
 
-    public boolean getContainsNull() { return containsNull; }
+    public boolean getContainsNull() {
+        return containsNull;
+    }
 
     @Override
     public PrimitiveType getPrimitiveType() {
@@ -78,8 +81,8 @@ public class ArrayType extends Type {
         if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
             return true;
         }
-        return itemType.matchesType(((ArrayType) t).itemType) &&
-            ((ArrayType)t).containsNull == containsNull;
+        return itemType.matchesType(((ArrayType) t).itemType)
+                && ((ArrayType) t).containsNull == containsNull;
     }
 
     public static ArrayType create() {
