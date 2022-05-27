@@ -61,12 +61,12 @@ public class DiskInfo implements Writable {
 
     public DiskInfo(String rootPath) {
         this.rootPath = rootPath;
-        this.totalCapacityB = DEFAULT_CAPACITY_B;
-        this.dataUsedCapacityB = 0;
-        this.diskAvailableCapacityB = DEFAULT_CAPACITY_B;
-        this.state = DiskState.ONLINE;
-        this.pathHash = 0;
-        this.storageMedium = TStorageMedium.HDD;
+        totalCapacityB = DEFAULT_CAPACITY_B;
+        dataUsedCapacityB = 0;
+        diskAvailableCapacityB = DEFAULT_CAPACITY_B;
+        state = DiskState.ONLINE;
+        pathHash = 0;
+        storageMedium = TStorageMedium.HDD;
     }
 
     public String getRootPath() {
@@ -94,7 +94,7 @@ public class DiskInfo implements Writable {
     }
 
     public void setAvailableCapacityB(long availableCapacityB) {
-        this.diskAvailableCapacityB = availableCapacityB;
+        diskAvailableCapacityB = availableCapacityB;
     }
 
     public double getUsedPct() {

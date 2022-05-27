@@ -54,10 +54,10 @@ public class Index implements Writable {
     }
 
     public Index() {
-        this.indexName = null;
-        this.columns = null;
-        this.indexType = null;
-        this.comment = null;
+        indexName = null;
+        columns = null;
+        indexType = null;
+        comment = null;
     }
 
     public String getIndexName() {

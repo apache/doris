@@ -59,7 +59,7 @@ public enum ResourceType {
     private ResourceType(String desc, TResourceType tType, int value) {
         this.desc = desc;
         this.tType = tType;
-        this.defaultValue = value;
+        defaultValue = value;
     }
 
     public String getDesc() {

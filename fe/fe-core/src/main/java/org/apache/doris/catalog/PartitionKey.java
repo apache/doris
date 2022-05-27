@@ -189,11 +189,11 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     // compare with other PartitionKey. used for partition prune
     @Override
     public int compareTo(PartitionKey other) {
-        int thisKeyLen = this.keys.size();
+        int thisKeyLen = keys.size();
         int otherKeyLen = other.keys.size();
         int minLen = Math.min(thisKeyLen, otherKeyLen);
         for (int i = 0; i < minLen; ++i) {
-            int ret = compareLiteralExpr(this.getKeys().get(i), other.getKeys().get(i));
+            int ret = compareLiteralExpr(getKeys().get(i), other.getKeys().get(i));
             if (0 != ret) {
                 return ret;
             }

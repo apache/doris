@@ -426,12 +426,12 @@ public class EsTable extends Table {
         }
         try {
             esMetaStateTracker.run();
-            this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
+            esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
         } catch (Throwable e) {
             LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster." +
-                    "table id: {}, err: {}", this.name, this.id, e.getMessage());
-            this.esTablePartitions = null;
-            this.lastMetaDataSyncException = e;
+                    "table id: {}, err: {}", name, id, e.getMessage());
+            esTablePartitions = null;
+            lastMetaDataSyncException = e;
         }
     }
 }

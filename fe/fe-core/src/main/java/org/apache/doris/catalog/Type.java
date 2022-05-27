@@ -1085,7 +1085,7 @@ public abstract class Type {
     }
 
     public Type getResultType() {
-        switch (this.getPrimitiveType()) {
+        switch (getPrimitiveType()) {
             case BOOLEAN:
             case TINYINT:
             case SMALLINT:
@@ -1218,10 +1218,10 @@ public abstract class Type {
     }
 
     public int getIndexSize() {
-        if (this.getPrimitiveType() == PrimitiveType.CHAR) {
+        if (getPrimitiveType() == PrimitiveType.CHAR) {
             return ((ScalarType) this).getLength();
         } else {
-            return this.getPrimitiveType().getOlapColumnIndexSize();
+            return getPrimitiveType().getOlapColumnIndexSize();
         }
     }
 }

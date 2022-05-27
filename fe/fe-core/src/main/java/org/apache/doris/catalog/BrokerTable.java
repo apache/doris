@@ -65,7 +65,7 @@ public class BrokerTable extends Table {
 
     public void setBrokerProperties(Map<String, String> brokerProperties) {
         this.brokerProperties = brokerProperties;
-        if (this.brokerProperties == null) {
+        if (brokerProperties == null) {
             this.brokerProperties = Maps.newHashMap();
         }
     }

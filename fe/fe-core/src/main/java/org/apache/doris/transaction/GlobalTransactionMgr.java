@@ -389,7 +389,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void setEditLog(EditLog editLog) {
-        this.idGenerator.setEditLog(editLog);
+        idGenerator.setEditLog(editLog);
     }
 
     // for replay idToTransactionState
@@ -499,7 +499,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public TransactionIdGenerator getTransactionIDGenerator() {
-        return this.idGenerator;
+        return idGenerator;
     }
 
     @Override

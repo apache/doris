@@ -67,7 +67,7 @@ public class ExportExportingTask extends MasterTask {
 
     public ExportExportingTask(ExportJob job) {
         this.job = job;
-        this.signature = job.getId();
+        signature = job.getId();
     }
 
     @Override
@@ -232,7 +232,7 @@ public class ExportExportingTask extends MasterTask {
 
     private synchronized void onFailed(Coordinator coordinator) {
         isCancelled = true;
-        this.failStatus = coordinator.getExecStatus();
+        failStatus = coordinator.getExecStatus();
         cancelType = ExportFailMsg.CancelType.RUN_FAIL;
         String failMsg = "export exporting job fail. query id: " + DebugUtil.printId(coordinator.getQueryId())
                 + ", ";
@@ -243,7 +243,7 @@ public class ExportExportingTask extends MasterTask {
 
     public synchronized void onTimeout() {
         isCancelled = true;
-        this.failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
+        failStatus = new Status(TStatusCode.TIMEOUT, "timeout");
         cancelType = ExportFailMsg.CancelType.TIMEOUT;
         String failMsg = "export exporting job timeout.";
         job.setFailMsg(new ExportFailMsg(cancelType, failMsg));

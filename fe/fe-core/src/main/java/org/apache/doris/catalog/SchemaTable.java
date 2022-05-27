@@ -440,10 +440,10 @@ public class SchemaTable extends Table {
 
     @Override
     public TTableDescriptor toThrift() {
-        TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(this.name));
+        TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(name));
         TTableDescriptor tTableDescriptor =
                 new TTableDescriptor(getId(), TTableType.SCHEMA_TABLE,
-                TABLE_MAP.get(this.name).getBaseSchema().size(), 0, this.name, "");
+                TABLE_MAP.get(name).getBaseSchema().size(), 0, name, "");
         tTableDescriptor.setSchemaTable(tSchemaTable);
         return tTableDescriptor;
     }

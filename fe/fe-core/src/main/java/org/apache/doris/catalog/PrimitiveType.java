@@ -785,7 +785,7 @@ public enum PrimitiveType {
             case DECIMALV2:
                 return DECIMAL_INDEX_LEN;
             default:
-                return this.getSlotSize();
+                return getSlotSize();
         }
     }
 }

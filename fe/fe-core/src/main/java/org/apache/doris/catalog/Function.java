@@ -151,7 +151,7 @@ public class Function implements Writable {
         this.binaryType = binaryType;
         this.userVisible = userVisible;
         this.vectorized = vectorized;
-        this.nullableMode = mode;
+        nullableMode = mode;
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
@@ -228,7 +228,7 @@ public class Function implements Writable {
         hasVarArgs = v;
     }
 
-    public void setId(long functionId) { this.id = functionId; }
+    public void setId(long functionId) { id = functionId; }
     public long getId() { return id; }
     public void setChecksum(String checksum) { this.checksum = checksum; }
     public String getChecksum() { return checksum; }
@@ -278,20 +278,20 @@ public class Function implements Writable {
      * for "most" compatible or maybe return an error if it is ambiguous?
      */
     private boolean isSubtype(Function other) {
-        if (!this.hasVarArgs && other.argTypes.length != this.argTypes.length) {
+        if (!hasVarArgs && other.argTypes.length != argTypes.length) {
             return false;
         }
-        if (this.hasVarArgs && other.argTypes.length < this.argTypes.length) {
+        if (hasVarArgs && other.argTypes.length < argTypes.length) {
             return false;
         }
-        for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!Type.isImplicitlyCastable(other.argTypes[i], this.argTypes[i], true)) {
+        for (int i = 0; i < argTypes.length; ++i) {
+            if (!Type.isImplicitlyCastable(other.argTypes[i], argTypes[i], true)) {
                 return false;
             }
         }
         // Check trailing varargs.
-        if (this.hasVarArgs) {
-            for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
+        if (hasVarArgs) {
+            for (int i = argTypes.length; i < other.argTypes.length; ++i) {
                 if (!Type.isImplicitlyCastable(other.argTypes[i], getVarArgsType(), true)) {
                     return false;
                 }
@@ -303,20 +303,20 @@ public class Function implements Writable {
     // return true if 'this' is assign-compatible from 'other'.
     // Each argument in 'other' must be assign-compatible to the matching argument in 'this'.
     private boolean isAssignCompatible(Function other) {
-        if (!this.hasVarArgs && other.argTypes.length != this.argTypes.length) {
+        if (!hasVarArgs && other.argTypes.length != argTypes.length) {
             return false;
         }
-        if (this.hasVarArgs && other.argTypes.length < this.argTypes.length) {
+        if (hasVarArgs && other.argTypes.length < argTypes.length) {
             return false;
         }
-        for (int i = 0; i < this.argTypes.length; ++i) {
+        for (int i = 0; i < argTypes.length; ++i) {
             if (!Type.canCastTo(other.argTypes[i], argTypes[i])) {
                 return false;
             }
         }
         // Check trailing varargs.
-        if (this.hasVarArgs) {
-            for (int i = this.argTypes.length; i < other.argTypes.length; ++i) {
+        if (hasVarArgs) {
+            for (int i = argTypes.length; i < other.argTypes.length; ++i) {
                 if (!Type.canCastTo(other.argTypes[i], getVarArgsType())) {
                     return false;
                 }
@@ -330,14 +330,14 @@ public class Function implements Writable {
             return false;
         }
         if (argTypes != null) {
-            if (o.argTypes.length != this.argTypes.length) {
+            if (o.argTypes.length != argTypes.length) {
                 return false;
             }
-            if (o.hasVarArgs != this.hasVarArgs) {
+            if (o.hasVarArgs != hasVarArgs) {
                 return false;
             }
-            for (int i = 0; i < this.argTypes.length; ++i) {
-                if (!o.argTypes[i].matchesType(this.argTypes[i])) {
+            for (int i = 0; i < argTypes.length; ++i) {
+                if (!o.argTypes[i].matchesType(argTypes[i])) {
                     return false;
                 }
             }
@@ -350,14 +350,14 @@ public class Function implements Writable {
         if (!o.name.equals(name)) {
             return false;
         }
-        if (o.argTypes.length != this.argTypes.length) {
+        if (o.argTypes.length != argTypes.length) {
             return false;
         }
-        if (o.hasVarArgs != this.hasVarArgs) {
+        if (o.hasVarArgs != hasVarArgs) {
             return false;
         }
-        for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!o.argTypes[i].matchesType(this.argTypes[i])) {
+        for (int i = 0; i < argTypes.length; ++i) {
+            if (!o.argTypes[i].matchesType(argTypes[i])) {
                 return false;
             }
         }
@@ -368,30 +368,30 @@ public class Function implements Writable {
         if (!o.name.equals(name)) {
             return false;
         }
-        int minArgs = Math.min(o.argTypes.length, this.argTypes.length);
+        int minArgs = Math.min(o.argTypes.length, argTypes.length);
         // The first fully specified args must be identical.
         for (int i = 0; i < minArgs; ++i) {
-            if (o.argTypes[i].isNull() || this.argTypes[i].isNull()) {
+            if (o.argTypes[i].isNull() || argTypes[i].isNull()) {
                 continue;
             }
-            if (!o.argTypes[i].matchesType(this.argTypes[i])) {
+            if (!o.argTypes[i].matchesType(argTypes[i])) {
                 return false;
             }
         }
-        if (o.argTypes.length == this.argTypes.length) {
+        if (o.argTypes.length == argTypes.length) {
             return true;
         }
 
-        if (o.hasVarArgs && this.hasVarArgs) {
-            if (!o.getVarArgsType().matchesType(this.getVarArgsType())) {
+        if (o.hasVarArgs && hasVarArgs) {
+            if (!o.getVarArgsType().matchesType(getVarArgsType())) {
                 return false;
             }
-            if (this.getNumArgs() > o.getNumArgs()) {
-                for (int i = minArgs; i < this.getNumArgs(); ++i) {
-                    if (this.argTypes[i].isNull()) {
+            if (getNumArgs() > o.getNumArgs()) {
+                for (int i = minArgs; i < getNumArgs(); ++i) {
+                    if (argTypes[i].isNull()) {
                         continue;
                     }
-                    if (!this.argTypes[i].matchesType(o.getVarArgsType())) {
+                    if (!argTypes[i].matchesType(o.getVarArgsType())) {
                         return false;
                     }
                 }
@@ -400,7 +400,7 @@ public class Function implements Writable {
                     if (o.argTypes[i].isNull()) {
                         continue;
                     }
-                    if (!o.argTypes[i].matchesType(this.getVarArgsType())) {
+                    if (!o.argTypes[i].matchesType(getVarArgsType())) {
                         return false;
                     }
                 }
@@ -411,25 +411,25 @@ public class Function implements Writable {
             if (o.getNumArgs() > minArgs) {
                 return false;
             }
-            for (int i = minArgs; i < this.getNumArgs(); ++i) {
-                if (this.argTypes[i].isNull()) {
+            for (int i = minArgs; i < getNumArgs(); ++i) {
+                if (argTypes[i].isNull()) {
                     continue;
                 }
-                if (!this.argTypes[i].matchesType(o.getVarArgsType())) {
+                if (!argTypes[i].matchesType(o.getVarArgsType())) {
                     return false;
                 }
             }
             return true;
-        } else if (this.hasVarArgs) {
+        } else if (hasVarArgs) {
             // this has var args so check the remaining arguments from s
-            if (this.getNumArgs() > minArgs) {
+            if (getNumArgs() > minArgs) {
                 return false;
             }
             for (int i = minArgs; i < o.getNumArgs(); ++i) {
                 if (o.argTypes[i].isNull()) {
                     continue;
                 }
-                if (!o.argTypes[i].matchesType(this.getVarArgsType())) {
+                if (!o.argTypes[i].matchesType(getVarArgsType())) {
                     return false;
                 }
             }

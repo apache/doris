@@ -99,9 +99,9 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public Tablet(long tabletId, List<Replica> replicas) {
-        this.id = tabletId;
+        id = tabletId;
         this.replicas = replicas;
-        if (this.replicas == null) {
+        if (replicas == null) {
             this.replicas = new ArrayList<>();
         }
 
@@ -111,15 +111,15 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public void setIdForRestore(long tabletId) {
-        this.id = tabletId;
+        id = tabletId;
     }
 
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public long getCheckedVersion() {
-        return this.checkedVersion;
+        return checkedVersion;
     }
 
     public void setCheckedVersion(long checkedVersion) {
@@ -127,7 +127,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public void setIsConsistent(boolean good) {
-        this.isConsistent = good;
+        isConsistent = good;
     }
 
     public boolean isConsistent() {
@@ -166,7 +166,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     public List<Replica> getReplicas() {
-        return this.replicas;
+        return replicas;
     }
 
     public Set<Long> getBackendIds() {
@@ -305,11 +305,11 @@ public class Tablet extends MetaObject implements Writable {
     // for test,
     // and for some replay cases
     public void clearReplica() {
-        this.replicas.clear();
+        replicas.clear();
     }
 
     public void setTabletId(long tabletId) {
-        this.id = tabletId;
+        id = tabletId;
     }
 
     public static void sortReplicaByVersionDesc(List<Replica> replicas) {
@@ -319,7 +319,7 @@ public class Tablet extends MetaObject implements Writable {
 
     @Override
     public String toString() {
-        return "tabletId=" + this.id;
+        return "tabletId=" + id;
     }
 
     @Override

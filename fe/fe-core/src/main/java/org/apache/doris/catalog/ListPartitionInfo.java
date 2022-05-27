@@ -44,7 +44,7 @@ public class ListPartitionInfo extends PartitionInfo{
     public ListPartitionInfo(List<Column> partitionColumns) {
         super(PartitionType.LIST);
         this.partitionColumns = partitionColumns;
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
+        isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
@@ -139,7 +139,7 @@ public class ListPartitionInfo extends PartitionInfo{
             partitionColumns.add(column);
         }
 
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
+        isMultiColumnPartition = partitionColumns.size() > 1;
 
         counter = in.readInt();
         for (int i = 0; i < counter; i++) {
@@ -180,7 +180,7 @@ public class ListPartitionInfo extends PartitionInfo{
         sb.append(")\n(");
 
         // sort list
-        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(idToItem.entrySet());
         Collections.sort(entries, ListUtil.LIST_MAP_ENTRY_COMPARATOR);
         idx = 0;
         for (Map.Entry<Long, PartitionItem> entry : entries) {

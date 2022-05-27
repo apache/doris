@@ -144,16 +144,16 @@ public class OlapTable extends Table {
         // for persist
         super(TableType.OLAP);
 
-        this.bfColumns = null;
-        this.bfFpp = 0;
+        bfColumns = null;
+        bfFpp = 0;
 
-        this.colocateGroup = null;
+        colocateGroup = null;
 
-        this.indexes = null;
+        indexes = null;
 
-        this.tableProperty = null;
+        tableProperty = null;
 
-        this.hasSequenceCol = false;
+        hasSequenceCol = false;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -165,21 +165,21 @@ public class OlapTable extends Table {
                      PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
-        this.state = OlapTableState.NORMAL;
+        state = OlapTableState.NORMAL;
 
         this.keysType = keysType;
         this.partitionInfo = partitionInfo;
 
         this.defaultDistributionInfo = defaultDistributionInfo;
 
-        this.bfColumns = null;
-        this.bfFpp = 0;
+        bfColumns = null;
+        bfFpp = 0;
 
-        this.colocateGroup = null;
+        colocateGroup = null;
 
         this.indexes = indexes;
 
-        this.tableProperty = null;
+        tableProperty = null;
     }
 
     public void setTableProperty(TableProperty tableProperty) {
@@ -187,7 +187,7 @@ public class OlapTable extends Table {
     }
 
     public TableProperty getTableProperty() {
-        return this.tableProperty;
+        return tableProperty;
     }
 
     public boolean dynamicPartitionExists() {
@@ -252,14 +252,14 @@ public class OlapTable extends Table {
 
     public void setName(String newName) {
         // change name in indexNameToId
-        long baseIndexId = indexNameToId.remove(this.name);
+        long baseIndexId = indexNameToId.remove(name);
         indexNameToId.put(newName, baseIndexId);
 
         // change name
-        this.name = newName;
+        name = newName;
 
         // change single partition name
-        if (this.partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+        if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // use for loop, because if we use getPartition(partitionName),
             // we may not be able to get partition because this is a bug fix
             for (Partition partition : getPartitions()) {
@@ -335,8 +335,8 @@ public class OlapTable extends Table {
             return false;
         }
 
-        long indexId = this.indexNameToId.remove(indexName);
-        this.indexIdToMeta.remove(indexId);
+        long indexId = indexNameToId.remove(indexName);
+        indexIdToMeta.remove(indexId);
         // Some column of deleted index should be removed during `deleteIndexInfo` such as `mv_bitmap_union_c1`
         // If deleted index id == base index id, the schema will not be rebuilt.
         // The reason is that the base index has been removed from indexIdToMeta while the new base index hasn't changed.
@@ -574,7 +574,7 @@ public class OlapTable extends Table {
 
     public List<Column> getKeyColumnsByIndexId(Long indexId) {
         ArrayList<Column> keyColumns = Lists.newArrayList();
-        List<Column> allColumns = this.getSchemaByIndexId(indexId);
+        List<Column> allColumns = getSchemaByIndexId(indexId);
         for (Column column : allColumns) {
             if (column.isKey()) {
                 keyColumns.add(column);
@@ -878,8 +878,8 @@ public class OlapTable extends Table {
     }
 
     public void setSequenceInfo(Type type) {
-        this.hasSequenceCol = true;
-        this.sequenceType = type;
+        hasSequenceCol = true;
+        sequenceType = type;
 
         // sequence column is value column with REPLACE aggregate type
         Column sequenceCol = ColumnDef.newSequenceColumnDef(type, AggregateType.REPLACE).toColumn();
@@ -1048,11 +1048,11 @@ public class OlapTable extends Table {
 
     // get intersect partition names with the given table "anotherTbl". not including temp partitions
     public Status getIntersectPartNamesWith(OlapTable anotherTbl, List<String> intersectPartNames) {
-        if (this.getPartitionInfo().getType() != anotherTbl.getPartitionInfo().getType()) {
+        if (getPartitionInfo().getType() != anotherTbl.getPartitionInfo().getType()) {
             return new Status(ErrCode.COMMON_ERROR, "Table's partition type is different");
         }
 
-        Set<String> intersect = this.getPartitionNames();
+        Set<String> intersect = getPartitionNames();
         intersect.retainAll(anotherTbl.getPartitionNames());
         intersectPartNames.addAll(intersect);
         return Status.OK;
@@ -1147,7 +1147,7 @@ public class OlapTable extends Table {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        this.state = OlapTableState.valueOf(Text.readString(in));
+        state = OlapTableState.valueOf(Text.readString(in));
 
         // indices's schema
         int counter = in.readInt();
@@ -1156,7 +1156,7 @@ public class OlapTable extends Table {
         for (int i = 0; i < counter; i++) {
             String indexName = Text.readString(in);
             long indexId = in.readLong();
-            this.indexNameToId.put(indexName, indexId);
+            indexNameToId.put(indexName, indexId);
             MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
             indexIdToMeta.put(indexId, indexMeta);
         }
@@ -1214,7 +1214,7 @@ public class OlapTable extends Table {
 
         // read indexes
         if (in.readBoolean()) {
-            this.indexes = TableIndexes.read(in);
+            indexes = TableIndexes.read(in);
         }
         // tableProperty
         if (in.readBoolean()) {
@@ -1226,7 +1226,7 @@ public class OlapTable extends Table {
         RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
         if (tempRangeInfo != null) {
             for (long partitionId : tempRangeInfo.getIdToItem(false).keySet()) {
-                this.partitionInfo.addPartition(partitionId, true,
+                partitionInfo.addPartition(partitionId, true,
                         tempRangeInfo.getItem(partitionId), tempRangeInfo.getDataProperty(partitionId),
                         tempRangeInfo.getReplicaAllocation(partitionId), tempRangeInfo.getIsInMemory(partitionId));
             }
@@ -1696,7 +1696,7 @@ public class OlapTable extends Table {
 
     public DataSortInfo getDataSortInfo() {
         if (tableProperty == null) {
-            return new DataSortInfo(TSortType.LEXICAL, this.getKeysNum());
+            return new DataSortInfo(TSortType.LEXICAL, getKeysNum());
         }
         return tableProperty.getDataSortInfo();
     }

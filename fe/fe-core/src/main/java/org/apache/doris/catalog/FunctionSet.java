@@ -94,7 +94,7 @@ public class FunctionSet<T> {
         for (String funcName : funcNames) {
             setBuilder.add(funcName);
         }
-        this.nullResultWithOneNullParamFunctions = setBuilder.build();
+        nullResultWithOneNullParamFunctions = setBuilder.build();
     }
 
     public void buildNondeterministicFunctions(Set<String> funcNames) {
@@ -102,7 +102,7 @@ public class FunctionSet<T> {
         for (String funcName : funcNames) {
             setBuilder.add(funcName);
         }
-        this.nondeterministicFunctions = setBuilder.build();
+        nondeterministicFunctions = setBuilder.build();
     }
 
     public boolean isNondeterministicFunction(String funcName) {

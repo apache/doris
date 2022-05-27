@@ -75,23 +75,23 @@ public class DynamicPartitionProperty {
 
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
-            this.exist = true;
-            this.enable = Boolean.parseBoolean(properties.get(ENABLE));
-            this.timeUnit = properties.get(TIME_UNIT);
-            this.tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
+            exist = true;
+            enable = Boolean.parseBoolean(properties.get(ENABLE));
+            timeUnit = properties.get(TIME_UNIT);
+            tz = TimeUtils.getOrSystemTimeZone(properties.get(TIME_ZONE));
             // In order to compatible dynamic add partition version
-            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
-            this.end = Integer.parseInt(properties.get(END));
-            this.prefix = properties.get(PREFIX);
-            this.buckets = Integer.parseInt(properties.get(BUCKETS));
-            this.replicaAlloc = analyzeReplicaAllocation(properties);
-            this.createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
-            this.historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
-            this.hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
-            this.reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
+            start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
+            end = Integer.parseInt(properties.get(END));
+            prefix = properties.get(PREFIX);
+            buckets = Integer.parseInt(properties.get(BUCKETS));
+            replicaAlloc = analyzeReplicaAllocation(properties);
+            createHistoryPartition = Boolean.parseBoolean(properties.get(CREATE_HISTORY_PARTITION));
+            historyPartitionNum = Integer.parseInt(properties.getOrDefault(HISTORY_PARTITION_NUM, String.valueOf(NOT_SET_HISTORY_PARTITION_NUM)));
+            hotPartitionNum = Integer.parseInt(properties.getOrDefault(HOT_PARTITION_NUM, "0"));
+            reservedHistoryPeriods = properties.getOrDefault(RESERVED_HISTORY_PERIODS, NOT_SET_RESERVED_HISTORY_PERIODS);
             createStartOfs(properties);
         } else {
-            this.exist = false;
+            exist = false;
         }
     }
 
@@ -198,7 +198,7 @@ public class DynamicPartitionProperty {
      * use table replication_num as dynamic_partition.replication_num default value
      */
     public String getProperties(ReplicaAllocation tableReplicaAlloc) {
-        ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
+        ReplicaAllocation tmpAlloc = replicaAlloc.isNotSet() ? tableReplicaAlloc : replicaAlloc;
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
                 ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\"" +

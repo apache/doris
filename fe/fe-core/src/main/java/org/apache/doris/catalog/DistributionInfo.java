@@ -51,7 +51,7 @@ public abstract class DistributionInfo implements Writable {
 
     public DistributionInfo(DistributionInfoType type) {
         this.type = type;
-        this.typeStr = this.type.name();
+        typeStr = type.name();
     }
 
     public DistributionInfoType getType() {

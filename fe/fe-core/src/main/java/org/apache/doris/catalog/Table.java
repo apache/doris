@@ -114,14 +114,14 @@ public class Table extends MetaObject implements Writable {
 
     public Table(TableType type) {
         this.type = type;
-        this.fullSchema = Lists.newArrayList();
-        this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        this.rwLock = new ReentrantReadWriteLock(true);
+        fullSchema = Lists.newArrayList();
+        nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        rwLock = new ReentrantReadWriteLock(true);
     }
 
     public Table(long id, String tableName, TableType type, List<Column> fullSchema) {
         this.id = id;
-        this.name = tableName;
+        name = tableName;
         this.type = type;
         // must copy the list, it should not be the same object as in indexIdToSchema
         if (fullSchema != null) {
@@ -136,8 +136,8 @@ public class Table extends MetaObject implements Writable {
             // Only view in with-clause have null base
             Preconditions.checkArgument(type == TableType.VIEW, "Table has no columns");
         }
-        this.rwLock = new ReentrantReadWriteLock();
-        this.createTime = Instant.now().getEpochSecond();
+        rwLock = new ReentrantReadWriteLock();
+        createTime = Instant.now().getEpochSecond();
     }
 
     public void markDropped() {
@@ -149,12 +149,12 @@ public class Table extends MetaObject implements Writable {
     }
 
     public void readLock() {
-        this.rwLock.readLock().lock();
+        rwLock.readLock().lock();
     }
 
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.readLock().tryLock(timeout, unit);
+            return rwLock.readLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try read lock at table[" + name + "]", e);
             return false;
@@ -162,17 +162,17 @@ public class Table extends MetaObject implements Writable {
     }
 
     public void readUnlock() {
-        this.rwLock.readLock().unlock();
+        rwLock.readLock().unlock();
     }
 
     public void writeLock() {
-        this.rwLock.writeLock().lock();
+        rwLock.writeLock().lock();
     }
 
     public boolean writeLockIfExist() {
-        this.rwLock.writeLock().lock();
+        rwLock.writeLock().lock();
         if (isDropped) {
-            this.rwLock.writeLock().unlock();
+            rwLock.writeLock().unlock();
             return false;
         }
         return true;
@@ -180,7 +180,7 @@ public class Table extends MetaObject implements Writable {
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-           return this.rwLock.writeLock().tryLock(timeout, unit);
+           return rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at table[" + name + "]", e);
             return false;
@@ -188,11 +188,11 @@ public class Table extends MetaObject implements Writable {
     }
 
     public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
+        rwLock.writeLock().unlock();
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
-        return this.rwLock.writeLock().isHeldByCurrentThread();
+        return rwLock.writeLock().isHeldByCurrentThread();
     }
 
     public <E extends Exception> void writeLockOrException(E e) throws E {
@@ -287,8 +287,8 @@ public class Table extends MetaObject implements Writable {
     }
 
     public void setNewFullSchema(List<Column> newSchema) {
-        this.fullSchema = newSchema;
-        this.nameToColumn.clear();
+        fullSchema = newSchema;
+        nameToColumn.clear();
         for (Column col : fullSchema) {
             nameToColumn.put(col.getName(), col);
         }
@@ -385,21 +385,21 @@ public class Table extends MetaObject implements Writable {
 
         super.readFields(in);
 
-        this.id = in.readLong();
-        this.name = Text.readString(in);
+        id = in.readLong();
+        name = Text.readString(in);
 
         // base schema
         int columnCount = in.readInt();
         for (int i = 0; i < columnCount; i++) {
             Column column = Column.read(in);
-            this.fullSchema.add(column);
-            this.nameToColumn.put(column.getName(), column);
+            fullSchema.add(column);
+            nameToColumn.put(column.getName(), column);
         }
 
         comment = Text.readString(in);
 
         // read create time
-        this.createTime = in.readLong();
+        createTime = in.readLong();
     }
 
     public boolean equals(Table table) {

@@ -75,26 +75,26 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     private long rollupFinishedVersion;
 
     public MaterializedIndex() {
-        this.state = IndexState.NORMAL;
-        this.idToTablets = new HashMap<>();
-        this.tablets = new ArrayList<>();
+        state = IndexState.NORMAL;
+        idToTablets = new HashMap<>();
+        tablets = new ArrayList<>();
     }
 
     public MaterializedIndex(long id, IndexState state) {
         this.id = id;
 
         this.state = state;
-        if (this.state == null) {
+        if (state == null) {
             this.state = IndexState.NORMAL;
         }
 
-        this.idToTablets = new HashMap<>();
-        this.tablets = new ArrayList<>();
+        idToTablets = new HashMap<>();
+        tablets = new ArrayList<>();
 
-        this.rowCount = 0;
+        rowCount = 0;
 
-        this.rollupIndexId = -1L;
-        this.rollupFinishedVersion = -1L;
+        rollupIndexId = -1L;
+        rollupFinishedVersion = -1L;
     }
 
     public List<Tablet> getTablets() {
@@ -131,7 +131,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     }
 
     public void setIdForRestore(long idxId) {
-        this.id = idxId;
+        id = idxId;
     }
 
     public long getId() {
@@ -143,7 +143,7 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     }
 
     public IndexState getState() {
-        return this.state;
+        return state;
     }
 
     public long getRowCount() {
@@ -168,8 +168,8 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
     }
 
     public void clearRollupIndexInfo() {
-        this.rollupIndexId = -1L;
-        this.rollupFinishedVersion = -1L;
+        rollupIndexId = -1L;
+        rollupFinishedVersion = -1L;
     }
 
     public long getDataSize() {

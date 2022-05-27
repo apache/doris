@@ -56,8 +56,8 @@ public class MetaObject implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        this.signature = in.readLong();
-        this.lastCheckTime = in.readLong();
+        signature = in.readLong();
+        lastCheckTime = in.readLong();
     }
 
 }

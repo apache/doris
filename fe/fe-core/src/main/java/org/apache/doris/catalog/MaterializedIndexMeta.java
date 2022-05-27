@@ -146,25 +146,25 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
             return false;
         }
         MaterializedIndexMeta indexMeta = (MaterializedIndexMeta) obj;
-        if (indexMeta.indexId != this.indexId) {
+        if (indexMeta.indexId != indexId) {
             return false;
         }
-        if (indexMeta.schema.size() != this.schema.size() || !indexMeta.schema.containsAll(this.schema)) {
+        if (indexMeta.schema.size() != schema.size() || !indexMeta.schema.containsAll(schema)) {
             return false;
         }
-        if (indexMeta.schemaVersion != this.schemaVersion) {
+        if (indexMeta.schemaVersion != schemaVersion) {
             return false;
         }
-        if (indexMeta.schemaHash != this.schemaHash) {
+        if (indexMeta.schemaHash != schemaHash) {
             return false;
         }
-        if (indexMeta.shortKeyColumnCount != this.shortKeyColumnCount) {
+        if (indexMeta.shortKeyColumnCount != shortKeyColumnCount) {
             return false;
         }
-        if (indexMeta.storageType != this.storageType) {
+        if (indexMeta.storageType != storageType) {
             return false;
         }
-        if (indexMeta.keysType != this.keysType) {
+        if (indexMeta.keysType != keysType) {
             return false;
         }
         return true;

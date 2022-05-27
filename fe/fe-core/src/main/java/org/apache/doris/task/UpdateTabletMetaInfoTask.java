@@ -71,12 +71,12 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     List<Triple<Long, Integer, Boolean>> tabletToInMemory) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
                 -1L, -1L, -1L, -1L, -1L, tabletToInMemory.hashCode());
-        this.metaType = TTabletMetaType.INMEMORY;
+        metaType = TTabletMetaType.INMEMORY;
         this.tabletToInMemory = tabletToInMemory;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
-        if (this.latch != null) {
+        if (latch != null) {
             if (latch.markedCountDown(backendId, tablets)) {
                 LOG.debug("UpdateTabletMetaInfoTask current latch count: {}, backend: {}, tablets:{}",
                         latch.getCount(), backendId, tablets);
@@ -86,7 +86,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
 
     // call this always means one of tasks is failed. count down to zero to finish entire task
     public void countDownToZero(String errMsg) {
-        if (this.latch != null) {
+        if (latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.debug("UpdateTabletMetaInfoTask count down to zero. error msg: {}", errMsg);
         }

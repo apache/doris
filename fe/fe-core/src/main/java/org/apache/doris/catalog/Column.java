@@ -89,13 +89,13 @@ public class Column implements Writable {
     private boolean visible;
 
     public Column() {
-        this.name = "";
-        this.type = Type.NULL;
-        this.isAggregationTypeImplicit = false;
-        this.isKey = false;
-        this.stats = new ColumnStats();
-        this.visible = true;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        name = "";
+        type = Type.NULL;
+        isAggregationTypeImplicit = false;
+        isKey = false;
+        stats = new ColumnStats();
+        visible = true;
+        children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -122,39 +122,39 @@ public class Column implements Writable {
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
                   String defaultValue, String comment, boolean visible) {
         this.name = name;
-        if (this.name == null) {
+        if (name == null) {
             this.name = "";
         }
 
         this.type = type;
-        if (this.type == null) {
+        if (type == null) {
             this.type = Type.NULL;
         }
 
-        this.aggregationType = aggregateType;
-        this.isAggregationTypeImplicit = false;
+        aggregationType = aggregateType;
+        isAggregationTypeImplicit = false;
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
         this.comment = comment;
-        this.stats = new ColumnStats();
+        stats = new ColumnStats();
         this.visible = visible;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
         createChildrenColumn(this.type, this);
     }
 
     public Column(Column column) {
-        this.name = column.getName();
-        this.type = column.type;
-        this.aggregationType = column.getAggregationType();
-        this.isAggregationTypeImplicit = column.isAggregationTypeImplicit();
-        this.isKey = column.isKey();
-        this.isAllowNull = column.isAllowNull();
-        this.defaultValue = column.getDefaultValue();
-        this.comment = column.getComment();
-        this.stats = column.getStats();
-        this.visible = column.visible;
-        this.children = column.getChildren();
+        name = column.getName();
+        type = column.type;
+        aggregationType = column.getAggregationType();
+        isAggregationTypeImplicit = column.isAggregationTypeImplicit();
+        isKey = column.isKey();
+        isAllowNull = column.isAllowNull();
+        defaultValue = column.getDefaultValue();
+        comment = column.getComment();
+        stats = column.getStats();
+        visible = column.visible;
+        children = column.getChildren();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -173,15 +173,15 @@ public class Column implements Writable {
     }
 
     private void addChildrenColumn(Column column) {
-        this.children.add(column);
+        children.add(column);
     }
 
     public void setName(String newName) {
-        this.name = newName;
+        name = newName;
     }
 
     public String getName() {
-        return this.name;
+        return name;
     }
 
     public String getDisplayName() {
@@ -200,7 +200,7 @@ public class Column implements Writable {
     }
 
     public boolean isNameWithPrefix(String prefix) {
-        return this.name.startsWith(prefix);
+        return name.startsWith(prefix);
     }
 
     public void setIsKey(boolean isKey) {
@@ -212,7 +212,7 @@ public class Column implements Writable {
     }
 
     public boolean isKey() {
-        return this.isKey;
+        return isKey;
     }
 
     public boolean isVisible() {
@@ -220,7 +220,7 @@ public class Column implements Writable {
     }
 
     public void setIsVisible(boolean isVisible) {
-        this.visible = isVisible;
+        visible = isVisible;
     }
 
     public boolean isDeleteSignColumn() {
@@ -248,7 +248,7 @@ public class Column implements Writable {
     public int getScale() { return type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : -1; }
 
     public AggregateType getAggregationType() {
-        return this.aggregationType;
+        return aggregationType;
     }
 
     public boolean isAggregated() {
@@ -256,7 +256,7 @@ public class Column implements Writable {
     }
 
     public boolean isAggregationTypeImplicit() {
-        return this.isAggregationTypeImplicit;
+        return isAggregationTypeImplicit;
     }
 
     public void setAggregationType(AggregateType aggregationType, boolean isAggregationTypeImplicit) {
@@ -277,7 +277,7 @@ public class Column implements Writable {
     }
 
     public String getDefaultValue() {
-        return this.defaultValue;
+        return defaultValue;
     }
 
     public Expr getDefaultValueExpr() throws AnalysisException {
@@ -295,7 +295,7 @@ public class Column implements Writable {
     }
 
     public ColumnStats getStats() {
-        return this.stats;
+        return stats;
     }
 
     public void setComment(String comment) {
@@ -314,7 +314,7 @@ public class Column implements Writable {
     }
 
     public int getOlapColumnIndexSize() {
-        PrimitiveType type = this.getDataType();
+        PrimitiveType type = getDataType();
         if (type == PrimitiveType.CHAR) {
             return getStrLen();
         } else {
@@ -324,23 +324,23 @@ public class Column implements Writable {
 
     public TColumn toThrift() {
         TColumn tColumn = new TColumn();
-        tColumn.setColumnName(this.name);
+        tColumn.setColumnName(name);
 
         TColumnType tColumnType = new TColumnType();
-        tColumnType.setType(this.getDataType().toThrift());
-        tColumnType.setLen(this.getStrLen());
-        tColumnType.setPrecision(this.getPrecision());
-        tColumnType.setScale(this.getScale());
+        tColumnType.setType(getDataType().toThrift());
+        tColumnType.setLen(getStrLen());
+        tColumnType.setPrecision(getPrecision());
+        tColumnType.setScale(getScale());
 
-        tColumnType.setIndexLen(this.getOlapColumnIndexSize());
+        tColumnType.setIndexLen(getOlapColumnIndexSize());
 
         tColumn.setColumnType(tColumnType);
-        if (null != this.aggregationType) {
-            tColumn.setAggregationType(this.aggregationType.toThrift());
+        if (null != aggregationType) {
+            tColumn.setAggregationType(aggregationType.toThrift());
         }
-        tColumn.setIsKey(this.isKey);
-        tColumn.setIsAllowNull(this.isAllowNull);
-        tColumn.setDefaultValue(this.defaultValue);
+        tColumn.setIsKey(isKey);
+        tColumn.setIsAllowNull(isAllowNull);
+        tColumn.setDefaultValue(defaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
@@ -402,20 +402,20 @@ public class Column implements Writable {
             }
         }
 
-        if (this.aggregationType != other.aggregationType) {
+        if (aggregationType != other.aggregationType) {
             throw new DdlException("Can not change aggregation type");
         }
 
-        if (this.isAllowNull && !other.isAllowNull) {
+        if (isAllowNull && !other.isAllowNull) {
             throw new DdlException("Can not change from nullable to non-nullable");
         }
 
-        if (this.getDefaultValue() == null) {
+        if (getDefaultValue() == null) {
             if (other.getDefaultValue() != null) {
                 throw new DdlException("Can not change default value");
             }
         } else {
-            if (!this.getDefaultValue().equals(other.getDefaultValue())) {
+            if (!getDefaultValue().equals(other.getDefaultValue())) {
                 throw new DdlException("Can not change default value");
             }
         }
@@ -434,11 +434,11 @@ public class Column implements Writable {
             return;
         }
 
-        if (this.getPrecision() != other.getPrecision()) {
+        if (getPrecision() != other.getPrecision()) {
             throw new DdlException("Cannot change precision");
         }
 
-        if (this.getScale() != other.getScale()) {
+        if (getScale() != other.getScale()) {
             throw new DdlException("Cannot change scale");
         }
     }
@@ -545,41 +545,41 @@ public class Column implements Writable {
 
         Column other = (Column) obj;
 
-        if (!this.name.equalsIgnoreCase(other.getName())) {
+        if (!name.equalsIgnoreCase(other.getName())) {
             return false;
         }
-        if (this.getDataType() != other.getDataType()) {
+        if (getDataType() != other.getDataType()) {
             return false;
         }
-        if (this.aggregationType != other.getAggregationType()) {
+        if (aggregationType != other.getAggregationType()) {
             return false;
         }
-        if (this.isAggregationTypeImplicit != other.isAggregationTypeImplicit()) {
+        if (isAggregationTypeImplicit != other.isAggregationTypeImplicit()) {
             return false;
         }
-        if (this.isKey != other.isKey()) {
+        if (isKey != other.isKey()) {
             return false;
         }
-        if (this.isAllowNull != other.isAllowNull) {
+        if (isAllowNull != other.isAllowNull) {
             return false;
         }
-        if (this.getDefaultValue() == null) {
+        if (getDefaultValue() == null) {
             if (other.getDefaultValue() != null) {
                 return false;
             }
         } else {
-            if (!this.getDefaultValue().equals(other.getDefaultValue())) {
+            if (!getDefaultValue().equals(other.getDefaultValue())) {
                 return false;
             }
         }
 
-        if (this.getStrLen() != other.getStrLen()) {
+        if (getStrLen() != other.getStrLen()) {
             return false;
         }
-        if (this.getPrecision() != other.getPrecision()) {
+        if (getPrecision() != other.getPrecision()) {
             return false;
         }
-        if (this.getScale() != other.getScale()) {
+        if (getScale() != other.getScale()) {
             return false;
         }
 

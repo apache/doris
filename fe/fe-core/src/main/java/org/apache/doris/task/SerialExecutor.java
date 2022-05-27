@@ -44,7 +44,7 @@ public class SerialExecutor extends AbstractExecutorService {
 
     public SerialExecutor(final ExecutorService executor) {
         Preconditions.checkNotNull(executor);
-        this.taskPool = executor;
+        taskPool = executor;
     }
 
     public void execute(final Runnable r) {

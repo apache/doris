@@ -83,8 +83,8 @@ public class IcebergTable extends Table {
     public IcebergTable(long id, String tableName, List<Column> fullSchema, IcebergProperty icebergProperty,
                         org.apache.iceberg.Table icebergTable) {
         super(id, tableName, TableType.ICEBERG, fullSchema);
-        this.icebergDb = icebergProperty.getDatabase();
-        this.icebergTbl = icebergProperty.getTable();
+        icebergDb = icebergProperty.getDatabase();
+        icebergTbl = icebergProperty.getTable();
 
         icebergProperties.put(IcebergProperty.ICEBERG_HIVE_METASTORE_URIS,
                 icebergProperty.getHiveMetastoreUris());
@@ -130,9 +130,9 @@ public class IcebergTable extends Table {
         // analyze storage type
         String storagePrefix = strings[0].split(":")[0];
         if (storagePrefix.equalsIgnoreCase("s3")) {
-            this.storageType = StorageBackend.StorageType.S3;
+            storageType = StorageBackend.StorageType.S3;
         } else if (storagePrefix.equalsIgnoreCase("hdfs")) {
-            this.storageType = StorageBackend.StorageType.HDFS;
+            storageType = StorageBackend.StorageType.HDFS;
         } else {
             throw new UserException("Not supported storage type: " + storagePrefix);
         }
@@ -141,8 +141,8 @@ public class IcebergTable extends Table {
         // eg: hdfs://host:port
         //     s3://host:port
         String host = strings[1];
-        this.hostUri = storagePrefix + "://" + host;
-        this.isAnalyzed = true;
+        hostUri = storagePrefix + "://" + host;
+        isAnalyzed = true;
     }
 
     public String getHostUri() throws UserException {
@@ -185,7 +185,7 @@ public class IcebergTable extends Table {
             IcebergProperty icebergProperty = getIcebergProperty();
             IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
             try {
-                this.icebergTable = icebergCatalog.loadTable(TableIdentifier.of(icebergDb, icebergTbl));
+                icebergTable = icebergCatalog.loadTable(TableIdentifier.of(icebergDb, icebergTbl));
                 LOG.info("finished to load iceberg table: {}", name);
             } catch (Exception e) {
                 LOG.warn("failed to load iceberg table {} from {}", name, icebergProperty.getHiveMetastoreUris(), e);

@@ -140,26 +140,26 @@ public class DatabaseTransactionMgr {
     private volatile long usedQuotaDataBytes = -1;
 
     protected void readLock() {
-        this.transactionLock.readLock().lock();
+        transactionLock.readLock().lock();
     }
 
     protected void readUnlock() {
-        this.transactionLock.readLock().unlock();
+        transactionLock.readLock().unlock();
     }
 
     protected void writeLock() {
-        this.transactionLock.writeLock().lock();
+        transactionLock.writeLock().lock();
     }
 
     protected void writeUnlock() {
-        this.transactionLock.writeLock().unlock();
+        transactionLock.writeLock().unlock();
     }
 
     public DatabaseTransactionMgr(long dbId, Catalog catalog, TransactionIdGenerator idGenerator) {
         this.dbId = dbId;
         this.catalog = catalog;
         this.idGenerator = idGenerator;
-        this.editLog = catalog.getEditLog();
+        editLog = catalog.getEditLog();
     }
 
     public long getDbId() {

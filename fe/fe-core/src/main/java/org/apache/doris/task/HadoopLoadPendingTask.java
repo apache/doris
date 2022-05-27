@@ -82,7 +82,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         LoadErrorHub.Param info = load.getLoadErrorHubInfo();
         // hadoop load only support mysql load error hub
         if (info != null && info.getType() == HubType.MYSQL_TYPE) {
-            taskConf.setHubInfo(new EtlErrorHubInfo(this.job.getId(), info));
+            taskConf.setHubInfo(new EtlErrorHubInfo(job.getId(), info));
         }
 
         etlTaskConf = taskConf.toDppTaskConf();
@@ -362,7 +362,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         }
 
         public void setHubInfo(EtlErrorHubInfo info) {
-            this.hubInfo = info;
+            hubInfo = info;
         }
 
         public Map<String, Object> toDppTaskConf() {

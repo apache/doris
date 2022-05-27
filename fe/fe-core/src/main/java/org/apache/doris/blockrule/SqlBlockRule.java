@@ -86,7 +86,7 @@ public class SqlBlockRule implements Writable {
         this.global = global;
         this.enable = enable;
         if (StringUtils.isNotEmpty(sql)) {
-            this.sqlPattern = Pattern.compile(sql);
+            sqlPattern = Pattern.compile(sql);
         }
     }
 
@@ -167,11 +167,11 @@ public class SqlBlockRule implements Writable {
     }
 
     public List<String> getShowInfo() {
-        return Lists.newArrayList(this.name, this.sql, this.sqlHash,
-                this.partitionNum == null ? "0" : Long.toString(this.partitionNum),
-                this.tabletNum == null ? "0" : Long.toString(this.tabletNum),
-                this.cardinality == null ? "0" : Long.toString(this.cardinality),
-                String.valueOf(this.global), String.valueOf(this.enable));
+        return Lists.newArrayList(name, sql, sqlHash,
+                partitionNum == null ? "0" : Long.toString(partitionNum),
+                tabletNum == null ? "0" : Long.toString(tabletNum),
+                cardinality == null ? "0" : Long.toString(cardinality),
+                String.valueOf(global), String.valueOf(enable));
     }
 
     @Override

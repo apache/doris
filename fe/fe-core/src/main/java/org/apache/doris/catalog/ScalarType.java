@@ -451,7 +451,7 @@ public class ScalarType extends Type {
     public int getLength() { return len; }
     public void setLength(int len) {this.len = len; }
     public boolean isAssignedStrLenInColDefinition() { return isAssignedStrLenInColDefinition; }
-    public void setAssignedStrLenInColDefinition() { this.isAssignedStrLenInColDefinition = true; }
+    public void setAssignedStrLenInColDefinition() { isAssignedStrLenInColDefinition = true; }
 
     // add scalar infix to override with getPrecision
     public int getScalarScale() { return scale; }

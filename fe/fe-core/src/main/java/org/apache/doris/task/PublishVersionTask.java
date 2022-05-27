@@ -40,8 +40,8 @@ public class PublishVersionTask extends AgentTask {
         super(null, backendId, TTaskType.PUBLISH_VERSION, dbId, -1L, -1L, -1L, -1L, transactionId, createTime);
         this.transactionId = transactionId;
         this.partitionVersionInfos = partitionVersionInfos;
-        this.errorTablets = new ArrayList<Long>();
-        this.isFinished = false;
+        errorTablets = new ArrayList<Long>();
+        isFinished = false;
     }
 
     public TPublishVersionRequest toThrift() {

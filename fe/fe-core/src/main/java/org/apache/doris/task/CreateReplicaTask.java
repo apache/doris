@@ -159,7 +159,7 @@ public class CreateReplicaTask extends AgentTask {
     }
 
     public void countDownLatch(long backendId, long tabletId) {
-        if (this.latch != null) {
+        if (latch != null) {
             if (latch.markedCountDown(backendId, tabletId)) {
                 LOG.debug("CreateReplicaTask current latch count: {}, backend: {}, tablet:{}",
                           latch.getCount(), backendId, tabletId);
@@ -169,7 +169,7 @@ public class CreateReplicaTask extends AgentTask {
 
     // call this always means one of tasks is failed. count down to zero to finish entire task
     public void countDownToZero(String errMsg) {
-        if (this.latch != null) {
+        if (latch != null) {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
         }

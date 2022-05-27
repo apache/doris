@@ -37,23 +37,23 @@ public class IcebergProperty {
 
     public IcebergProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
-            this.exist = true;
-            this.database = properties.get(ICEBERG_DATABASE);
-            this.table = properties.get(ICEBERG_TABLE);
-            this.hiveMetastoreUris = properties.get(ICEBERG_HIVE_METASTORE_URIS);
-            this.catalogType = properties.get(ICEBERG_CATALOG_TYPE);
+            exist = true;
+            database = properties.get(ICEBERG_DATABASE);
+            table = properties.get(ICEBERG_TABLE);
+            hiveMetastoreUris = properties.get(ICEBERG_HIVE_METASTORE_URIS);
+            catalogType = properties.get(ICEBERG_CATALOG_TYPE);
         } else {
-            this.exist = false;
+            exist = false;
         }
     }
 
     // Create a new Iceberg property from other property
     public IcebergProperty(IcebergProperty otherProperty) {
-        this.exist = otherProperty.exist;
-        this.database = otherProperty.database;
-        this.table = otherProperty.table;
-        this.hiveMetastoreUris = otherProperty.hiveMetastoreUris;
-        this.catalogType = otherProperty.catalogType;
+        exist = otherProperty.exist;
+        database = otherProperty.database;
+        table = otherProperty.table;
+        hiveMetastoreUris = otherProperty.hiveMetastoreUris;
+        catalogType = otherProperty.catalogType;
     }
 
     public boolean isExist() {

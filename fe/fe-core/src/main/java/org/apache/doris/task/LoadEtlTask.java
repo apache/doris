@@ -60,8 +60,8 @@ public abstract class LoadEtlTask extends MasterTask {
     public LoadEtlTask(LoadJob job) {
         super();
         this.job = job;
-        this.signature = job.getId();
-        this.load = Catalog.getCurrentCatalog().getLoadInstance();
+        signature = job.getId();
+        load = Catalog.getCurrentCatalog().getLoadInstance();
     }
 
     protected String getErrorMsg() {
