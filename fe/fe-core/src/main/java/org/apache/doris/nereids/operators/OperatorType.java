@@ -36,6 +36,7 @@ public enum OperatorType {
     PHYSICAL_AGGREGATION,
     PHYSICAL_SORT,
     PHYSICAL_HASH_JOIN,
+    PHYSICAL_EXCHANGE,
 
     // pattern
     ANY,

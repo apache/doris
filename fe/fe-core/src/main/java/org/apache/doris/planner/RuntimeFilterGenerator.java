@@ -150,7 +150,7 @@ public final class RuntimeFilterGenerator {
         // We only enforce a limit on the number of bloom filters as they are much more
         // heavy-weight than the other filter types.
         int numBloomFilters = 0;
-        for (RuntimeFilter filter: filters) {
+        for (RuntimeFilter filter : filters) {
             filter.extractTargetsPosition();
             if (filter.getType() == TRuntimeFilterType.BLOOM) {
                 if (numBloomFilters >= maxNumBloomFilters) {
@@ -167,7 +167,7 @@ public final class RuntimeFilterGenerator {
      */
     public List<RuntimeFilter> getRuntimeFilters() {
         Set<RuntimeFilter> resultSet = new HashSet<>();
-        for (List<RuntimeFilter> filters: runtimeFiltersByTid.values()) {
+        for (List<RuntimeFilter> filters : runtimeFiltersByTid.values()) {
             resultSet.addAll(filters);
         }
         List<RuntimeFilter> resultList = Lists.newArrayList(resultSet);
@@ -229,14 +229,14 @@ public final class RuntimeFilterGenerator {
             // Finalize every runtime filter of that join. This is to ensure that we don't
             // assign a filter to a scan node from the right subtree of joinNode or ancestor
             // join nodes in case we don't find a destination node in the left subtree.
-            for (RuntimeFilter runtimeFilter: filters) {
+            for (RuntimeFilter runtimeFilter : filters) {
                 finalizeRuntimeFilter(runtimeFilter);
             }
             generateFilters(root.getChild(1));
         } else if (root instanceof ScanNode) {
             assignRuntimeFilters((ScanNode) root);
         } else {
-            for (PlanNode childNode: root.getChildren()) {
+            for (PlanNode childNode : root.getChildren()) {
                 generateFilters(childNode);
             }
         }
@@ -249,7 +249,7 @@ public final class RuntimeFilterGenerator {
     private void registerRuntimeFilter(RuntimeFilter filter) {
         Map<TupleId, List<SlotId>> targetSlotsByTid = filter.getTargetSlots();
         Preconditions.checkState(targetSlotsByTid != null && !targetSlotsByTid.isEmpty());
-        for (TupleId tupleId: targetSlotsByTid.keySet()) {
+        for (TupleId tupleId : targetSlotsByTid.keySet()) {
             registerRuntimeFilter(filter, tupleId);
         }
     }
@@ -271,10 +271,10 @@ public final class RuntimeFilterGenerator {
      */
     private void finalizeRuntimeFilter(RuntimeFilter runtimeFilter) {
         Set<TupleId> targetTupleIds = new HashSet<>();
-        for (RuntimeFilter.RuntimeFilterTarget target: runtimeFilter.getTargets()) {
+        for (RuntimeFilter.RuntimeFilterTarget target : runtimeFilter.getTargets()) {
             targetTupleIds.addAll(target.node.getTupleIds());
         }
-        for (TupleId tupleId: runtimeFilter.getTargetSlots().keySet()) {
+        for (TupleId tupleId : runtimeFilter.getTargetSlots().keySet()) {
             if (!targetTupleIds.contains(tupleId)) {
                 runtimeFiltersByTid.get(tupleId).remove(runtimeFilter);
             }
@@ -302,7 +302,7 @@ public final class RuntimeFilterGenerator {
         String runtimeFilterMode = sessionVariable.getRuntimeFilterMode();
         Preconditions.checkState(Arrays.stream(TRuntimeFilterMode.values()).map(Enum::name).anyMatch(
                 p -> p.equals(runtimeFilterMode.toUpperCase())), "runtimeFilterMode not expected");
-        for (RuntimeFilter filter: runtimeFiltersByTid.get(tid)) {
+        for (RuntimeFilter filter : runtimeFiltersByTid.get(tid)) {
             if (filter.isFinalized()) {
                 continue;
             }
@@ -371,8 +371,8 @@ public final class RuntimeFilterGenerator {
             targetExpr.collect(SlotRef.class, exprSlots);
             // targetExpr specifies the id of the slotRef node in the `tupleID`
             List<SlotId> sids = filter.getTargetSlots().get(targetTid);
-            for (SlotRef slotRef: exprSlots) {
-                for (SlotId sid: sids) {
+            for (SlotRef slotRef : exprSlots) {
+                for (SlotId sid : sids) {
                     if (analyzer.hasValueTransfer(slotRef.getSlotId(), sid)) {
                         SlotRef newSlotRef = new SlotRef(analyzer.getSlotDesc(sid));
                         newSlotRef.analyzeNoThrow(analyzer);

@@ -106,7 +106,7 @@ public class DebugUtil {
         } else if (value > GIGABYTE) {
             unit = "GB";
             doubleValue /= GIGABYTE;
-        } else if (value > MEGABYTE ) {
+        } else if (value > MEGABYTE) {
             unit = "MB";
             doubleValue /= MEGABYTE;
         } else if (value > KILOBYTE)  {

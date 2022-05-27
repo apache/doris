@@ -80,7 +80,7 @@ public class AlterViewStmt extends BaseViewStmt {
         sb.append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
-            for (int i = 0 ; i < cols.size(); i++) {
+            for (int i = 0; i < cols.size(); i++) {
                 if (i != 0) {
                     sb.append(",\n");
                 }

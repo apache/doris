@@ -17,9 +17,13 @@
 
 package org.apache.doris.nereids.operators;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+
 /**
  * interface for all concrete operator.
  */
 public interface Operator<TYPE extends Operator<TYPE>> {
     OperatorType getType();
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, PhysicalPlan<?,?> physicalPlan, C context);
 }

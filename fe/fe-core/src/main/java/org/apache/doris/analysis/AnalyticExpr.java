@@ -154,7 +154,7 @@ public class AnalyticExpr extends Expr {
             return false;
         }
 
-        AnalyticExpr o = (AnalyticExpr)obj;
+        AnalyticExpr o = (AnalyticExpr) obj;
 
         if (!fnCall.equals(o.getFnCall())) {
             return false;
@@ -177,7 +177,9 @@ public class AnalyticExpr extends Expr {
      * Analytic exprs cannot be constant.
      */
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     @Override
     public Expr clone() {
@@ -246,31 +248,10 @@ public class AnalyticExpr extends Expr {
     }
 
     /**
-     * Rewrite the following analytic functions:
-     * percent_rank(), cume_dist() and ntile()
-     *
-     * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
-     * that we want to equal.
-     */
-    public static Expr rewrite(AnalyticExpr analyticExpr) {
-        Function fn = analyticExpr.getFnCall().getFn();
-        // TODO(zc)
-        // if (AnalyticExpr.isPercentRankFn(fn)) {
-        //     return createPercentRank(analyticExpr);
-        // } else if (AnalyticExpr.isCumeDistFn(fn)) {
-        //     return createCumeDist(analyticExpr);
-        // } else if (AnalyticExpr.isNtileFn(fn)) {
-        //     return createNtile(analyticExpr);
-        // }
-        return null;
-    }
-
-    /**
      * Checks that the value expr of an offset boundary of a RANGE window is compatible
      * with orderingExprs (and that there's only a single ordering expr).
      */
-    private void checkRangeOffsetBoundaryExpr(AnalyticWindow.Boundary boundary)
-    throws AnalysisException {
+    private void checkRangeOffsetBoundaryExpr(AnalyticWindow.Boundary boundary) throws AnalysisException {
         Preconditions.checkState(boundary.getType().isOffset());
 
         if (orderByElements.size() > 1) {
@@ -332,12 +313,12 @@ public class AnalyticExpr extends Expr {
                 out = true;
             }
         } else {
-            return ;
+            return;
         }
 
         if (out) {
             throw new AnalysisException("Column type="
-                                        + getFnCall().getChildren().get(0).getType() + ", value is out of range ") ;
+                    + getFnCall().getChildren().get(0).getType() + ", value is out of range ");
         }
     }
 
@@ -365,10 +346,10 @@ public class AnalyticExpr extends Expr {
             double value = 0;
 
             if (offset instanceof IntLiteral) {
-                IntLiteral intl = (IntLiteral)offset;
+                IntLiteral intl = (IntLiteral) offset;
                 value = intl.getDoubleValue();
             } else if (offset instanceof LargeIntLiteral) {
-                LargeIntLiteral intl = (LargeIntLiteral)offset;
+                LargeIntLiteral intl = (LargeIntLiteral) offset;
                 value = intl.getDoubleValue();
             }
 
@@ -490,8 +471,8 @@ public class AnalyticExpr extends Expr {
         if (!VectorizedUtil.isVectorized()) {
             // min/max is not currently supported on sliding windows (i.e. start bound is not
             // unbounded).
-            if (window != null && isMinMax(fn) &&
-                    window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
+            if (window != null && isMinMax(fn)
+                    && window.getLeftBoundary().getType() != BoundaryType.UNBOUNDED_PRECEDING) {
                 throw new AnalysisException(
                     "'" + getFnCall().toSql() + "' is only supported with an "
                     + "UNBOUNDED PRECEDING start bound.");
@@ -585,10 +566,10 @@ public class AnalyticExpr extends Expr {
             try {
                 getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
             }  catch (Exception e) {
-                LOG.warn("" , e);
+                LOG.warn("", e);
                 throw new AnalysisException("Convert type error in offset fn(default value); old_type="
                                             + getFnCall().getChildren().get(2).getType() + " new_type="
-                                            + getFnCall().getChildren().get(0).getType()) ;
+                                            + getFnCall().getChildren().get(0).getType());
             }
 
             if (getFnCall().getChildren().get(2) instanceof CastExpr) {
@@ -602,7 +583,7 @@ public class AnalyticExpr extends Expr {
             try {
                 getFnCall().uncheckedCastChild(Type.BIGINT, 1);
             }  catch (Exception e) {
-                LOG.warn("" , e);
+                LOG.warn("", e);
                 throw new AnalysisException("Convert type error in offset fn(default offset); type="
                                             + getFnCall().getChildren().get(1).getType());
             }
@@ -646,26 +627,24 @@ public class AnalyticExpr extends Expr {
             } else {
                 //TODO: Now we don't want to first_value to rewrite in vectorized mode;
                 //if have to rewrite in future, could exec this rule;
-                if(!VectorizedUtil.isVectorized()) {
-                List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
+                if (!VectorizedUtil.isVectorized()) {
+                    List<Expr> paramExprs = Expr.cloneList(getFnCall().getParams().exprs());
 
-                if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
-                    // The number of rows preceding for the end bound determines the number of
-                    // rows at the beginning of each partition that should have a NULL value.
-                    paramExprs.add(window.getRightBoundary().getExpr());
-                } else {
-                    // -1 indicates that no NULL values are inserted even though we set the end
-                    // bound to the start bound (which is PRECEDING) below; this is different from
-                    // the default behavior of windows with an end bound PRECEDING.
-                    paramExprs.add(new IntLiteral(-1, Type.BIGINT));
-                }
+                    if (window.getRightBoundary().getType() == BoundaryType.PRECEDING) {
+                        // The number of rows preceding for the end bound determines the number of
+                        // rows at the beginning of each partition that should have a NULL value.
+                        paramExprs.add(window.getRightBoundary().getExpr());
+                    } else {
+                        // -1 indicates that no NULL values are inserted even though we set the end
+                        // bound to the start bound (which is PRECEDING) below; this is different from
+                        // the default behavior of windows with an end bound PRECEDING.
+                        paramExprs.add(new IntLiteral(-1, Type.BIGINT));
+                    }
 
-                window = new AnalyticWindow(window.getType(),
-                                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
-                                            window.getLeftBoundary());
-                fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE",
-                                              new FunctionParams(paramExprs));
-                //        fnCall_.setIsInternalFnCall(true);
+                    window = new AnalyticWindow(window.getType(),
+                            new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                            window.getLeftBoundary());
+                    fnCall = new FunctionCallExpr("FIRST_VALUE_REWRITE", new FunctionParams(paramExprs));
                 }
             }
 

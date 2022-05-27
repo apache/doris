@@ -948,9 +948,10 @@ public class Catalog {
                     // But is metadata_failure_recovery is true, we will not check it because this may be a FE migration.
                     String[] split = nodeName.split("_");
                     if (Config.metadata_failure_recovery.equals("false") && !selfNode.first.equalsIgnoreCase(split[0])) {
-                        throw new IOException("the self host " + selfNode.first + " does not equal to the host in ROLE" +
-                                " file " + split[0] + ". You need to set 'priority_networks' config in fe.conf to match" +
-                                " the host " + split[0]);
+                        throw new IOException("the self host " + selfNode.first
+                                + " does not equal to the host in ROLE"
+                                + " file " + split[0] + ". You need to set 'priority_networks' config"
+                                + " in fe.conf to match the host " + split[0]);
                     }
                 }
             }
@@ -960,8 +961,7 @@ public class Catalog {
 
             if (!versionFile.exists()) {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
-                token = Strings.isNullOrEmpty(Config.auth_token) ?
-                        Storage.newToken() : Config.auth_token;
+                token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                 storage = new Storage(clusterId, token, this.imageDir);
                 storage.writeClusterIdAndToken();
 
@@ -974,8 +974,7 @@ public class Catalog {
             } else {
                 clusterId = storage.getClusterID();
                 if (storage.getToken() == null) {
-                    token = Strings.isNullOrEmpty(Config.auth_token) ?
-                            Storage.newToken() : Config.auth_token;
+                    token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                     LOG.info("new token={}", token);
                     storage.setToken(token);
                     storage.writeClusterIdAndToken();
@@ -1488,8 +1487,8 @@ public class Catalog {
             }
         }
         if (Config.lower_case_table_names != GlobalVariable.lowerCaseTableNames) {
-            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, " +
-                            "the expected value is {}, but the actual value is {}",
+            LOG.error("The configuration of \'lower_case_table_names\' does not support modification, "
+                            + "the expected value is {}, but the actual value is {}",
                     GlobalVariable.lowerCaseTableNames, Config.lower_case_table_names);
             System.exit(-1);
         }
@@ -1508,8 +1507,8 @@ public class Catalog {
 
         Frontend fe = checkFeExist(selfNode.first, selfNode.second);
         if (fe == null) {
-            LOG.error("current node {}:{} is not added to the cluster, will exit." +
-                            " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
+            LOG.error("current node {}:{} is not added to the cluster, will exit."
+                            + " Your FE IP maybe changed, please set 'priority_networks' config in fe.conf properly.",
                     selfNode.first, selfNode.second);
             System.exit(-1);
         } else if (fe.getRole() != role) {
@@ -2681,9 +2680,9 @@ public class Catalog {
             try {
                 if (!stmt.isForceDrop()) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), null, null)) {
-                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
-                                "The database [" + dbName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP database FORCE\".");
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. "
+                                + "The database [" + dbName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP database FORCE\".");
                     }
                 }
                 if (db.getDbState() == DbState.LINK && dbName.equals(db.getAttachDb())) {
@@ -2729,9 +2728,9 @@ public class Catalog {
                             if (table.getType() == TableType.OLAP) {
                                 OlapTable olapTable = (OlapTable) table;
                                 if (olapTable.getState() != OlapTableState.NORMAL) {
-                                    throw new DdlException("The table [" + olapTable.getState() + "]'s state is " + olapTable.getState() + ", cannot be dropped." +
-                                            " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
-                                            " please use \"DROP table FORCE\".");
+                                    throw new DdlException("The table [" + olapTable.getState() + "]'s state is " + olapTable.getState() + ", cannot be dropped."
+                                            + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                            + " please use \"DROP table FORCE\".");
                                 }
                             }
                         }
@@ -3486,9 +3485,9 @@ public class Catalog {
                 Partition partition = olapTable.getPartition(partitionName);
                 if (partition != null) {
                     if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), olapTable.getId(), partition.getId())) {
-                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed." +
-                                " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP partition FORCE\".");
+                        throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed."
+                                + " The partition [" + partitionName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP partition FORCE\".");
                     }
                 }
             }
@@ -4472,8 +4471,8 @@ public class Catalog {
 
         // 2. add partition
         if (separatePartition && (table instanceof OlapTable) && ((OlapTable) table).getPartitions().size() > 1) {
-            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE ||
-                    ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
+            if (((OlapTable) table).getPartitionInfo().getType() == PartitionType.RANGE
+                    || ((OlapTable) table).getPartitionInfo().getType() == PartitionType.LIST) {
                 OlapTable olapTable = (OlapTable) table;
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                 boolean first = true;
@@ -4687,9 +4686,9 @@ public class Catalog {
 
             if (!stmt.isForceDrop()) {
                 if (Catalog.getCurrentCatalog().getGlobalTransactionMgr().existCommittedTxns(db.getId(), table.getId(), null)) {
-                    throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. " +
-                            "The table [" + tableName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered)," +
-                            " please use \"DROP table FORCE\".");
+                    throw new DdlException("There are still some transactions in the COMMITTED state waiting to be completed. "
+                            + "The table [" + tableName + "] cannot be dropped. If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
                 }
             }
             DropInfo info = new DropInfo(db.getId(), table.getId(), -1L, stmt.isForceDrop());
@@ -4698,9 +4697,9 @@ public class Catalog {
                 if (table instanceof OlapTable && !stmt.isForceDrop()) {
                     OlapTable olapTable = (OlapTable) table;
                     if ((olapTable.getState() != OlapTableState.NORMAL)) {
-                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState() + ", cannot be dropped." +
-                                " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered)," +
-                                " please use \"DROP table FORCE\".");
+                        throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState() + ", cannot be dropped."
+                                + " please cancel the operation on olap table firstly. If you want to forcibly drop(cannot be recovered),"
+                                + " please use \"DROP table FORCE\".");
                     }
                 }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false);
@@ -4928,8 +4927,8 @@ public class Catalog {
         return Optional.ofNullable(getDbNullable(dbId));
     }
 
-    public <E extends Exception> Database
-    getDbOrException(String dbName, java.util.function.Function<String, E> e) throws E {
+    public <E extends Exception> Database getDbOrException(
+            String dbName, java.util.function.Function<String, E> e) throws E {
         Database db = getDbNullable(dbName);
         if (db == null) {
             throw e.apply(dbName);
@@ -4937,8 +4936,7 @@ public class Catalog {
         return db;
     }
 
-    public <E extends Exception> Database
-    getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
+    public <E extends Exception> Database getDbOrException(long dbId, java.util.function.Function<Long, E> e) throws E {
         Database db = getDbNullable(dbId);
         if (db == null) {
             throw e.apply(dbId);
@@ -5781,9 +5779,10 @@ public class Catalog {
         String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
         PartitionInfo partitionInfo = table.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-            throw new DdlException("This is a partitioned table, you should specify partitions with MODIFY PARTITION clause." +
-                    " If you want to set default replication number, please use '" + defaultReplicationNumName +
-                    "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
+            throw new DdlException("This is a partitioned table, you should specify partitions"
+                    + " with MODIFY PARTITION clause."
+                    + " If you want to set default replication number, please use '" + defaultReplicationNumName
+                    + "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
         }
         String partitionName = table.getName();
         Partition partition = table.getPartition(partitionName);

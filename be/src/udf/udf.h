@@ -36,7 +36,7 @@ struct StringValue;
 class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
-struct CollectionValue;
+class CollectionValue;
 } // namespace doris
 
 namespace doris_udf {

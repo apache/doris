@@ -37,7 +37,7 @@ public class Counter {
     }
 
     public void setType(TUnit type) {
-        this.type = type.getValue() ;
+        this.type = type.getValue();
     }
 
     public Counter(TUnit type, long value) {

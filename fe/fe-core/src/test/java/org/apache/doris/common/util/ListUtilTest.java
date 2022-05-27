@@ -100,9 +100,9 @@ public class ListUtilTest {
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
         Assert.assertEquals(splitLists.size(), lists.size());
-        Assert.assertTrue( splitLists.get(0).get(0) == 1);
-        Assert.assertTrue( splitLists.get(1).get(0) == 2);
-        Assert.assertTrue( splitLists.get(2).get(0) == 3);
+        Assert.assertEquals(1, (int) splitLists.get(0).get(0));
+        Assert.assertEquals(2, (int) splitLists.get(1).get(0));
+        Assert.assertEquals(3, (int) splitLists.get(2).get(0));
     }
 
     @Test

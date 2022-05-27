@@ -80,12 +80,12 @@ public class SlotReference extends Slot<SlotReference> {
     }
 
     @Override
-    public DataType getDataType() throws UnboundException {
+    public DataType getDataType() {
         return dataType;
     }
 
     @Override
-    public boolean nullable() throws UnboundException {
+    public boolean nullable() {
         return nullable;
     }
 
@@ -122,5 +122,10 @@ public class SlotReference extends Slot<SlotReference> {
     @Override
     public int hashCode() {
         return Objects.hash(exprId, name, qualifier, nullable);
+    }
+
+    // TODO: return real org.apache.doris.catalog.Column
+    public Column getColumn() {
+        return null;
     }
 }

@@ -112,7 +112,6 @@ public class ParquetReader {
         for (int field = 0; field < fieldCount; field++) {
             int valueCount = g.getFieldRepetitionCount(field);
             Type fieldType = g.getType().getType(field);
-            String fieldName = fieldType.getName();
             if (valueCount == 1) {
                 line.add(g.getValueToString(field, 0));
             } else if (valueCount > 1) {

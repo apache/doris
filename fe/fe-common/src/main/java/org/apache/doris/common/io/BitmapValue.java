@@ -116,7 +116,7 @@ public class BitmapValue {
                 // FE is big end but BE is little end.
                 if (isLongValue32bitEnough(singleValue)) {
                     output.write(SINGLE32);
-                    output.writeInt(Integer.reverseBytes((int)singleValue));
+                    output.writeInt(Integer.reverseBytes((int) singleValue));
                 } else {
                     output.writeByte(SINGLE64);
                     output.writeLong(Long.reverseBytes(singleValue));
@@ -227,12 +227,12 @@ public class BitmapValue {
         }
     }
 
-    public void remove(long value){
+    public void remove(long value) {
         switch (this.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 break;
             case SINGLE_VALUE:
-                if(this.singleValue == value) {
+                if (this.singleValue == value) {
                     clear();
                 }
                 break;
@@ -256,7 +256,7 @@ public class BitmapValue {
                     case EMPTY:
                         break;
                     case SINGLE_VALUE:
-                        if(other.bitmap.contains(this.singleValue)){
+                        if (other.bitmap.contains(this.singleValue)) {
                             clear();
                         }
                         break;
@@ -280,16 +280,16 @@ public class BitmapValue {
                         add(other.singleValue);
                         break;
                     case SINGLE_VALUE:
-                        if(this.singleValue != other.singleValue){
+                        if (this.singleValue != other.singleValue) {
                             add(other.singleValue);
-                        }else{
+                        } else {
                             clear();
                         }
                         break;
                     case BITMAP_VALUE:
-                        if(!this.bitmap.contains(other.singleValue)){
+                        if (!this.bitmap.contains(other.singleValue)) {
                             this.bitmap.add(other.singleValue);
-                        }else{
+                        } else {
                             this.bitmap.removeLong(other.singleValue);
                             convertToSmallerType();
                         }
@@ -305,9 +305,9 @@ public class BitmapValue {
                     case SINGLE_VALUE:
                         this.bitmap = other.bitmap;
                         this.bitmapType = BITMAP_VALUE;
-                        if(this.bitmap.contains(this.singleValue)){
+                        if (this.bitmap.contains(this.singleValue)) {
                             this.bitmap.removeLong(this.singleValue);
-                        }else{
+                        } else {
                             this.bitmap.add(this.bitmapType);
                         }
                         break;

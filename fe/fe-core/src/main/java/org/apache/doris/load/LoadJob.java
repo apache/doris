@@ -328,7 +328,6 @@ public class LoadJob implements Writable {
     public void setEtlFinishTimeMs(long etlFinishTimeMs) {
         this.etlFinishTimeMs = etlFinishTimeMs;
         if (etlStartTimeMs > -1) {
-            long etlCostMs = etlFinishTimeMs - etlStartTimeMs;
             switch (etlJobType) {
                 case HADOOP:
                     break;
@@ -356,18 +355,6 @@ public class LoadJob implements Writable {
 
     public void setLoadFinishTimeMs(long loadFinishTimeMs) {
         this.loadFinishTimeMs = loadFinishTimeMs;
-        long loadCostMs = loadFinishTimeMs - loadStartTimeMs;
-        long totalCostMs = loadFinishTimeMs - createTimeMs;
-        switch (etlJobType) {
-            case HADOOP:
-                break;
-            case MINI:
-                break;
-            case BROKER:
-                break;
-            default:
-                break;
-        }
     }
 
     public long getQuorumFinishTimeMs() {
@@ -857,8 +844,10 @@ public class LoadJob implements Writable {
         timeoutSecond = in.readInt();
         maxFilterRatio = in.readDouble();
 
+        // CHECKSTYLE OFF
         boolean deleteFlag = false;
         deleteFlag = in.readBoolean();
+        // CHECKSTYLE ON
 
         state = JobState.valueOf(Text.readString(in));
         progress = in.readInt();
@@ -925,10 +914,12 @@ public class LoadJob implements Writable {
         }
 
         if (version >= 3 && version < 7) {
+            // CHECKSTYLE OFF
             // bos 3 parameters
             String bosEndpoint = Text.readString(in);
             String bosAccessKey = Text.readString(in);
             String bosSecretAccessKey = Text.readString(in);
+            // CHECKSTYLE ON
         }
 
         this.priority = TPriority.valueOf(Text.readString(in));

@@ -226,45 +226,44 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
 
 TEST_F(CacheTest, Usage) {
     LRUCache cache(LRUCacheType::SIZE);
-    cache.set_capacity(1050);
+    cache.set_capacity(1040);
 
     // The lru usage is handle_size + charge.
-    // handle_size = sizeof(handle) - 1 + key size = 88 - 1 + 3 = 90
+    // handle_size = sizeof(handle) - 1 + key size = 96 - 1 + 3 = 98
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
-    ASSERT_EQ(190, cache.get_usage()); // 100 + 90
+    ASSERT_EQ(198, cache.get_usage()); // 100 + 98
 
     CacheKey key2("200");
     insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
-    ASSERT_EQ(480, cache.get_usage()); // 190 + 290(d)
+    ASSERT_EQ(496, cache.get_usage()); // 198 + 298(d), d = DURABLE
 
     CacheKey key3("300");
     insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
-    ASSERT_EQ(870, cache.get_usage()); // 190 + 290(d) + 390
+    ASSERT_EQ(894, cache.get_usage()); // 198 + 298(d) + 398
 
     CacheKey key4("400");
     insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
-    ASSERT_EQ(780, cache.get_usage()); // 290(d) + 490
+    ASSERT_EQ(796, cache.get_usage()); // 298(d) + 498, evict 198 398
 
     CacheKey key5("500");
     insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
-    ASSERT_EQ(880, cache.get_usage()); // 290(d) + 590
+    ASSERT_EQ(896, cache.get_usage()); // 298(d) + 598, evict 498
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    ASSERT_EQ(980, cache.get_usage()); // 290(d) + 690
+    ASSERT_EQ(996, cache.get_usage()); // 298(d) + 698, evict 498
 
     CacheKey key7("950");
     insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
-    ASSERT_EQ(1040, cache.get_usage()); // 1040(d)
+    ASSERT_EQ(0, cache.get_usage()); // evict 298 698, because 950 + 98 > 1040, so insert failed
 }
 
 TEST_F(CacheTest, Prune) {
     LRUCache cache(LRUCacheType::NUMBER);
     cache.set_capacity(5);
 
-    // The lru usage is handle_size + charge = 96 - 1 = 95
-    // 95 + 3 means handle_size + key size
+    // The lru usage is 1, add one entry
     CacheKey key1("100");
     insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
     EXPECT_EQ(1, cache.get_usage());

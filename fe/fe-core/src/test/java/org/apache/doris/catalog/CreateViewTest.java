@@ -84,8 +84,8 @@ public class CreateViewTest {
                 () -> createView("create view test.view4 as select abs(-1) as s1;"));
 
         ExceptionChecker.expectThrowsNoException(
-                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3" +
-                        " and curdate() > '2021-06-26';"));
+                () -> createView("create view test.view5 as select * from test.tbl1 where hour(now()) > 3"
+                        + " and curdate() > '2021-06-26';"));
 
         Database db = Catalog.getCurrentCatalog().getDbOrDdlException("default_cluster:test");
 

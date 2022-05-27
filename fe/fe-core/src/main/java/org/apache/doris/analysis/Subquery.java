@@ -48,11 +48,18 @@ public class Subquery extends Expr {
     // A subquery has its own analysis context
     protected Analyzer analyzer;
 
-    public Analyzer getAnalyzer() { return analyzer; }
-    public QueryStmt getStatement() { return stmt; }
+    public Analyzer getAnalyzer() {
+        return analyzer;
+    }
+
+    public QueryStmt getStatement() {
+        return stmt;
+    }
 
     @Override
-    public String toSqlImpl() { return "(" + stmt.toSql() + ")"; }
+    public String toSqlImpl() {
+        return "(" + stmt.toSql() + ")";
+    }
 
     @Override
     public String toDigestImpl() {
@@ -84,8 +91,7 @@ public class Subquery extends Expr {
     @Override
     public void analyzeImpl(Analyzer parentAnalyzer) throws AnalysisException {
         if (!(stmt instanceof SelectStmt)) {
-            throw new AnalysisException("A subquery must contain a single select block: " +
-                    toSql());
+            throw new AnalysisException("A subquery must contain a single select block: " + toSql());
         }
         // The subquery is analyzed with its own analyzer.
         analyzer = new Analyzer(parentAnalyzer);
@@ -109,7 +115,7 @@ public class Subquery extends Expr {
         }
 
         // If the subquery returns many rows, set its type to MultiRowType.
-        if (!((SelectStmt)stmt).returnsSingleRow()) {
+        if (!((SelectStmt) stmt).returnsSingleRow()) {
             type = new MultiRowType(type);
         }
 
@@ -118,7 +124,9 @@ public class Subquery extends Expr {
     }
 
     @Override
-    protected boolean isConstantImpl() { return false; }
+    protected boolean isConstantImpl() {
+        return false;
+    }
 
     /**
      * Check if the subquery's SelectStmt returns a single column of scalar type.
@@ -189,7 +197,7 @@ public class Subquery extends Expr {
         if (!super.equals(o)) {
             return false;
         }
-        return stmt.toSql().equals(((Subquery)o).stmt.toSql());
+        return stmt.toSql().equals(((Subquery) o).stmt.toSql());
     }
 
     @Override

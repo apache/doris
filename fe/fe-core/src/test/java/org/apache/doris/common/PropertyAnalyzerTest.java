@@ -84,8 +84,8 @@ public class PropertyAnalyzerTest {
         // no bf columns
         properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "");
         try {
-            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns,
-                KeysType.AGG_KEYS));
+            Assert.assertEquals(Sets.newHashSet(), PropertyAnalyzer.analyzeBloomFilterColumns(
+                    properties, columns, KeysType.AGG_KEYS));
         } catch (AnalysisException e) {
             Assert.fail();
         }
@@ -164,8 +164,8 @@ public class PropertyAnalyzerTest {
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesV2));
         Assert.assertEquals(TStorageFormat.V2, PropertyAnalyzer.analyzeStorageFormat(propertiesDefault));
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14," +
-                " please use V2 instead");
+        expectedEx.expectMessage("Storage format V1 has been deprecated since version 0.14,"
+                + " please use V2 instead");
         PropertyAnalyzer.analyzeStorageFormat(propertiesV1);
     }
 }

@@ -338,7 +338,7 @@ public class FEFunctions {
 
     @FEFunction(name = "floor", argTypes = { "DOUBLE"}, returnType = "BIGINT")
     public static IntLiteral floor(LiteralExpr expr) throws AnalysisException {
-        long result = (long)Math.floor(expr.getDoubleValue());
+        long result = (long) Math.floor(expr.getDoubleValue());
         return new IntLiteral(result, Type.BIGINT);
     }
 

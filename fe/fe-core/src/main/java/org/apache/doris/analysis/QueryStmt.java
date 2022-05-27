@@ -186,8 +186,8 @@ public abstract class QueryStmt extends StatementBase {
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
         // TODO chenhao
         if (limitElement.getOffset() > 0 && !hasOrderByClause()) {
-            throw new AnalysisException("OFFSET requires an ORDER BY clause: " +
-                    limitElement.toSql().trim());
+            throw new AnalysisException("OFFSET requires an ORDER BY clause: "
+                    + limitElement.toSql().trim());
         }
         limitElement.analyze(analyzer);
     }
@@ -241,8 +241,8 @@ public abstract class QueryStmt extends StatementBase {
             }*/
             if (correlatedRef != null && absoluteRef != null) {
                 throw new AnalysisException(String.format(
-                        "Nested query is illegal because it contains a table reference '%s' " +
-                                "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
+                        "Nested query is illegal because it contains a table reference '%s' "
+                                + "correlated with an outer block as well as an uncorrelated one '%s':\n%s",
                         correlatedRef.tableRefToSql(), absoluteRef.tableRefToSql(), toSql()));
             }
             tblRefIds.add(tblRef.getId());
@@ -314,8 +314,8 @@ public abstract class QueryStmt extends StatementBase {
         }
 
         if (!analyzer.isRootAnalyzer() && hasOffset() && !hasLimit()) {
-            throw new AnalysisException("Order-by with offset without limit not supported" +
-                    " in nested queries.");
+            throw new AnalysisException("Order-by with offset without limit not supported"
+                    + " in nested queries.");
         }
 
         sortInfo = new SortInfo(orderingExprs, isAscOrder, nullsFirstParams);

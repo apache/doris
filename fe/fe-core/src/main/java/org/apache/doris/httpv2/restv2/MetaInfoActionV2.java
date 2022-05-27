@@ -273,8 +273,8 @@ public class MetaInfoActionV2 extends RestBaseController {
             schema.setIsNull(String.valueOf(column.isAllowNull()));
             schema.setDefaultVal(column.getDefaultValue());
             schema.setKey(String.valueOf(column.isKey()));
-            schema.setAggrType(column.getAggregationType() == null ?
-                    "None" : column.getAggregationType().toString());
+            schema.setAggrType(column.getAggregationType() == null
+                    ? "None" : column.getAggregationType().toString());
             schema.setComment(column.getComment());
         }
         return schema;
@@ -291,7 +291,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         propMap.put("isBase", isBaseIndex);
         propMap.put("tableType", tbl.getEngine());
         if (tbl.getType() == Table.TableType.OLAP) {
-            propMap.put("keyType", ((OlapTable)tbl).getKeysType());
+            propMap.put("keyType", ((OlapTable) tbl).getKeysType());
         }
         propMap.put("schema", generateSchema(tbl.getBaseSchema()));
     }

@@ -176,11 +176,11 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         auto children_type = type.children.at(0);
         auto iter = src->iterator(children_type.type);
         *stream << "[";
-        print_value(iter.value(), children_type, scale, stream);
+        print_value(iter.get(), children_type, scale, stream);
         iter.next();
         for (; iter.has_next(); iter.next()) {
             *stream << ", ";
-            print_value(iter.value(), children_type, scale, stream);
+            print_value(iter.get(), children_type, scale, stream);
         }
         *stream << "]";
         break;
@@ -333,10 +333,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
             val->copy_null_signs(src);
 
             while (src_iter.has_next() && val_iter.has_next()) {
-                if (!src_iter.is_null()) {
-                    // write children
-                    write(src_iter.value(), val_iter.value(), item_type, pool);
-                }
+                val_iter.raw_value_write(src_iter.get(), item_type, pool);
                 src_iter.next();
                 val_iter.next();
             }

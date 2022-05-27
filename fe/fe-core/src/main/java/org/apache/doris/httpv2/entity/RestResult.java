@@ -39,7 +39,7 @@ public class RestResult extends RestBaseResult {
         Gson gson = new Gson();
         addResultEntry("status", status);
         if (status != ActionStatus.OK) {
-          addResultEntry("msg", msg);
+            addResultEntry("msg", msg);
         }
         return gson.toJson(resultMap);
     }

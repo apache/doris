@@ -19,6 +19,6 @@ package org.apache.doris.udf;
 
 public class StringConcatUdf {
     public String evaluate(String a, String b) {
-        return a == null || b == null? null: a + b;
+        return a == null || b == null ? null : a + b;
     }
 }

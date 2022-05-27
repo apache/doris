@@ -19,6 +19,7 @@ package org.apache.doris.nereids.operators.plans.physical;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.nereids.operators.OperatorType;
 
 import com.clearspring.analytics.util.Lists;
@@ -33,6 +34,8 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
     private final long selectedIndexId;
     private final List<Long> selectedTabletId;
     private final List<Long> selectedPartitionId;
+
+    private OlapTable olapTable;
 
     /**
      * Constructor for PhysicalOlapScan.
@@ -62,9 +65,13 @@ public class PhysicalOlapScan extends PhysicalScan<PhysicalOlapScan> {
         return selectedPartitionId;
     }
 
+    public OlapTable getTable() {
+        return olapTable;
+    }
+
     @Override
     public String toString() {
-        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + table.getName()
+        return "Scan Olap Table " + StringUtils.join(qualifier, ".") + "." + olapTable.getName()
             + " (selected index id: " + selectedTabletId
             + ", selected partition ids: " + selectedPartitionId
             + ", selected tablet ids: " + selectedTabletId

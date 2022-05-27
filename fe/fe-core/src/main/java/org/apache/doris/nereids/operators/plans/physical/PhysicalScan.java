@@ -29,7 +29,7 @@ import java.util.Objects;
 public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>>
         extends PhysicalLeafOperator<TYPE> {
 
-    protected final Table table;
+
     protected final List<String> qualifier;
 
     /**
@@ -41,11 +41,6 @@ public abstract class PhysicalScan<TYPE extends PhysicalScan<TYPE>>
      */
     public PhysicalScan(OperatorType type, Table table, List<String> qualifier) {
         super(type);
-        this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
-    }
-
-    public Table getTable() {
-        return table;
     }
 }

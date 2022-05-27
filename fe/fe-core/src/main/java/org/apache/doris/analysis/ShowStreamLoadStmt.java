@@ -93,6 +93,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
         try {
             index = analyzeColumn("FinishTime");
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
         OrderByPair orderByPair = new OrderByPair(index, false);
         orderByFinishTime.add(orderByPair);
@@ -126,6 +127,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
         try {
             state = StreamLoadState.valueOf(stateValue);
         } catch (Exception e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
         return state;
     }

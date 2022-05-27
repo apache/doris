@@ -539,8 +539,10 @@ public class TransactionState implements Writable {
 
     // return true if txn is running but timeout
     public boolean isTimeout(long currentMillis) {
-        return (transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs) ||
-                (transactionStatus == TransactionStatus.PRECOMMITTED && currentMillis - preCommitTime > preCommittedTimeoutMs);
+        return (transactionStatus == TransactionStatus.PREPARE
+                && currentMillis - prepareTime > timeoutMs)
+                || (transactionStatus == TransactionStatus.PRECOMMITTED
+                && currentMillis - preCommitTime > preCommittedTimeoutMs);
     }
 
     public synchronized void addTableIndexes(OlapTable table) {

@@ -119,14 +119,14 @@ public class LoadJobFinalOperation extends TxnCommitAttachment implements Writab
 
     @Override
     public String toString() {
-        return "LoadJobEndOperation{" +
-                "id=" + id +
-                ", loadingStatus=" + loadingStatus +
-                ", progress=" + progress +
-                ", loadStartTimestamp=" + loadStartTimestamp +
-                ", finishTimestamp=" + finishTimestamp +
-                ", jobState=" + jobState +
-                ", failMsg=" + failMsg +
-                '}';
+        return "LoadJobEndOperation{"
+                + "id=" + id
+                + ", loadingStatus=" + loadingStatus
+                + ", progress=" + progress
+                + ", loadStartTimestamp=" + loadStartTimestamp
+                + ", finishTimestamp=" + finishTimestamp
+                + ", jobState=" + jobState
+                + ", failMsg=" + failMsg
+                + '}';
     }
 }

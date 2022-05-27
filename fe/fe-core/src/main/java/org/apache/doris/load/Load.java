@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
@@ -124,7 +123,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.stream.Collectors;
 
 public class Load {
     private static final Logger LOG = LogManager.getLogger(Load.class);
@@ -630,8 +628,8 @@ public class Load {
             }
 
             // check partition
-            if (dataDescription.getPartitionNames() != null &&
-                    table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
+            if (dataDescription.getPartitionNames() != null
+                    && table.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
@@ -2021,7 +2019,6 @@ public class Load {
     }
 
     public long getLatestJobIdByLabel(long dbId, String labelValue) {
-        LoadJob job = null;
         long jobId = 0;
         readLock();
         try {
@@ -2043,7 +2040,6 @@ public class Load {
 
                 if (currJobId > jobId) {
                     jobId = currJobId;
-                    job = loadJob;
                 }
             }
         } finally {

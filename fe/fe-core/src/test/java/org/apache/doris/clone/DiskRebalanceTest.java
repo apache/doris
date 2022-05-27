@@ -152,7 +152,8 @@ public class DiskRebalanceTest {
     public void testDiskRebalancerWithSameUsageDisk() {
         // init system
         List<Long> beIds = Lists.newArrayList(10001L, 10002L, 10003L);
-        beIds.forEach(id -> systemInfoService.addBackend(RebalancerTestUtil.createBackend(id, 2048, Lists.newArrayList(512L,512L), 2)));
+        beIds.forEach(id -> systemInfoService.addBackend(RebalancerTestUtil.createBackend(
+                id, 2048, Lists.newArrayList(512L, 512L), 2)));
 
         olapTable = new OlapTable(2, "fake table", new ArrayList<>(), KeysType.DUP_KEYS,
                 new RangePartitionInfo(), new HashDistributionInfo());

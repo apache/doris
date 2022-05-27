@@ -38,7 +38,7 @@ import java.util.Map;
 public class RangeUtils {
 
     public static final Comparator<Map.Entry<Long, PartitionItem>> RANGE_MAP_ENTRY_COMPARATOR =
-            Comparator.comparing(o -> (((RangePartitionItem)o.getValue()).getItems()).lowerEndpoint());
+            Comparator.comparing(o -> (((RangePartitionItem) o.getValue()).getItems()).lowerEndpoint());
 
     public static final Comparator<PartitionItem> RANGE_COMPARATOR =
             Comparator.comparing(o -> ((RangePartitionItem) o).getItems().lowerEndpoint());

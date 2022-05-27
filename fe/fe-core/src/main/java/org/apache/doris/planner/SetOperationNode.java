@@ -224,8 +224,8 @@ public abstract class SetOperationNode extends PlanNode {
         List<TupleId> childTupleIds = childNode.getTupleIds();
         // Check that if the child outputs a single tuple, then it's not nullable. Tuple
         // nullability can be considered to be part of the physical row layout.
-        Preconditions.checkState(childTupleIds.size() != 1 ||
-                !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
+        Preconditions.checkState(childTupleIds.size() != 1
+                || !childNode.getNullableTupleIds().contains(childTupleIds.get(0)));
         // If the Union node is inside a subplan, passthrough should be disabled to avoid
         // performance issues by forcing tiny batches.
         // TODO: Remove this as part of IMPALA-4179.
@@ -321,7 +321,7 @@ public abstract class SetOperationNode extends PlanNode {
     }
 
     protected void toThrift(TPlanNode msg, TPlanNodeType nodeType) {
-        Preconditions.checkState( materializedResultExprLists.size() == children.size());
+        Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
         for (List<Expr> exprList : materializedResultExprLists) {
             texprLists.add(Expr.treesToThrift(exprList));
@@ -375,7 +375,7 @@ public abstract class SetOperationNode extends PlanNode {
         if (detailLevel == TExplainLevel.VERBOSE) {
             if (CollectionUtils.isNotEmpty(materializedResultExprLists)) {
                 output.append(prefix).append("child exprs: ").append("\n");
-                for(List<Expr> exprs : materializedResultExprLists) {
+                for (List<Expr> exprs : materializedResultExprLists) {
                     output.append(prefix).append("    ").append(exprs.stream().map(Expr::toSql)
                             .collect(Collectors.joining(" | "))).append("\n");
                 }

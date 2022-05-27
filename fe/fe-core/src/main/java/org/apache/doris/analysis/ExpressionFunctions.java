@@ -192,7 +192,7 @@ public enum ExpressionFunctions {
         public LiteralExpr invoke(List<Expr> args) throws AnalysisException {
             final List<Object> invokeArgs = createInvokeArgs(args);
             try {
-                return (LiteralExpr)method.invoke(null, invokeArgs.toArray());
+                return (LiteralExpr) method.invoke(null, invokeArgs.toArray());
             } catch (InvocationTargetException | IllegalAccessException | IllegalArgumentException e) {
                 throw new AnalysisException(e.getLocalizedMessage());
             }

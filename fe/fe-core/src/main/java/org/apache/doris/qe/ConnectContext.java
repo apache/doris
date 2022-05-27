@@ -109,7 +109,6 @@ public class ConnectContext {
     protected boolean isSend;
 
     protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();
-    ;
 
     protected String remoteIP;
 

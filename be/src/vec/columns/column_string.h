@@ -45,6 +45,7 @@ public:
 
 private:
     friend class COWHelper<IColumn, ColumnString>;
+    friend class OlapBlockDataConvertor;
 
     /// Maps i'th position to offset to i+1'th element. Last offset maps to the end of all chars (is the size of all chars).
     Offsets offsets;

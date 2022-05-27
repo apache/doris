@@ -41,7 +41,6 @@ public class RewriteDateLiteralRuleTest {
     }
 
     public void after() throws Exception {
-        String dropDbSql = "drop database if exists " + DB_NAME;
         dorisAssert.dropDB(DB_NAME);
     }
 

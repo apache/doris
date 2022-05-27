@@ -63,7 +63,7 @@ public class RangeCompareTest {
         LiteralExpr upperBoundOfRange2 = new IntLiteral(1);
         Range<LiteralExpr> range2 = Range.lessThan(upperBoundOfRange2);
         try {
-            Range<LiteralExpr> intersectionRange = range1.intersection(range2);
+            range1.intersection(range2);
             Assert.fail();
         } catch (IllegalArgumentException e) {
             System.out.println(e);
@@ -80,7 +80,7 @@ public class RangeCompareTest {
         LiteralExpr upperBoundOfRange2 = new DecimalLiteral("0.1");
         Range<LiteralExpr> range2 = Range.lessThan(upperBoundOfRange2);
         try {
-            Range<LiteralExpr> intersectionRange = range1.intersection(range2);
+            range1.intersection(range2);
             Assert.fail();
         } catch (IllegalArgumentException e) {
             System.out.println(e);

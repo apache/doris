@@ -68,8 +68,8 @@ public class ShowAlterStmtTest {
 
     @Test
     public void testAlterStmt1() throws UserException, AnalysisException {
-        ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN,null, null,
-                null,null);
+        ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, null,
+                null, null);
         stmt.analyzeSyntax(analyzer);
         Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb`", stmt.toString());
     }
@@ -80,7 +80,7 @@ public class ShowAlterStmtTest {
         StringLiteral stringLiteral = new StringLiteral("abc");
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
         ShowAlterStmt stmt = new ShowAlterStmt(ShowAlterStmt.AlterType.COLUMN, null, binaryPredicate, null,
-                new LimitElement(1,2));
+                new LimitElement(1, 2));
         stmt.analyzeSyntax(analyzer);
         Assert.assertEquals("SHOW ALTER TABLE COLUMN FROM `testDb` WHERE `TableName` = \'abc\' LIMIT 1, 2",
                 stmt.toString());

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.operators;
 
+import org.apache.doris.nereids.PlanOperatorVisitor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+
 import java.util.Objects;
 
 /**
@@ -33,4 +36,6 @@ public abstract class AbstractOperator<TYPE extends AbstractOperator<TYPE>> impl
     public OperatorType getType() {
         return type;
     }
+
+    public <R, C> R accept(PlanOperatorVisitor<R, C> visitor, PhysicalPlan<?,?>  physicalPlan, C context){ return null; }
 }

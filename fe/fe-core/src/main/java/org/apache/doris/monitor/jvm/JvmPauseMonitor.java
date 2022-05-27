@@ -132,13 +132,12 @@ public class JvmPauseMonitor {
             GcTimes diff = gcTimesAfterSleep.get(name).subtract(
                     gcTimesBeforeSleep.get(name));
             if (diff.gcCount != 0) {
-                gcDiffs.add("GC pool '" + name + "' had collection(s): " +
-                        diff.toString());
+                gcDiffs.add("GC pool '" + name + "' had collection(s): " + diff);
             }
         }
 
-        String ret = "Detected pause in JVM or host machine (eg GC): " +
-                "pause of approximately " + extraSleepTime + "ms\n";
+        String ret = "Detected pause in JVM or host machine (eg GC): "
+                + "pause of approximately " + extraSleepTime + "ms\n";
         if (gcDiffs.isEmpty()) {
             ret += "No GCs detected";
         } else {
@@ -216,8 +215,8 @@ public class JvmPauseMonitor {
                 totalGcExtraSleepTime += extraSleepTime;
                 gcTimesBeforeSleep = gcTimesAfterSleep;
 
-                if (deadlockCheckIntervalS > 0 &&
-                        timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS) {
+                if (deadlockCheckIntervalS > 0
+                        && timeSinceDeadlockCheck.elapsed(TimeUnit.SECONDS) >= deadlockCheckIntervalS) {
                     checkForDeadlocks();
                     timeSinceDeadlockCheck.reset().start();
                 }

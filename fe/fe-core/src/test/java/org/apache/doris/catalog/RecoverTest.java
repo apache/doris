@@ -120,32 +120,32 @@ public class RecoverTest {
     @Test
     public void testRecover() throws Exception {
         createDb("test");
-        createTable("CREATE TABLE test.`table1` (\n" +
-                "  `event_date` date NOT NULL COMMENT \"\",\n" +
-                "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `age` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `gender` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `level` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `city` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `model` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `brand` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `hours` varchar(16) NOT NULL COMMENT \"\",\n" +
-                "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n" +
-                "  `use_time` double SUM NOT NULL COMMENT \"\",\n" +
-                "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
-                +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`event_date`)\n" +
-                "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n" +
-                "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n" +
-                "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
-                +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`table1` (\n"
+                + "  `event_date` date NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`,"
+                + " `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`,"
+                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
 
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
@@ -170,32 +170,32 @@ public class RecoverTest {
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertFalse(checkTableExist("test", "table1"));
 
-        createTable("CREATE TABLE test.`table1` (\n" +
-                "  `event_date` date NOT NULL COMMENT \"\",\n" +
-                "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `age` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `gender` varchar(32) NOT NULL COMMENT \"\",\n" +
-                "  `level` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `city` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `model` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `brand` varchar(64) NOT NULL COMMENT \"\",\n" +
-                "  `hours` varchar(16) NOT NULL COMMENT \"\",\n" +
-                "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n" +
-                "  `use_time` double SUM NOT NULL COMMENT \"\",\n" +
-                "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
-                +
-                "COMMENT \"OLAP\"\n" +
-                "PARTITION BY RANGE(`event_date`)\n" +
-                "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n" +
-                "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n" +
-                "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
-                +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("CREATE TABLE test.`table1` (\n"
+                + "  `event_date` date NOT NULL COMMENT \"\",\n"
+                + "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `age` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `gender` varchar(32) NOT NULL COMMENT \"\",\n"
+                + "  `level` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `city` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `model` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `brand` varchar(64) NOT NULL COMMENT \"\",\n"
+                + "  `hours` varchar(16) NOT NULL COMMENT \"\",\n"
+                + "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n"
+                + "  `use_time` double SUM NOT NULL COMMENT \"\",\n"
+                + "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "AGGREGATE KEY(`event_date`, `app_name`, `package_name`,"
+                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "PARTITION BY RANGE(`event_date`)\n"
+                + "(PARTITION p1 VALUES [('2020-02-27'), ('2020-03-02')),\n"
+                + "PARTITION p2 VALUES [('2020-03-02'), ('2020-03-07')))\n"
+                + "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`,"
+                + " `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + " \"replication_num\" = \"1\"\n"
+                + ");");
         Assert.assertTrue(checkDbExist("test"));
         Assert.assertTrue(checkTableExist("test", "table1"));
 
