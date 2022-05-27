@@ -1004,8 +1004,7 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb",
-      "tpc-h"
+      "ssb"
     ],
   },
   {
