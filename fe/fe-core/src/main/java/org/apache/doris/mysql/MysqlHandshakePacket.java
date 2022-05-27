@@ -88,7 +88,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
     // If the auth default plugin in client is different from Doris
     // it will create a AuthSwitchRequest
     public void buildAuthSwitchRequest(MysqlSerializer serializer) {
-        serializer.writeInt1((byte)0xfe);
+        serializer.writeInt1((byte) 0xfe);
         serializer.writeNulTerminateString(AUTH_PLUGIN_NAME);
         serializer.writeBytes(authPluginData);
         serializer.writeInt1(0);

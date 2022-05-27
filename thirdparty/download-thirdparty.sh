@@ -156,7 +156,7 @@ do
 done
 echo "===== Downloading thirdparty archives...done"
 
-# check if all tp archievs exists
+# check if all tp archives exists
 echo "===== Checking all thirdpart archives..."
 for TP_ARCH in ${TP_ARCHIVES[*]}
 do
@@ -270,6 +270,16 @@ if [ ! -f $PATCHED_MARK ]; then
 fi
 cd -
 echo "Finished patching $S2_SOURCE"
+
+# gsasl2 patch to fix link error such as mutilple func defination
+# when link target with kerberos
+cd $TP_SOURCE_DIR/$GSASL2_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p1 < $TP_PATCH_DIR/libgsasl-1.8.0.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $GSASL2_SOURCE"
 
 # hdfs3 patch to fix compile error
 cd $TP_SOURCE_DIR/$HDFS3_SOURCE

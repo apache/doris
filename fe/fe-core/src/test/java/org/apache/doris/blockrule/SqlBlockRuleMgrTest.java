@@ -69,25 +69,25 @@ public class SqlBlockRuleMgrTest {
         Catalog.getCurrentCatalog().createDb(createDbStmt);
 
         MetricRepo.init();
-        createTable("create table test.table1\n" +
-                "(k1 int, k2 int) distributed by hash(k1) buckets 1\n" +
-                "properties(\"replication_num\" = \"1\");");
+        createTable("create table test.table1\n"
+                + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+                + "properties(\"replication_num\" = \"1\");");
 
-        createTable("create table test.table2\n" +
-                "(k1 datetime, k2 int)\n" +
-                "ENGINE=OLAP\n" +
-                "PARTITION BY RANGE(k1)\n" +
-                "(\n" +
-                "PARTITION p20211213 VALUES [('2021-12-13 00:00:00'), ('2021-12-14 00:00:00')),\n" +
-                "PARTITION p20211214 VALUES [('2021-12-14 00:00:00'), ('2021-12-15 00:00:00')),\n" +
-                "PARTITION p20211215 VALUES [('2021-12-15 00:00:00'), ('2021-12-16 00:00:00')),\n" +
-                "PARTITION p20211216 VALUES [('2021-12-16 00:00:00'), ('2021-12-17 00:00:00'))\n" +
-                ")\n" +
-                "DISTRIBUTED BY HASH(k1)\n" +
-                "BUCKETS 10\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\"\n" +
-                ");");
+        createTable("create table test.table2\n"
+                + "(k1 datetime, k2 int)\n"
+                + "ENGINE=OLAP\n"
+                + "PARTITION BY RANGE(k1)\n"
+                + "(\n"
+                + "PARTITION p20211213 VALUES [('2021-12-13 00:00:00'), ('2021-12-14 00:00:00')),\n"
+                + "PARTITION p20211214 VALUES [('2021-12-14 00:00:00'), ('2021-12-15 00:00:00')),\n"
+                + "PARTITION p20211215 VALUES [('2021-12-15 00:00:00'), ('2021-12-16 00:00:00')),\n"
+                + "PARTITION p20211216 VALUES [('2021-12-16 00:00:00'), ('2021-12-17 00:00:00'))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1)\n"
+                + "BUCKETS 10\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\"\n"
+                + ");");
 
     }
 
@@ -261,8 +261,10 @@ public class SqlBlockRuleMgrTest {
 
     @Test
     public void testNormalCreate() throws Exception {
-        String createSql = "CREATE SQL_BLOCK_RULE test_rule PROPERTIES(\"sql\"=\"select \\\\* from test_table\",\"enable\"=\"true\")";
-        CreateSqlBlockRuleStmt createSqlBlockRuleStmt = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
+        String createSql = "CREATE SQL_BLOCK_RULE test_rule"
+                + " PROPERTIES(\"sql\"=\"select \\\\* from test_table\",\"enable\"=\"true\")";
+        CreateSqlBlockRuleStmt createSqlBlockRuleStmt // CHECKSTYLE IGNORE THIS LINE
+                = (CreateSqlBlockRuleStmt) UtFrameUtils.parseAndAnalyzeStmt(createSql, connectContext);
     }
 
     @Test
@@ -325,7 +327,7 @@ public class SqlBlockRuleMgrTest {
     }
 
     @Test
-    public void testAlterSqlBlock() throws Exception{
+    public void testAlterSqlBlock() throws Exception {
         Analyzer analyzer = new Analyzer(Catalog.getCurrentCatalog(), connectContext);
         SqlBlockRuleMgr mgr = Catalog.getCurrentCatalog().getSqlBlockRuleMgr();
 
@@ -346,9 +348,9 @@ public class SqlBlockRuleMgrTest {
 
         Assert.assertEquals("select \\* from test_table", alteredSqlBlockRule.getSql());
         Assert.assertEquals("NULL", alteredSqlBlockRule.getSqlHash());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getPartitionNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getTabletNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule.getCardinality());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getPartitionNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getTabletNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule.getCardinality());
         Assert.assertEquals(false, alteredSqlBlockRule.getGlobal());
         Assert.assertEquals(true, alteredSqlBlockRule.getEnable());
 
@@ -369,9 +371,9 @@ public class SqlBlockRuleMgrTest {
 
         Assert.assertEquals("NULL", alteredSqlBlockRule2.getSql());
         Assert.assertEquals("NULL", alteredSqlBlockRule2.getSqlHash());
-        Assert.assertEquals(100L, (long)alteredSqlBlockRule2.getPartitionNum());
-        Assert.assertEquals(500L, (long)alteredSqlBlockRule2.getTabletNum());
-        Assert.assertEquals(0L, (long)alteredSqlBlockRule2.getCardinality());
+        Assert.assertEquals(100L, (long) alteredSqlBlockRule2.getPartitionNum());
+        Assert.assertEquals(500L, (long) alteredSqlBlockRule2.getTabletNum());
+        Assert.assertEquals(0L, (long) alteredSqlBlockRule2.getCardinality());
         Assert.assertEquals(true, alteredSqlBlockRule2.getGlobal());
         Assert.assertEquals(true, alteredSqlBlockRule2.getEnable());
 

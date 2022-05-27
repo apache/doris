@@ -91,7 +91,6 @@ public class BackupJob extends AbstractJob {
 
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
-//    private BackupContent content = BackupContent.ALL;
 
     private BackupJobState state;
 
@@ -364,7 +363,7 @@ public class BackupJob extends AbstractJob {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
             }
-            switch (tbl.getType()){
+            switch (tbl.getType()) {
                 case OLAP:
                     checkOlapTable((OlapTable) tbl, tableRef);
                     if (getContent() == BackupContent.ALL) {

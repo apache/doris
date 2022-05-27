@@ -113,12 +113,10 @@ public class DorisRangePartitionerTest {
 
     @Test
     public void testUnpartitionedPartitioner() {
-        List<String> partitionColumns = new ArrayList<>();
         List<String> bucketColumns = new ArrayList<>();
         bucketColumns.add("key");
         EtlJobConfig.EtlPartitionInfo partitionInfo = new EtlJobConfig.EtlPartitionInfo(
                 "UNPARTITIONED", null, bucketColumns, null);
-        List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
         List<Class> partitionSchema = new ArrayList<>();
         partitionSchema.add(Integer.class);
         List<Integer> partitionKeyIndexes = new ArrayList<>();

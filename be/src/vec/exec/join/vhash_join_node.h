@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <future>
 #include <variant>
 
 #include "common/object_pool.h"
@@ -239,7 +240,10 @@ private:
     std::vector<bool> _right_output_slot_flags;
 
 private:
+    void _hash_table_build_thread(RuntimeState* state, std::promise<Status>* status);
+
     Status _hash_table_build(RuntimeState* state);
+
     Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
 
     Status extract_build_join_column(Block& block, NullMap& null_map, ColumnRawPtrs& raw_ptrs,

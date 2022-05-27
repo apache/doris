@@ -61,7 +61,7 @@ public class DppUtils {
         } else if (dataType.equals(DataTypes.StringType)) {
             return String.class;
         } else if (dataType instanceof DecimalType) {
-            DecimalType decimalType = (DecimalType)dataType;
+            DecimalType decimalType = (DecimalType) dataType;
             return BigDecimal.valueOf(decimalType.precision(), decimalType.scale()).getClass();
         } else if (dataType.equals(DataTypes.TimestampType)) {
             return Long.class;
@@ -162,13 +162,13 @@ public class DppUtils {
             return buffer;
         }
         if (type.equals(DataTypes.ByteType)) {
-            buffer.put((byte)o);
+            buffer.put((byte) o);
         } else if (type.equals(DataTypes.ShortType)) {
-            buffer.putShort((Short)o);
+            buffer.putShort((Short) o);
         } else if (type.equals(DataTypes.IntegerType)) {
             buffer.putInt((Integer) o);
         } else if (type.equals(DataTypes.LongType)) {
-            buffer.putLong((Long)o);
+            buffer.putLong((Long) o);
         } else if (type.equals(DataTypes.StringType)) {
             try {
                 String str = String.valueOf(o);
@@ -177,7 +177,7 @@ public class DppUtils {
                 throw new RuntimeException(e);
             }
         } else if (type.equals(DataTypes.BooleanType)) {
-            Boolean b = (Boolean)o;
+            Boolean b = (Boolean) o;
             byte value = (byte) (b ? 1 : 0);
             buffer.put(value);
         }

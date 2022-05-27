@@ -117,14 +117,14 @@ public class PartitionColumnFilter {
         if (null == lowerBound) {
             str += "lowerBound is UNSET";
         } else {
-            str += "lowerBound is " + lowerBound.getStringValue() + " and lowerBoundInclusive is " +
-                    lowerBoundInclusive;
+            str += "lowerBound is " + lowerBound.getStringValue() + " and lowerBoundInclusive is "
+                    + lowerBoundInclusive;
         }
         if (null == upperBound) {
             str += "\nupperBound is UNSET";
         } else {
-            str += "\nupperBound is " + upperBound.getStringValue() + " and upperBoundInclusive is " +
-                    upperBoundInclusive;
+            str += "\nupperBound is " + upperBound.getStringValue() + " and upperBoundInclusive is "
+                    + upperBoundInclusive;
         }
         if (null == inPredicate) {
             str += "\ninPredicate is UNSET";

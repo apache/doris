@@ -132,8 +132,8 @@ public class ListUtil {
             for (PartitionKey checkKey : checkKeys) {
                 for (PartitionItem currentItem : list1) {
                     if (((ListPartitionItem) currentItem).getItems().contains(checkKey)) {
-                        throw new DdlException("The partition key[" + checkKey.toSql() + "] is overlap with current " +
-                                currentItem.toString());
+                        throw new DdlException("The partition key[" + checkKey.toSql()
+                                + "] is overlap with current " + currentItem);
                     }
                 }
             }

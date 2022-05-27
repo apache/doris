@@ -350,7 +350,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `sql_mode`
 
-    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](https://doris.apache.org/zh-CN/administrator-guide/sql-mode.md).
+    Used to specify SQL mode to accommodate certain SQL dialects. For the SQL mode, see [here](./sql-mode.md).
     
 * `sql_safe_updates`
 
@@ -501,3 +501,7 @@ Translated with www.DeepL.com/Translator (free version)
 * `enable_infer_predicate`
   
   Used to control whether predicate deduction is performed. There are two values: true and false. It is turned off by default, and the system does not perform predicate deduction, and uses the original predicate for related operations. When set to true, predicate expansion occurs.
+
+* `trim_tailing_spaces_for_external_table_query`
+
+  Used to control whether trim the tailing spaces while quering Hive external tables. The default is false.

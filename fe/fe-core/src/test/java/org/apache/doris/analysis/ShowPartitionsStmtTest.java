@@ -108,8 +108,8 @@ public class ShowPartitionsStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), binaryPredicate, null, null, false);
         expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage("Only the columns of PartitionId/PartitionName/" +
-                "State/Buckets/ReplicationNum/LastConsistencyCheckTime are supported.");
+        expectedEx.expectMessage("Only the columns of PartitionId/PartitionName/"
+                + "State/Buckets/ReplicationNum/LastConsistencyCheckTime are supported.");
         stmt.analyzeImpl(analyzer);
     }
 

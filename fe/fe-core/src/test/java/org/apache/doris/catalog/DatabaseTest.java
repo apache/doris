@@ -231,7 +231,7 @@ public class DatabaseTest {
         OlapTable table = new OlapTable(1000, "table", columns, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
         short shortKeyColumnCount = 1;
-        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setIndexMeta(1000, "group1", columns, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
 
         List<Column> column = Lists.newArrayList();
         column.add(column2);

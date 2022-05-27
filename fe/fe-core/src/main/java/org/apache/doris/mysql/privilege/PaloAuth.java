@@ -539,7 +539,7 @@ public class PaloAuth implements Writable {
     }
 
     // Check if LDAP authentication is enabled.
-    private boolean isLdapAuthEnabled(){
+    private boolean isLdapAuthEnabled() {
         return LdapConfig.ldap_authentication_enabled;
     }
 

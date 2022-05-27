@@ -118,3 +118,128 @@ Since the previous import methods of Doris are all asynchronous import methods, 
 
 ### Best Practice
 
+1. View the returned results
+
+   The INSERT operation is a synchronous operation, and the return of the result indicates the end of the operation. Users need to perform corresponding processing according to the different returned results.
+
+   1. The execution is successful, the result set is empty
+
+      If the result set of the insert corresponding to the select statement is empty, it will return as follows:
+
+      
+
+      ```sql
+      mysql> insert into tbl1 select * from empty_tbl;
+      Query OK, 0 rows affected (0.02 sec)
+      ````
+
+      `Query OK` indicates successful execution. `0 rows affected` means that no data was imported.
+
+   2. The execution is successful, the result set is not empty
+
+      In the case where the result set is not empty. The returned results are divided into the following situations:
+
+      1. Insert executes successfully and is visible:
+
+         
+
+         ```sql
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 4 rows affected (0.38 sec)
+         {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 with label my_label1 select * from tbl2;
+         Query OK, 4 rows affected (0.38 sec)
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 2 rows affected, 2 warnings (0.31 sec)
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'visible', 'txnId':'4005'}
+         
+         mysql> insert into tbl1 select * from tbl2;
+         Query OK, 2 rows affected, 2 warnings (0.31 sec)
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
+         ````
+
+         `Query OK` indicates successful execution. `4 rows affected` means that a total of 4 rows of data were imported. `2 warnings` indicates the number of lines to be filtered.
+
+         Also returns a json string:
+
+         
+
+         ````json
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
+         {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
+         {'label':'my_label1', 'status':'visible', 'txnId':'4005', 'err':'some other error'}
+         ````
+
+         `label` is a user-specified label or an automatically generated label. Label is the ID of this Insert Into import job. Each import job has a unique Label within a single database.
+
+         `status` indicates whether the imported data is visible. Show `visible` if visible, `committed` if not visible.
+
+         `txnId` is the id of the import transaction corresponding to this insert.
+
+         The `err` field shows some other unexpected errors.
+
+         When you need to view the filtered rows, the user can pass the following statement
+
+         
+
+         ```sql
+         show load where label="xxx";
+         ````
+
+         The URL in the returned result can be used to query the wrong data. For details, see the summary of **Viewing Error Lines** later.
+
+         **Invisibility of data is a temporary state, this batch of data will eventually be visible**
+
+         You can view the visible status of this batch of data with the following statement:
+
+         
+
+         ```sql
+         show transaction where id=4005;
+         ````
+
+         If the `TransactionStatus` column in the returned result is `visible`, the representation data is visible.
+
+   3. Execution failed
+
+      Execution failure indicates that no data was successfully imported, and the following is returned:
+
+      
+
+      ```sql
+      mysql> insert into tbl1 select * from tbl2 where k1 = "a";
+      ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0
+      ````
+
+      Where `ERROR 1064 (HY000): all partitions have no load data` shows the reason for the failure. The following url can be used to query the wrong data:
+
+      
+
+      ```sql
+      show load warnings on "url";
+      ````
+
+      You can view the specific error line.
+
+2. Timeout time
+
+   The timeout for INSERT operations is controlled by [session variable](../../../../advanced/variables.md) `query_timeout`. The default is 5 minutes. If it times out, the job will be canceled.
+
+3. Label and atomicity
+
+   The INSERT operation also guarantees the atomicity of imports, see the [Import Transactions and Atomicity](../../../../data-operate/import/import-scenes/load-atomicity.md) documentation.
+
+   When using `CTE(Common Table Expressions)` as the query part in an insert operation, the `WITH LABEL` and `column` parts must be specified.
+
+4. Filter Threshold
+
+   Unlike other import methods, INSERT operations cannot specify a filter threshold (`max_filter_ratio`). The default filter threshold is 1, which means that rows with errors can be ignored.
+
+   For business scenarios that require data not to be filtered, you can set [session variable](../../../../advanced/variables.md) `enable_insert_strict` to `true` to ensure that when there is data When filtered out, `INSERT` will not be executed successfully.
+
+5. Performance issues
+
+   There is no single row insertion using the `VALUES` method. If you must use it this way, combine multiple rows of data into one INSERT statement for bulk commit.

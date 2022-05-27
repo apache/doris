@@ -88,7 +88,7 @@ public class MetadataViewer {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
                                         || replica.getLastFailedVersion() > 0) {
-                                    status = ReplicaStatus.VERSION_ERROR;
+                                status = ReplicaStatus.VERSION_ERROR;
 
                             } else if (replica.getSchemaHash() != -1 && replica.getSchemaHash() != schemaHash) {
                                 status = ReplicaStatus.SCHEMA_ERROR;

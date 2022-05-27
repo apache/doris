@@ -35,21 +35,21 @@ public class JournalObservableTest {
         JournalObserver observer6 = new JournalObserver(6L);
 
         // empty
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), 0, 1L));
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // one element
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             elements.add(observer2);
             int size = elements.size();
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 2L));
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), size, 3L));
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // same element
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             elements.clear();
             elements.add(observer2);
             elements.add(observer6);
@@ -72,10 +72,10 @@ public class JournalObservableTest {
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
             elements.remove(observer42);
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // same element 2
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             elements.clear();
             elements.add(observer4);
             elements.add(observer41);
@@ -86,10 +86,10 @@ public class JournalObservableTest {
             Assert.assertEquals(1, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
             elements.remove(observer4);
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), elements.size(), 4L));
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
 
         // odd elements
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             elements.clear();
             elements.add(observer2);
             elements.add(observer2);
@@ -98,10 +98,6 @@ public class JournalObservableTest {
             elements.add(observer6);
             elements.add(observer6);
             int size = elements.size();
-//            System.out.println("size=" + size);
-//            for(int i = 0; i < size; i ++) {
-//                System.out.println("array " + i + " = " + ((MasterOpExecutor)elements.get(i)).getTargetJournalId());
-//            }
             Assert.assertEquals(0, JournalObservable.upperBound(elements.toArray(), size, 1L));
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 2L));
             Assert.assertEquals(2, JournalObservable.upperBound(elements.toArray(), size, 3L));
@@ -109,9 +105,9 @@ public class JournalObservableTest {
             Assert.assertEquals(4, JournalObservable.upperBound(elements.toArray(), size, 5L));
             Assert.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 6L));
             Assert.assertEquals(6, JournalObservable.upperBound(elements.toArray(), size, 7L));
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
         // even elements
-        {
+        { // CHECKSTYLE IGNORE THIS LINE
             elements.clear();
             elements.add(observer2);
             elements.add(observer2);
@@ -128,8 +124,8 @@ public class JournalObservableTest {
             Assert.assertEquals(5, JournalObservable.upperBound(elements.toArray(), size, 5L));
             Assert.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 6L));
             Assert.assertEquals(7, JournalObservable.upperBound(elements.toArray(), size, 7L));
-        }
-        {
+        } // CHECKSTYLE IGNORE THIS LINE
+        { // CHECKSTYLE IGNORE THIS LINE
             CountDownLatch latch = new CountDownLatch(1);
             System.out.println(latch.getCount());
 
@@ -141,7 +137,7 @@ public class JournalObservableTest {
 
             latch.countDown();
             System.out.println(latch.getCount());
-        }
+        } // CHECKSTYLE IGNORE THIS LINE
         System.out.println("success");
     }
 }

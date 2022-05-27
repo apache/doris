@@ -61,7 +61,7 @@ public class InsertStmtTest {
         dorisAssert.withDatabase("db").useDatabase("db");
         dorisAssert.withTable(createTblStmtStr);
 
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        UtFrameUtils.createDefaultCtx();
     }
 
     List<Column> getBaseSchema() {
@@ -126,7 +126,7 @@ public class InsertStmtTest {
         v3.setIsAllowNull(false);
         ArrayList<Expr> params = new ArrayList<>();
 
-        SlotRef slotRef = new SlotRef(null , "k1");
+        SlotRef slotRef = new SlotRef(null, "k1");
         slotRef.setType(Type.BIGINT);
         params.add(slotRef.uncheckedCastTo(Type.VARCHAR));
 
@@ -176,11 +176,16 @@ public class InsertStmtTest {
 
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
-        new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
-        }};
+        new Expectations() {
+            {
+                targetTable.getBaseSchema();
+                result = getBaseSchema();
+                targetTable.getBaseSchema(anyBoolean);
+                result = getBaseSchema();
+                targetTable.getFullSchema();
+                result = getFullSchema();
+            }
+        };
 
 
         InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());
@@ -234,11 +239,16 @@ public class InsertStmtTest {
 
         QueryStmt queryStmt = (QueryStmt) statementBase;
 
-        new Expectations() {{
-            targetTable.getBaseSchema(); result = getBaseSchema();
-            targetTable.getBaseSchema(anyBoolean); result = getBaseSchema();
-            targetTable.getFullSchema(); result = getFullSchema();
-        }};
+        new Expectations() {
+            {
+                targetTable.getBaseSchema();
+                result = getBaseSchema();
+                targetTable.getBaseSchema(anyBoolean);
+                result = getBaseSchema();
+                targetTable.getFullSchema();
+                result = getFullSchema();
+            }
+        };
 
 
         InsertStmt stmt = new InsertStmt(target, "label", null, source, new ArrayList<>());

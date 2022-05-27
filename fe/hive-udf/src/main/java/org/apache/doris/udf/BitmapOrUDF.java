@@ -53,18 +53,18 @@ public class BitmapOrUDF extends GenericUDF {
 
     @Override
     public Object evaluate(DeferredObject[]  args) throws HiveException {
-        if(args[0] == null || args[1] == null){
+        if (args[0] == null || args[1] == null) {
             return null;
         }
         byte[] inputBytes0 = this.inputOI0.getPrimitiveJavaObject(args[0].get());
         byte[] inputBytes1 = this.inputOI1.getPrimitiveJavaObject(args[1].get());
 
-        try{
+        try {
             BitmapValue bitmapValue0 = BitmapValueUtil.deserializeToBitmap(inputBytes0);
             BitmapValue bitmapValue1 = BitmapValueUtil.deserializeToBitmap(inputBytes1);
             bitmapValue0.or(bitmapValue1);
             return BitmapValueUtil.serializeToBytes(bitmapValue1);
-        }catch (IOException ioException){
+        } catch (IOException ioException) {
             ioException.printStackTrace();
             throw new RuntimeException(ioException);
         }

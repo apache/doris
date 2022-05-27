@@ -66,6 +66,10 @@ struct ProcessHashTableBuild {
         KeyGetter key_getter(_build_raw_ptrs, _join_node->_build_key_sz, nullptr);
 
         SCOPED_TIMER(_join_node->_build_table_insert_timer);
+        // only not build_unique, we need expanse hash table before insert data
+        if constexpr (!build_unique) {
+            hash_table_ctx.hash_table.expanse_for_add_elem(_rows);
+        }
         hash_table_ctx.hash_table.reset_resize_timer();
 
         vector<int>& inserted_rows = _join_node->_inserted_rows[&_acquired_block];
@@ -128,21 +132,21 @@ struct ProcessRuntimeFilterBuild {
         if (_join_node->_runtime_filter_descs.empty()) {
             return Status::OK();
         }
-        VRuntimeFilterSlots* runtime_filter_slots =
-                new VRuntimeFilterSlots(_join_node->_probe_expr_ctxs, _join_node->_build_expr_ctxs,
-                                        _join_node->_runtime_filter_descs);
+        VRuntimeFilterSlots runtime_filter_slots(_join_node->_probe_expr_ctxs,
+                                                 _join_node->_build_expr_ctxs,
+                                                 _join_node->_runtime_filter_descs);
 
-        RETURN_IF_ERROR(runtime_filter_slots->init(state, hash_table_ctx.hash_table.get_size()));
+        RETURN_IF_ERROR(runtime_filter_slots.init(state, hash_table_ctx.hash_table.get_size()));
 
-        if (!runtime_filter_slots->empty() && !_join_node->_inserted_rows.empty()) {
+        if (!runtime_filter_slots.empty() && !_join_node->_inserted_rows.empty()) {
             {
                 SCOPED_TIMER(_join_node->_push_compute_timer);
-                runtime_filter_slots->insert(_join_node->_inserted_rows);
+                runtime_filter_slots.insert(_join_node->_inserted_rows);
             }
         }
         {
             SCOPED_TIMER(_join_node->_push_down_timer);
-            runtime_filter_slots->publish();
+            runtime_filter_slots.publish();
         }
 
         return Status::OK();
@@ -971,10 +975,29 @@ Status HashJoinNode::open(RuntimeState* state) {
         RETURN_IF_ERROR((*_vother_join_conjunct_ptr)->open(state));
     }
 
-    RETURN_IF_ERROR(_hash_table_build(state));
-    RETURN_IF_ERROR(child(0)->open(state));
+    if (_runtime_filter_descs.empty()) {
+        std::promise<Status> thread_status;
+        std::thread(bind(&HashJoinNode::_hash_table_build_thread, this, state, &thread_status))
+                .detach();
 
-    return Status::OK();
+        // Open the probe-side child so that it may perform any initialisation in parallel.
+        // Don't exit even if we see an error, we still need to wait for the build thread
+        // to finish.
+        // ISSUE-1247, check open_status after buildThread execute.
+        // If this return first, build thread will use 'thread_status'
+        // which is already destructor and then coredump.
+        Status open_status = child(0)->open(state);
+        RETURN_IF_ERROR(thread_status.get_future().get());
+        return open_status;
+    } else {
+        RETURN_IF_ERROR(_hash_table_build(state));
+        RETURN_IF_ERROR(child(0)->open(state));
+        return Status::OK();
+    }
+}
+
+void HashJoinNode::_hash_table_build_thread(RuntimeState* state, std::promise<Status>* status) {
+    status->set_value(_hash_table_build(state));
 }
 
 Status HashJoinNode::_hash_table_build(RuntimeState* state) {
@@ -1002,7 +1025,7 @@ Status HashJoinNode::_hash_table_build(RuntimeState* state) {
 
         // make one block for each 4 gigabytes
         constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
-        if (_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE) {
+        if (UNLIKELY(_mem_used - last_mem_used > BUILD_BLOCK_MAX_SIZE)) {
             _build_blocks.emplace_back(mutable_block.to_block());
             // TODO:: Rethink may we should do the proess after we recevie all build blocks ?
             // which is better.
@@ -1093,10 +1116,10 @@ Status HashJoinNode::extract_probe_join_column(Block& block, NullMap& null_map,
                 auto& col_nullmap = nullable->get_null_map_data();
 
                 ignore_null |= !_probe_not_ignore_null[i];
+                VectorizedUtils::update_null_map(null_map, col_nullmap);
                 if (_build_not_ignore_null[i]) {
                     raw_ptrs[i] = nullable;
                 } else {
-                    VectorizedUtils::update_null_map(null_map, col_nullmap);
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
@@ -1118,7 +1141,7 @@ Status HashJoinNode::extract_probe_join_column(Block& block, NullMap& null_map,
 Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uint8_t offset) {
     SCOPED_TIMER(_build_table_timer);
     size_t rows = block.rows();
-    if (rows == 0) {
+    if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
     COUNTER_UPDATE(_build_rows_counter, rows);

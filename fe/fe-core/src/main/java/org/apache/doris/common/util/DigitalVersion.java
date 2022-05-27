@@ -120,10 +120,10 @@ public class DigitalVersion implements Comparable<DigitalVersion> {
             return false;
         }
         DigitalVersion version = (DigitalVersion) o;
-        return id == version.id &&
-                major == version.major &&
-                minor == version.minor &&
-                revision == version.revision;
+        return id == version.id
+                && major == version.major
+                && minor == version.minor
+                && revision == version.revision;
     }
 
     @Override

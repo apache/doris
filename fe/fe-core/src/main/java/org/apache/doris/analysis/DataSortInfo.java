@@ -54,7 +54,7 @@ public class DataSortInfo implements Writable {
         }
     }
 
-    public DataSortInfo (TSortType sortType, int colNum) {
+    public DataSortInfo(TSortType sortType, int colNum) {
         this.sortType = sortType;
         this.colNum = colNum;
     }
@@ -97,8 +97,8 @@ public class DataSortInfo implements Writable {
     }
 
     public String toSql() {
-        String res = ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\"" +
-                ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
+        String res = ",\n\"" + DATA_SORT_TYPE + "\" = \"" + this.sortType + "\""
+                + ",\n\"" + DATA_SORT_COL_NUM + "\" = \"" + this.colNum + "\"";
         return res;
     }
 }

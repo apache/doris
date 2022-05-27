@@ -265,8 +265,8 @@ public class DdlExecutor {
             if (!syncJobMgr.isJobNameExist(createSyncJobStmt.getDbName(), createSyncJobStmt.getJobName())) {
                 syncJobMgr.addDataSyncJob((CreateDataSyncJobStmt) ddlStmt);
             } else {
-                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName() +
-                        "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
+                throw new DdlException("The syncJob with jobName '" + createSyncJobStmt.getJobName()
+                        + "' in database [" + createSyncJobStmt.getDbName() + "] is already exists.");
             }
         } else if (ddlStmt instanceof ResumeSyncJobStmt) {
             catalog.getSyncJobManager().resumeSyncJob((ResumeSyncJobStmt) ddlStmt);

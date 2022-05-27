@@ -34,7 +34,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class ListPartitionInfo extends PartitionInfo{
+public class ListPartitionInfo extends PartitionInfo {
 
     public ListPartitionInfo() {
         // for persist
@@ -60,8 +60,8 @@ public class ListPartitionInfo extends PartitionInfo{
 
         for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
             Preconditions.checkArgument(values.size() == partitionColumns.size(),
-                    "partition key desc list size[" + values.size() + "] is not equal to " +
-                            "partition column size[" + partitionColumns.size() + "]");
+                    "partition key desc list size[" + values.size() + "] is not equal to "
+                            + "partition column size[" + partitionColumns.size() + "]");
         }
         List<PartitionKey> partitionKeys = new ArrayList<>();
         try {
@@ -83,11 +83,11 @@ public class ListPartitionInfo extends PartitionInfo{
     private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc, boolean isTemp) throws AnalysisException {
         Map<Long, PartitionItem> id2Item = idToItem;
         if (isTemp) {
-             id2Item = idToTempItem;
+            id2Item = idToTempItem;
         }
         // check new partition key not exists.
         for (Map.Entry<Long, PartitionItem> entry : id2Item.entrySet()) {
-            if (((ListPartitionItem)entry.getValue()).getItems().contains(newKey)) {
+            if (((ListPartitionItem) entry.getValue()).getItems().contains(newKey)) {
                 StringBuilder sb = new StringBuilder();
                 sb.append("The partition key[").append(newKey.toSql()).append("] in partition item[")
                         .append(keyDesc.toSql()).append("] is conflict with current partitionKeys[")

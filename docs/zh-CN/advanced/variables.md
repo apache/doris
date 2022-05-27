@@ -345,7 +345,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 - `sql_mode`
 
-  用于指定 SQL 模式，以适应某些 SQL 方言。
+  用于指定 SQL 模式，以适应某些 SQL 方言，关于 SQL 模式，可参阅[这里](./sql-mode.md)。
 
 - `sql_safe_updates`
 
@@ -488,3 +488,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 - `enable_infer_predicate`
 
   用于控制是否进行谓词推导。取值有两种：true 和 false。默认情况下关闭，系统不在进行谓词推导，采用原始的谓词进行相关操作。设置为 true 后，进行谓词扩展。
+
+- `trim_tailing_spaces_for_external_table_query`
+
+  用于控制查询Hive外表时是否过滤掉字段末尾的空格。默认为false。

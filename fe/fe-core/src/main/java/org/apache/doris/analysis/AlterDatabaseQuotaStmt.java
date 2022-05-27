@@ -80,6 +80,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaValue;
+        return "ALTER DATABASE " + dbName + " SET "
+                + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA")
+                + " QUOTA " + quotaValue;
     }
 }

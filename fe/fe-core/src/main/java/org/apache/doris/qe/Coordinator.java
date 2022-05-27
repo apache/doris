@@ -640,7 +640,8 @@ public class Coordinator {
                         switch (code) {
                             case TIMEOUT:
                                 throw new RpcException(pair.first.backend.getHost(), "send fragment timeout. backend id: "
-                                        + pair.first.backend.getId());
+                                        + pair.first.backend.getId() + " fragment: "
+                                        + DebugUtil.printId(pair.first.rpcParams.params.fragment_instance_id));
                             case THRIFT_RPC_ERROR:
                                 SimpleScheduler.addToBlacklist(pair.first.backend.getId(), errMsg);
                                 throw new RpcException(pair.first.backend.getHost(), "rpc failed");
@@ -923,8 +924,8 @@ public class Coordinator {
                     && sink.getOutputPartition().isBucketShuffleHashPartition()) {
                 // the destFragment must be bucket shuffle
                 Preconditions.checkState(bucketShuffleJoinController.
-                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is" +
-                        "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
+                        isBucketShuffleJoin(destFragment.getFragmentId().asInt()), "Sink is"
+                        + "Bucket Shuffle Partition, The destFragment must have bucket shuffle join node ");
 
                 int bucketSeq = 0;
                 int bucketNum = bucketShuffleJoinController.getFragmentBucketNum(destFragment.getFragmentId());
@@ -1794,7 +1795,7 @@ public class Coordinator {
             if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
                 // The bucket shuffle join only hit when the partition is one. so the totalTabletsNum is all tablet of
                 // one hit partition. can be the right bucket num in bucket shuffle join
-                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int)scanNode.getTotalTabletsNum());
+                fragmentIdToBucketNumMap.put(scanNode.getFragmentId(), (int) scanNode.getTotalTabletsNum());
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashedMap());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
@@ -2076,7 +2077,7 @@ public class Coordinator {
 
     // execution parameters for a single fragment,
     // per-fragment can have multiple FInstanceExecParam,
-    // used to assemble TPlanFragmentExecParas
+    // used to assemble TPlanFragmentExecParams
     protected class FragmentExecParams {
         public PlanFragment fragment;
         public List<TPlanFragmentDestination> destinations = Lists.newArrayList();
@@ -2214,7 +2215,7 @@ public class Coordinator {
     }
 
     // fragment instance exec param, it is used to assemble
-    // the per-instance TPlanFragmentExecParas, as a member of
+    // the per-instance TPlanFragmentExecParams, as a member of
     // FragmentExecParams
     static class FInstanceExecParam {
         TUniqueId instanceId;
@@ -2251,7 +2252,7 @@ public class Coordinator {
         lock();
         try {
             for (int index = 0; index < fragments.size(); index++) {
-                for (BackendExecState backendExecState: backendExecStates) {
+                for (BackendExecState backendExecState : backendExecStates) {
                     if (fragments.get(index).getFragmentId() != backendExecState.fragmentId) {
                         continue;
                     }
@@ -2277,7 +2278,7 @@ public class Coordinator {
     // Runtime filter target fragment instance param
     static class FRuntimeFilterTargetParam {
         public TUniqueId targetFragmentInstanceId;
-        ;
+
         public TNetworkAddress targetFragmentInstanceAddr;
 
         public FRuntimeFilterTargetParam(TUniqueId id, TNetworkAddress host) {

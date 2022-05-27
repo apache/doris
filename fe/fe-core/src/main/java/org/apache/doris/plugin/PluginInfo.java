@@ -122,14 +122,12 @@ public class PluginInfo implements Writable {
         }
 
         final Map<String, String> propsMap;
-        {
-            final Properties props = new Properties();
-            try (InputStream stream = Files.newInputStream(descriptor)) {
-                props.load(stream);
-            }
-            propsMap = props.stringPropertyNames().stream()
-                    .collect(Collectors.toMap(Function.identity(), props::getProperty));
+        final Properties props = new Properties();
+        try (InputStream stream = Files.newInputStream(descriptor)) {
+            props.load(stream);
         }
+        propsMap = props.stringPropertyNames().stream()
+                .collect(Collectors.toMap(Function.identity(), props::getProperty));
 
         final String name = propsMap.remove("name");
         if (Strings.isNullOrEmpty(name)) {
@@ -235,9 +233,9 @@ public class PluginInfo implements Writable {
             return false;
         }
         PluginInfo that = (PluginInfo) o;
-        return Objects.equals(name, that.name) &&
-                type == that.type &&
-                Objects.equals(version, that.version);
+        return Objects.equals(name, that.name)
+                && type == that.type
+                && Objects.equals(version, that.version);
     }
 
     @Override

@@ -126,11 +126,10 @@ void MemTable::insert(const vectorized::Block* block, size_t row_pos, size_t num
         }
     }
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
-    size_t oldsize = _input_mutable_block.allocated_bytes();
     _input_mutable_block.add_rows(block, row_pos, num_rows);
-    size_t newsize = _input_mutable_block.allocated_bytes();
-    _mem_usage += newsize - oldsize;
-    _mem_tracker->consume(newsize - oldsize);
+    size_t input_size = block->allocated_bytes() * num_rows / block->rows();
+    _mem_usage += input_size;
+    _mem_tracker->consume(input_size);
 
     for (int i = 0; i < num_rows; i++) {
         _row_in_blocks.emplace_back(new RowInBlock {cursor_in_mutableblock + i});
@@ -242,7 +241,8 @@ void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_
                                  new_row->_row_pos, nullptr);
     }
 }
-vectorized::Block MemTable::_collect_vskiplist_results() {
+template <bool is_final>
+void MemTable::_collect_vskiplist_results() {
     VecTable::Iterator it(_vec_skip_list.get());
     vectorized::Block in_block = _input_mutable_block.to_block();
     // TODO: should try to insert data by column, not by row. to opt the code
@@ -251,6 +251,7 @@ vectorized::Block MemTable::_collect_vskiplist_results() {
             _output_mutable_block.add_row(&in_block, it.key()->_row_pos);
         }
     } else {
+        size_t idx = 0;
         for (it.SeekToFirst(); it.Valid(); it.Next()) {
             auto& block_data = in_block.get_columns_with_type_and_name();
             // move key columns
@@ -263,11 +264,46 @@ vectorized::Block MemTable::_collect_vskiplist_results() {
                 auto function = _agg_functions[i];
                 function->insert_result_into(it.key()->_agg_places[i],
                                              *(_output_mutable_block.get_column_by_position(i)));
-                function->destroy(it.key()->_agg_places[i]);
+                if constexpr (is_final) {
+                    function->destroy(it.key()->_agg_places[i]);
+                }
+            }
+            if constexpr (!is_final) {
+                // re-index the row_pos in VSkipList
+                it.key()->_row_pos = idx;
+                idx++;
             }
         }
+        if constexpr (!is_final) {
+            // if is not final, we collect the agg results to input_block and then continue to insert
+            size_t shrunked_after_agg = _output_mutable_block.allocated_bytes();
+            _mem_tracker->consume(shrunked_after_agg - _mem_usage);
+            _mem_usage = shrunked_after_agg;
+            _input_mutable_block.swap(_output_mutable_block);
+            //TODO(weixang):opt here.
+            std::unique_ptr<vectorized::Block> empty_input_block =
+                    in_block.create_same_struct_block(0);
+            _output_mutable_block =
+                    vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
+            _output_mutable_block.clear_column_data();
+        }
     }
-    return _output_mutable_block.to_block();
+}
+
+void MemTable::shrink_memtable_by_agg() {
+    if (_keys_type == KeysType::DUP_KEYS) {
+        return;
+    }
+    _collect_vskiplist_results<false>();
+}
+
+bool MemTable::is_flush() {
+    return memory_usage() >= config::write_buffer_size;
+}
+
+bool MemTable::need_to_agg() {
+    return _keys_type == KeysType::DUP_KEYS ? is_flush()
+                                            : memory_usage() >= config::memtable_max_buffer_size;
 }
 
 Status MemTable::flush() {
@@ -301,10 +337,8 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
             RETURN_NOT_OK(st);
         }
     } else {
-        vectorized::Block block = _collect_vskiplist_results();
-        // beta rowset flush parallel, segment write add block is not
-        // thread safe, so use tmp variable segment_write instead of
-        // member variable
+        _collect_vskiplist_results<true>();
+        vectorized::Block block = _output_mutable_block.to_block();
         RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block));
         _flush_size = block.allocated_bytes();
     }

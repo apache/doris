@@ -45,7 +45,7 @@ public class SetExecutor {
             // Set password
             SetPassVar setPassVar = (SetPassVar) var;
             ctx.getCatalog().getAuth().setPassword(setPassVar);
-        } else if(var instanceof SetLdapPassVar){
+        } else if (var instanceof SetLdapPassVar) {
             SetLdapPassVar setLdapPassVar = (SetLdapPassVar) var;
             ctx.getCatalog().getAuth().setLdapPassword(setLdapPassVar);
         } else if (var instanceof SetNamesVar) {

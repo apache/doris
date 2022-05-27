@@ -125,7 +125,7 @@ public class ColumnTest {
     @Test(expected = DdlException.class)
     public void testSchemaChangeFloatToVarchar() throws DdlException {
         Column oldColumn = new Column("b", ScalarType.createType(PrimitiveType.FLOAT), false, null, true, "0", "");
-        Column newColumn = new Column("b", ScalarType.createType(PrimitiveType.VARCHAR, 23 , 0, 0), false, null, true, "0", "");
+        Column newColumn = new Column("b", ScalarType.createType(PrimitiveType.VARCHAR, 23, 0, 0), false, null, true, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }
@@ -141,7 +141,7 @@ public class ColumnTest {
     @Test(expected = DdlException.class)
     public void testSchemaChangeDoubleToVarchar() throws DdlException {
         Column oldColumn = new Column("c", ScalarType.createType(PrimitiveType.DOUBLE), false, null, true, "0", "");
-        Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31 , 0, 0), false, null, true, "0", "");
+        Column newColumn = new Column("c", ScalarType.createType(PrimitiveType.VARCHAR, 31,  0, 0), false, null, true, "0", "");
         oldColumn.checkSchemaChangeAllowed(newColumn);
         Assert.fail("No exception throws.");
     }

@@ -34,7 +34,7 @@ public class BitmapValueUtil {
         return bos.toByteArray();
     }
 
-    public static BitmapValue deserializeToBitmap(byte[] bytes) throws IOException{
+    public static BitmapValue deserializeToBitmap(byte[] bytes) throws IOException {
         BitmapValue bitmapValue = new BitmapValue();
         DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
         bitmapValue.deserialize(in);

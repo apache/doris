@@ -342,8 +342,8 @@ public class NodeAction extends RestBaseController {
             }
             return ResponseEntityBuilder.ok(new NodeInfo(BE_CONFIG_TITLE_NAMES, data));
         }
-        return ResponseEntityBuilder.badRequest("Unsupported type: " + type + ". Only types of fe or be are " +
-                "supported");
+        return ResponseEntityBuilder.badRequest("Unsupported type: " + type + ". Only types of fe or be are "
+                + "supported");
     }
 
     // Use thread pool to concurrently fetch configuration information from specified fe or be nodes.
@@ -523,8 +523,8 @@ public class NodeAction extends RestBaseController {
                                      List<Map<String, String>> failedTotal) {
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             Map<String, String> failed = Maps.newHashMap();
-            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":" +
-                    hostPort.second, err, failed);
+            addFailedConfig(entry.getKey(), entry.getValue(), hostPort.first + ":"
+                    + hostPort.second, err, failed);
             failedTotal.add(failed);
         }
     }

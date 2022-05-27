@@ -88,9 +88,8 @@ public class MysqlPassword {
         random.nextBytes(bytes);
         // NOTE: MySQL challenge string can't contain 0.
         for (int i = 0; i < len; ++i) {
-            if ((bytes[i] >= 'a' && bytes[i] <= 'z')
-                    || (bytes[i] >= 'A' && bytes[i] <='Z')) {
-            } else {
+            if (!((bytes[i] >= 'a' && bytes[i] <= 'z')
+                    || (bytes[i] >= 'A' && bytes[i] <= 'Z'))) {
                 bytes[i] = (byte) ('a' + (bytes[i] % 26));
             }
         }
@@ -110,7 +109,7 @@ public class MysqlPassword {
     }
 
     // Check that scrambled message corresponds to the password; the function
-    // is used by server to check that recieved reply is authentic.
+    // is used by server to check that received reply is authentic.
     // This function does not check lengths of given strings: message must be
     // null-terminated, reply and hash_stage2 must be at least SHA1_HASH_SIZE
     // long (if not, something fishy is going on).

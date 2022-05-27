@@ -228,10 +228,21 @@ public class Function implements Writable {
         hasVarArgs = v;
     }
 
-    public void setId(long functionId) { this.id = functionId; }
-    public long getId() { return id; }
-    public void setChecksum(String checksum) { this.checksum = checksum; }
-    public String getChecksum() { return checksum; }
+    public void setId(long functionId) {
+        this.id = functionId;
+    }
+
+    public long getId() {
+        return id;
+    }
+
+    public void setChecksum(String checksum) {
+        this.checksum = checksum;
+    }
+
+    public String getChecksum() {
+        return checksum;
+    }
 
     // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
     // Maybe we should use a separate variable to identify,

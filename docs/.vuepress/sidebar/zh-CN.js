@@ -180,7 +180,8 @@ module.exports = [
         children: [
           "bucket-shuffle-join",
           "colocation-join",
-          "runtime-filter"
+          "runtime-filter",
+          "doris-join-optimization"
         ],
       },
       {
@@ -547,6 +548,16 @@ module.exports = [
               "WINDOW-FUNCTION-ROW-NUMBER",
             ],
           },
+          {
+            title: "Array函数",
+            directoryPath: "array-functions/",
+            initialOpenGroupIndex: -1,
+            children: [
+              "array_contains",
+              "array_position",
+              "element_at",
+            ],
+          },
           "cast",
           "digital-masking",
         ],
@@ -695,6 +706,8 @@ module.exports = [
                   "DELETE",
                   "INSERT",
                   "UPDATE",
+                  "SELECT",
+                  "EXPORT"
                 ],
               },
               "OUTFILE"             
@@ -812,6 +825,7 @@ module.exports = [
               "STRING",
               "TINYINT",
               "VARCHAR",
+              "ARRAY",
             ],
           },
           {
@@ -991,8 +1005,7 @@ module.exports = [
     directoryPath: "benchmark/",
     initialOpenGroupIndex: -1,
     children: [
-      "ssb",
-      "tpc-h"
+      "ssb"
     ],
   },
   {

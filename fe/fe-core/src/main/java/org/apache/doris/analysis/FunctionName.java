@@ -144,9 +144,8 @@ public class FunctionName implements Writable {
         }
         for (int i = 0; i < fn.length(); ++i) {
             if (!isValidCharacter(fn.charAt(i))) {
-                throw new AnalysisException(
-                  "Function names must be all alphanumeric or underscore. " +
-                    "Invalid name: " + fn);
+                throw new AnalysisException("Function names must be all alphanumeric or underscore. "
+                          + "Invalid name: " + fn);
             }
         }
         if (Character.isDigit(fn.charAt(0))) {
@@ -163,13 +162,6 @@ public class FunctionName implements Writable {
             }
             db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
-
-        // If the function name is not fully qualified, it must not be the same as a builtin
-//        if (!isFullyQualified() && OpcodeRegistry.instance().getFunctionOperator(
-//          getFunction()) != FunctionOperator.INVALID_OPERATOR) {
-//            throw new AnalysisException(
-//              "Function cannot have the same name as a builtin: " + getFunction());
-//        }
     }
 
     private boolean isValidCharacter(char c) {
@@ -201,7 +193,7 @@ public class FunctionName implements Writable {
         fn = Text.readString(in);
     }
 
-    public static FunctionName read(DataInput in) throws IOException{
+    public static FunctionName read(DataInput in) throws IOException {
         FunctionName functionName = new FunctionName();
         functionName.readFields(in);
         return functionName;

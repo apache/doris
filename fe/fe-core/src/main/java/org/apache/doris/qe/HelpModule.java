@@ -106,7 +106,7 @@ public class HelpModule {
                 if (size > 0) {
                     BufferedReader reader = new BufferedReader(new InputStreamReader(zf.getInputStream(entry),
                                                                                      CHARSET_UTF_8));
-                    while ((line = reader.readLine()) != null ) {
+                    while ((line = reader.readLine()) != null) {
                         lines.add(line);
                     }
                     reader.close();

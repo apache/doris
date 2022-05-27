@@ -159,7 +159,7 @@ public class GrantStmt extends DdlStmt {
                 if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }
-            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE){
+            } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
                 if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
                 }

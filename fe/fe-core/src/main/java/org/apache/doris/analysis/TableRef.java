@@ -260,7 +260,7 @@ public class TableRef implements ParseNode, Writable {
     }
 
     /**
-     * Return the list of of materialized tuple ids from the TableRef.
+     * Return the list of materialized tuple ids from the TableRef.
      * This method should only be called after the TableRef has been analyzed.
      */
     public List<TupleId> getMaterializedTupleIds() {
@@ -460,8 +460,8 @@ public class TableRef implements ParseNode, Writable {
                             + " (in" + " \"" + this.toSql() + "\")");
                 }
                 if (desc.getTable().getColumn(colName) == null) {
-                    throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \"" +
-                            this.toSql() + "\")");
+                    throw new AnalysisException("Unknown column " + colName + " for alias " + getAlias() + " (in \""
+                            + this.toSql() + "\")");
                 }
 
                 // create predicate "<left>.colName = <right>.colName"
@@ -475,11 +475,6 @@ public class TableRef implements ParseNode, Writable {
                 }
             }
         }
-
-        // at this point, both 'this' and leftTblRef have been analyzed
-        // and registered
-        boolean lhsIsNullable = false;
-        boolean rhsIsNullable = false;
 
         //
         if (leftTblRef != null) {

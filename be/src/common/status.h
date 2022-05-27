@@ -439,6 +439,9 @@ public:
     ///   Returns the string "OK" for success.
     std::string to_string() const;
 
+    /// @return A json representation of this status.
+    std::string to_json() const;
+
     /// @return A string representation of the status code, without the message
     ///   text or sub code information.
     std::string code_as_string() const;

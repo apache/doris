@@ -360,9 +360,12 @@ build_gtest() {
 # rapidjson
 build_rapidjson() {
     check_if_source_exist $RAPIDJSON_SOURCE
-
-    rm -rf $TP_INSTALL_DIR/rapidjson
-    cp -r $TP_SOURCE_DIR/$RAPIDJSON_SOURCE/include/rapidjson $TP_INCLUDE_DIR/
+    cd $TP_SOURCE_DIR/$RAPIDJSON_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    rm -rf CMakeCache.txt CMakeFiles/
+    ${CMAKE_CMD} ../ -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR -DRAPIDJSON_BUILD_DOC=OFF \
+    -DRAPIDJSON_BUILD_EXAMPLES=OFF -DRAPIDJSON_BUILD_TESTS=OFF
+    make -j $PARALLEL && make install
 }
 
 # snappy
@@ -373,7 +376,7 @@ build_snappy() {
     mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CFLAGS="-O3" CXXFLAGS="-O3" ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=On \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_INSTALL_INCLUDEDIR=$TP_INCLUDE_DIR/snappy \
     -DSNAPPY_BUILD_TESTS=0 ../
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -643,20 +646,23 @@ build_arrow() {
     export ARROW_SNAPPY_URL=${TP_SOURCE_DIR}/${SNAPPY_NAME}
     export ARROW_ZLIB_URL=${TP_SOURCE_DIR}/${ZLIB_NAME}
     export ARROW_XSIMD_URL=${TP_SOURCE_DIR}/${XSIMD_NAME}
+    export ARROW_ORC_URL=${TP_SOURCE_DIR}/${ORC_NAME}
 
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     ${CMAKE_CMD} -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
     -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
     -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
-    -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=OFF \
+    -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF \
     -DARROW_GFLAGS_USE_SHARED=OFF \
     -Dgflags_ROOT=$TP_INSTALL_DIR \
     -DGLOG_ROOT=$TP_INSTALL_DIR \
+    -DRE2_ROOT=$TP_INSTALL_DIR \
     -DZLIB_LIBRARY=$TP_INSTALL_DIR/lib/libz.a -DZLIB_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DRapidJSON_ROOT=$TP_INSTALL_DIR \
+    -DORC_ROOT=$TP_INSTALL_DIR \
     -DBrotli_SOURCE=BUNDLED \
     -DLZ4_LIB=$TP_INSTALL_DIR/lib/liblz4.a -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DLz4_SOURCE=SYSTEM \
@@ -664,7 +670,6 @@ build_arrow() {
     -Dzstd_SOURCE=SYSTEM \
     -DSnappy_LIB=$TP_INSTALL_DIR/lib/libsnappy.a -DSnappy_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DSnappy_SOURCE=SYSTEM \
-    -DBoost_INCLUDE_DIR=$TP_INSTALL_DIR/include \
     -DThrift_ROOT=$TP_INSTALL_DIR ..
 
     ${BUILD_SYSTEM} -j $PARALLEL && ${BUILD_SYSTEM} install
@@ -904,16 +909,46 @@ build_gsasl() {
     make -j $PARALLEL && make install
 }
 
+# build_gsasl2 just for libgsasl1.8.0
+build_gsasl2() {
+    check_if_source_exist $GSASL2_SOURCE
+    cd $TP_SOURCE_DIR/$GSASL2_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix=$TP_INSTALL_DIR
+    make -j $PARALLEL && make install
+}
+
+# krb5
+build_krb5() {
+    check_if_source_exist $KRB5_SOURCE
+    cd $TP_SOURCE_DIR/$KRB5_SOURCE/src
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
+    CFLAGS="-fcommon" \
+    ../configure --prefix=$HDFS3_KRB5_INSTALL_DIR --disable-shared --enable-static
+    make -j $PARALLEL && make install
+}
+
 # hdfs3
 build_hdfs3() {
     check_if_source_exist $HDFS3_SOURCE
     cd $TP_SOURCE_DIR/$HDFS3_SOURCE
-    mkdir -p $BUILD_DIR && cd $BUILD_DIR
-    ../bootstrap --dependency=$TP_INSTALL_DIR --prefix=$TP_INSTALL_DIR
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
+    # build libhdfs3 without kerberos
+    ../bootstrap --dependency="$TP_INSTALL_DIR" --prefix=$TP_INSTALL_DIR
     make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
     make install
 }
 
+# hdfs3_with_kerberos
+build_hdfs3_with_kerberos() {
+    check_if_source_exist $HDFS3_SOURCE
+    cd $TP_SOURCE_DIR/$HDFS3_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR && rm ./* -rf
+    # build libhdfs3 with kerberos support
+    ../bootstrap --dependency="$HDFS3_KRB5_INSTALL_DIR:$TP_INSTALL_DIR -DWITH_KERBEROS=true" --prefix=$HDFS3_KRB5_INSTALL_DIR
+    make CXXFLAGS="$libhdfs_cxx17" -j $PARALLEL
+    make install
+}
 # benchmark
 build_benchmark() {
     check_if_source_exist $BENCHMARK_SOURCE
@@ -981,6 +1016,7 @@ build_rocksdb
 build_cyrus_sasl
 build_librdkafka
 build_flatbuffers
+build_orc
 build_arrow
 build_s2
 build_bitshuffle
@@ -989,7 +1025,6 @@ build_fmt
 build_parallel_hashmap
 build_pdqsort
 build_libdivide
-build_orc
 build_cctz
 build_tsan_header
 build_mysql
@@ -999,7 +1034,10 @@ build_lzma
 build_xml2
 build_idn
 build_gsasl
+build_gsasl2
+build_krb5
 build_hdfs3
+build_hdfs3_with_kerberos
 build_benchmark
 build_breakpad
 build_simdjson

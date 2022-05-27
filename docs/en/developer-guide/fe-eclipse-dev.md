@@ -124,6 +124,8 @@ You can directly start an FE process in Eclipse to facilitate debugging the code
 
 4. Right-click `PaloFe.java` and select `Run As -> Java Application` to start FE.
 
+To run a UT, a FE service will be started at first. And then, UT cases execute as client and test corresponding logics. When errors occur, only client logs will be print in UT logs. If you need more information from **server logs**, you can view logs in `${DORIS_HOME}/fe/mocked`.
+
 ## Code Update
 
 1. Update lexical and grammar files or proto and thrift files

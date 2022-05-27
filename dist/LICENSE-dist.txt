@@ -704,6 +704,9 @@ The Apache Software License, Version 2.0
     * Apache HttpCore:
         - org.apache.httpcomponents:httpcore:4.4.1 (http://hc.apache.org/httpcomponents-core-ga)
         - org.apache.httpcomponents:httpcore:4.4.15 (http://hc.apache.org/httpcomponents-core-ga)
+    * Apache Hudi:
+        - org.apache.hudi:hudi-hadoop-mr:0.10.0 (no url defined)
+        - org.apache.hudi:hudu-common:0.10.0 (no url defined)
     * Apache Iceberg:
         - org.apache.iceberg:iceberg-api:0.12.0 (https://iceberg.apache.org)
         - org.apache.iceberg:iceberg-bundled-guava:0.12.0 (https://iceberg.apache.org)
@@ -1523,11 +1526,16 @@ The Apache Software License, Version 2.0
     * aws sdk: 1.9.211
     * benchmark: 1.5.6
     * simdjson: 1.0.2
+    * libhdfs3: commit 5fccd36
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.10.25
     * bootstrap: 1.17.1
     * libxml2: 2.9.10
+    * krb5: 1.19
+
+LGPL -- licenes/LICENSE-LGPL.txt
+    * gsasl: 1.10.0/1.8.0
 
 Other dependencies:
     * libevent: 2.1.12 -- license/LICENSE-libevent.txt

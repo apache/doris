@@ -171,52 +171,52 @@ public class ExtractCommonFactorsRuleFunctionTest {
     // TPC-H Q19
     @Test
     public void testComplexQuery() throws Exception {
-        String createTableSQL = "CREATE TABLE `lineitem` (\n" +
-                "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_commitdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_receiptdate` date NOT NULL COMMENT \"\",\n" +
-                "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`l_orderkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        String createTableSQL = "CREATE TABLE `lineitem` (\n"
+                + "  `l_orderkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_suppkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_linenumber` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `l_quantity` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_extendedprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_discount` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_tax` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `l_returnflag` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_linestatus` char(1) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_commitdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_receiptdate` date NOT NULL COMMENT \"\",\n"
+                + "  `l_shipinstruct` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `l_shipmode` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `l_comment` varchar(44) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`l_orderkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
-        createTableSQL = "CREATE TABLE `part` (\n" +
-                "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n" +
-                "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_brand` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n" +
-                "  `p_size` int(11) NOT NULL COMMENT \"\",\n" +
-                "  `p_container` char(10) NOT NULL COMMENT \"\",\n" +
-                "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n" +
-                "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n" +
-                ") ENGINE=OLAP\n" +
-                "DUPLICATE KEY(`p_partkey`)\n" +
-                "COMMENT \"OLAP\"\n" +
-                "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n" +
-                "PROPERTIES (\n" +
-                "\"replication_num\" = \"1\",\n" +
-                "\"in_memory\" = \"false\",\n" +
-                "\"storage_format\" = \"V2\"\n" +
-                ");";
+        createTableSQL = "CREATE TABLE `part` (\n"
+                + "  `p_partkey` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_name` varchar(55) NOT NULL COMMENT \"\",\n"
+                + "  `p_mfgr` char(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_brand` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_type` varchar(25) NOT NULL COMMENT \"\",\n"
+                + "  `p_size` int(11) NOT NULL COMMENT \"\",\n"
+                + "  `p_container` char(10) NOT NULL COMMENT \"\",\n"
+                + "  `p_retailprice` decimal(15, 2) NOT NULL COMMENT \"\",\n"
+                + "  `p_comment` varchar(23) NOT NULL COMMENT \"\"\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`p_partkey`)\n"
+                + "COMMENT \"OLAP\"\n"
+                + "DISTRIBUTED BY HASH(`p_partkey`) BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"in_memory\" = \"false\",\n"
+                + "\"storage_format\" = \"V2\"\n"
+                + ");";
         dorisAssert.withTable(createTableSQL);
         String query = "select sum(l_extendedprice* (1 - l_discount)) as revenue "
                 + "from lineitem, part "

@@ -191,15 +191,24 @@ public class StreamLoadScanNodeTest {
 
         TStreamLoadPutRequest request = getBaseRequest();
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
-        new Expectations() {{
-            dstTable.getBaseSchema(); result = columns;
-            dstTable.getBaseSchema(anyBoolean); result = columns;
-            dstTable.getFullSchema(); result = columns;
-            dstTable.getColumn("k1"); result = columns.get(0);
-            dstTable.getColumn("k2"); result = columns.get(1);
-            dstTable.getColumn("v1"); result = columns.get(2);
-            dstTable.getColumn("v2"); result = columns.get(3);
-        }};
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                result = columns;
+                dstTable.getFullSchema();
+                result = columns;
+                dstTable.getColumn("k1");
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                result = columns.get(3);
+            }
+        };
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
@@ -404,7 +413,7 @@ public class StreamLoadScanNodeTest {
         TStreamLoadPutRequest request = getBaseRequest();
         request.setFileType(TFileType.FILE_LOCAL);
         request.setColumns("k1,k2, v1=hll_hash1(k2)");
-        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+        StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadScanNode scanNode = getStreamLoadScanNode(dstDesc, request);
 
         scanNode.init(analyzer);
@@ -492,29 +501,31 @@ public class StreamLoadScanNodeTest {
             }
         }
 
-        new Expectations() {{
-            dstTable.getBaseSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getBaseSchema(anyBoolean);
-            minTimes = 0;
-            result = columns;
-            dstTable.getFullSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getColumn("k1");
-            minTimes = 0;
-            result = columns.get(0);
-            dstTable.getColumn("k2");
-            minTimes = 0;
-            result = columns.get(1);
-            dstTable.getColumn("v1");
-            minTimes = 0;
-            result = columns.get(2);
-            dstTable.getColumn("v2");
-            minTimes = 0;
-            result = columns.get(3);
-        }};
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k3");
@@ -642,29 +653,31 @@ public class StreamLoadScanNodeTest {
             }
         }
 
-        new Expectations() {{
-            dstTable.getBaseSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getBaseSchema(anyBoolean);
-            minTimes = 0;
-            result = columns;
-            dstTable.getFullSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getColumn("k1");
-            minTimes = 0;
-            result = columns.get(0);
-            dstTable.getColumn("k2");
-            minTimes = 0;
-            result = columns.get(1);
-            dstTable.getColumn("v1");
-            minTimes = 0;
-            result = columns.get(2);
-            dstTable.getColumn("v2");
-            minTimes = 0;
-            result = columns.get(3);
-        }};
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
@@ -695,29 +708,31 @@ public class StreamLoadScanNodeTest {
             }
         }
 
-        new Expectations() {{
-            dstTable.getBaseSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getBaseSchema(anyBoolean);
-            minTimes = 0;
-            result = columns;
-            dstTable.getFullSchema();
-            minTimes = 0;
-            result = columns;
-            dstTable.getColumn("k1");
-            minTimes = 0;
-            result = columns.get(0);
-            dstTable.getColumn("k2");
-            minTimes = 0;
-            result = columns.get(1);
-            dstTable.getColumn("v1");
-            minTimes = 0;
-            result = columns.get(2);
-            dstTable.getColumn("v2");
-            minTimes = 0;
-            result = columns.get(3);
-        }};
+        new Expectations() {
+            {
+                dstTable.getBaseSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                minTimes = 0;
+                result = columns;
+                dstTable.getFullSchema();
+                minTimes = 0;
+                result = columns;
+                dstTable.getColumn("k1");
+                minTimes = 0;
+                result = columns.get(0);
+                dstTable.getColumn("k2");
+                minTimes = 0;
+                result = columns.get(1);
+                dstTable.getColumn("v1");
+                minTimes = 0;
+                result = columns.get(2);
+                dstTable.getColumn("v2");
+                minTimes = 0;
+                result = columns.get(3);
+            }
+        };
 
         TStreamLoadPutRequest request = getBaseRequest();
         request.setColumns("k1,k2,v1, v2=k1");
@@ -823,8 +838,10 @@ public class StreamLoadScanNodeTest {
                 dstTable.hasSequenceCol();
                 result = true;
 
-                dstTable.getBaseSchema(anyBoolean); result = columns;
-                dstTable.getFullSchema(); result = columns;
+                dstTable.getBaseSchema(anyBoolean);
+                result = columns;
+                dstTable.getFullSchema();
+                result = columns;
 
                 dstTable.getColumn("k1");
                 result = columns.stream().filter(c -> c.getName().equals("k1")).findFirst().get();

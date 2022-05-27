@@ -36,6 +36,7 @@ public class BetweenPredicateTest {
             betweenPredicate.analyzeImpl(analyzer);
             Assert.fail();
         } catch (AnalysisException e) {
+            // CHECKSTYLE IGNORE THIS LINE
         }
     }
 

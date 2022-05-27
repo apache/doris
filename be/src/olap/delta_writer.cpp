@@ -203,9 +203,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         }
     }
 
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        RETURN_NOT_OK(_flush_memtable_async());
-        _reset_mem_table();
+    if (_mem_table->need_to_agg()) {
+        _mem_table->shrink_memtable_by_agg();
+        if (_mem_table->is_flush()) {
+            RETURN_NOT_OK(_flush_memtable_async());
+            _reset_mem_table();
+        }
     }
 
     return Status::OK();
@@ -291,9 +294,7 @@ Status DeltaWriter::close() {
     return Status::OK();
 }
 
-Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                               google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                               bool is_broken) {
+Status DeltaWriter::close_wait() {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -303,15 +304,7 @@ Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* 
     }
 
     // return error if previous flush failed
-    Status s = _flush_token->wait();
-    if (!s.ok()) {
-#ifndef BE_TEST
-        PTabletError* tablet_error = tablet_errors->Add();
-        tablet_error->set_tablet_id(_tablet->tablet_id());
-        tablet_error->set_msg(s.get_error_msg());
-#endif
-        return s;
-    }
+    RETURN_NOT_OK(_flush_token->wait());
 
     // use rowset meta manager to save meta
     _cur_rowset = _rowset_writer->build();
@@ -326,14 +319,6 @@ Status DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* 
                      << " for rowset: " << _cur_rowset->rowset_id();
         return res;
     }
-
-#ifndef BE_TEST
-    if (!is_broken) {
-        PTabletInfo* tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_tablet->tablet_id());
-        tablet_info->set_schema_hash(_tablet->schema_hash());
-    }
-#endif
 
     _delta_written_success = true;
 

@@ -1378,7 +1378,7 @@ public class SingleNodePlanner {
             rootNode.setWithoutTupleIsNullOutputSmap(outputSmap);
             // Exprs against non-matched rows of an outer join should always return NULL.
             // Make the rhs exprs of the output smap nullable, if necessary. This expr wrapping
-            // must be performed on the composed smap, and not on the the inline view's smap,
+            // must be performed on the composed smap, and not on the inline view's smap,
             // because the rhs exprs must first be resolved against the physical output of
             // 'planRoot' to correctly determine whether wrapping is necessary.
             List<Expr> nullableRhs = TupleIsNullPredicate.wrapExprs(
@@ -1712,6 +1712,9 @@ public class SingleNodePlanner {
                 break;
         }
         if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode) {
+            if (analyzer.enableInferPredicate()) {
+                PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
+            }
             scanNode.setSortColumn(tblRef.getSortColumn());
         }
 

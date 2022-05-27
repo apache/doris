@@ -218,18 +218,18 @@ public class EsNodeInfo {
 
     @Override
     public String toString() {
-        return "EsNodeInfo{" +
-                "id='" + id + '\'' +
-                ", name='" + name + '\'' +
-                ", host='" + host + '\'' +
-                ", ip='" + ip + '\'' +
-                ", publishAddress=" + publishAddress +
-                ", hasHttp=" + hasHttp +
-                ", isClient=" + isClient +
-                ", isData=" + isData +
-                ", isIngest=" + isIngest +
-                ", hasThrift=" + hasThrift +
-                ", thriftAddress=" + thriftAddress +
-                '}';
+        return "EsNodeInfo{"
+                + "id='" + id + '\''
+                + ", name='" + name + '\''
+                + ", host='" + host + '\''
+                + ", ip='" + ip + '\''
+                + ", publishAddress=" + publishAddress
+                + ", hasHttp=" + hasHttp
+                + ", isClient=" + isClient
+                + ", isData=" + isData
+                + ", isIngest=" + isIngest
+                + ", hasThrift=" + hasThrift
+                + ", thriftAddress=" + thriftAddress
+                + '}';
     }
 }

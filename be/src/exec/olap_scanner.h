@@ -60,7 +60,7 @@ public:
 
     virtual Status get_batch(RuntimeState* state, RowBatch* batch, bool* eof);
 
-    Status close(RuntimeState* state);
+    virtual Status close(RuntimeState* state);
 
     RuntimeState* runtime_state() { return _runtime_state; }
 
