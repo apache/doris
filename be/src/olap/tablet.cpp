@@ -241,8 +241,7 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
 }
 
 Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
-                              std::vector<RowsetSharedPtr>& to_delete,
-                              bool check_delete) {
+                              std::vector<RowsetSharedPtr>& to_delete, bool check_delete) {
     // the compaction process allow to compact the single version, eg: version[4-4].
     // this kind of "single version compaction" has same "input version" and "output version".
     // which means "to_add->version()" equals to "to_delete->version()".
@@ -277,10 +276,9 @@ Status Tablet::modify_rowsets(std::vector<RowsetSharedPtr>& to_add,
                              << full_name();
                 return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
             } else if (find_rs->second->rowset_id() != rs->rowset_id()) {
-                LOG(WARNING) << "try to delete version " << rs->version() << " from "
-                             << full_name() << ", but rowset id changed, delete rowset id is "
-                             << rs->rowset_id() << ", exists rowsetid is"
-                             << find_rs->second->rowset_id();
+                LOG(WARNING) << "try to delete version " << rs->version() << " from " << full_name()
+                             << ", but rowset id changed, delete rowset id is " << rs->rowset_id()
+                             << ", exists rowsetid is" << find_rs->second->rowset_id();
                 return Status::OLAPInternalError(OLAP_ERR_DELETE_VERSION_ERROR);
             }
         }
@@ -832,10 +830,8 @@ void Tablet::max_continuous_version_from_beginning(Version* version, Version* ma
     _max_continuous_version_from_beginning_unlocked(version, max_version, &has_version_cross);
 }
 
-void Tablet::_max_continuous_version_from_beginning_unlocked(
-        Version* version,
-        Version* max_version,
-        bool* has_version_cross) const {
+void Tablet::_max_continuous_version_from_beginning_unlocked(Version* version, Version* max_version,
+                                                             bool* has_version_cross) const {
     std::vector<Version> existing_versions;
     *has_version_cross = false;
     for (auto& rs : _tablet_meta->all_rs_metas()) {

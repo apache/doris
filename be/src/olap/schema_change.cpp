@@ -1484,7 +1484,7 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             new_tablet->acquire_version_and_rowsets(&version_rowsets);
             std::sort(version_rowsets.begin(), version_rowsets.end(),
                       [](const std::pair<Version, RowsetSharedPtr>& l,
-                                const std::pair<Version, RowsetSharedPtr>& r) {
+                         const std::pair<Version, RowsetSharedPtr>& r) {
                           return l.first.first < r.first.first;
                       });
             for (auto& pair : version_rowsets) {
@@ -1496,7 +1496,8 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     // cross: [X-10] [10-12].
                     // So, we should return OLAP_ERR_VERSION_ALREADY_MERGED for fast fail.
                     LOG(WARNING) << "New tablet has a version " << pair.first
-                                 << " crossing base tablet's max_version=" << max_rowset->end_version();
+                                 << " crossing base tablet's max_version="
+                                 << max_rowset->end_version();
                     Status::OLAPInternalError(OLAP_ERR_VERSION_ALREADY_MERGED);
                 }
             }
@@ -1751,7 +1752,8 @@ SCHEMA_VERSION_CONVERT_ERR:
 }
 
 Status SchemaChangeHandler::_get_versions_to_be_changed(
-        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed, RowsetSharedPtr* max_rowset) {
+        TabletSharedPtr base_tablet, std::vector<Version>* versions_to_be_changed,
+        RowsetSharedPtr* max_rowset) {
     RowsetSharedPtr rowset = base_tablet->rowset_with_max_version();
     if (rowset == nullptr) {
         LOG(WARNING) << "Tablet has no version. base_tablet=" << base_tablet->full_name();
@@ -1760,7 +1762,7 @@ Status SchemaChangeHandler::_get_versions_to_be_changed(
     *max_rowset = rowset;
 
     RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second),
-                          versions_to_be_changed));
+                                                              versions_to_be_changed));
 
     return Status::OK();
 }
