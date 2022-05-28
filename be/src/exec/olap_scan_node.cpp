@@ -143,6 +143,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
     _index_load_timer = ADD_TIMER(_segment_profile, "IndexLoadTime_V1");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScanTime");
+    _eval_conjuctx_timer = ADD_TIMER(_scanner_profile, "EvalConjuctxTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScanCpuTime");
 
     _total_pages_num_counter = ADD_COUNTER(_segment_profile, "TotalPagesNum", TUnit::UNIT);
@@ -180,6 +181,8 @@ Status OlapScanNode::prepare(RuntimeState* state) {
     // create scanner profile
     // create timer
     _tablet_counter = ADD_COUNTER(runtime_profile(), "TabletCount ", TUnit::UNIT);
+    _scanner_sched_counter = ADD_COUNTER(runtime_profile(), "ScannerSchedCount ", TUnit::UNIT);
+
     _rows_pushed_cond_filtered_counter =
             ADD_COUNTER(_scanner_profile, "RowsPushedCondFiltered", TUnit::UNIT);
     _init_counter(state);
@@ -689,11 +692,11 @@ Status OlapScanNode::build_scan_key() {
     return Status::OK();
 }
 
-static Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
-                        int block_row_count, bool is_begin_include, bool is_end_include,
-                        const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
-                        std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
-                        RuntimeProfile* profile) {
+Status OlapScanNode::get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range,
+                               int block_row_count, bool is_begin_include, bool is_end_include,
+                               const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                               std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                               RuntimeProfile* profile) {
     RuntimeProfile::Counter* show_hints_timer = profile->get_counter("ShowHintsTime_V1");
     std::vector<std::vector<OlapTuple>> ranges;
     bool have_valid_range = false;
@@ -1527,6 +1530,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
+    COUNTER_UPDATE(_scanner_sched_counter, 1);
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;
@@ -1544,6 +1548,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
     ThreadCpuStopWatch cpu_watch;
     cpu_watch.start();
+
+    scanner->start_scan_working_timer();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
@@ -1674,7 +1680,8 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         }
     }
 
-    _scan_cpu_timer->update(cpu_watch.elapsed_time());
+    //_scan_cpu_timer->update(cpu_watch.elapsed_time());
+    _scan_cpu_timer->update(scanner->update_scan_working_timer());
     _scanner_wait_worker_timer->update(wait_time);
 
     // The transfer thead will wait for `_running_thread==0`, to make sure all scanner threads won't access class members.

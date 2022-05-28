@@ -142,11 +142,25 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
+    COUNTER_UPDATE(_scanner_sched_counter, 1);
+    Thread::set_self_name("volap_scanner");
+    if (UNLIKELY(_transfer_done)) {
+        _scanner_done = true;
+        std::unique_lock<std::mutex> l(_scan_blocks_lock);
+        _running_thread--;
+        // We need to make sure the scanner is closed because the query has been closed or cancelled.
+        scanner->close(scanner->runtime_state());
+        _scan_block_added_cv.notify_one();
+        _scan_thread_exit_cv.notify_one();
+        LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
+        return;
+    }
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
-    ThreadCpuStopWatch cpu_watch;
-    cpu_watch.start();
+    //ThreadCpuStopWatch cpu_watch;
+    scanner->start_scan_working_timer();
+    //cpu_watch.start();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
@@ -200,9 +214,10 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     bool get_free_block = true;
+    int number_rows_in_block = 0;
 
-    while (!eos && raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
-           get_free_block) {
+    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold) ||
+                    number_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -221,8 +236,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        raw_bytes_read += block->allocated_bytes();
-
+        //raw_bytes_read += block->allocated_bytes();
+        number_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);
@@ -281,7 +296,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             _scanner_done = true;
         }
     }
-    _scan_cpu_timer->update(cpu_watch.elapsed_time());
+    //_scan_cpu_timer->update(cpu_watch.elapsed_time());
+    _scan_cpu_timer->update(scanner->update_scan_working_timer());
     _scanner_wait_worker_timer->update(wait_time);
 
     std::unique_lock<std::mutex> l(_scan_blocks_lock);
@@ -329,6 +345,12 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
     if (cond_ranges.empty()) {
         cond_ranges.emplace_back(new OlapScanRange());
     }
+    bool need_split = true;
+    // If we have ranges more than 64, there is no need to call
+    // ShowHint to split ranges
+    if (limit() != -1 || cond_ranges.size() > 64) {
+        need_split = false;
+    }
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
     std::unordered_set<std::string> disk_set;
@@ -344,6 +366,16 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
             return Status::InternalError(ss.str());
         }
 
+        std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
+        std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
+        if (need_split && !tablet->all_beta()) {
+            auto st = get_hints(tablet, *scan_range, config::doris_scan_range_row_count,
+                                _scan_keys.begin_include(), _scan_keys.end_include(), cond_ranges,
+                                &split_ranges, _runtime_profile.get());
+            if (st.ok()) {
+                ranges = &split_ranges;
+            }
+        }
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
@@ -352,17 +384,17 @@ Status VOlapScanNode::start_scan_thread(RuntimeState* state) {
         }
 
         int ranges_per_scanner =
-                std::max(1, (int)cond_ranges.size() /
+                std::max(1, (int)ranges->size() /
                                     std::min(scanners_per_tablet, size_based_scanners_per_tablet));
-        int num_ranges = cond_ranges.size();
+        int num_ranges = ranges->size();
         for (int i = 0; i < num_ranges;) {
             std::vector<OlapScanRange*> scanner_ranges;
-            scanner_ranges.push_back(cond_ranges[i].get());
+            scanner_ranges.push_back((*ranges)[i].get());
             ++i;
             for (int j = 1; i < num_ranges && j < ranges_per_scanner &&
-                            cond_ranges[i]->end_include == cond_ranges[i - 1]->end_include;
+                            (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
                  ++j, ++i) {
-                scanner_ranges.push_back(cond_ranges[i].get());
+                scanner_ranges.push_back((*ranges)[i].get());
             }
             VOlapScanner* scanner =
                     new VOlapScanner(state, this, _olap_scan_node.is_preaggregation,
@@ -554,8 +586,11 @@ Block* VOlapScanNode::_alloc_block(bool& get_free_block) {
 int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per_scanner) {
     std::list<VOlapScanner*> olap_scanners;
     int assigned_thread_num = _running_thread;
-    size_t max_thread = std::min(_volap_scanners.size(),
-                                 static_cast<size_t>(config::doris_scanner_thread_pool_thread_num));
+    size_t max_thread = config::doris_scanner_queue_size;
+    if (config::doris_scanner_row_num > state->batch_size()) {
+        max_thread /= config::doris_scanner_row_num / state->batch_size();
+        if (max_thread <= 0) max_thread = 1;
+    }
     // copy to local
     {
         // How many thread can apply to this query
@@ -563,9 +598,9 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         {
             if (_scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 std::lock_guard<std::mutex> l(_free_blocks_lock);
-                thread_slot_num = _free_blocks.size() / block_per_scanner;
-                thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
-                thread_slot_num = std::min(thread_slot_num, max_thread - assigned_thread_num);
+                // thread_slot_num = _free_blocks.size() / block_per_scanner;
+                // thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
+                thread_slot_num = max_thread - assigned_thread_num;
                 if (thread_slot_num <= 0) {
                     thread_slot_num = 1;
                 }

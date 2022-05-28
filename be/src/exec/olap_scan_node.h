@@ -58,6 +58,11 @@ public:
     Status close(RuntimeState* state) override;
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
     void set_no_agg_finalize() { _need_agg_finalize = false; }
+    Status get_hints(TabletSharedPtr table, const TPaloScanRange& scan_range, int block_row_count,
+                     bool is_begin_include, bool is_end_include,
+                     const std::vector<std::unique_ptr<OlapScanRange>>& scan_key_range,
+                     std::vector<std::unique_ptr<OlapScanRange>>* sub_scan_range,
+                     RuntimeProfile* profile);
 
 protected:
     struct HeapType {
@@ -242,11 +247,12 @@ protected:
     RuntimeState* _runtime_state;
 
     RuntimeProfile::Counter* _scan_timer;
+    RuntimeProfile::Counter* _eval_conjuctx_timer;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _reader_init_timer = nullptr;
-
+    RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     TResourceInfo* _resource_info;
 
     int64_t _buffered_bytes;

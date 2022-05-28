@@ -84,6 +84,13 @@ public:
 
     int64_t update_wait_worker_timer() const { return _watcher.elapsed_time(); }
 
+    void start_scan_working_timer() {
+        _scan_working_watcher.reset();
+        _scan_working_watcher.start();
+    }
+
+    int64_t update_scan_working_timer() const { return _scan_working_watcher.elapsed_time(); }
+
     void set_use_pushdown_conjuncts(bool has_pushdown_conjuncts) {
         _use_pushdown_conjuncts = has_pushdown_conjuncts;
     }
@@ -149,6 +156,8 @@ protected:
     bool _is_closed = false;
 
     MonotonicStopWatch _watcher;
+
+    MonotonicStopWatch _scan_working_watcher;
 
     std::shared_ptr<MemTracker> _mem_tracker;
 };
