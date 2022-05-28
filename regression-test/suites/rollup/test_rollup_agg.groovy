@@ -38,7 +38,7 @@ suite("test_rollup_agg", "rollup") {
     sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     qt_sql "DESC ${tbName} ALL;"
     sql "insert into ${tbName} values(1, 1, 'test1', 100,100);"
-    sql "insert into ${tbName} values(1, 1, 'test1', 100,100);"
+    sql "insert into ${tbName} values(2, 1, 'test2', 100,100);"
     qt_sql "EXPLAIN SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_city"
     sql "DROP TABLE ${tbName}"

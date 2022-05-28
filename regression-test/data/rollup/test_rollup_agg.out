@@ -53,7 +53,7 @@ PLAN FRAGMENT 2
      partitions=1/1
      rollup: rollup_city
      tabletRatio=5/5
-     tabletList=15662,15664,15666,15668,15670
+     tabletList=15690,15692,15694,15696,15698
      cardinality=0
      avgRowSize=10.0
      numNodes=1
