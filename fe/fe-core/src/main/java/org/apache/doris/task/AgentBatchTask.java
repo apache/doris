@@ -64,7 +64,7 @@ public class AgentBatchTask implements Runnable {
     private Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
-         backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+        backendIdToTasks = new HashMap<Long, List<AgentTask>>();
     }
 
     public AgentBatchTask(AgentTask singleTask) {
@@ -89,8 +89,8 @@ public class AgentBatchTask implements Runnable {
 
     public List<AgentTask> getAllTasks() {
         List<AgentTask> tasks = new LinkedList<AgentTask>();
-        for (Long backendId :  backendIdToTasks.keySet()) {
-            tasks.addAll( backendIdToTasks.get(backendId));
+        for (Long backendId : backendIdToTasks.keySet()) {
+            tasks.addAll(backendIdToTasks.get(backendId));
         }
         return tasks;
     }
