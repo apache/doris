@@ -326,8 +326,6 @@ Status OlapScanner::get_batch(RuntimeState* state, RowBatch* batch, bool* eof) {
             if (UNLIKELY(*eof)) {
                 break;
             }
-
-            SCOPED_TIMER(_parent->_eval_conjuctx_timer);
             _num_rows_read++;
 
             _convert_row_to_tuple(tuple);

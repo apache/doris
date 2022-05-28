@@ -247,7 +247,6 @@ protected:
     RuntimeState* _runtime_state;
 
     RuntimeProfile::Counter* _scan_timer;
-    RuntimeProfile::Counter* _eval_conjuctx_timer;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
     RuntimeProfile::Counter* _tablet_counter;
     RuntimeProfile::Counter* _rows_pushed_cond_filtered_counter = nullptr;

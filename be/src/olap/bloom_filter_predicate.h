@@ -70,6 +70,9 @@ public:
 private:
     std::shared_ptr<IBloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
+    mutable uint64_t _evaluated_rows = 1;
+    mutable uint64_t _passed_rows = 0;
+    mutable bool _enable_pred = true;
 };
 
 // bloom filter column predicate do not support in segment v1
@@ -165,7 +168,7 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
     // useless.
     _evaluated_rows += *size;
     _passed_rows += new_size;
-    if (_evaluated_rows > 100) {
+    if (_evaluated_rows > config::bloom_filter_predicate_check_row_num) {
         if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
             _enable_pred = false;
         }
