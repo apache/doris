@@ -84,7 +84,7 @@ check_prerequest() {
     fi
 }
 
-check_prerequest "mysql --version" "mysql"
+check_prerequest "mysqlslap --version" "mysqlslap"
 
 source $CURDIR/doris-cluster.conf
 export MYSQL_PWD=$PASSWORD
@@ -109,13 +109,7 @@ pre_set "show variables"
 echo '============================================'
 
 for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
-    total=0
-    # Each query is executed three times and takes the average time
-    for j in $(seq 1 3); do
-        start=$(date +%s%3N)
-        mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q${i}.sql >/dev/null
-        end=$(date +%s%3N)
-        total=$((total + end - start))
-    done
-    echo "q$i: $((total / 3))ms"
+    # Each query is executed 3 times and takes the average time
+    res=$(mysqlslap -h$FE_HOST -u$USER -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
+    echo "q$i: $res"
 done

@@ -30,7 +30,6 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-SSB_DATA_DIR=$CURDIR/ssb-data/
 
 usage() {
     echo "
@@ -185,6 +184,7 @@ run_sql "set global query_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
 
 echo '============================================'
+echo $(date)
 load_lineitem_flat
 
 echo '============================================'
@@ -193,4 +193,5 @@ run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 
 echo '============================================'
+echo $(date)
 echo "DONE."
