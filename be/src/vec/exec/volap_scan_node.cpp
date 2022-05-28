@@ -158,9 +158,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
-    //ThreadCpuStopWatch cpu_watch;
-    scanner->start_scan_working_timer();
-    //cpu_watch.start();
+    ThreadCpuStopWatch cpu_watch;
+    cpu_watch.start();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
@@ -296,8 +295,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             _scanner_done = true;
         }
     }
-    //_scan_cpu_timer->update(cpu_watch.elapsed_time());
-    _scan_cpu_timer->update(scanner->update_scan_working_timer());
+    _scan_cpu_timer->update(cpu_watch.elapsed_time());
     _scanner_wait_worker_timer->update(wait_time);
 
     std::unique_lock<std::mutex> l(_scan_blocks_lock);
@@ -598,9 +596,9 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         {
             if (_scan_row_batches_bytes < _max_scanner_queue_size_bytes / 2) {
                 std::lock_guard<std::mutex> l(_free_blocks_lock);
-                // thread_slot_num = _free_blocks.size() / block_per_scanner;
-                // thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
-                thread_slot_num = max_thread - assigned_thread_num;
+                thread_slot_num = _free_blocks.size() / block_per_scanner;
+                thread_slot_num += (_free_blocks.size() % block_per_scanner != 0);
+                thread_slot_num = std::min(thread_slot_num, max_thread - assigned_thread_num);
                 if (thread_slot_num <= 0) {
                     thread_slot_num = 1;
                 }

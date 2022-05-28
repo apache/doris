@@ -806,7 +806,6 @@ void SegmentIterator::_init_current_block(
             current_columns[cid]->clear();
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
-            current_columns[cid]->clear();
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {

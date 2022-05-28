@@ -1548,8 +1548,6 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
     ThreadCpuStopWatch cpu_watch;
     cpu_watch.start();
-
-    scanner->start_scan_working_timer();
     Status status = Status::OK();
     bool eos = false;
     RuntimeState* state = scanner->runtime_state();
@@ -1680,8 +1678,7 @@ void OlapScanNode::scanner_thread(OlapScanner* scanner) {
         }
     }
 
-    //_scan_cpu_timer->update(cpu_watch.elapsed_time());
-    _scan_cpu_timer->update(scanner->update_scan_working_timer());
+    _scan_cpu_timer->update(cpu_watch.elapsed_time());
     _scanner_wait_worker_timer->update(wait_time);
 
     // The transfer thead will wait for `_running_thread==0`, to make sure all scanner threads won't access class members.
