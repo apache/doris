@@ -70,22 +70,22 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
         break;
     case OLAP_FIELD_TYPE_DECIMAL:
         if (config::enable_execution_decimalv3) {
-            nested = vectorized::create_decimal(col_desc.precision(), col_desc.frac());
+            nested = vectorized::create_decimal(col_desc.get_precision(), col_desc.get_scale());
         } else {
             nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         }
         break;
     case OLAP_FIELD_TYPE_DECIMAL32:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal32>>(
-                col_desc.precision(), col_desc.frac());
+                col_desc.get_precision(), col_desc.get_scale());
         break;
     case OLAP_FIELD_TYPE_DECIMAL64:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal64>>(
-                col_desc.precision(), col_desc.frac());
+                col_desc.get_precision(), col_desc.get_scale());
         break;
     case OLAP_FIELD_TYPE_DECIMAL128:
         nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(
-                col_desc.precision(), col_desc.frac());
+                col_desc.get_precision(), col_desc.get_scale());
         break;
     case OLAP_FIELD_TYPE_ARRAY:
         DCHECK(col_desc.get_sub_field_count() == 1);

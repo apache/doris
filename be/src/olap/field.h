@@ -299,9 +299,9 @@ public:
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
     void set_precision(int32_t precision) { _precision = precision; }
-    void set_frac(int32_t frac) { _frac = frac; }
-    int32_t precision() const { return _precision; }
-    int32_t frac() const { return _frac; }
+    void set_scale(int32_t scale) { _scale = scale; }
+    int32_t get_precision() const { return _precision; }
+    int32_t get_scale() const { return _scale; }
 
 protected:
     TypeInfoPtr _type_info;
@@ -346,7 +346,7 @@ private:
     bool _is_nullable;
     std::vector<std::unique_ptr<Field>> _sub_fields;
     int32_t _precision;
-    int32_t _frac;
+    int32_t _scale;
 };
 
 template <typename LhsCellType, typename RhsCellType>
@@ -754,7 +754,7 @@ public:
             case OLAP_FIELD_TYPE_DECIMAL128: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
-                field->set_frac(column.frac());
+                field->set_scale(column.frac());
                 return field;
             }
             default:
@@ -792,7 +792,7 @@ public:
             case OLAP_FIELD_TYPE_DECIMAL128: {
                 Field* field = new Field(column);
                 field->set_precision(column.precision());
-                field->set_frac(column.frac());
+                field->set_scale(column.frac());
                 return field;
             }
             default:
