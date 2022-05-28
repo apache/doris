@@ -51,7 +51,7 @@ if [[ -d $TPCH_DBGEN_DIR ]]; then
     echo "If you want to download TPC-H_Tools_v3.0.0 again, please delete this dir first."
 else
     wget "https://tools-chengdu.oss-cn-chengdu.aliyuncs.com/TPC-H_Tools_v3.0.0.zip"
-    
+
     unzip TPC-H_Tools_v3.0.0.zip -d $CURDIR/
 fi
 
@@ -66,7 +66,7 @@ echo '
 #define SET_ROWCOUNT "limit %d;\n"
 #define SET_DBASE "use %s;\n"
 #endif
-' >> tpcd.h
+' >>tpcd.h
 
 # modify makefile
 cp makefile.suite makefile
@@ -76,7 +76,7 @@ sed -i 's/^MACHINE =/MACHINE = LINUX/g' makefile
 sed -i 's/^WORKLOAD =/WORKLOAD = TPCH/g' makefile
 
 # compile tpch-dbgen
-make > /dev/null
+make >/dev/null
 cd -
 
 # check

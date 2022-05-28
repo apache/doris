@@ -14,15 +14,16 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
-
-SELECT c_city, s_city, d_year, sum(lo_revenue)
-AS  REVENUE
-FROM customer, lineorder, supplier, date
-WHERE  lo_custkey = c_custkey
-AND lo_suppkey = s_suppkey
-AND lo_orderdate = d_datekey
-AND c_nation = 'UNITED STATES'
-AND s_nation = 'UNITED STATES'
-AND d_year >= 1992 AND d_year <= 1997
-GROUP BY c_city, s_city, d_year
-ORDER BY d_year ASC,  REVENUE DESC;
+--Q3.4
+SELECT
+    C_CITY,
+    S_CITY, (LO_ORDERDATE DIV 10000) AS YEAR,
+    SUM(LO_REVENUE) AS revenue
+FROM lineorder_flat
+WHERE
+    C_CITY IN ('UNITED KI1', 'UNITED KI5')
+    AND S_CITY IN ('UNITED KI1', 'UNITED KI5')
+    AND LO_ORDERDATE >= 19971201
+    AND LO_ORDERDATE <= 19971231
+GROUP BY C_CITY, S_CITY, YEAR
+ORDER BY YEAR ASC, revenue DESC;

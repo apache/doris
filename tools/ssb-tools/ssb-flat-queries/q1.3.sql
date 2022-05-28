@@ -14,17 +14,12 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
-
-SELECT c_city, s_city, d_year, SUM(lo_revenue)
-AS  REVENUE
-FROM customer, lineorder, supplier, date
-WHERE lo_custkey = c_custkey
-AND lo_suppkey = s_suppkey
-AND lo_orderdate = d_datekey
-AND  (c_city='UNITED KI1'
-OR c_city='UNITED KI5')
-AND (s_city='UNITED KI1'
-OR s_city='UNITED KI5')
-AND d_yearmonth = 'Dec1997'
-GROUP BY c_city, s_city, d_year
-ORDER BY d_year ASC,  REVENUE DESC;
+--Q1.3
+SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
+FROM lineorder_flat
+WHERE
+    weekofyear(LO_ORDERDATE) = 6
+    AND LO_ORDERDATE >= 19940101
+    AND LO_ORDERDATE <= 19941231
+    AND LO_DISCOUNT BETWEEN 5 AND 7
+    AND LO_QUANTITY BETWEEN 26 AND 35;

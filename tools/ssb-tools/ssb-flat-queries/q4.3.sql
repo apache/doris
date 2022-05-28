@@ -14,15 +14,16 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
-
-SELECT c_nation, s_nation, d_year,
-SUM(lo_revenue)  AS  REVENUE
-FROM customer, lineorder, supplier, date
-WHERE lo_custkey = c_custkey
-AND lo_suppkey = s_suppkey
-AND lo_orderdate = d_datekey
-AND c_region = 'ASIA'
-AND s_region = 'ASIA'
-AND d_year >= 1992 AND d_year <= 1997
-GROUP BY c_nation, s_nation, d_year
-ORDER BY d_year ASC,  REVENUE DESC;
+--Q4.3
+SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    S_CITY,
+    P_BRAND,
+    SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
+FROM lineorder_flat
+WHERE
+    S_NATION = 'UNITED STATES'
+    AND LO_ORDERDATE >= 19970101
+    AND LO_ORDERDATE <= 19981231
+    AND P_CATEGORY = 'MFGR#14'
+GROUP BY YEAR, S_CITY, P_BRAND
+ORDER BY YEAR ASC, S_CITY ASC, P_BRAND ASC;
