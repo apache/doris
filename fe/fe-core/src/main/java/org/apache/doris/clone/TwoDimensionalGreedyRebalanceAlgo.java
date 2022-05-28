@@ -59,10 +59,10 @@ public class TwoDimensionalGreedyRebalanceAlgo {
         Long toBe;
 
         PartitionMove(Long p, Long i, Long f, Long t) {
-            this.partitionId = p;
-            this.indexId = i;
-            this.fromBe = f;
-            this.toBe = t;
+            partitionId = p;
+            indexId = i;
+            fromBe = f;
+            toBe = t;
         }
 
         @Override
