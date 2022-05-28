@@ -47,11 +47,11 @@ void faststring::GrowArray(size_t newcapacity) {
         }
     }
     capacity_ = newcapacity;
-    data_ = newdata;
     if (data_ == initial_data_) {
         ASAN_POISON_MEMORY_REGION(initial_data_, arraysize(initial_data_));
     }
-    ASAN_POISON_MEMORY_REGION(data_ + len_, capacity_ - len_);
+    data_ = newdata;
+    ASAN_POISON_MEMORY_REGION(data_, capacity_);
 }
 
 void faststring::ShrinkToFitInternal() {

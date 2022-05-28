@@ -272,7 +272,7 @@ public:
         return *this;
     }
 
-    ~OwnedSlice() { delete[] _slice.data; }
+    ~OwnedSlice() { free(_slice.data); }
 
     const Slice& slice() const { return _slice; }
 
