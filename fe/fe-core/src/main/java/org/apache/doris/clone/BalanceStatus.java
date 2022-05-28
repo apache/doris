@@ -56,7 +56,7 @@ public class BalanceStatus {
     }
 
     public void addErrMsg(String errMsg) {
-        this.errMsgs.add(errMsg);
+        errMsgs.add(errMsg);
     }
 
     public boolean ok() {

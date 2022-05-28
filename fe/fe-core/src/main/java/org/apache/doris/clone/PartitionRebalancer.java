@@ -315,9 +315,9 @@ public class PartitionRebalancer extends Rebalancer {
         Long toBe;
 
         TabletMove(Long id, Long from, Long to) {
-            this.tabletId = id;
-            this.fromBe = from;
-            this.toBe = to;
+            tabletId = id;
+            fromBe = from;
+            toBe = to;
         }
 
         @Override
