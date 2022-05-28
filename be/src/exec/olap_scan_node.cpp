@@ -1448,6 +1448,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                         std::bind(&OlapScanNode::scanner_thread, this, *iter));
                 if (s.ok()) {
                     (*iter)->start_wait_worker_timer();
+                    COUNTER_UPDATE(_scanner_sched_counter, 1);
                     olap_scanners.erase(iter++);
                 } else {
                     LOG(FATAL) << "Failed to assign scanner task to thread pool! "
@@ -1462,6 +1463,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
                 task.priority = _nice;
                 task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
                 (*iter)->start_wait_worker_timer();
+                COUNTER_UPDATE(_scanner_sched_counter, 1);
                 if (thread_pool->offer(task)) {
                     olap_scanners.erase(iter++);
                 } else {
@@ -1529,7 +1531,6 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
 void OlapScanNode::scanner_thread(OlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
-    COUNTER_UPDATE(_scanner_sched_counter, 1);
     Thread::set_self_name("olap_scanner");
     if (UNLIKELY(_transfer_done)) {
         _scanner_done = true;

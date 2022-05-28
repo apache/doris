@@ -142,7 +142,6 @@ void VOlapScanNode::transfer_thread(RuntimeState* state) {
 void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     SCOPED_ATTACH_TASK_THREAD(_runtime_state, mem_tracker());
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
-    COUNTER_UPDATE(_scanner_sched_counter, 1);
     Thread::set_self_name("volap_scanner");
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
@@ -634,6 +633,7 @@ int VOlapScanNode::_start_scanner_thread_task(RuntimeState* state, int block_per
         task.priority = _nice;
         task.queue_id = state->exec_env()->store_path_to_index((*iter)->scan_disk());
         (*iter)->start_wait_worker_timer();
+        COUNTER_UPDATE(_scanner_sched_counter, 1);
         if (thread_pool->offer(task)) {
             olap_scanners.erase(iter++);
         } else {
