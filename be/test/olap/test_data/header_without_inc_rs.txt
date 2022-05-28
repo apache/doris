@@ -53,7 +53,8 @@
         "delete_sign_idx": -1,
         "sequence_col_idx": -1,
         "sort_type": "LEXICAL",
-        "sort_col_num": 0
+        "sort_col_num": 0,
+        "compression_type": "LZ4F"
     },
     "rs_metas": [
         {
