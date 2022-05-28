@@ -79,7 +79,7 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     _children[0]->execute(context, block, &column_id);
 
     size_t const_param_id = VExpr::insert_param(
-            block, {_cast_param, _cast_param_data_type, _target_data_type_name});
+            block, {_cast_param, _cast_param_data_type, _target_data_type_name}, block->rows());
 
     // call function
     size_t num_columns_without_result = block->columns();

@@ -123,7 +123,8 @@ void VLiteral::init(const TExprNode& node) {
 }
 
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
-    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name});
+    *result_column_id = VExpr::insert_param(block, {_column_ptr, _data_type, _expr_name},
+                                            std::max(block->rows(), size_t(1)));
     return Status::OK();
 }
 } // namespace doris::vectorized

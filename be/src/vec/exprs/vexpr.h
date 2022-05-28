@@ -35,9 +35,9 @@ class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows()
     // and return param column index
-    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem) {
+    static size_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
         // usualy elem.column always is const column, so we just clone it.
-        elem.column = elem.column->clone_resized(std::max(block->rows(), size_t(1)));
+        elem.column = elem.column->clone_resized(size);
         block->insert(std::move(elem));
         return block->columns() - 1;
     }
