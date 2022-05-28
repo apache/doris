@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to create TPC-H tables
+# This script is used to create ssb flat table
 ##############################################################
 
 set -eo pipefail
@@ -29,10 +29,11 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
+DDL="${CURDIR}/ddl/create-ssb-flat-table.sql"
 
 usage() {
   echo "
-This script is used to create TPC-H tables, 
+This script is used to create ssb flat table, 
 will use mysql client to connect Doris server which is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -42,6 +43,7 @@ Usage: $0
 OPTS=$(getopt \
   -n $0 \
   -o '' \
+  -o 'h' \
   -- "$@")
 
 eval set -- "$OPTS"
@@ -95,5 +97,5 @@ echo "DB: $DB"
 
 mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
 
-echo "Run SQLs from $CURDIR/create-tpch-tables.sql"
-mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/create-tpch-tables.sql
+echo "Run DDL from ${DDL}"
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <${DDL}

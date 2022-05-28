@@ -14,11 +14,11 @@
 -- KIND, either express or implied.  See the License for the
 -- specific language governing permissions and limitations
 -- under the License.
-
-SELECT SUM(lo_extendedprice*lo_discount) AS
-REVENUE
-FROM  lineorder, date
-WHERE  lo_orderdate = d_datekey
-AND d_yearmonth = 'Jan1994'
-AND lo_discount BETWEEN 4 AND 6
-AND lo_quantity BETWEEN 26 AND 35;
+--Q2.1
+SELECT
+    SUM(LO_REVENUE), (LO_ORDERDATE DIV 10000) AS YEAR,
+    P_BRAND
+FROM lineorder_flat
+WHERE P_CATEGORY = 'MFGR#12' AND S_REGION = 'AMERICA'
+GROUP BY YEAR, P_BRAND
+ORDER BY YEAR, P_BRAND;

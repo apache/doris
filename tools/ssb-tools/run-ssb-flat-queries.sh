@@ -17,7 +17,7 @@
 # under the License.
 
 ##############################################################
-# This script is used to run TPC-H queries
+# This script is used to create ssb flat queries
 ##############################################################
 
 set -eo pipefail
@@ -29,11 +29,11 @@ ROOT=$(
 )
 
 CURDIR=${ROOT}
-QUERIES_DIR=$CURDIR/queries
+QUERIES_DIR=$CURDIR/ssb-flat-queries
 
 usage() {
     echo "
-This script is used to run TPC-H 22queries, 
+This script is used to run SSB flat 13queries, 
 will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
 Usage: $0 
   "
@@ -101,17 +101,19 @@ pre_set() {
 }
 
 pre_set "set global enable_vectorized_engine=1;"
-pre_set "set global parallel_fragment_exec_instance_num=8;"
-pre_set "set global exec_mem_limit=48G;"
+pre_set "set global parallel_fragment_exec_instance_num=1;"
+pre_set "set global exec_mem_limit=8G;"
 pre_set "set global batch_size=4096;"
-# pre_set "show variables like 'batch_size';"
+echo '============================================'
+pre_set "show variables"
+echo '============================================'
 
-for i in $(seq 1 22); do
+for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2' '4.3'; do
     total=0
     # Each query is executed three times and takes the average time
     for j in $(seq 1 3); do
         start=$(date +%s%3N)
-        mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q$i.sql >/dev/null
+        mysql -h$FE_HOST -u $USER -P$FE_QUERY_PORT -D$DB <$QUERIES_DIR/q${i}.sql >/dev/null
         end=$(date +%s%3N)
         total=$((total + end - start))
     done
