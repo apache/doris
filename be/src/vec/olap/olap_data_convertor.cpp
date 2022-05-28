@@ -571,7 +571,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorDateTime::convert_to_olap(
     return Status::OK();
 }
 
-template<typename T>
+template <typename T>
 Status OlapBlockDataConvertor::OlapColumnDataConvertorDecimal<T>::convert_to_olap() {
     assert(_typed_column.column);
     const vectorized::ColumnDecimal<T>* column_decimal = nullptr;

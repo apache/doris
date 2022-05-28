@@ -475,7 +475,7 @@ private:
             if constexpr (OpTraits::can_overflow && check_overflow) {
                 NativeResultType res;
                 if (Op::template apply<NativeResultType>(a, b, res)) {
-                    LOG(FATAL) << "Decimal math overflow";
+                    LOG(WARNING) << "Decimal math overflow";
                 }
                 return res;
             } else {
@@ -528,7 +528,7 @@ private:
                 }
 
                 if (overflow) {
-                    LOG(FATAL) << "Decimal math overflow";
+                    LOG(WARNING) << "Decimal math overflow";
                 }
             } else {
                 if constexpr (scale_left) {
@@ -553,7 +553,7 @@ private:
                 }
                 overflow |= common::mul_overflow(a, scale, a);
                 if (overflow) {
-                    LOG(FATAL) << "Decimal math overflow";
+                    LOG(WARNING) << "Decimal math overflow";
                 }
             } else {
                 if constexpr (!IsDecimalNumber<A>) {
@@ -578,7 +578,7 @@ private:
                     overflow |= common::mul_overflow(b, scale, b);
 
                 if (overflow) {
-                    LOG(FATAL) << "Decimal math overflow";
+                    LOG(WARNING) << "Decimal math overflow";
                 }
             } else {
                 if constexpr (scale_left)
