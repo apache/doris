@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_update_unique", "update") {
-    def tbName = "test_update"
+    def tbName = "test_update_unique"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName} (
@@ -28,9 +28,11 @@ suite("test_update_unique", "update") {
             UNIQUE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "insert into ${tbName} values(1, 1, 1, '2000-01-01')"
+    sql "insert into ${tbName} values(1, 1, 1, '2000-01-01');"
+    sql "insert into ${tbName} values(2, 1, 1, '2000-01-01');"
     sql "UPDATE ${tbName} SET value1 = 2 WHERE k=1;"
-    qt_select_uniq_table "select * from ${tbName}"
+    sql "UPDATE ${tbName} SET value1 = value1+1 WHERE k=2;"
+    qt_select_uniq_table "select * from ${tbName} order by k"
     qt_desc_uniq_table "desc ${tbName}"
     sql "DROP TABLE ${tbName}"
 }
