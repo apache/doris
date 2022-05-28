@@ -45,7 +45,7 @@ public class RangePartitionInfo extends PartitionInfo {
     public RangePartitionInfo(List<Column> partitionColumns) {
         super(PartitionType.RANGE);
         this.partitionColumns = partitionColumns;
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
+        isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
     @Override
@@ -211,7 +211,7 @@ public class RangePartitionInfo extends PartitionInfo {
             partitionColumns.add(column);
         }
 
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
+        isMultiColumnPartition = partitionColumns.size() > 1;
 
         counter = in.readInt();
         for (int i = 0; i < counter; i++) {
@@ -243,7 +243,7 @@ public class RangePartitionInfo extends PartitionInfo {
         sb.append(")\n(");
 
         // sort range
-        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
+        List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(idToItem.entrySet());
         Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
 
         idx = 0;

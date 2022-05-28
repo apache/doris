@@ -159,7 +159,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     }
 
     public void addMVIndex(long partitionId, MaterializedIndex mvIndex) {
-        this.partitionIdToRollupIndex.put(partitionId, mvIndex);
+        partitionIdToRollupIndex.put(partitionId, mvIndex);
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -203,7 +203,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.readLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-            for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
+            for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
                 if (partition == null) {
@@ -213,7 +213,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 TTabletType tabletType = tbl.getPartitionInfo().getTabletType(partitionId);
                 MaterializedIndex rollupIndex = entry.getValue();
 
-                Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
+                Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
                     long rollupTabletId = rollupTablet.getId();
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
@@ -234,8 +234,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tabletType,
                                 tbl.getCompressionType());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
-                        if (this.storageFormat != null) {
-                            createReplicaTask.setStorageFormat(this.storageFormat);
+                        if (storageFormat != null) {
+                            createReplicaTask.setStorageFormat(storageFormat);
                         }
                         batchTask.addTask(createReplicaTask);
                     } // end for rollupReplicas
@@ -287,18 +287,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
-        this.jobState = JobState.WAITING_TXN;
+        watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+        jobState = JobState.WAITING_TXN;
 
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
-        LOG.info("transfer rollup job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
+        LOG.info("transfer rollup job {} state to {}, watershed txn id: {}", jobId, jobState, watershedTxnId);
     }
 
     private void addRollupIndexToCatalog(OlapTable tbl) {
         for (Partition partition : tbl.getPartitions()) {
             long partitionId = partition.getId();
-            MaterializedIndex rollupIndex = this.partitionIdToRollupIndex.get(partitionId);
+            MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
             Preconditions.checkNotNull(rollupIndex);
             Preconditions.checkState(rollupIndex.getState() == IndexState.SHADOW, rollupIndex.getState());
             partition.createRollupIndex(rollupIndex);
@@ -341,7 +341,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.readLock();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-            for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
+            for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
                 Preconditions.checkNotNull(partition, partitionId);
@@ -350,7 +350,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 long visibleVersion = partition.getVisibleVersion();
 
                 MaterializedIndex rollupIndex = entry.getValue();
-                Map<Long, Long> tabletIdMap = this.partitionIdToBaseRollupTabletIdMap.get(partitionId);
+                Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
                 for (Tablet rollupTablet : rollupIndex.getTablets()) {
                     long rollupTabletId = rollupTablet.getId();
                     long baseTabletId = tabletIdMap.get(rollupTabletId);
@@ -380,10 +380,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         AgentTaskQueue.addBatchTask(rollupBatchTask);
         AgentTaskExecutor.submit(rollupBatchTask);
-        this.jobState = JobState.RUNNING;
+        jobState = JobState.RUNNING;
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
-        LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
+        LOG.info("transfer rollup job {} state to {}", jobId, jobState);
     }
 
     /**
@@ -427,7 +427,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-            for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
+            for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
                 if (partition == null) {
@@ -462,8 +462,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.writeUnlock();
         }
 
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
+        jobState = JobState.FINISHED;
+        finishedTimeMs = System.currentTimeMillis();
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("rollup job finished: {}", jobId);
@@ -497,8 +497,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
-        this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
+        finishedTimeMs = System.currentTimeMillis();
+        LOG.info("cancel {} job {}, err: {}", type, jobId, errMsg);
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         return true;
     }
@@ -552,8 +552,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         // to make sure that this job will run runPendingJob() again to create the rollup replicas
-        this.jobState = JobState.PENDING;
-        this.watershedTxnId = replayedJob.watershedTxnId;
+        jobState = JobState.PENDING;
+        watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay pending rollup job: {}", jobId);
     }
@@ -591,8 +591,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
-        this.jobState = JobState.WAITING_TXN;
-        this.watershedTxnId = replayedJob.watershedTxnId;
+        jobState = JobState.WAITING_TXN;
+        watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay waiting txn rollup job: {}", jobId);
     }
@@ -616,8 +616,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             }
         }
 
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        jobState = JobState.FINISHED;
+        finishedTimeMs = replayedJob.finishedTimeMs;
 
         LOG.info("replay finished rollup job: {}", jobId);
     }
@@ -627,9 +627,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
      */
     private void replayCancelled(RollupJobV2 replayedJob) {
         cancelInternal();
-        this.jobState = JobState.CANCELLED;
-        this.finishedTimeMs = replayedJob.finishedTimeMs;
-        this.errMsg = replayedJob.errMsg;
+        jobState = JobState.CANCELLED;
+        finishedTimeMs = replayedJob.finishedTimeMs;
+        errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled rollup job: {}", jobId);
     }
 

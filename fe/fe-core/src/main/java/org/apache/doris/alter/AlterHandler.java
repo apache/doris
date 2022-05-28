@@ -81,7 +81,7 @@ public abstract class AlterHandler extends MasterDaemon {
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {
-        this.alterJobsV2.put(alterJob.getJobId(), alterJob);
+        alterJobsV2.put(alterJob.getJobId(), alterJob);
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
     }
 
@@ -107,7 +107,7 @@ public abstract class AlterHandler extends MasterDaemon {
     }
 
     public Map<Long, AlterJobV2> getAlterJobsV2() {
-        return this.alterJobsV2;
+        return alterJobsV2;
     }
 
     private void clearExpireFinishedOrCancelledAlterJobsV2() {

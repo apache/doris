@@ -56,7 +56,7 @@ public abstract class AgentTask {
 
         this.resourceInfo = resourceInfo;
 
-        this.failedTimes = 0;
+        failedTimes = 0;
         this.createTime = createTime;
     }
 
@@ -71,15 +71,15 @@ public abstract class AgentTask {
     }
 
     public long getSignature() {
-        return this.signature;
+        return signature;
     }
 
     public long getBackendId() {
-        return this.backendId;
+        return backendId;
     }
 
     public TTaskType getTaskType() {
-        return this.taskType;
+        return taskType;
     }
 
     public long getDbId() {
@@ -107,11 +107,11 @@ public abstract class AgentTask {
     }
 
     public void failed() {
-        ++this.failedTimes;
+        ++failedTimes;
     }
 
     public int getFailedTimes() {
-        return this.failedTimes;
+        return failedTimes;
     }
 
     public void setErrorMsg(String errorMsg) {

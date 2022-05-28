@@ -52,21 +52,21 @@ public class DataProperty implements Writable {
     }
 
     public DataProperty(TStorageMedium medium) {
-        this.storageMedium = medium;
+        storageMedium = medium;
         if (medium == TStorageMedium.SSD) {
             long currentTimeMs = System.currentTimeMillis();
-            this.cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
+            cooldownTimeMs = currentTimeMs + Config.storage_cooldown_second * 1000L;
         } else {
-            this.cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+            cooldownTimeMs = MAX_COOLDOWN_TIME_MS;
         }
-        this.remoteStorageResourceName = "";
-        this.remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
+        remoteStorageResourceName = "";
+        remoteCooldownTimeMs = MAX_COOLDOWN_TIME_MS;
     }
 
     public DataProperty(TStorageMedium medium, long cooldown,
                         String remoteStorageResourceName, long remoteCooldownTimeMs) {
-        this.storageMedium = medium;
-        this.cooldownTimeMs = cooldown;
+        storageMedium = medium;
+        cooldownTimeMs = cooldown;
         this.remoteStorageResourceName = remoteStorageResourceName;
         this.remoteCooldownTimeMs = remoteCooldownTimeMs;
     }
@@ -127,18 +127,18 @@ public class DataProperty implements Writable {
 
         DataProperty other = (DataProperty) obj;
 
-        return this.storageMedium == other.storageMedium
-                && this.cooldownTimeMs == other.cooldownTimeMs
-                && this.remoteCooldownTimeMs == other.remoteCooldownTimeMs
-                && this.remoteStorageResourceName.equals(other.remoteStorageResourceName);
+        return storageMedium == other.storageMedium
+                && cooldownTimeMs == other.cooldownTimeMs
+                && remoteCooldownTimeMs == other.remoteCooldownTimeMs
+                && remoteStorageResourceName.equals(other.remoteStorageResourceName);
     }
 
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("Storage medium[").append(this.storageMedium).append("]. ");
+        sb.append("Storage medium[").append(storageMedium).append("]. ");
         sb.append("cool down[").append(TimeUtils.longToTimeString(cooldownTimeMs)).append("]. ");
-        sb.append("remote storage resource name[").append(this.remoteStorageResourceName).append("]. ");
+        sb.append("remote storage resource name[").append(remoteStorageResourceName).append("]. ");
         sb.append("remote cool down[").append(TimeUtils.longToTimeString(remoteCooldownTimeMs)).append("].");
         return sb.toString();
     }

@@ -46,8 +46,8 @@ public class TabletMeta {
         this.partitionId = partitionId;
         this.indexId = indexId;
 
-        this.oldSchemaHash = schemaHash;
-        this.newSchemaHash = -1;
+        oldSchemaHash = schemaHash;
+        newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
 
@@ -81,7 +81,7 @@ public class TabletMeta {
     public int getOldSchemaHash() {
         lock.readLock().lock();
         try {
-            return this.oldSchemaHash;
+            return oldSchemaHash;
         } finally {
             lock.readLock().unlock();
         }

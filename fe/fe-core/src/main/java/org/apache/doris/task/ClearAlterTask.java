@@ -28,7 +28,7 @@ public class ClearAlterTask extends AgentTask {
         super(null, backendId, TTaskType.CLEAR_ALTER_TASK, dbId, tableId, partitionId, indexId, tabletId);
 
         this.schemaHash = schemaHash;
-        this.isFinished = false;
+        isFinished = false;
     }
 
     public TClearAlterTaskRequest toThrift() {

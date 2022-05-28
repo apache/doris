@@ -49,8 +49,8 @@ public abstract class LoadPendingTask extends MasterTask {
 
     public LoadPendingTask(LoadJob job) {
         this.job = job;
-        this.signature = job.getId();
-        this.load = Catalog.getCurrentCatalog().getLoadInstance();
+        signature = job.getId();
+        load = Catalog.getCurrentCatalog().getLoadInstance();
     }
 
     @Override

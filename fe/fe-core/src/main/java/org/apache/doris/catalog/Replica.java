@@ -144,7 +144,7 @@ public class Replica implements Writable {
                        long dataSize, long rowCount, ReplicaState state,
                        long lastFailedVersion,
                        long lastSuccessVersion) {
-        this.id = replicaId;
+        id = replicaId;
         this.backendId = backendId;
         this.version = version;
         this.schemaHash = schemaHash;
@@ -152,22 +152,18 @@ public class Replica implements Writable {
         this.dataSize = dataSize;
         this.rowCount = rowCount;
         this.state = state;
-        if (this.state == null) {
+        if (state == null) {
             this.state = ReplicaState.NORMAL;
         }
         this.lastFailedVersion = lastFailedVersion;
-        if (this.lastFailedVersion > 0) {
+        if (lastFailedVersion > 0) {
             this.lastFailedTimestamp = System.currentTimeMillis();
         }
-        if (lastSuccessVersion < this.version) {
-            this.lastSuccessVersion = this.version;
-        } else {
-            this.lastSuccessVersion = lastSuccessVersion;
-        }
+        this.lastSuccessVersion = Math.max(lastSuccessVersion, version);
     }
 
     public long getVersion() {
-        return this.version;
+        return version;
     }
 
     public int getSchemaHash() {
@@ -180,11 +176,11 @@ public class Replica implements Writable {
     }
 
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public long getBackendId() {
-        return this.backendId;
+        return backendId;
     }
 
     public long getDataSize() {
@@ -228,7 +224,7 @@ public class Replica implements Writable {
     }
 
     public boolean needFurtherRepair() {
-        if (needFurtherRepair && System.currentTimeMillis() - this.furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
+        if (needFurtherRepair && System.currentTimeMillis() - furtherRepairSetTime < FURTHER_REPAIR_TIMEOUT_MS) {
             return true;
         }
         return false;
@@ -236,7 +232,7 @@ public class Replica implements Writable {
 
     public void setNeedFurtherRepair(boolean needFurtherRepair) {
         this.needFurtherRepair = needFurtherRepair;
-        this.furtherRepairSetTime = System.currentTimeMillis();
+        furtherRepairSetTime = System.currentTimeMillis();
     }
 
     // for compatibility
@@ -252,7 +248,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateVersionInfo(long newVersion, long newDataSize, long newRowCount) {
-        updateReplicaInfo(newVersion, this.lastFailedVersion, this.lastSuccessVersion, newDataSize, newRowCount);
+        updateReplicaInfo(newVersion, lastFailedVersion, lastSuccessVersion, newDataSize, newRowCount);
     }
 
     public synchronized void updateVersionWithFailedInfo(long newVersion, long lastFailedVersion, long lastSuccessVersion) {
@@ -290,7 +286,7 @@ public class Replica implements Writable {
             LOG.debug("before update: {}", this.toString());
         }
 
-        if (newVersion < this.version) {
+        if (newVersion < version) {
             // This case means that replica meta version has been updated by ReportHandler before
             // For example, the publish version daemon has already sent some publish version tasks to one be to publish version 2, 3, 4, 5, 6,
             // and the be finish all publish version tasks, the be's replica version is 6 now, but publish version daemon need to wait
@@ -300,57 +296,57 @@ public class Replica implements Writable {
             // to update replica. Finally, it find the newer version(5) is lower than replica version(6) in fe.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("replica {} on backend {}'s new version {} is lower than meta version {},"
-                        + "not to continue to update replica", id, backendId, newVersion, this.version);
+                        + "not to continue to update replica", id, backendId, newVersion, version);
             }
             return;
         }
 
-        this.version = newVersion;
-        this.dataSize = newDataSize;
-        this.rowCount = newRowCount;
+        version = newVersion;
+        dataSize = newDataSize;
+        rowCount = newRowCount;
 
         // just check it
-        if (lastSuccessVersion <= this.version) {
-            lastSuccessVersion = this.version;
+        if (lastSuccessVersion <= version) {
+            lastSuccessVersion = version;
         }
 
         // case 1:
         if (this.lastSuccessVersion <= this.lastFailedVersion) {
-            this.lastSuccessVersion = this.version;
+            this.lastSuccessVersion = version;
         }
 
         // TODO: this case is unknown, add log to observe
-        if (this.version > lastFailedVersion && lastFailedVersion > 0) {
+        if (version > lastFailedVersion && lastFailedVersion > 0) {
             LOG.debug("current version {} is larger than last failed version {}, "
                         + "maybe a fatal error or be report version, print a stack here ",
-                    this.version, lastFailedVersion, new Exception());
+                    version, lastFailedVersion, new Exception());
         }
 
         if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
                 this.lastFailedVersion = lastFailedVersion;
-                this.lastFailedTimestamp = System.currentTimeMillis();
+                lastFailedTimestamp = System.currentTimeMillis();
             }
 
-            this.lastSuccessVersion = this.version;
+            this.lastSuccessVersion = version;
         } else {
             // Case 3:
             if (lastSuccessVersion >= this.lastSuccessVersion) {
                 this.lastSuccessVersion = lastSuccessVersion;
             }
             if (lastFailedVersion >= this.lastSuccessVersion) {
-                this.lastSuccessVersion = this.version;
+                this.lastSuccessVersion = version;
             }
         }
 
         // Case 4:
-        if (this.version >= this.lastFailedVersion) {
+        if (version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
-            this.lastFailedVersionHash = 0;
-            this.lastFailedTimestamp = -1;
-            if (this.version < this.lastSuccessVersion) {
-                this.version = this.lastSuccessVersion;
+            lastFailedVersionHash = 0;
+            lastFailedTimestamp = -1;
+            if (version < this.lastSuccessVersion) {
+                version = this.lastSuccessVersion;
             }
         }
 
@@ -360,7 +356,7 @@ public class Replica implements Writable {
     }
 
     public synchronized void updateLastFailedVersion(long lastFailedVersion) {
-        updateReplicaInfo(this.version, lastFailedVersion, this.lastSuccessVersion, dataSize, rowCount);
+        updateReplicaInfo(version, lastFailedVersion, lastSuccessVersion, dataSize, rowCount);
     }
 
     /*
@@ -381,7 +377,7 @@ public class Replica implements Writable {
             return true;
         }
 
-        if (this.version < expectedVersion) {
+        if (version < expectedVersion) {
             LOG.debug("replica version does not catch up with version: {}. replica: {}",
                       expectedVersion, this);
             return false;
@@ -398,7 +394,7 @@ public class Replica implements Writable {
     }
 
     public ReplicaState getState() {
-        return this.state;
+        return state;
     }
 
     public boolean tooSlow() {

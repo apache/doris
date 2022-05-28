@@ -169,7 +169,7 @@ public class RestoreJob extends AbstractJob {
         this.jobInfo = jobInfo;
         this.allowLoad = allowLoad;
         this.replicaAlloc = replicaAlloc;
-        this.state = RestoreJobState.PENDING;
+        state = RestoreJobState.PENDING;
         this.metaVersion = metaVersion;
     }
 
@@ -739,7 +739,7 @@ public class RestoreJob extends AbstractJob {
         if (!status.ok()) {
             return;
         }
-        LOG.debug("finished to restore resources. {}", this.jobId);
+        LOG.debug("finished to restore resources. {}", jobId);
 
         // Send create replica task to BE outside the db lock
         boolean ok = false;
@@ -1065,7 +1065,7 @@ public class RestoreJob extends AbstractJob {
     private boolean downloadAndDeserializeMetaInfo() {
         List<BackupMeta> backupMetas = Lists.newArrayList();
         Status st = repo.getSnapshotMetaFile(jobInfo.name, backupMetas,
-                this.metaVersion == -1 ? jobInfo.metaVersion : this.metaVersion);
+                metaVersion == -1 ? jobInfo.metaVersion : metaVersion);
         if (!st.ok()) {
             status = st;
             return false;

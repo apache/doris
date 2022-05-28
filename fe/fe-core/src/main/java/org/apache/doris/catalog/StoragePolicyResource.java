@@ -92,7 +92,7 @@ public class StoragePolicyResource extends Resource {
     }
 
     private void checkOptionalProperty(String propertyKey, String defaultValue) {
-        this.properties.putIfAbsent(propertyKey, defaultValue);
+        properties.putIfAbsent(propertyKey, defaultValue);
     }
 
     @Override

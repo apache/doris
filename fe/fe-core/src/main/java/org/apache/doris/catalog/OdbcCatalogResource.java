@@ -94,12 +94,12 @@ public class OdbcCatalogResource extends Resource {
     @Override
     public void modifyProperties(Map<String, String> properties) throws DdlException {
         // modify properties
-        replaceIfEffectiveValue(this.configs, HOST, properties.get(HOST));
-        replaceIfEffectiveValue(this.configs, PORT, properties.get(PORT));
-        replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
-        replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
-        replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
-        replaceIfEffectiveValue(this.configs, DRIVER, properties.get(DRIVER));
+        replaceIfEffectiveValue(configs, HOST, properties.get(HOST));
+        replaceIfEffectiveValue(configs, PORT, properties.get(PORT));
+        replaceIfEffectiveValue(configs, USER, properties.get(USER));
+        replaceIfEffectiveValue(configs, PASSWORD, properties.get(PASSWORD));
+        replaceIfEffectiveValue(configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(configs, DRIVER, properties.get(DRIVER));
     }
 
     @Override

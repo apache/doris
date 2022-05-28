@@ -61,7 +61,7 @@ public abstract class SyncTask implements SerialRunnable {
     }
 
     public int getIndex() {
-        return this.index;
+        return index;
     }
 
     /**

@@ -109,14 +109,14 @@ public class Partition extends MetaObject implements Writable {
             MaterializedIndex baseIndex, DistributionInfo distributionInfo) {
         this.id = id;
         this.name = name;
-        this.state = PartitionState.NORMAL;
+        state = PartitionState.NORMAL;
 
         this.baseIndex = baseIndex;
 
-        this.visibleVersion = PARTITION_INIT_VERSION;
-        this.visibleVersionTime = System.currentTimeMillis();
+        visibleVersion = PARTITION_INIT_VERSION;
+        visibleVersionTime = System.currentTimeMillis();
         // PARTITION_INIT_VERSION == 1, so the first load version is 2 !!!
-        this.nextVersion = PARTITION_INIT_VERSION + 1;
+        nextVersion = PARTITION_INIT_VERSION + 1;
 
         this.distributionInfo = distributionInfo;
     }
@@ -126,15 +126,15 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public long getId() {
-        return this.id;
+        return id;
     }
 
     public void setName(String newName) {
-        this.name = newName;
+        name = newName;
     }
 
     public String getName() {
-        return this.name;
+        return name;
     }
 
     public void setState(PartitionState state) {
@@ -146,8 +146,8 @@ public class Partition extends MetaObject implements Writable {
      * the restored partition version info》
      */
     public void updateVersionForRestore(long visibleVersion) {
-        this.setVisibleVersion(visibleVersion);
-        this.nextVersion = this.visibleVersion + 1;
+        setVisibleVersion(visibleVersion);
+        nextVersion = this.visibleVersion + 1;
         LOG.info("update partition {} version for restore: visible: {}, next: {}",
                 name, visibleVersion, nextVersion);
     }
@@ -157,7 +157,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public void updateVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
-        this.setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
+        setVisibleVersionAndTime(visibleVersion, visibleVersionTime);
     }
 
     public long getVisibleVersion() {
@@ -171,7 +171,7 @@ public class Partition extends MetaObject implements Writable {
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
     private void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
-        this.visibleVersionTime = System.currentTimeMillis();
+        visibleVersionTime = System.currentTimeMillis();
     }
 
     public void setVisibleVersionAndTime(long visibleVersion, long visibleVersionTime) {
@@ -180,7 +180,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public PartitionState getState() {
-        return this.state;
+        return state;
     }
 
     public DistributionInfo getDistributionInfo() {
@@ -189,14 +189,14 @@ public class Partition extends MetaObject implements Writable {
 
     public void createRollupIndex(MaterializedIndex mIndex) {
         if (mIndex.getState().isVisible()) {
-            this.idToVisibleRollupIndex.put(mIndex.getId(), mIndex);
+            idToVisibleRollupIndex.put(mIndex.getId(), mIndex);
         } else {
-            this.idToShadowIndex.put(mIndex.getId(), mIndex);
+            idToShadowIndex.put(mIndex.getId(), mIndex);
         }
     }
 
     public MaterializedIndex deleteRollupIndex(long indexId) {
-        if (this.idToVisibleRollupIndex.containsKey(indexId)) {
+        if (idToVisibleRollupIndex.containsKey(indexId)) {
             return idToVisibleRollupIndex.remove(indexId);
         } else {
             return idToShadowIndex.remove(indexId);
@@ -216,7 +216,7 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public long getCommittedVersion() {
-        return this.nextVersion - 1;
+        return nextVersion - 1;
     }
 
     public MaterializedIndex getIndex(long indexId) {

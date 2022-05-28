@@ -76,14 +76,14 @@ public class TableCommitInfo implements Writable {
     }
 
     public void addPartitionCommitInfo(PartitionCommitInfo info) {
-        this.idToPartitionCommitInfo.put(info.getPartitionId(), info);
+        idToPartitionCommitInfo.put(info.getPartitionId(), info);
     }
 
     public void removePartition(long partitionId) {
-        this.idToPartitionCommitInfo.remove(partitionId);
+        idToPartitionCommitInfo.remove(partitionId);
     }
 
     public PartitionCommitInfo getPartitionCommitInfo(long partitionId) {
-        return this.idToPartitionCommitInfo.get(partitionId);
+        return idToPartitionCommitInfo.get(partitionId);
     }
 }

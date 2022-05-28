@@ -82,12 +82,12 @@ public class StreamLoadTask implements LoadTaskInfo {
         this.txnId = txnId;
         this.fileType = fileType;
         this.formatType = formatType;
-        this.jsonPaths = "";
-        this.jsonRoot = "";
-        this.stripOuterArray = false;
-        this.numAsString = false;
-        this.fuzzyParse = false;
-        this.readJsonByLine = false;
+        jsonPaths = "";
+        jsonRoot = "";
+        stripOuterArray = false;
+        numAsString = false;
+        fuzzyParse = false;
+        readJsonByLine = false;
     }
 
     public TUniqueId getId() {

@@ -64,7 +64,7 @@ public class AgentBatchTask implements Runnable {
     private Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
-        this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+        backendIdToTasks = new HashMap<Long, List<AgentTask>>();
     }
 
     public AgentBatchTask(AgentTask singleTask) {
@@ -89,8 +89,8 @@ public class AgentBatchTask implements Runnable {
 
     public List<AgentTask> getAllTasks() {
         List<AgentTask> tasks = new LinkedList<AgentTask>();
-        for (Long backendId : this.backendIdToTasks.keySet()) {
-            tasks.addAll(this.backendIdToTasks.get(backendId));
+        for (Long backendId : backendIdToTasks.keySet()) {
+            tasks.addAll(backendIdToTasks.get(backendId));
         }
         return tasks;
     }
@@ -107,7 +107,7 @@ public class AgentBatchTask implements Runnable {
     // NOTICE that even if AgentTask.isFinished() return false, it does not mean that task is not finished.
     // this depends on caller's logic. See comments on 'isFinished' member.
     public boolean isFinished() {
-        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+        for (List<AgentTask> tasks :  backendIdToTasks.values()) {
             for (AgentTask agentTask : tasks) {
                 if (!agentTask.isFinished()) {
                     return false;
@@ -120,7 +120,7 @@ public class AgentBatchTask implements Runnable {
     // return the limit number of unfinished tasks.
     public List<AgentTask> getUnfinishedTasks(int limit) {
         List<AgentTask> res = Lists.newArrayList();
-        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+        for (List<AgentTask> tasks :  backendIdToTasks.values()) {
             for (AgentTask agentTask : tasks) {
                 if (!agentTask.isFinished()) {
                     if (res.size() < limit) {
@@ -134,7 +134,7 @@ public class AgentBatchTask implements Runnable {
 
     public int getFinishedTaskNum() {
         int count = 0;
-        for (List<AgentTask> tasks : this.backendIdToTasks.values()) {
+        for (List<AgentTask> tasks :  backendIdToTasks.values()) {
             for (AgentTask agentTask : tasks) {
                 if (agentTask.isFinished()) {
                     count++;
@@ -146,7 +146,7 @@ public class AgentBatchTask implements Runnable {
 
     @Override
     public void run() {
-        for (Long backendId : this.backendIdToTasks.keySet()) {
+        for (Long backendId :  backendIdToTasks.keySet()) {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
@@ -155,7 +155,7 @@ public class AgentBatchTask implements Runnable {
                 if (backend == null || !backend.isAlive()) {
                     continue;
                 }
-                List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
+                List<AgentTask> tasks =  backendIdToTasks.get(backendId);
                 // create AgentClient
                 String host = FeConstants.runningUnitTest ? "127.0.0.1" : backend.getHost();
                 address = new TNetworkAddress(host, backend.getBePort());

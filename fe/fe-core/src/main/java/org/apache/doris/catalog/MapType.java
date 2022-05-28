@@ -31,8 +31,8 @@ public class MapType extends Type {
     private final Type keyType;
     private final Type valueType;
     public MapType() {
-        this.keyType = NULL;
-        this.valueType = NULL;
+        keyType = NULL;
+        valueType = NULL;
     }
     public MapType(Type keyType, Type valueType) {
         Preconditions.checkNotNull(keyType);

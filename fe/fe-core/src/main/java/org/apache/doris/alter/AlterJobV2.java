@@ -92,8 +92,8 @@ public abstract class AlterJobV2 implements Writable {
         this.tableName = tableName;
         this.timeoutMs = timeoutMs;
 
-        this.createTimeMs = System.currentTimeMillis();
-        this.jobState = JobState.PENDING;
+        createTimeMs = System.currentTimeMillis();
+        jobState = JobState.PENDING;
     }
 
     protected AlterJobV2(JobType type) {

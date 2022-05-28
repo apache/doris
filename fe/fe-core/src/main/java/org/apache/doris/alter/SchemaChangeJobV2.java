@@ -256,8 +256,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getPartitionInfo().getTabletType(partitionId),
                                     tbl.getCompressionType());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
-                            if (this.storageFormat != null) {
-                                createReplicaTask.setStorageFormat(this.storageFormat);
+                            if (storageFormat != null) {
+                                createReplicaTask.setStorageFormat(storageFormat);
                             }
 
                             batchTask.addTask(createReplicaTask);
@@ -311,12 +311,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.writeUnlock();
         }
 
-        this.watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
-        this.jobState = JobState.WAITING_TXN;
+        watershedTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
+        jobState = JobState.WAITING_TXN;
 
         // write edit log
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
-        LOG.info("transfer schema change job {} state to {}, watershed txn id: {}", jobId, this.jobState, watershedTxnId);
+        LOG.info("transfer schema change job {} state to {}, watershed txn id: {}", jobId, jobState, watershedTxnId);
     }
 
     private void addShadowIndexToCatalog(OlapTable tbl) {
@@ -415,10 +415,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         AgentTaskQueue.addBatchTask(schemaChangeBatchTask);
         AgentTaskExecutor.submit(schemaChangeBatchTask);
 
-        this.jobState = JobState.RUNNING;
+        jobState = JobState.RUNNING;
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
-        LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
+        LOG.info("transfer schema change job {} state to {}", jobId, jobState);
     }
 
     /**
@@ -502,8 +502,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         pruneMeta();
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
+        jobState = JobState.FINISHED;
+        finishedTimeMs = System.currentTimeMillis();
 
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         LOG.info("schema change job finished: {}", jobId);
@@ -597,8 +597,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         pruneMeta();
         this.errMsg = errMsg;
-        this.finishedTimeMs = System.currentTimeMillis();
-        LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
+        finishedTimeMs = System.currentTimeMillis();
+        LOG.info("cancel {} job {}, err: {}", type, jobId, errMsg);
         Catalog.getCurrentCatalog().getEditLog().logAlterJob(this);
         return true;
     }
@@ -679,7 +679,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             olapTable.writeUnlock();
         }
 
-        this.watershedTxnId = replayedJob.watershedTxnId;
+        watershedTxnId = replayedJob.watershedTxnId;
         jobState = JobState.WAITING_TXN;
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
     }
@@ -699,8 +699,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         // should still be in WAITING_TXN state, so that the alter tasks will be resend again
-        this.jobState = JobState.WAITING_TXN;
-        this.watershedTxnId = replayedJob.watershedTxnId;
+        jobState = JobState.WAITING_TXN;
+        watershedTxnId = replayedJob.watershedTxnId;
         LOG.info("replay waiting txn schema change job: {} table id: {}", jobId, tableId);
     }
 
@@ -723,7 +723,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         jobState = JobState.FINISHED;
-        this.finishedTimeMs = replayedJob.finishedTimeMs;
+        finishedTimeMs = replayedJob.finishedTimeMs;
         LOG.info("replay finished schema change job: {}", jobId);
     }
 
@@ -732,9 +732,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      */
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
         cancelInternal();
-        this.jobState = JobState.CANCELLED;
-        this.finishedTimeMs = replayedJob.finishedTimeMs;
-        this.errMsg = replayedJob.errMsg;
+        jobState = JobState.CANCELLED;
+        finishedTimeMs = replayedJob.finishedTimeMs;
+        errMsg = replayedJob.errMsg;
         LOG.info("replay cancelled schema change job: {}", jobId);
     }
 

@@ -68,24 +68,24 @@ public class PartitionInfo implements Writable {
     protected Map<Long, TTabletType> idToTabletType;
 
     public PartitionInfo() {
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicaAllocation = new HashMap<>();
-        this.idToInMemory = new HashMap<>();
-        this.idToTabletType = new HashMap<>();
+        idToDataProperty = new HashMap<>();
+        idToReplicaAllocation = new HashMap<>();
+        idToInMemory = new HashMap<>();
+        idToTabletType = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicaAllocation = new HashMap<>();
-        this.idToInMemory = new HashMap<>();
-        this.idToTabletType = new HashMap<>();
+        idToDataProperty = new HashMap<>();
+        idToReplicaAllocation = new HashMap<>();
+        idToInMemory = new HashMap<>();
+        idToTabletType = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type, List<Column> partitionColumns) {
         this(type);
         this.partitionColumns = partitionColumns;
-        this.isMultiColumnPartition = partitionColumns.size() > 1;
+        isMultiColumnPartition = partitionColumns.size() > 1;
     }
 
     public PartitionType getType() {
@@ -217,7 +217,7 @@ public class PartitionInfo implements Writable {
     }
 
     public void setReplicaAllocation(long partitionId, ReplicaAllocation replicaAlloc) {
-        this.idToReplicaAllocation.put(partitionId, replicaAlloc);
+        idToReplicaAllocation.put(partitionId, replicaAlloc);
     }
 
     public boolean getIsInMemory(long partitionId) {

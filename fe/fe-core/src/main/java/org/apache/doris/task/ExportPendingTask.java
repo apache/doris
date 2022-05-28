@@ -48,7 +48,7 @@ public class ExportPendingTask extends MasterTask {
     public ExportPendingTask(ExportJob job) {
         super();
         this.job = job;
-        this.signature = job.getId();
+        signature = job.getId();
     }
 
     @Override

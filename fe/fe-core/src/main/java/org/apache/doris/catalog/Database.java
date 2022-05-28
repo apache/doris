@@ -111,20 +111,20 @@ public class Database extends MetaObject implements Writable {
 
     public Database(long id, String name) {
         this.id = id;
-        this.fullQualifiedName = name;
-        if (this.fullQualifiedName == null) {
-            this.fullQualifiedName = "";
+        fullQualifiedName = name;
+        if (fullQualifiedName == null) {
+            fullQualifiedName = "";
         }
-        this.rwLock = new ReentrantReadWriteLock(true);
-        this.idToTable = Maps.newConcurrentMap();
-        this.nameToTable = Maps.newConcurrentMap();
-        this.lowerCaseToTableName = Maps.newConcurrentMap();
-        this.dataQuotaBytes = Config.default_db_data_quota_bytes;
-        this.replicaQuotaSize = Config.default_db_replica_quota_size;
-        this.dbState = DbState.NORMAL;
-        this.attachDbName = "";
-        this.clusterName = "";
-        this.dbEncryptKey = new DatabaseEncryptKey();
+        rwLock = new ReentrantReadWriteLock(true);
+        idToTable = Maps.newConcurrentMap();
+        nameToTable = Maps.newConcurrentMap();
+        lowerCaseToTableName = Maps.newConcurrentMap();
+        dataQuotaBytes = Config.default_db_data_quota_bytes;
+        replicaQuotaSize = Config.default_db_replica_quota_size;
+        dbState = DbState.NORMAL;
+        attachDbName = "";
+        clusterName = "";
+        dbEncryptKey = new DatabaseEncryptKey();
     }
 
     public void markDropped() {
@@ -136,24 +136,24 @@ public class Database extends MetaObject implements Writable {
     }
 
     public void readLock() {
-        this.rwLock.readLock().lock();
+        rwLock.readLock().lock();
     }
 
     public void readUnlock() {
-        this.rwLock.readLock().unlock();
+        rwLock.readLock().unlock();
     }
 
     public void writeLock() {
-        this.rwLock.writeLock().lock();
+        rwLock.writeLock().lock();
     }
 
     public void writeUnlock() {
-        this.rwLock.writeLock().unlock();
+        rwLock.writeLock().unlock();
     }
 
     public boolean tryWriteLock(long timeout, TimeUnit unit) {
         try {
-            return this.rwLock.writeLock().tryLock(timeout, unit);
+            return rwLock.writeLock().tryLock(timeout, unit);
         } catch (InterruptedException e) {
             LOG.warn("failed to try write lock at db[" + id + "]", e);
             return false;
@@ -161,12 +161,12 @@ public class Database extends MetaObject implements Writable {
     }
 
     public boolean isWriteLockHeldByCurrentThread() {
-        return this.rwLock.writeLock().isHeldByCurrentThread();
+        return rwLock.writeLock().isHeldByCurrentThread();
     }
 
     public boolean writeLockIfExist() {
         if (!isDropped) {
-            this.rwLock.writeLock().lock();
+            rwLock.writeLock().lock();
             return true;
         }
         return false;
@@ -195,7 +195,7 @@ public class Database extends MetaObject implements Writable {
     public void setNameWithLock(String newName) {
         writeLock();
         try {
-            this.fullQualifiedName = newName;
+            fullQualifiedName = newName;
         } finally {
             writeUnlock();
         }
@@ -204,13 +204,13 @@ public class Database extends MetaObject implements Writable {
     public void setDataQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
         LOG.info("database[{}] set quota from {} to {}", fullQualifiedName, dataQuotaBytes, newQuota);
-        this.dataQuotaBytes = newQuota;
+        dataQuotaBytes = newQuota;
     }
 
     public void setReplicaQuota(long newQuota) {
         Preconditions.checkArgument(newQuota >= 0L);
         LOG.info("database[{}] set replica quota from {} to {}", fullQualifiedName, replicaQuotaSize, newQuota);
-        this.replicaQuotaSize = newQuota;
+        replicaQuotaSize = newQuota;
     }
 
     public long getDataQuota() {
@@ -233,7 +233,7 @@ public class Database extends MetaObject implements Writable {
         long usedDataQuota = 0;
         readLock();
         try {
-            for (Table table : this.idToTable.values()) {
+            for (Table table : idToTable.values()) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
@@ -257,7 +257,7 @@ public class Database extends MetaObject implements Writable {
         long usedReplicaQuota = 0;
         readLock();
         try {
-            for (Table table : this.idToTable.values()) {
+            for (Table table : idToTable.values()) {
                 if (table.getType() != TableType.OLAP) {
                     continue;
                 }
@@ -382,9 +382,9 @@ public class Database extends MetaObject implements Writable {
         }
         Table table = getTableNullable(tableName);
         if (table != null) {
-            this.nameToTable.remove(tableName);
-            this.idToTable.remove(table.getId());
-            this.lowerCaseToTableName.remove(tableName.toLowerCase());
+            nameToTable.remove(tableName);
+            idToTable.remove(table.getId());
+            lowerCaseToTableName.remove(tableName.toLowerCase());
             table.markDropped();
         }
     }
@@ -445,7 +445,7 @@ public class Database extends MetaObject implements Writable {
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
-            return new HashSet<>(this.nameToTable.keySet());
+            return new HashSet<>(nameToTable.keySet());
         } finally {
             readUnlock();
         }
@@ -737,15 +737,15 @@ public class Database extends MetaObject implements Writable {
     }
 
     public void setAttachDb(String name) {
-        this.attachDbName = name;
+        attachDbName = name;
     }
 
     public String getAttachDb() {
-        return this.attachDbName;
+        return attachDbName;
     }
 
     public void setName(String name) {
-        this.fullQualifiedName = name;
+        fullQualifiedName = name;
     }
 
     public synchronized void addFunction(Function function) throws UserException {

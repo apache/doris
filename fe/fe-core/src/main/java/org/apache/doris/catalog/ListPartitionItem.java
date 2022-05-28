@@ -58,11 +58,11 @@ public class ListPartitionItem extends PartitionItem {
 
     @Override
     public int compareTo(PartitionItem other) {
-        int thisKeyLen = this.partitionKeys.size();
+        int thisKeyLen = partitionKeys.size();
         int otherKeyLen = ((ListPartitionItem) other).getItems().size();
         int minLen = Math.min(thisKeyLen, otherKeyLen);
         for (int i = 0; i < minLen; i++) {
-            int ret = this.getItems().get(i).compareTo(((ListPartitionItem) other).getItems().get(i));
+            int ret = getItems().get(i).compareTo(((ListPartitionItem) other).getItems().get(i));
             if (0 != ret) {
                 return ret;
             }

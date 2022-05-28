@@ -31,7 +31,7 @@ public class ClearTransactionTask extends AgentTask {
         super(null, backendId, TTaskType.CLEAR_TRANSACTION_TASK, -1L, -1L, -1L, -1L, -1L, transactionId);
         this.transactionId = transactionId;
         this.partitionIds = partitionIds;
-        this.isFinished = false;
+        isFinished = false;
     }
 
     public TClearTransactionTaskRequest toThrift() {

@@ -30,7 +30,7 @@ public class DropReplicaTask extends AgentTask {
 
     public TDropTabletReq toThrift() {
         TDropTabletReq request = new TDropTabletReq(tabletId);
-        if (this.schemaHash != -1) {
+        if (schemaHash != -1) {
             request.setSchemaHash(schemaHash);
         }
         return request;
