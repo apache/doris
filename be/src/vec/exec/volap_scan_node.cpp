@@ -144,17 +144,6 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     ADD_THREAD_LOCAL_MEM_TRACKER(scanner->mem_tracker());
     COUNTER_UPDATE(_scanner_sched_counter, 1);
     Thread::set_self_name("volap_scanner");
-    if (UNLIKELY(_transfer_done)) {
-        _scanner_done = true;
-        std::unique_lock<std::mutex> l(_scan_blocks_lock);
-        _running_thread--;
-        // We need to make sure the scanner is closed because the query has been closed or cancelled.
-        scanner->close(scanner->runtime_state());
-        _scan_block_added_cv.notify_one();
-        _scan_thread_exit_cv.notify_one();
-        LOG(INFO) << "Scan thread cancelled, cause query done, scan thread started to exit";
-        return;
-    }
     int64_t wait_time = scanner->update_wait_worker_timer();
     // Do not use ScopedTimer. There is no guarantee that, the counter
     // (_scan_cpu_timer, the class member) is not destroyed after `_running_thread==0`.
@@ -215,7 +204,8 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     bool get_free_block = true;
     int number_rows_in_block = 0;
 
-    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold) ||
+    while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
+                     get_free_block) ||
                     number_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
@@ -235,7 +225,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
             break;
         }
 
-        //raw_bytes_read += block->allocated_bytes();
+        raw_bytes_read += block->allocated_bytes();
         number_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {

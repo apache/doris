@@ -706,9 +706,6 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     //  we just regard delete column as common pred column here.
     if (_schema.column_ids().size() > pred_column_ids.size()) {
         for (auto cid : _schema.column_ids()) {
-            if (pred_column_ids.size() > 0) {
-                _lazy_materialization_read = true;
-            }
             if (!_is_pred_column[cid]) {
                 _non_predicate_columns.push_back(cid);
                 FieldType type = _schema.column(cid)->type();
@@ -806,6 +803,7 @@ void SegmentIterator::_init_current_block(
             current_columns[cid]->clear();
         } else { // non-predicate column
             current_columns[cid] = std::move(*block->get_by_position(i).column).mutate();
+
             if (column_desc->type() == OLAP_FIELD_TYPE_DATE) {
                 current_columns[cid]->set_date_type();
             } else if (column_desc->type() == OLAP_FIELD_TYPE_DATETIME) {
