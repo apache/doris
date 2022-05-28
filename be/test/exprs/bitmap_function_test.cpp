@@ -86,19 +86,19 @@ TEST_F(BitmapFunctionsTest, to_bitmap_null) {
     StringVal input = StringVal::null();
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
 
-    ASSERT_EQ(StringVal::null(), result);
+    EXPECT_EQ(BitmapFunctions::bitmap_empty(ctx), result);
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("-1"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
-    ASSERT_EQ(StringVal::null(), result);
+    EXPECT_EQ(BitmapFunctions::bitmap_empty(ctx), result);
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
     StringVal input = AnyValUtil::from_string_temp(ctx, std::string("18446744073709551616"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
-    ASSERT_EQ(StringVal::null(), result);
+    EXPECT_EQ(BitmapFunctions::bitmap_empty(ctx), result);
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_union_int) {
