@@ -202,11 +202,13 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
     bool get_free_block = true;
-    int number_rows_in_block = 0;
+    int num_rows_in_block = 0;
 
+    // Has to wait at least one full block, or it will cause a lot of schedule task in priority
+    // queue, it will affect query latency and query concurrency for example ssb 3.3.
     while (!eos && ((raw_rows_read < raw_rows_threshold && raw_bytes_read < raw_bytes_threshold &&
                      get_free_block) ||
-                    number_rows_in_block < _runtime_state->batch_size())) {
+                    num_rows_in_block < _runtime_state->batch_size())) {
         if (UNLIKELY(_transfer_done)) {
             eos = true;
             status = Status::Cancelled("Cancelled");
@@ -226,7 +228,7 @@ void VOlapScanNode::scanner_thread(VOlapScanner* scanner) {
         }
 
         raw_bytes_read += block->allocated_bytes();
-        number_rows_in_block += block->rows();
+        num_rows_in_block += block->rows();
         // 4. if status not ok, change status_.
         if (UNLIKELY(block->rows() == 0)) {
             std::lock_guard<std::mutex> l(_free_blocks_lock);

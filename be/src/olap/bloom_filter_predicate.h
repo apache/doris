@@ -112,7 +112,9 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
                                              uint16_t* size) const {
     uint16_t new_size = 0;
     using FT = typename PredicatePrimitiveTypeTraits<T>::PredicateFieldType;
-
+    if (!_enable_pred) {
+        return;
+    }
     if (column.is_nullable()) {
         auto* nullable_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
         auto& null_map_data = nullable_col->get_null_map_column().get_data();
@@ -156,6 +158,16 @@ void BloomFilterColumnPredicate<T>::evaluate(vectorized::IColumn& column, uint16
             sel[new_size] = idx;
             const auto* cell_value = reinterpret_cast<const void*>(&(pred_col_data[idx]));
             new_size += _specific_filter->find_olap_engine(cell_value);
+        }
+    }
+    // If the pass rate is very high, for example > 50%, then the bloomfilter is useless.
+    // Some bloomfilter is useless, for example ssb 4.3, it consumes a lot of cpu but it is
+    // useless.
+    _evaluated_rows += *size;
+    _passed_rows += new_size;
+    if (_evaluated_rows > 100) {
+        if (_passed_rows / (_evaluated_rows * 1.0) > 0.5) {
+            _enable_pred = false;
         }
     }
     *size = new_size;
