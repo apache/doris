@@ -16,14 +16,6 @@
 // under the License.
 
 suite("test_update_unique", "update") {
-    def dbName = "test_update_db"
-    List<List<Object>> db = sql "show databases like '${dbName}'"
-    if (db.size() == 0) {
-        sql "CREATE DATABASE  ${dbName}"
-    }
-    sql "use ${dbName}"
-
-    // test update
     def tbName = "test_update"
     sql "DROP TABLE IF EXISTS ${tbName}"
     sql """
