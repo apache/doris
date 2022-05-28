@@ -198,7 +198,7 @@ public class DynamicPartitionProperty {
      * use table replication_num as dynamic_partition.replication_num default value
      */
     public String getProperties(ReplicaAllocation tableReplicaAlloc) {
-        ReplicaAllocation tmpAlloc = this.replicaAlloc.isNotSet() ? tableReplicaAlloc : this.replicaAlloc;
+        ReplicaAllocation tmpAlloc = replicaAlloc.isNotSet() ? tableReplicaAlloc : replicaAlloc;
         String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\""
                 + ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\""
                 + ",\n\"" + TIME_ZONE + "\" = \"" + tz.getID() + "\""
