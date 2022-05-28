@@ -490,15 +490,15 @@ public class Catalog {
     }
 
     private SystemInfoService getClusterInfo() {
-        return this.systemInfo;
+        return systemInfo;
     }
 
     private HeartbeatMgr getHeartbeatMgr() {
-        return this.heartbeatMgr;
+        return heartbeatMgr;
     }
 
     public TabletInvertedIndex getTabletInvertedIndex() {
-        return this.tabletInvertedIndex;
+        return tabletInvertedIndex;
     }
 
     // only for test
@@ -507,11 +507,11 @@ public class Catalog {
     }
 
     public ColocateTableIndex getColocateTableIndex() {
-        return this.colocateTableIndex;
+        return colocateTableIndex;
     }
 
     private CatalogRecycleBin getRecycleBin() {
-        return this.recycleBin;
+        return recycleBin;
     }
 
     public MetaReplayState getMetaReplayState() {
@@ -519,7 +519,7 @@ public class Catalog {
     }
 
     public DynamicPartitionScheduler getDynamicPartitionScheduler() {
-        return this.dynamicPartitionScheduler;
+        return dynamicPartitionScheduler;
     }
 
     private static class SingletonHolder {
@@ -800,7 +800,7 @@ public class Catalog {
 
     private void unlock() {
         if (lock.isHeldByCurrentThread()) {
-            this.lock.unlock();
+            lock.unlock();
         }
     }
 
@@ -817,9 +817,9 @@ public class Catalog {
         // we already set these variables in constructor. but Catalog is a singleton class.
         // so they may be set before Config is initialized.
         // set them here again to make sure these variables use values in fe.conf.
-        this.metaDir = Config.meta_dir;
-        this.bdbDir = this.metaDir + BDB_DIR;
-        this.imageDir = this.metaDir + IMAGE_DIR;
+        metaDir = Config.meta_dir;
+        bdbDir = metaDir + BDB_DIR;
+        imageDir = metaDir + IMAGE_DIR;
 
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -854,10 +854,10 @@ public class Catalog {
         getClusterIdAndRole();
 
         // 3. Load image first and replay edits
-        this.editLog = new EditLog(nodeName);
-        loadImage(this.imageDir); // load image file
+        editLog = new EditLog(nodeName);
+        loadImage(imageDir); // load image file
         editLog.open(); // open bdb env
-        this.globalTransactionMgr.setEditLog(editLog);
+        globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
 
         // 4. create load and export job label cleaner thread
@@ -889,8 +889,8 @@ public class Catalog {
     }
 
     private void getClusterIdAndRole() throws IOException {
-        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
-        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+        File roleFile = new File(imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(imageDir, Storage.VERSION_FILE);
 
         // if helper node is point to self, or there is ROLE and VERSION file in local.
         // get the node type from local
@@ -915,7 +915,7 @@ public class Catalog {
             // FOLLOWER, which may cause UNDEFINED behavior.
             // Everything may be OK if the origin role is exactly FOLLOWER,
             // but if not, FE process will exit somehow.
-            Storage storage = new Storage(this.imageDir);
+            Storage storage = new Storage(imageDir);
             if (!roleFile.exists()) {
                 // The very first time to start the first node of the cluster.
                 // It should became a Master node (Master node's role is also FOLLOWER, which means electable)
@@ -963,7 +963,7 @@ public class Catalog {
             if (!versionFile.exists()) {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
                 token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
-                storage = new Storage(clusterId, token, this.imageDir);
+                storage = new Storage(clusterId, token, imageDir);
                 storage.writeClusterIdAndToken();
 
                 isFirstTimeStartUp = true;
@@ -1013,7 +1013,7 @@ public class Catalog {
 
             Pair<String, Integer> rightHelperNode = helperNodes.get(0);
 
-            Storage storage = new Storage(this.imageDir);
+            Storage storage = new Storage(imageDir);
             if (roleFile.exists() && (role != storage.getRole() || !nodeName.equals(storage.getNodeName()))
                     || !roleFile.exists()) {
                 storage.writeFrontendRoleAndNodeName(role, nodeName);
@@ -1026,7 +1026,7 @@ public class Catalog {
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
                 //       so we new one.
-                storage = new Storage(this.imageDir);
+                storage = new Storage(imageDir);
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 if (Strings.isNullOrEmpty(token)) {
@@ -1217,8 +1217,8 @@ public class Catalog {
         Preconditions.checkNotNull(deployManager);
 
         // 1. check if this is the first time to start up
-        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
-        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+        File roleFile = new File(imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(imageDir, Storage.VERSION_FILE);
         if ((roleFile.exists() && !versionFile.exists())
                 || (!roleFile.exists() && versionFile.exists())) {
             throw new Exception("role file and version file must both exist or both not exist. "
@@ -1298,10 +1298,10 @@ public class Catalog {
 
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
-        this.masterIp = FrontendOptions.getLocalHostAddress();
-        this.masterRpcPort = Config.rpc_port;
-        this.masterHttpPort = Config.http_port;
-        MasterInfo info = new MasterInfo(this.masterIp, this.masterHttpPort, this.masterRpcPort);
+        masterIp = FrontendOptions.getLocalHostAddress();
+        masterRpcPort = Config.rpc_port;
+        masterHttpPort = Config.http_port;
+        MasterInfo info = new MasterInfo(masterIp, masterHttpPort, masterRpcPort);
         editLog.logMasterInfo(info);
 
         // for master, the 'isReady' is set behind.
@@ -1522,7 +1522,7 @@ public class Catalog {
     private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
             String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
-            File dir = new File(this.imageDir);
+            File dir = new File(imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
             MetaHelper.complete(Storage.VERSION_FILE, dir);
@@ -1536,7 +1536,7 @@ public class Catalog {
 
     private void getNewImage(Pair<String, Integer> helperNode) throws IOException {
         long localImageVersion = 0;
-        Storage storage = new Storage(this.imageDir);
+        Storage storage = new Storage(imageDir);
         localImageVersion = storage.getLatestImageSeq();
 
         try {
@@ -1547,7 +1547,7 @@ public class Catalog {
                 String url = "http://" + helperNode.first + ":" + Config.http_port
                         + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
-                File dir = new File(this.imageDir);
+                File dir = new File(imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
             }
@@ -1634,7 +1634,7 @@ public class Catalog {
 
         // create inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (Database db : this.fullNameToDb.values()) {
+        for (Database db : fullNameToDb.values()) {
             long dbId = db.getId();
             for (Table table : db.getTables()) {
                 if (table.getType() != TableType.OLAP) {
@@ -1844,9 +1844,9 @@ public class Catalog {
             AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
             if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
                 if (type == JobType.ROLLUP) {
-                    this.getMaterializedViewHandler().addAlterJobV2(alterJobV2);
+                    getMaterializedViewHandler().addAlterJobV2(alterJobV2);
                 } else {
-                    this.getSchemaChangeHandler().addAlterJobV2(alterJobV2);
+                    getSchemaChangeHandler().addAlterJobV2(alterJobV2);
                 }
                 // ATTN : we just want to add tablet into TabletInvertedIndex when only PendingJob is checkpointed
                 // to prevent TabletInvertedIndex data loss,
@@ -1871,7 +1871,7 @@ public class Catalog {
     }
 
     public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
-        this.deleteHandler = DeleteHandler.read(dis);
+        deleteHandler = DeleteHandler.read(dis);
         LOG.info("finished replay deleteHandler from image");
         return checksum;
     }
@@ -1966,9 +1966,9 @@ public class Catalog {
     // return the latest image file's absolute path
     public String saveImage() throws IOException {
         // Write image.ckpt
-        Storage storage = new Storage(this.imageDir);
+        Storage storage = new Storage(imageDir);
         File curFile = storage.getImageFile(replayedJournalId.get());
-        File ckpt = new File(this.imageDir, Storage.IMAGE_NEW);
+        File ckpt = new File(imageDir, Storage.IMAGE_NEW);
         saveImage(ckpt, replayedJournalId.get());
 
         // Move image.ckpt to image.dataVersion
@@ -2128,9 +2128,9 @@ public class Catalog {
     public long saveAlterJob(CountingDataOutputStream dos, long checksum, JobType type) throws IOException {
         Map<Long, AlterJobV2> alterJobsV2;
         if (type == JobType.ROLLUP) {
-            alterJobsV2 = this.getMaterializedViewHandler().getAlterJobsV2();
+            alterJobsV2 = getMaterializedViewHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
-            alterJobsV2 = this.getSchemaChangeHandler().getAlterJobsV2();
+            alterJobsV2 = getSchemaChangeHandler().getAlterJobsV2();
         } else if (type == JobType.DECOMMISSION_BACKEND) {
             // Load alter job need decommission backend type to load image
             alterJobsV2 = Maps.newHashMap();
@@ -2339,7 +2339,7 @@ public class Catalog {
             String msg = "notify new FE type transfer: " + newType;
             LOG.warn(msg);
             Util.stdoutWithTime(msg);
-            this.typeTransferQueue.put(newType);
+            typeTransferQueue.put(newType);
         } catch (InterruptedException e) {
             LOG.error("failed to put new FE type: {}", newType, e);
         }
@@ -2676,7 +2676,7 @@ public class Catalog {
             }
 
             // 2. drop tables in db
-            Database db = this.fullNameToDb.get(dbName);
+            Database db = fullNameToDb.get(dbName);
             db.writeLock();
             try {
                 if (!stmt.isForceDrop()) {
@@ -2778,7 +2778,7 @@ public class Catalog {
     public void replayDropLinkDb(DropLinkDbAndUpdateDbInfo info) {
         tryLock(true);
         try {
-            final Database db = this.fullNameToDb.remove(info.getDropDbName());
+            final Database db = fullNameToDb.remove(info.getDropDbName());
             db.setDbState(info.getUpdateDbState());
             final Cluster cluster = nameToCluster
                     .get(info.getDropDbCluster());
@@ -2867,7 +2867,7 @@ public class Catalog {
         String dbName = recoverStmt.getDbName();
         String tableName = recoverStmt.getTableName();
 
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             if (db.getTable(tableName).isPresent()) {
@@ -2885,7 +2885,7 @@ public class Catalog {
         String dbName = recoverStmt.getDbName();
         String tableName = recoverStmt.getTableName();
 
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
         try {
@@ -2916,7 +2916,7 @@ public class Catalog {
 
     public void alterDatabaseQuota(AlterDatabaseQuotaStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         QuotaType quotaType = stmt.getQuotaType();
         db.writeLockOrDdlException();
         try {
@@ -2934,7 +2934,7 @@ public class Catalog {
     }
 
     public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getDbOrMetaException(dbName);
         db.writeLock();
         try {
             if (quotaType == QuotaType.DATA) {
@@ -3040,7 +3040,7 @@ public class Catalog {
         String tableName = stmt.getTableName();
 
         // check if db exists
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
 
         // only internal table should check quota and cluster capacity
         if (!stmt.isExternal()) {
@@ -3412,7 +3412,7 @@ public class Catalog {
     }
 
     public void replayAddPartition(PartitionPersistInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -3505,7 +3505,7 @@ public class Catalog {
     }
 
     public void replayDropPartition(DropPartitionInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -3524,7 +3524,7 @@ public class Catalog {
     }
 
     public void replayRecoverPartition(RecoverInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4576,7 +4576,7 @@ public class Catalog {
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-        Database db = this.fullNameToDb.get(dbName);
+        Database db = fullNameToDb.get(dbName);
         try {
             db.createTableWithLock(table, true, false);
         } catch (DdlException e) {
@@ -4612,7 +4612,7 @@ public class Catalog {
     }
 
     public void replayAlterExternalTableSchema(String dbName, String tableName, List<Column> newSchema) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getDbOrMetaException(dbName);
         Table table = db.getTableOrMetaException(tableName);
         table.writeLock();
         try {
@@ -4704,7 +4704,7 @@ public class Catalog {
         String tableName = stmt.getTableName();
 
         // check database
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
             Table table = db.getTableNullable(tableName);
@@ -4798,7 +4798,7 @@ public class Catalog {
     }
 
     public void replayRecoverTable(RecoverInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         db.writeLock();
         try {
             Catalog.getCurrentRecycleBin().replayRecoverTable(db, info.getTableId());
@@ -4839,7 +4839,7 @@ public class Catalog {
     }
 
     public void replayAddReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4850,7 +4850,7 @@ public class Catalog {
     }
 
     public void replayUpdateReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4868,7 +4868,7 @@ public class Catalog {
     }
 
     public void replayDeleteReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -4931,7 +4931,7 @@ public class Catalog {
     }
 
     public int getClusterId() {
-        return this.clusterId;
+        return clusterId;
     }
 
     public String getToken() {
@@ -5052,7 +5052,7 @@ public class Catalog {
         List<Long> dbIds = getDbIds();
 
         for (long dbId : dbIds) {
-            Database db = this.getDbNullable(dbId);
+            Database db = getDbNullable(dbId);
             if (db == null) {
                 LOG.warn("db {} does not exist while doing backend report", dbId);
                 continue;
@@ -5152,27 +5152,27 @@ public class Catalog {
     }
 
     public ConsistencyChecker getConsistencyChecker() {
-        return this.consistencyChecker;
+        return consistencyChecker;
     }
 
     public Alter getAlterInstance() {
-        return this.alter;
+        return alter;
     }
 
     public SchemaChangeHandler getSchemaChangeHandler() {
-        return (SchemaChangeHandler) this.alter.getSchemaChangeHandler();
+        return (SchemaChangeHandler) alter.getSchemaChangeHandler();
     }
 
     public MaterializedViewHandler getMaterializedViewHandler() {
-        return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+        return (MaterializedViewHandler) alter.getMaterializedViewHandler();
     }
 
     public SystemHandler getClusterHandler() {
-        return (SystemHandler) this.alter.getClusterHandler();
+        return (SystemHandler) alter.getClusterHandler();
     }
 
     public BackupHandler getBackupHandler() {
-        return this.backupHandler;
+        return backupHandler;
     }
 
     public UpdateManager getUpdateManager() {
@@ -5180,11 +5180,11 @@ public class Catalog {
     }
 
     public DeleteHandler getDeleteHandler() {
-        return this.deleteHandler;
+        return deleteHandler;
     }
 
     public Load getLoadInstance() {
-        return this.load;
+        return load;
     }
 
     public LoadManager getLoadManager() {
@@ -5220,35 +5220,35 @@ public class Catalog {
     }
 
     public ExportMgr getExportMgr() {
-        return this.exportMgr;
+        return exportMgr;
     }
 
     public SyncJobManager getSyncJobManager() {
-        return this.syncJobManager;
+        return syncJobManager;
     }
 
     public SmallFileMgr getSmallFileMgr() {
-        return this.smallFileMgr;
+        return smallFileMgr;
     }
 
     public RefreshManager getRefreshManager() {
-        return this.refreshManager;
+        return refreshManager;
     }
 
     public long getReplayedJournalId() {
-        return this.replayedJournalId.get();
+        return replayedJournalId.get();
     }
 
     public HAProtocol getHaProtocol() {
-        return this.haProtocol;
+        return haProtocol;
     }
 
     public Long getMaxJournalId() {
-        return this.editLog.getMaxJournalId();
+        return editLog.getMaxJournalId();
     }
 
     public long getEpoch() {
-        return this.epoch;
+        return epoch;
     }
 
     public void setEpoch(long epoch) {
@@ -5256,12 +5256,12 @@ public class Catalog {
     }
 
     public FrontendNodeType getRole() {
-        return this.role;
+        return role;
     }
 
     public Pair<String, Integer> getHelperNode() {
         Preconditions.checkState(helperNodes.size() >= 1);
-        return this.helperNodes.get(0);
+        return helperNodes.get(0);
     }
 
     public List<Pair<String, Integer>> getHelperNodes() {
@@ -5269,58 +5269,58 @@ public class Catalog {
     }
 
     public Pair<String, Integer> getSelfNode() {
-        return this.selfNode;
+        return selfNode;
     }
 
     public String getNodeName() {
-        return this.nodeName;
+        return nodeName;
     }
 
     public FrontendNodeType getFeType() {
-        return this.feType;
+        return feType;
     }
 
     public int getMasterRpcPort() {
         if (!isReady()) {
             return 0;
         }
-        return this.masterRpcPort;
+        return masterRpcPort;
     }
 
     public int getMasterHttpPort() {
         if (!isReady()) {
             return 0;
         }
-        return this.masterHttpPort;
+        return masterHttpPort;
     }
 
     public String getMasterIp() {
         if (!isReady()) {
             return "";
         }
-        return this.masterIp;
+        return masterIp;
     }
 
     public EsRepository getEsRepository() {
-        return this.esRepository;
+        return esRepository;
     }
 
     public PolicyMgr getPolicyMgr() {
-        return this.policyMgr;
+        return policyMgr;
     }
 
     public void setMaster(MasterInfo info) {
-        this.masterIp = info.getIp();
-        this.masterHttpPort = info.getHttpPort();
-        this.masterRpcPort = info.getRpcPort();
+        masterIp = info.getIp();
+        masterHttpPort = info.getHttpPort();
+        masterRpcPort = info.getRpcPort();
     }
 
     public boolean canRead() {
-        return this.canRead.get();
+        return canRead.get();
     }
 
     public boolean isElectable() {
-        return this.isElectable;
+        return isElectable;
     }
 
     public boolean isMaster() {
@@ -5328,7 +5328,7 @@ public class Catalog {
     }
 
     public void setSynchronizedTime(long time) {
-        this.synchronizedTimeMs = time;
+        synchronizedTimeMs = time;
     }
 
     public void setEditLog(EditLog editLog) {
@@ -5340,7 +5340,7 @@ public class Catalog {
     }
 
     public void setHaProtocol(HAProtocol protocol) {
-        this.haProtocol = protocol;
+        haProtocol = protocol;
     }
 
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
@@ -5420,23 +5420,23 @@ public class Catalog {
      * including SchemaChangeHandler and RollupHandler
      */
     public void alterTable(AlterTableStmt stmt) throws UserException {
-        this.alter.processAlterTable(stmt);
+        alter.processAlterTable(stmt);
     }
 
     /**
      * used for handling AlterViewStmt (the ALTER VIEW command).
      */
     public void alterView(AlterViewStmt stmt) throws UserException {
-        this.alter.processAlterView(stmt, ConnectContext.get());
+        alter.processAlterView(stmt, ConnectContext.get());
     }
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt)
             throws AnalysisException, DdlException, MetaNotFoundException {
-        this.alter.processCreateMaterializedView(stmt);
+        alter.processCreateMaterializedView(stmt);
     }
 
     public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
-        this.alter.processDropMaterializedView(stmt);
+        alter.processDropMaterializedView(stmt);
     }
 
     /*
@@ -5445,9 +5445,9 @@ public class Catalog {
      */
     public void cancelAlter(CancelAlterTableStmt stmt) throws DdlException {
         if (stmt.getAlterType() == AlterType.ROLLUP) {
-            this.getMaterializedViewHandler().cancel(stmt);
+            getMaterializedViewHandler().cancel(stmt);
         } else if (stmt.getAlterType() == AlterType.COLUMN) {
-            this.getSchemaChangeHandler().cancel(stmt);
+            getSchemaChangeHandler().cancel(stmt);
         } else {
             throw new DdlException("Cancel " + stmt.getAlterType() + " does not implement yet");
         }
@@ -5525,7 +5525,7 @@ public class Catalog {
         long tableId = tableInfo.getTableId();
         String newTableName = tableInfo.getNewTableName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         db.writeLock();
         try {
             Table table = db.getTableOrMetaException(tableId);
@@ -5636,7 +5636,7 @@ public class Catalog {
         long tableId = info.getTableId();
         Map<String, String> properties = info.getPropertyMap();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -5696,7 +5696,7 @@ public class Catalog {
         long indexId = tableInfo.getIndexId();
         String newRollupName = tableInfo.getNewRollupName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -5757,7 +5757,7 @@ public class Catalog {
         long partitionId = tableInfo.getPartitionId();
         String newPartitionName = tableInfo.getNewPartitionName();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -5899,7 +5899,7 @@ public class Catalog {
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -5974,7 +5974,7 @@ public class Catalog {
         long tableId = info.getTableId();
         int bucketNum = info.getBucketNum();
 
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -5990,11 +5990,11 @@ public class Catalog {
      * (for client is the ALTER CLUSTER command).
      */
     public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterCluster(stmt);
+        alter.processAlterCluster(stmt);
     }
 
     public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getClusterHandler().cancel(stmt);
+        alter.getClusterHandler().cancel(stmt);
     }
 
     /*
@@ -6029,7 +6029,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
-        this.getDbOrDdlException(qualifiedDb);
+        getDbOrDdlException(qualifiedDb);
         ctx.setDatabase(qualifiedDb);
     }
 
@@ -6053,7 +6053,7 @@ public class Catalog {
         String tableName = stmt.getTable();
 
         // check if db exists
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
 
         // check if table exists in db
         if (db.getTable(tableName).isPresent()) {
@@ -6342,7 +6342,7 @@ public class Catalog {
                     clause.setType(DecommissionType.ClusterDecommission);
                     AlterSystemStmt alterStmt = new AlterSystemStmt(clause);
                     alterStmt.setClusterName(clusterName);
-                    this.alter.processAlterCluster(alterStmt);
+                    alter.processAlterCluster(alterStmt);
                 } catch (AnalysisException e) {
                     Preconditions.checkState(false, "should not happened: " + e.getMessage());
                 }
@@ -6400,11 +6400,11 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATE_SAME_CLUSTER);
             }
 
-            final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
+            final Cluster srcCluster = nameToCluster.get(srcClusterName);
             if (!srcCluster.containDb(srcDbName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NOT_EXIST, srcDbName);
             }
-            final Cluster destCluster = this.nameToCluster.get(destClusterName);
+            final Cluster destCluster = nameToCluster.get(destClusterName);
             if (!destCluster.containLink(destDbName, srcDbName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_MIGRATION_NO_LINK, srcDbName, destDbName);
             }
@@ -6456,8 +6456,8 @@ public class Catalog {
         final String srcClusterName = param.getStringParam(3);
         tryLock(true);
         try {
-            final Cluster desCluster = this.nameToCluster.get(desClusterName);
-            final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
+            final Cluster desCluster = nameToCluster.get(desClusterName);
+            final Cluster srcCluster = nameToCluster.get(srcClusterName);
             final Database db = fullNameToDb.get(srcDbName);
             if (db.getDbState() == DbState.LINK) {
                 fullNameToDb.remove(db.getFullName());
@@ -6484,7 +6484,7 @@ public class Catalog {
 
         tryLock(true);
         try {
-            final Cluster desCluster = this.nameToCluster.get(desClusterName);
+            final Cluster desCluster = nameToCluster.get(desClusterName);
             final Database srcDb = fullNameToDb.get(srcDbName);
             srcDb.writeLock();
             srcDb.setDbState(DbState.LINK);
@@ -6529,8 +6529,8 @@ public class Catalog {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, destDbName);
             }
 
-            final Cluster srcCluster = this.nameToCluster.get(srcClusterName);
-            final Cluster destCluster = this.nameToCluster.get(destClusterName);
+            final Cluster srcCluster = nameToCluster.get(srcClusterName);
+            final Cluster destCluster = nameToCluster.get(destClusterName);
 
             if (!srcCluster.containDb(srcDbName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CLUSTER_SRC_DB_NOT_EXIST, srcDbName);
@@ -6805,7 +6805,7 @@ public class Catalog {
         try {
             // sort all dbs to avoid potential dead lock
             for (long dbId : getDbIds()) {
-                Database db = this.getDbNullable(dbId);
+                Database db = getDbNullable(dbId);
                 databases.add(db);
             }
             databases.sort(Comparator.comparing(Database::getId));
@@ -6868,7 +6868,7 @@ public class Catalog {
 
         boolean truncateEntireTable = tblRef.getPartitionNames() == null;
 
-        Database db = this.getDbOrDdlException(dbTbl.getDb());
+        Database db = getDbOrDdlException(dbTbl.getDb());
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
         olapTable.readLock();
@@ -7021,7 +7021,7 @@ public class Catalog {
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTblId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -7056,25 +7056,25 @@ public class Catalog {
 
     public void createFunction(CreateFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = this.getDbOrDdlException(name.getDb());
+        Database db = getDbOrDdlException(name.getDb());
         db.addFunction(stmt.getFunction());
     }
 
     public void replayCreateFunction(Function function) throws MetaNotFoundException {
         String dbName = function.getFunctionName().getDb();
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getDbOrMetaException(dbName);
         db.replayAddFunction(function);
     }
 
     public void dropFunction(DropFunctionStmt stmt) throws UserException {
         FunctionName name = stmt.getFunctionName();
-        Database db = this.getDbOrDdlException(name.getDb());
+        Database db = getDbOrDdlException(name.getDb());
         db.dropFunction(stmt.getFunction());
     }
 
     public void replayDropFunction(FunctionSearchDesc functionSearchDesc) throws MetaNotFoundException {
         String dbName = functionSearchDesc.getName().getDb();
-        Database db = this.getDbOrMetaException(dbName);
+        Database db = getDbOrMetaException(dbName);
         db.replayDropFunction(functionSearchDesc);
     }
 
@@ -7141,7 +7141,7 @@ public class Catalog {
         // but we need to get replica from db->tbl->partition->...
         List<ReplicaPersistInfo> replicaPersistInfos = backendTabletsInfo.getReplicaPersistInfos();
         for (ReplicaPersistInfo info : replicaPersistInfos) {
-            OlapTable olapTable = (OlapTable) this.getDb(info.getDbId())
+            OlapTable olapTable = (OlapTable) getDb(info.getDbId())
                     .flatMap(db -> db.getTable(info.getTableId()))
                     .filter(t -> t.getType() == TableType.OLAP)
                     .orElse(null);
@@ -7191,7 +7191,7 @@ public class Catalog {
     }
 
     public void replayConvertDistributionType(TableInfo info) throws MetaNotFoundException {
-        Database db = this.getDbOrMetaException(info.getDbId());
+        Database db = getDbOrMetaException(info.getDbId());
         OlapTable olapTable = db.getTableOrMetaException(info.getTableId(), TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -7235,7 +7235,7 @@ public class Catalog {
     public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog) throws MetaNotFoundException {
         long dbId = replaceTempPartitionLog.getDbId();
         long tableId = replaceTempPartitionLog.getTblId();
-        Database db = this.getDbOrMetaException(dbId);
+        Database db = getDbOrMetaException(dbId);
         OlapTable olapTable = db.getTableOrMetaException(tableId, TableType.OLAP);
         olapTable.writeLock();
         try {
@@ -7323,7 +7323,7 @@ public class Catalog {
             if (meta == null) {
                 throw new MetaNotFoundException("tablet does not exist");
             }
-            Database db = this.getDbOrMetaException(meta.getDbId());
+            Database db = getDbOrMetaException(meta.getDbId());
             Table table = db.getTableOrMetaException(meta.getTableId());
             table.writeLockOrMetaException();
             try {
@@ -7446,7 +7446,7 @@ public class Catalog {
         String type = stmt.getCompactionType();
 
 
-        Database db = this.getDbOrDdlException(dbName);
+        Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
 
         AgentBatchTask batchTask = new AgentBatchTask();

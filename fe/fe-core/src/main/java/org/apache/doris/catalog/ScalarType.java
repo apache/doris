@@ -466,7 +466,7 @@ public class ScalarType extends Type {
     }
 
     public void setAssignedStrLenInColDefinition() {
-        this.isAssignedStrLenInColDefinition = true;
+        isAssignedStrLenInColDefinition = true;
     }
 
     // add scalar infix to override with getPrecision
