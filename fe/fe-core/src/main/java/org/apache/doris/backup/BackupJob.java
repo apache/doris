@@ -124,8 +124,8 @@ public class BackupJob extends AbstractJob {
                      BackupContent content, Catalog catalog, long repoId) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, catalog, repoId);
         this.tableRefs = tableRefs;
-        state = BackupJobState.PENDING;
-        properties.put(BackupStmt.PROP_CONTENT, content.name());
+        this.state = BackupJobState.PENDING;
+        this.properties.put(BackupStmt.PROP_CONTENT, content.name());
     }
 
     public BackupJobState getState() {

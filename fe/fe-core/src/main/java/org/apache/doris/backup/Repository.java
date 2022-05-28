@@ -119,7 +119,7 @@ public class Repository implements Writable {
         this.isReadOnly = isReadOnly;
         this.location = location;
         this.storage = storage;
-        createTime = System.currentTimeMillis();
+        this.createTime = System.currentTimeMillis();
     }
 
     // join job info file name with timestamp

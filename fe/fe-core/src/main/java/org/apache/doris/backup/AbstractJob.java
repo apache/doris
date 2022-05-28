@@ -87,7 +87,7 @@ public abstract class AbstractJob implements Writable {
         this.label = label;
         this.dbId = dbId;
         this.dbName = dbName;
-        createTime = System.currentTimeMillis();
+        this.createTime = System.currentTimeMillis();
         this.timeoutMs = timeoutMs;
         this.catalog = catalog;
         this.repoId = repoId;
