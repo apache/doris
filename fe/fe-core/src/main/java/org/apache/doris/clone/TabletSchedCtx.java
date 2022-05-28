@@ -261,7 +261,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public void setBalanceType(BalanceType type) {
-        this.balanceType = type;
+        balanceType = type;
     }
 
     public BalanceType getBalanceType() {
@@ -275,10 +275,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     public void setOrigPriority(Priority origPriority) {
         this.origPriority = origPriority;
         // reset dynamic priority along with the origin priority being set.
-        this.dynamicPriority = origPriority;
-        this.failedSchedCounter = 0;
-        this.lastSchedTime = 0;
-        this.lastAdjustPrioTime = 0;
+        dynamicPriority = origPriority;
+        failedSchedCounter = 0;
+        lastSchedTime = 0;
+        lastAdjustPrioTime = 0;
     }
 
     public Priority getDynamicPriority() {
@@ -435,11 +435,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setSrc(Replica srcReplica) {
         this.srcReplica = srcReplica;
-        this.srcPathHash = srcReplica.getPathHash();
+        srcPathHash = srcReplica.getPathHash();
     }
 
     public void setTempSrc(Replica srcReplica) {
-        this.tempSrcReplica = srcReplica;
+        tempSrcReplica = srcReplica;
     }
 
     public long getTempSrcBackendId() {
@@ -510,7 +510,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public void setColocateGroupBackendIds(Set<Long> backendsSet) {
-        this.colocateBackendsSet = backendsSet;
+        colocateBackendsSet = backendsSet;
     }
 
     public Set<Long> getColocateBackendsSet() {
@@ -518,7 +518,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     }
 
     public void setTabletOrderIdx(int idx) {
-        this.tabletOrderIdx = idx;
+        tabletOrderIdx = idx;
     }
 
     public int getTabletOrderIdx() {
@@ -772,15 +772,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
          */
         if (state == State.PENDING) {
             if (!reserveTablet) {
-                this.tablet = null;
+                tablet = null;
             }
-            this.srcReplica = null;
-            this.srcPathHash = -1;
-            this.destBackendId = -1;
-            this.destPathHash = -1;
-            this.destPath = null;
-            this.cloneTask = null;
-            this.storageMediaMigrationTask = null;
+            srcReplica = null;
+            srcPathHash = -1;
+            destBackendId = -1;
+            destPathHash = -1;
+            destPath = null;
+            cloneTask = null;
+            storageMediaMigrationTask = null;
         }
     }
 
@@ -796,8 +796,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 "backend " + srcReplica.getBackendId() + ", dest path is empty");
         }
         storageMediaMigrationTask.setDataDir(destPath);
-        this.taskTimeoutMs = getApproximateTimeoutMs();
-        this.state = State.RUNNING;
+        taskTimeoutMs = getApproximateTimeoutMs();
+        state = State.RUNNING;
         return storageMediaMigrationTask;
     }
 
@@ -862,7 +862,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
             }
         }
 
-        this.state = State.RUNNING;
+        state = State.RUNNING;
         return cloneTask;
     }
 
@@ -973,7 +973,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 replica.setPathHash(reportedTablet.getPathHash());
             }
 
-            if (this.type == Type.BALANCE) {
+            if (type == Type.BALANCE) {
                 long partitionVisibleVersion = partition.getVisibleVersion();
                 if (replica.getVersion() < partitionVisibleVersion) {
                     // see comment 'needFurtherRepair' of Replica for explanation.
@@ -1016,11 +1016,11 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
 
         if (request.isSetCopySize()) {
-            this.copySize = request.getCopySize();
+            copySize = request.getCopySize();
         }
 
         if (request.isSetCopyTimeMs()) {
-            this.copyTimeMs = request.getCopyTimeMs();
+            copyTimeMs = request.getCopyTimeMs();
         }
     }
 

@@ -161,7 +161,7 @@ public class BackendLoadStatistic {
     }
 
     public void setClazz(TStorageMedium medium, Classification clazz) {
-        this.clazzMap.put(medium, clazz);
+        clazzMap.put(medium, clazz);
     }
 
     public Classification getClazz(TStorageMedium medium) {

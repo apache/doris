@@ -79,7 +79,7 @@ public class MovesCacheMap {
         for (Table.Cell<String, Tag, ClusterLoadStatistic> cell : toAdd) {
             Map<TStorageMedium, MovesCache> newCacheMap = Maps.newHashMap();
             Arrays.stream(TStorageMedium.values()).forEach(m -> newCacheMap.put(m, new MovesCache(expireAfterAccessSecond, TimeUnit.SECONDS)));
-            this.cacheMap.put(cell.getRowKey(), cell.getColumnKey(), newCacheMap);
+            cacheMap.put(cell.getRowKey(), cell.getColumnKey(), newCacheMap);
         }
     }
 

@@ -342,7 +342,7 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
 
-        this.statisticMap = newStatisticMap;
+        statisticMap = newStatisticMap;
     }
 
     public Table<String, Tag, ClusterLoadStatistic> getStatisticMap() {
@@ -1848,8 +1848,8 @@ public class TabletScheduler extends MasterDaemon {
 
         public Slot(int total) {
             this.total = total;
-            this.available = total;
-            this.balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
+            available = total;
+            balanceSlot = BALANCE_SLOT_NUM_FOR_PATH;
         }
 
         public void rectify() {
