@@ -1695,11 +1695,11 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 if (selectStmt.isMetaQuery()) {
-                    OlapMetaScanNode olapMetaScanNode = new OlapMetaScanNode(ctx_.getNextNodeId(), tblRef.getDesc());
+                    OlapMetaScanNode olapMetaScanNode = new OlapMetaScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                     scanNode = olapMetaScanNode;
                     break;
                 }
-                OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), 
+                OlapScanNode olapNode = new OlapScanNode(ctx.getNextNodeId(), tblRef.getDesc(), 
                         "OlapScanNode");
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;

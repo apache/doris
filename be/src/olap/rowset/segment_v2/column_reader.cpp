@@ -385,7 +385,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
  * @return true if 
  * @return false 
  */
-bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts) {
+bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts, BlockCompressionCodec* codec) {
     // go to the last page
     RETURN_IF_ERROR(_ensure_index_loaded());
     OrdinalPageIndexIterator last_iter(_ordinal_index.get(), _ordinal_index->num_data_pages() - 1);
@@ -394,7 +394,7 @@ bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts) {
     PageFooterPB footer;
     iter_opts.type = DATA_PAGE;
     ParsedPage parsed_page;
-    RETURN_IF_ERROR(read_page(iter_opts, last_iter.page(), &handle, &page_body, &footer));
+    RETURN_IF_ERROR(read_page(iter_opts, last_iter.page(), &handle, &page_body, &footer, codec));
     // parse data page
     RETURN_IF_ERROR(ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                                        encoding_info(), last_iter.page(), last_iter.page_index(),
@@ -410,6 +410,9 @@ bool ColumnReader::all_pages_encoded_by_dict(ColumnIteratorOptions iter_opts) {
 
 Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
     if (encoding_info()->encoding() == DICT_ENCODING) {
+        std::unique_ptr<BlockCompressionCodec> compress_codec;
+        RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), compress_codec));
+        assert(compress_codec);
         Slice dict_slice;
         ColumnIteratorOptions iter_opts;
         std::unique_ptr<fs::ReadableBlock> rblock;
@@ -418,11 +421,11 @@ Status ColumnReader::get_dict_data(std::set<string>& dict_words) {
         iter_opts.rblock = rblock.get();
         iter_opts.type = INDEX_PAGE;
         iter_opts.stats = new OlapReaderStatistics();
-        if (all_pages_encoded_by_dict(iter_opts)) {
+        if (all_pages_encoded_by_dict(iter_opts, compress_codec.get())) {
             PageHandle dict_page_handle;
             PageFooterPB dict_footer;
             read_page(iter_opts, get_dict_page_pointer(), &dict_page_handle, &dict_slice,
-                      &dict_footer);
+                      &dict_footer, compress_codec.get());
             auto dict_decoder = std::make_unique<BinaryPlainPageDecoder>(dict_slice);
             RETURN_IF_ERROR(dict_decoder->init());
 

@@ -195,15 +195,32 @@ public abstract class AggregateInfoBase {
     public abstract void materializeRequiredSlots(Analyzer analyzer,
                                                   ExprSubstitutionMap smap);
 
-    public ArrayList<Expr> getGroupingExprs() { return groupingExprs_; }
-    public ArrayList<FunctionCallExpr> getAggregateExprs() { return aggregateExprs_; }
-    public TupleDescriptor getOutputTupleDesc() { return outputTupleDesc_; }
-    public TupleDescriptor getIntermediateTupleDesc() { return intermediateTupleDesc_; }
-    public TupleId getIntermediateTupleId() { return intermediateTupleDesc_.getId(); }
-    public TupleId getOutputTupleId() { return outputTupleDesc_.getId(); }
+    public ArrayList<Expr> getGroupingExprs() {
+        return groupingExprs;
+    }
+
+    public ArrayList<FunctionCallExpr> getAggregateExprs() {
+        return aggregateExprs;
+    }
+
+    public TupleDescriptor getOutputTupleDesc() {
+        return outputTupleDesc;
+    }
+
+    public TupleDescriptor getIntermediateTupleDesc() {
+        return intermediateTupleDesc;
+    }
+
+    public TupleId getIntermediateTupleId() {
+        return intermediateTupleDesc.getId();
+    }
+
+    public TupleId getOutputTupleId() {
+        return outputTupleDesc.getId();
+    }
 
     public void setOutputTupleDesc_(TupleDescriptor outputTupleDesc_) {
-        this.outputTupleDesc_ = outputTupleDesc_;
+        this.outputTupleDesc = outputTupleDesc_;
     }
 
     public boolean requiresIntermediateTuple() {
@@ -228,11 +245,11 @@ public abstract class AggregateInfoBase {
     }
 
     public ArrayList<Integer> getMaterializedSlots_() {
-        return materializedSlots_;
+        return materializedSlots;
     }
 
     public void setMaterializedSlots_(ArrayList<Integer> materializedSlots_) {
-        this.materializedSlots_ = materializedSlots_;
+        this.materializedSlots = materializedSlots_;
     }
 
     /**

@@ -137,12 +137,16 @@ Status TabletsChannel::close(int sender_id, int64_t backend_id, bool* finished,
 void TabletsChannel::_close_wait(DeltaWriter* writer,
                                  google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
                                  google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors) {
-    Status st = writer->close_wait();
+    std::vector<std::string> invalid_dict_column_names;               
+    Status st = writer->close_wait(&invalid_dict_column_names);
     if (st.ok()) {
         if (_broken_tablets.find(writer->tablet_id()) == _broken_tablets.end()) {
             PTabletInfo* tablet_info = tablet_vec->Add();
             tablet_info->set_tablet_id(writer->tablet_id());
             tablet_info->set_schema_hash(writer->schema_hash());
+            for (const auto& col : invalid_dict_column_names) {
+                tablet_info->add_invalid_dict_cols(col);
+            }
         }
     } else {
         PTabletError* tablet_error = tablet_errors->Add();

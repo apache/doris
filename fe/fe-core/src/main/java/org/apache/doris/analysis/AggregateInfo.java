@@ -382,11 +382,6 @@ public final class AggregateInfo extends AggregateInfoBase {
         return outputTupleSmap;
     }
 
-    public boolean isMerge() { return aggPhase_.isMerge(); }
-    public boolean isDistinctAgg() { return secondPhaseDistinctAggInfo_ != null; }
-
-    public ExprSubstitutionMap getIntermediateSmap() { return intermediateTupleSmap_; }
-    public ExprSubstitutionMap getOutputSmap() { return outputTupleSmap_; }
     public ExprSubstitutionMap getOutputToIntermediateSmap() {
         return outputToIntermediateTupleSmap;
     }
@@ -410,7 +405,7 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     public void setSecondPhaseDistinctAggInfo_(AggregateInfo secondPhaseDistinctAggInfo_) {
-        this.secondPhaseDistinctAggInfo_ = secondPhaseDistinctAggInfo_;
+        this.secondPhaseDistinctAggInfo = secondPhaseDistinctAggInfo_;
     }
 
     /**
@@ -880,6 +875,6 @@ public final class AggregateInfo extends AggregateInfoBase {
     }
 
     public AggPhase getAggPhase_() {
-        return aggPhase_;
+        return aggPhase;
     }
 }

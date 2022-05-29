@@ -76,16 +76,11 @@ public class PlannerTest extends TestWithFeService {
                         + "DISTRIBUTED BY HASH(k2) "
                         + "BUCKETS 3 PROPERTIES ('replication_num' = '1');";
 
-        createTables(tbl1, tbl2, tbl3, tbl4, tbl5);
+        String tbl6 = "CREATE TABLE db1.dict_test (col1 varchar, col2 varchar, col3 int)\n"
+                        + "DISTRIBUTED BY HASH(col3)\n" + "BUCKETS 3\n" + "PROPERTIES(\n"
+                        + "    \"replication_num\"=\"1\"\n" + ");";
 
-        String createTblStmtStr = "CREATE TABLE db1.dict_test (col1 varchar, col2 varchar, col3 int)\n" +
-            "DISTRIBUTED BY HASH(col3)\n" +
-            "BUCKETS 3\n" +
-            "PROPERTIES(\n" +
-            "    \"replication_num\"=\"1\"\n" +
-            ");";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, UtFrameUtils.createDefaultCtx());
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        createTables(tbl1, tbl2, tbl3, tbl4, tbl5, tbl6);
     }
 
     @Test
@@ -507,7 +502,7 @@ public class PlannerTest extends TestWithFeService {
     
     public void testDictPlan() throws Exception {
         String testSql1 = "SELECT count(col3) FROM db1.dict_test GROUP BY col1, col2";
-        String plan = UtFrameUtils.getSQLPlanOrErrorMsg(UtFrameUtils.createDefaultCtx(), testSql1);
+        String plan = getSQLPlanOrErrorMsg(testSql1);
         Assert.assertTrue(plan.contains("Dic col"));
     }
 

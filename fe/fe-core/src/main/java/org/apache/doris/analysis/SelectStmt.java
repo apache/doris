@@ -399,11 +399,11 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
-        fromClause_.setNeedToSql(needToSql);
-        fromClause_.analyze(analyzer);
-        for (TableRef tblRef : fromClause_.getTableRefs()) {
+        fromClause.setNeedToSql(needToSql);
+        fromClause.analyze(analyzer);
+        for (TableRef tblRef : fromClause.getTableRefs()) {
             if (tblRef.isMetaScan()) {
-                Preconditions.checkState(fromClause_.size() == 1);
+                Preconditions.checkState(fromClause.size() == 1);
                 metaQuery = true;
             }
         }

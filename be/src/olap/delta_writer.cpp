@@ -292,7 +292,7 @@ Status DeltaWriter::close() {
     return Status::OK();
 }
 
-Status DeltaWriter::close_wait() {
+Status DeltaWriter::close_wait(std::vector<std::string>* invalid_dict_column_names) {
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
@@ -323,12 +323,8 @@ Status DeltaWriter::close_wait() {
         return res;
     }
 
-#ifndef BE_TEST
-    if (!is_broken) {
-        PTabletInfo* tablet_info = tablet_vec->Add();
-        tablet_info->set_tablet_id(_tablet->tablet_id());
-        tablet_info->set_schema_hash(_tablet->schema_hash());
-
+    if (invalid_dict_column_names) {
+        invalid_dict_column_names->clear();
         std::vector<const TabletColumn*> dict_columns;
         for (const auto& column : _tablet_schema->columns()) {
             FieldType column_type = column.type();
@@ -355,13 +351,12 @@ Status DeltaWriter::close_wait() {
             }
             for (const auto& word : dict_words) {
                 if (iter->second.find(word) == iter->second.end()) {
-                    tablet_info->add_invalid_dict_cols(iter->first);
+                    invalid_dict_column_names->push_back(iter->first);
                     break;
                 }
             }
         }
     }
-#endif
 
     _delta_written_success = true;
 

@@ -1654,6 +1654,8 @@ std::shared_ptr<MemTracker>& Tablet::get_compaction_mem_tracker(CompactionType c
     } else {
         return _base_compaction->get_mem_tracker();
     }
+}
+
 Status Tablet::get_dict_data(std::set<std::string>& dict_words, int col_id) {
     std::vector<BetaRowset*> beta_row_sets;
     {
