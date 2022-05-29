@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_unique_table", "data_model") {
+suite("test_unique_table_like", "data_model") {
     def dbName = "test_unique_db"
     List<List<Object>> db = sql "show databases like '${dbName}'"
     if (db.size() == 0) {
@@ -23,23 +23,30 @@ suite("test_unique_table", "data_model") {
     }
     sql "use ${dbName}"
 
-    // test uniq table
-    def tbName = "test_uniq"
-    sql "DROP TABLE IF EXISTS ${tbName}"
+    // test uniq table like 
+    def tbNameA = "test_uniq"
+    def tbNameB = "test_uniq_like"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_batch_delete_by_default' = 'true')"
+    sql "SET show_hidden_columns=true"
+    sql "DROP TABLE IF EXISTS ${tbNameA}"
     sql """
-            CREATE TABLE IF NOT EXISTS ${tbName} (
+            CREATE TABLE IF NOT EXISTS ${tbNameA} (
                 k int,
                 int_value int,
                 char_value char(10),
                 date_value date
             )
+            ENGINE=OLAP
             UNIQUE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "insert into ${tbName} values(0, 1, 'test char', '2000-01-01')"
-    sql "insert into ${tbName} values(0, 2, 'test int', '2000-02-02')"
-    sql "insert into ${tbName} values(0, null, null, null)"
-    order_qt_select_uniq_table "select * from ${tbName}"
-    qt_desc_uniq_table "desc ${tbName}"
-    sql "DROP TABLE ${tbName}"
+    qt_desc_uniq_table "desc ${tbNameA}"    
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbNameB} LIKE ${tbNameA};
+        """
+    
+    qt_desc_uniq_table "desc ${tbNameB}"
+    sql "DROP TABLE ${tbNameA}"
+    sql "DROP TABLE ${tbNameB}"
 }
+
