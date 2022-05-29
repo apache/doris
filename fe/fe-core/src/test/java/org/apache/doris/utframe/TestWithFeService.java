@@ -17,12 +17,15 @@
 
 package org.apache.doris.utframe;
 
+import org.apache.doris.analysis.AlterSqlBlockRuleStmt;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreatePolicyStmt;
+import org.apache.doris.analysis.CreateSqlBlockRuleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DropPolicyStmt;
+import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -75,22 +78,18 @@ import java.util.UUID;
 
 /**
  * This is the base class for unit class that wants to start a FE service.
- * <p>
  * Concrete test class must be derived class of {@link TestWithFeService}, {@link DemoTest} is
  * an example.
- * <p>
  * This class use {@link TestInstance} in JUnit5 to do initialization and cleanup stuff. Unlike
  * deprecated legacy combination-based implementation {@link UtFrameUtils}, we use an inherit-manner,
  * thus we could wrap common logic in this base class. It's more easy to use.
- * <p>
  * Note:
  * Unit-test method in derived classes must use the JUnit5 {@link org.junit.jupiter.api.Test}
  * annotation, rather than the old JUnit4 {@link org.junit.Test} or others.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class TestWithFeService {
-    protected String runningDir =
-            "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
+    protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
 
     @BeforeAll
@@ -126,12 +125,10 @@ public abstract class TestWithFeService {
     }
 
     // Parse an origin stmt and analyze it. Return a StatementBase instance.
-    protected StatementBase parseAndAnalyzeStmt(String originStmt)
-            throws Exception {
+    protected StatementBase parseAndAnalyzeStmt(String originStmt) throws Exception {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input =
-                new SqlScanner(new StringReader(originStmt),
-                        connectContext.getSessionVariable().getSqlMode());
+                new SqlScanner(new StringReader(originStmt), connectContext.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         Analyzer analyzer = new Analyzer(connectContext.getCatalog(), connectContext);
         StatementBase statementBase = null;
@@ -184,8 +181,9 @@ public abstract class TestWithFeService {
         return "fe" + "/mocked/" + testSuiteName + "/" + UUID.randomUUID().toString() + "/";
     }
 
-    protected int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
-            FeStartException, NotInitException, DdlException, InterruptedException {
+    protected int startFEServer(String runningDir)
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
         // get DORIS_HOME
         String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
@@ -202,9 +200,6 @@ public abstract class TestWithFeService {
         int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
         int feEditLogPort = findValidPort();
-
-        // start fe in "DORIS_HOME/fe/mocked/"
-        MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
@@ -212,20 +207,22 @@ public abstract class TestWithFeService {
         feConfMap.put("query_port", String.valueOf(feQueryPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
+        // start fe in "DORIS_HOME/fe/mocked/"
+        MockedFrontend frontend = MockedFrontend.getInstance();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
         return feRpcPort;
     }
 
     protected void createDorisCluster()
-            throws InterruptedException, NotInitException, IOException, DdlException,
-            EnvVarNotSetException, FeStartException {
+            throws InterruptedException, NotInitException, IOException, DdlException, EnvVarNotSetException,
+            FeStartException {
         createDorisCluster(runningDir, 1);
     }
 
     protected void createDorisCluster(String runningDir, int backendNum)
-            throws EnvVarNotSetException, IOException, FeStartException,
-            NotInitException, DdlException, InterruptedException {
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
             createBackend("127.0.0.1", feRpcPort);
@@ -236,11 +233,11 @@ public abstract class TestWithFeService {
 
     // Create multi backends with different host for unit test.
     // the host of BE will be "127.0.0.1", "127.0.0.2"
-    protected void createDorisClusterWithMultiTag(String runningDir,
-                                                  int backendNum)
-            throws EnvVarNotSetException, IOException, FeStartException, NotInitException,
-            DdlException, InterruptedException {
-        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1" to make cluster running well.
+    protected void createDorisClusterWithMultiTag(String runningDir, int backendNum)
+            throws EnvVarNotSetException, IOException, FeStartException, NotInitException, DdlException,
+            InterruptedException {
+        // set runningUnitTest to true, so that for ut, the agent task will be send to "127.0.0.1"
+        // to make cluster running well.
         FeConstants.runningUnitTest = true;
         int feRpcPort = startFEServer(runningDir);
         for (int i = 0; i < backendNum; i++) {
@@ -251,29 +248,28 @@ public abstract class TestWithFeService {
         Thread.sleep(6000);
     }
 
-    protected void createBackend(String beHost, int feRpcPort)
-            throws IOException, InterruptedException {
+    protected void createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
         int beHeartbeatPort = findValidPort();
         int beThriftPort = findValidPort();
         int beBrpcPort = findValidPort();
         int beHttpPort = findValidPort();
 
         // start be
-        MockedBackend backend = MockedBackendFactory.createBackend(beHost,
-                beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
-                new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+        MockedBackend backend =
+                MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort, beHttpPort,
+                        new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
+                        new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
         // add be
         Backend be =
                 new Backend(Catalog.getCurrentCatalog().getNextId(), backend.getHost(), backend.getHeartbeatPort());
-        Map<String, DiskInfo> disks = Maps.newHashMap();
         DiskInfo diskInfo1 = new DiskInfo("/path" + be.getId());
         diskInfo1.setTotalCapacityB(1000000);
         diskInfo1.setAvailableCapacityB(500000);
         diskInfo1.setDataUsedCapacityB(480000);
+        Map<String, DiskInfo> disks = Maps.newHashMap();
         disks.put(diskInfo1.getRootPath(), diskInfo1);
         be.setDisks(ImmutableMap.copyOf(disks));
         be.setAlive(true);
@@ -385,6 +381,21 @@ public abstract class TestWithFeService {
     protected void dropPolicy(String sql) throws Exception {
         DropPolicyStmt stmt = (DropPolicyStmt) parseAndAnalyzeStmt(sql);
         Catalog.getCurrentCatalog().getPolicyMgr().dropPolicy(stmt);
+    }
+
+    protected void createSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+                .createSqlBlockRule((CreateSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+    }
+
+    protected void alterSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+                .alterSqlBlockRule((AlterSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
+    }
+
+    protected void dropSqlBlockRule(String sql) throws Exception {
+        Catalog.getCurrentCatalog().getSqlBlockRuleMgr()
+                .dropSqlBlockRule((DropSqlBlockRuleStmt) parseAndAnalyzeStmt(sql));
     }
 
     protected void assertSQLPlanOrErrorMsgContains(String sql, String expect) throws Exception {
