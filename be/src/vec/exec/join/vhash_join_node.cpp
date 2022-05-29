@@ -808,6 +808,8 @@ Status HashJoinNode::close(RuntimeState* state) {
         return Status::OK();
     }
 
+    VExpr::close(_build_expr_ctxs, state);
+    VExpr::close(_probe_expr_ctxs, state);
     if (_vother_join_conjunct_ptr) (*_vother_join_conjunct_ptr)->close(state);
 
     _mem_tracker->Release(_mem_used);

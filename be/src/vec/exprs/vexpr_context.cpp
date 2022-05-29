@@ -29,6 +29,14 @@ VExprContext::VExprContext(VExpr* expr)
           _closed(false),
           _last_result_column_id(-1) {}
 
+VExprContext::~VExprContext() {
+    DCHECK(!_prepared || _closed);
+
+    for (int i = 0; i < _fn_contexts.size(); ++i) {
+        delete _fn_contexts[i];
+    }
+}
+
 doris::Status VExprContext::execute(doris::vectorized::Block* block, int* result_column_id) {
     Status st = _root->execute(this, block, result_column_id);
     _last_result_column_id = *result_column_id;
@@ -64,7 +72,6 @@ void VExprContext::close(doris::RuntimeState* state) {
 
     for (int i = 0; i < _fn_contexts.size(); ++i) {
         _fn_contexts[i]->impl()->close();
-        delete _fn_contexts[i];
     }
     // _pool can be NULL if Prepare() was never called
     if (_pool != NULL) {
