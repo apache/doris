@@ -63,21 +63,6 @@ import java.util.Set;
 
 // TODO: for aggregations, we need to unify the code paths for builtins and UDAs.
 public class FunctionCallExpr extends Expr {
-    private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
-    private FunctionName fnName;
-    // private BuiltinAggregateFunction.Operator aggOp;
-    private FunctionParams fnParams;
-
-    // check analytic function
-    private boolean isAnalyticFnCall = false;
-    // check table function
-    private boolean isTableFnCall = false;
-
-    // Indicates whether this is a merge aggregation function that should use the merge
-    // instead of the update symbol. This flag also affects the behavior of
-    // resetAnalysisState() which is used during expr substitution.
-    private boolean isMergeAggFn;
-
     private static final ImmutableSet<String> STDDEV_FUNCTION_SET =
             new ImmutableSortedSet.Builder(String.CASE_INSENSITIVE_ORDER)
                     .add("stddev").add("stddev_val").add("stddev_samp").add("stddev_pop")
@@ -97,6 +82,22 @@ public class FunctionCallExpr extends Expr {
                     .addAll(STDDEV_FUNCTION_SET).build();
     private static final int STDDEV_DECIMAL_SCALE = 9;
     private static final String ELEMENT_EXTRACT_FN_NAME = "%element_extract%";
+
+    private static final Logger LOG = LogManager.getLogger(FunctionCallExpr.class);
+
+    private FunctionName fnName;
+    // private BuiltinAggregateFunction.Operator aggOp;
+    private FunctionParams fnParams;
+
+    // check analytic function
+    private boolean isAnalyticFnCall = false;
+    // check table function
+    private boolean isTableFnCall = false;
+
+    // Indicates whether this is a merge aggregation function that should use the merge
+    // instead of the update symbol. This flag also affects the behavior of
+    // resetAnalysisState() which is used during expr substitution.
+    private boolean isMergeAggFn;
 
     // use to record the num of json_object parameters
     private int originChildSize;

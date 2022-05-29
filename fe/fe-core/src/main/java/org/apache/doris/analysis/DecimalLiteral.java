@@ -73,13 +73,16 @@ public class DecimalLiteral extends LiteralExpr {
         return new DecimalLiteral(this);
     }
 
-    // The precision is the number of digits in the unscaled value for BigDecimal.
-    // The unscaled value of BigDecimal computes this * 10^this.scale().
-    // If zero or positive, the scale is the number of digits to the right of the decimal point.
-    // If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
-    // There are two scenarios that do not meet the limit: 0 < P and 0 <= S <= P
-    // case1: S >= 0 and S > P. i.e. BigDecimal(0.01234), precision = 4, scale = 5
-    // case2: S < 0. i.e. BigDecimal(2000), precision = 1, scale = -3
+    /**
+     * Get precision and scale of java BigDecimal.
+     * The precision is the number of digits in the unscaled value for BigDecimal.
+     * The unscaled value of BigDecimal computes this * 10^this.scale().
+     * If zero or positive, the scale is the number of digits to the right of the decimal point.
+     * If negative, the unscaled value of the number is multiplied by ten to the power of the negation of the scale.
+     * There are two scenarios that do not meet the limit: 0 < P and 0 <= S <= P
+     * case1: S >= 0 and S > P. i.e. BigDecimal(0.01234), precision = 4, scale = 5
+     * case2: S < 0. i.e. BigDecimal(2000), precision = 1, scale = -3
+     */
     public static int getBigDecimalPrecision(BigDecimal decimal) {
         int scale = decimal.scale();
         int precision = decimal.precision();

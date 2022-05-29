@@ -356,6 +356,9 @@ public class ArithmeticExpr extends Expr {
         }
     }
 
+    /**
+     * Convert integer type to decimal type.
+     */
     public static Type convertIntToDecimalV2Type(Type type) throws AnalysisException {
         if (type.isLargeIntType()) {
             return ScalarType.createDecimalV2Type(ScalarType.MAX_DECIMAL128_PRECISION, 0);
@@ -383,11 +386,11 @@ public class ArithmeticExpr extends Expr {
                     castBinaryOp(type.DOUBLE);
                     break;
                 }
-                if (!t1.isDecimalV2()) {
+                if (t1.isFixedPointType()) {
                     t1TargetType = convertIntToDecimalV2Type(t1);
                     castChild(t1TargetType, 0);
                 }
-                if (!t2.isDecimalV2()) {
+                if (t2.isFixedPointType()) {
                     t2TargetType = convertIntToDecimalV2Type(t2);
                     castChild(t2TargetType, 1);
                 }

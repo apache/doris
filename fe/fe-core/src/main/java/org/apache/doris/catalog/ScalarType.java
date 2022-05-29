@@ -47,8 +47,6 @@ import java.util.Objects;
  *   indicating that any decimal type is a subtype of the decimal type.
  */
 public class ScalarType extends Type {
-    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
-
     // SQL allows the engine to pick the default precision. We pick the largest
     // precision that is supported by the smallest decimal type in the BE (4 bytes).
     public static final int DEFAULT_PRECISION = 9;
@@ -76,6 +74,8 @@ public class ScalarType extends Type {
     public static final int MAX_DECIMAL32_PRECISION = 9;
     public static final int MAX_DECIMAL64_PRECISION = 18;
     public static final int MAX_DECIMAL128_PRECISION = 38;
+
+    private static final Logger LOG = LogManager.getLogger(ScalarType.class);
 
     @SerializedName(value = "type")
     private final PrimitiveType type;
@@ -282,6 +282,9 @@ public class ScalarType extends Type {
         return type;
     }
 
+    /**
+     * create a wider decimal type.
+     */
     public static ScalarType createWiderDecimalV2Type(int precision, int scale) {
         ScalarType type = new ScalarType(PrimitiveType.DECIMALV2);
         if (precision <= MAX_DECIMAL32_PRECISION) {
