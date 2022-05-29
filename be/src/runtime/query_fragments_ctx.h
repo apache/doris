@@ -112,7 +112,7 @@ private:
     std::condition_variable _start_cond;
     // Only valid when _need_wait_execution_trigger is set to true in FragmentExecState.
     // And all fragments of this query will start execution when this is set to true.
-    std::atomic<bool> _ready_to_execute { false };
+    std::atomic<bool> _ready_to_execute {false};
 };
 
 } // namespace doris

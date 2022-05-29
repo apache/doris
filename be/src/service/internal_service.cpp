@@ -111,7 +111,8 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
     brpc::ClosureGuard closure_guard(done);
     auto st = Status::OK();
     bool compact = request->has_compact() ? request->compact() : false;
-    PFragmentRequestVersion version = request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
+    PFragmentRequestVersion version =
+            request->has_version() ? request->version() : PFragmentRequestVersion::VERSION_1;
     st = _exec_plan_fragment(request->request(), version, compact);
     if (!st.ok()) {
         LOG(WARNING) << "exec plan fragment failed, errmsg=" << st.get_error_msg();
@@ -120,9 +121,9 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
 }
 
 void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
-                            const PExecPlanFragmentStartRequest* request,
-                            PExecPlanFragmentResult* result,
-                            google::protobuf::Closure* done) {
+                                                    const PExecPlanFragmentStartRequest* request,
+                                                    PExecPlanFragmentResult* result,
+                                                    google::protobuf::Closure* done) {
     SCOPED_SWITCH_BTHREAD();
     brpc::ClosureGuard closure_guard(done);
     auto st = _exec_env->fragment_mgr()->start_query_execution(request);
@@ -212,7 +213,8 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
     }
 }
 
-Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request, PFragmentRequestVersion version, bool compact) {
+Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
+                                                 PFragmentRequestVersion version, bool compact) {
     if (version == PFragmentRequestVersion::VERSION_1) {
         // VERSION_1 should be removed in v1.2
         TExecPlanFragmentParams t_request;
@@ -232,7 +234,7 @@ Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
-        } 
+        }
         return Status::OK();
     } else {
         return Status::InternalError("invalid version");

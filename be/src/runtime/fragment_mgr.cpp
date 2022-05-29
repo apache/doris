@@ -546,8 +546,8 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
     if (search == _fragments_ctx_map.end()) {
         return Status::InternalError(
                 strings::Substitute("Failed to get query fragments context. Query may be "
-                    "timeout or be cancelled. host: ",
-                    BackendOptions::get_localhost()));
+                                    "timeout or be cancelled. host: ",
+                                    BackendOptions::get_localhost()));
     }
     search->second->set_ready_to_execute();
     return Status::OK();
@@ -629,8 +629,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             std::lock_guard<std::mutex> lock(_lock);
             auto search = _fragments_ctx_map.find(params.params.query_id);
             if (search == _fragments_ctx_map.end()) {
-                _fragments_ctx_map.insert(
-                        std::make_pair(fragments_ctx->query_id, fragments_ctx));
+                _fragments_ctx_map.insert(std::make_pair(fragments_ctx->query_id, fragments_ctx));
             } else {
                 // Already has a query fragmentscontext, use it
                 fragments_ctx = search->second;
@@ -639,8 +638,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     }
 
     exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
-                                           params.params.fragment_instance_id,
-                                           params.backend_num, _exec_env, fragments_ctx));
+                                           params.params.fragment_instance_id, params.backend_num,
+                                           _exec_env, fragments_ctx));
     if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
         // set need_wait_execution_trigger means this instance will not actually being executed
         // until the execPlanFragmentStart RPC trigger to start it.
