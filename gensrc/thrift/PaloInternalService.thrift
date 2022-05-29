@@ -348,7 +348,7 @@ struct TExecPlanFragmentParams {
   // If it is true, after this fragment is prepared on the BE side,
   // it will wait for the FE to send the "start execution" command before it is actually executed.
   // Otherwise, the fragment will start executing directly on the BE side.
-  20: optional bool need_wait_execution_trigger;
+  20: optional bool need_wait_execution_trigger = false;
 }
 
 struct TExecPlanFragmentParamsList {
