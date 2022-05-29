@@ -58,6 +58,10 @@ Click the plus sign under Configuration File, select `Use a local Checkstyle fil
 
 ![](/images/idea-checkstyle-version.png)
 
+**You can use `Checkstyle-IDEA` plugin to check `Checkstyle` of your code real-time.**
+
+![](/images/idea-checkstyle-plugin-en.png)
+
 ### VS Code
 
 If you use VS Code to develop Java code, please install `Checkstyle for Java` plugin, and config according to the [document](https://code.visualstudio.com/docs/java/java-linting) and the picture
