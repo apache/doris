@@ -31,9 +31,9 @@ class TestNumBasedCumulativeCompactionPolicy : public testing::Test {
 public:
     TestNumBasedCumulativeCompactionPolicy() {}
     void SetUp() {
-        _tablet_meta = static_cast<TabletMetaSharedPtr>(
-                new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+        _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
+                1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -335,9 +335,9 @@ public:
         config::cumulative_size_based_promotion_min_size_mbytes = 64;
         config::cumulative_size_based_compaction_lower_size_mbytes = 64;
 
-        _tablet_meta = static_cast<TabletMetaSharedPtr>(
-                new TabletMeta(1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
-                               TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
+        _tablet_meta = static_cast<TabletMetaSharedPtr>(new TabletMeta(
+                1, 2, 15673, 4, 5, TTabletSchema(), 6, {{7, 8}}, UniqueId(9, 10),
+                TTabletType::TABLET_TYPE_DISK, TStorageMedium::HDD, "", TCompressionType::LZ4F));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
