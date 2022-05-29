@@ -193,26 +193,25 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
                 if (!filter_bitmap->Get(j)) {
                     auto str_val = column_string->get_data_at(j);
                     bool invalid = str_val.size > limit;
-
-                    error_msg.clear();
-                    if (str_val.size > desc->type().len) {
-                        fmt::format_to(error_msg, "{}",
-                                       "the length of input is too long than schema. ");
-                        fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
-                        fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                    } else if (str_val.size > limit) {
-                        fmt::format_to(error_msg, "{}",
-                                       "the length of input string is too long than vec schema. ");
-                        fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
-                        fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
-                        fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
-                        fmt::format_to(error_msg, "limit length: {}; ", limit);
-                        fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
-                    }
-
                     if (invalid) {
+                        error_msg.clear();
+                        if (str_val.size > desc->type().len) {
+                            fmt::format_to(error_msg, "{}",
+                                           "the length of input is too long than schema. ");
+                            fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
+                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                            fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
+                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                        } else if (str_val.size > limit) {
+                            fmt::format_to(
+                                    error_msg, "{}",
+                                    "the length of input string is too long than vec schema. ");
+                            fmt::format_to(error_msg, "column_name: {}; ", desc->col_name());
+                            fmt::format_to(error_msg, "input str: [{}] ", str_val.to_prefix(10));
+                            fmt::format_to(error_msg, "schema length: {}; ", desc->type().len);
+                            fmt::format_to(error_msg, "limit length: {}; ", limit);
+                            fmt::format_to(error_msg, "actual length: {}; ", str_val.size);
+                        }
                         RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
                     }
                 }
@@ -270,10 +269,10 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
         if ((!desc->is_nullable() || desc->type() == TYPE_OBJECT) && column_ptr) {
             const auto& null_map = column_ptr->get_null_map_data();
             for (int j = 0; j < null_map.size(); ++j) {
-                fmt::format_to(error_msg,
-                               "null value for not null column/or bitmap column, column={}; ",
-                               desc->col_name());
                 if (null_map[j] && !filter_bitmap->Get(j)) {
+                    error_msg.clear();
+                    fmt::format_to(error_msg, "null value for not null column, column={}; ",
+                                   desc->col_name());
                     RETURN_IF_ERROR(set_invalid_and_append_error_msg(j));
                 }
             }
