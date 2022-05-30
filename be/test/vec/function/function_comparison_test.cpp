@@ -23,6 +23,7 @@
 #include "exec/schema_scanner.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {

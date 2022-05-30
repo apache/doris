@@ -18,6 +18,7 @@
 #include "util/cgroup_util.h"
 
 #include <algorithm>
+#include <cfloat>
 #include <fstream>
 #include <iomanip>
 #include <iostream>

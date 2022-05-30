@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "common/object_pool.h"
 #include "string"
 #include "util/bitmap.h"
 

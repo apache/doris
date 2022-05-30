@@ -26,13 +26,10 @@
 #include <sstream>
 #include <string>
 
-#include "udf/udf.h"
-#include "util/hash_util.hpp"
-
 namespace doris {
 
-const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
-const __int128 MIN_INT128 = ((__int128)0x01 << 127);
+inline const __int128 MAX_INT128 = ~((__int128)0x01 << 127);
+inline const __int128 MIN_INT128 = ((__int128)0x01 << 127);
 
 class LargeIntValue {
 public:

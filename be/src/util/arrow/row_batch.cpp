@@ -35,11 +35,11 @@
 #include <ctime>
 #include <memory>
 
-#include "common/logging.h"
 #include "exprs/slot_ref.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
+#include "runtime/large_int_value.h"
 #include "runtime/row_batch.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"

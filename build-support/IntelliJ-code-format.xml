@@ -18,6 +18,7 @@ under the License.
 -->
 <code_scheme name="Doris" version="173">
   <JavaCodeStyleSettings>
+    <option name="LAYOUT_STATIC_IMPORTS_SEPARATELY" value="false" />
     <option name="INSERT_INNER_CLASS_IMPORTS" value="true" />
     <option name="CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND" value="999" />
     <option name="NAMES_COUNT_TO_USE_IMPORT_ON_DEMAND" value="999" />
@@ -32,10 +33,12 @@ under the License.
         <emptyLine />
         <package name="java" withSubpackages="true" static="false" />
         <package name="javax" withSubpackages="true" static="false" />
+        <emptyLine />
       </value>
     </option>
     <option name="ALIGN_MULTILINE_RECORDS" value="false" />
-    <option name="ALIGN_TYPES_IN_MULTI_CATCH" value="false" />
+    <option name="JD_ALIGN_PARAM_COMMENTS" value="false" />
+    <option name="JD_ALIGN_EXCEPTION_COMMENTS" value="false" />
   </JavaCodeStyleSettings>
   <ScalaCodeStyleSettings>
     <option name="MULTILINE_STRING_CLOSING_QUOTES_ON_NEW_LINE" value="true" />

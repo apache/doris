@@ -17,9 +17,8 @@
 
 #include "exec/tablet_info.h"
 
+#include "runtime/large_int_value.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "util/random.h"
 #include "util/string_parser.hpp"
 #include "util/time.h"

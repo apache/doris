@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "exec/olap_utils.h"
+#include "runtime/large_int_value.h"
 
 namespace doris {
 

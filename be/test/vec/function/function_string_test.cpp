@@ -21,10 +21,7 @@
 #include <string>
 
 #include "function_test_util.h"
-#include "runtime/tuple_row.h"
 #include "util/encryption_util.h"
-#include "util/url_coding.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_string.h"
 
