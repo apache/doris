@@ -351,8 +351,8 @@ distribution_info
     (
         k1 BIGINT,
         k2 LARGEINT,
-        v1 VARCHAR(2048) REPLACE,
-        v2 SMALLINT SUM DEFAULT "10"
+        v1 VARCHAR(2048),
+        v2 SMALLINT DEFAULT "10"
     )
     UNIQUE KEY(k1, k2)
     DISTRIBUTED BY HASH (k1, k2) BUCKETS 32
