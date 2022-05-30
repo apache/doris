@@ -72,7 +72,7 @@ public class RowPolicy extends Policy {
      * Use for Serialization/deserialization.
      **/
     @SerializedName(value = "originStmt")
-    protected String originStmt;
+    private String originStmt;
 
     private Expr wherePredicate = null;
 
