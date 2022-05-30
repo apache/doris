@@ -1,6 +1,6 @@
 ---
 {
-"title": "ALTER RESOURCE",
+"title": "ALTER-RESOURCE",
 "language": "en"
 }
 ---
@@ -24,25 +24,40 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# ALTER RESOURCE
+## ALTER-RESOURCE
 
-## Description
+### Name
 
-    This statement is used to modify an existing resource. Only the root or admin user can modify resources.
-    Syntax:
-        ALTER RESOURCE 'resource_name'
-        PROPERTIES ("key"="value", ...);
+ALTER RESOURCE
 
-    Note: The resource type does not support modification.
+### Description
 
-## Example
+This statement is used to modify an existing resource. Only the root or admin user can modify resources.
+Syntax:
+```sql
+ALTER RESOURCE 'resource_name'
+PROPERTIES ("key"="value", ...);
+```
 
-    1. Modify the working directory of the Spark resource named spark0:
-        ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/doris_new");
+Note: The resource type does not support modification.
 
-    2. Modify the maximum number of connections to the S3 resource named remote_s3:
-        ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+### Example
 
-## keyword
+1. Modify the working directory of the Spark resource named spark0:
 
-    ALTER, RESOURCE
+```sql
+ALTER RESOURCE 'spark0' PROPERTIES ("working_dir" = "hdfs://127.0.0.1:10000/tmp/doris_new");
+```
+2. Modify the maximum number of connections to the S3 resource named remote_s3:
+
+```sql
+ALTER RESOURCE 'remote_s3' PROPERTIES ("s3_max_connections" = "100");
+```
+
+### Keywords
+
+```text
+ALTER, RESOURCE
+```
+
+### Best Practice
