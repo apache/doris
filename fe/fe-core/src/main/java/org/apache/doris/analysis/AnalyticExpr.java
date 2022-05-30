@@ -63,6 +63,7 @@ import java.util.Objects;
  */
 public class AnalyticExpr extends Expr {
     private final static Logger LOG = LoggerFactory.getLogger(AnalyticExpr.class);
+    private static String NTILE = "NTILE";
 
     private FunctionCallExpr fnCall;
     private final List<Expr> partitionExprs;
@@ -236,7 +237,8 @@ public class AnalyticExpr extends Expr {
 
         return fn.functionName().equalsIgnoreCase(RANK)
                || fn.functionName().equalsIgnoreCase(DENSERANK)
-               || fn.functionName().equalsIgnoreCase(ROWNUMBER);
+               || fn.functionName().equalsIgnoreCase(ROWNUMBER)
+               || fn.functionName().equalsIgnoreCase(NTILE);
     }
 
     static private boolean isHllAggFn(Function fn) {
@@ -245,6 +247,95 @@ public class AnalyticExpr extends Expr {
         }
 
         return fn.functionName().equalsIgnoreCase(HLL_UNION_AGG);
+    }
+
+    private static boolean isNTileFn(Function fn) {
+        if (!isAnalyticFn(fn)) {
+            return false;
+        }
+
+        return fn.functionName().equalsIgnoreCase(NTILE);
+    }
+
+    /**
+     * Rewrite the following analytic functions: ntile().
+     * Returns a new Expr if the analytic expr is rewritten, returns null if it's not one
+     * that we want to equal.
+     */
+    public static Expr rewrite(AnalyticExpr analyticExpr) {
+        Function fn = analyticExpr.getFnCall().getFn();
+        // TODO(zc)
+        // if (AnalyticExpr.isPercentRankFn(fn)) {
+        //     return createPercentRank(analyticExpr);
+        // } else if (AnalyticExpr.isCumeDistFn(fn)) {
+        //     return createCumeDist(analyticExpr);
+        // } else if (AnalyticExpr.isNtileFn(fn)) {
+        //     return createNtile(analyticExpr);
+        // }
+        if (isNTileFn(fn) && !VectorizedUtil.isVectorized()) {
+            return createNTile(analyticExpr);
+        }
+        return null;
+    }
+
+    /**
+     * Rewrite ntile().
+     * ntile(B) over([partition by clause] order by clause)
+     *    = floor(min(Count, B) * (RowNumber - 1)/Count) + 1
+     * where,
+     *  RowNumber = row_number() over([partition by clause] order by clause)
+     *  Count = count() over([partition by clause])
+     */
+    private static Expr createNTile(AnalyticExpr analyticExpr) {
+        Preconditions.checkState(AnalyticExpr.isNTileFn(analyticExpr.getFnCall().getFn()));
+        Expr bucketExpr = analyticExpr.getChild(0);
+        AnalyticExpr rowNumExpr = create("row_number", analyticExpr, true, false);
+        AnalyticExpr countExpr = create("count", analyticExpr, false, false);
+
+        List<Expr> ifParams = new ArrayList<>();
+        ifParams.add(
+            new BinaryPredicate(BinaryPredicate.Operator.LT, bucketExpr, countExpr));
+        ifParams.add(bucketExpr);
+        ifParams.add(countExpr);
+
+        IntLiteral one = new IntLiteral(1);
+        ArithmeticExpr minMultiplyRowMinusOne =
+                new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT, rowNumExpr, one),
+                        new FunctionCallExpr("if", ifParams));
+        ArithmeticExpr divideAddOne =
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD,
+                        new ArithmeticExpr(ArithmeticExpr.Operator.INT_DIVIDE,
+                            minMultiplyRowMinusOne, countExpr),
+                one);
+        return divideAddOne;
+    }
+
+    /**
+     * Create a new Analytic Expr and associate it with a new function.
+     * Takes a reference analytic expression and clones the partition expressions and the
+     * order by expressions if 'copyOrderBy' is set and optionally reverses it if
+     * 'reverseOrderBy' is set. The new function that it will be associated with is
+     * specified by fnName.
+     */
+    private static AnalyticExpr create(String fnName,
+                                       AnalyticExpr referenceExpr, boolean copyOrderBy, boolean reverseOrderBy) {
+        FunctionCallExpr fnExpr = new FunctionCallExpr(fnName, new ArrayList<>());
+        fnExpr.setIsAnalyticFnCall(true);
+        List<OrderByElement> orderByElements = null;
+        if (copyOrderBy) {
+            if (reverseOrderBy) {
+                orderByElements = OrderByElement.reverse(referenceExpr.getOrderByElements());
+            } else {
+                orderByElements = new ArrayList<>();
+                for (OrderByElement elem : referenceExpr.getOrderByElements()) {
+                    orderByElements.add(elem.clone());
+                }
+            }
+        }
+        AnalyticExpr analyticExpr = new AnalyticExpr(fnExpr,
+                Expr.cloneList(referenceExpr.getPartitionExprs()), orderByElements, null);
+        return analyticExpr;
     }
 
     /**
@@ -529,6 +620,15 @@ public class AnalyticExpr extends Expr {
             window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
                                         new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
                                         new Boundary(BoundaryType.CURRENT_ROW, null));
+            resetWindow = true;
+            return;
+        }
+
+        if (analyticFnName.getFunction().equalsIgnoreCase(NTILE)) {
+            Preconditions.checkState(window == null, "Unexpected window set for ntile()");
+            window = new AnalyticWindow(AnalyticWindow.Type.ROWS,
+                    new Boundary(BoundaryType.UNBOUNDED_PRECEDING, null),
+                    new Boundary(BoundaryType.CURRENT_ROW, null));
             resetWindow = true;
             return;
         }

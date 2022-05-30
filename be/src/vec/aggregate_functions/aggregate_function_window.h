@@ -155,6 +155,47 @@ public:
     void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
 };
 
+struct NTileData {
+    int64_t bucket_index;
+    int64_t rows;
+};
+
+class WindowFunctionNTile final
+        : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile> {
+public:
+    WindowFunctionNTile(const DataTypes& argument_types_, const Array& parameters)
+            : IAggregateFunctionDataHelper(argument_types_, parameters) {}
+
+    String get_name() const override { return "ntile"; }
+
+    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void add(AggregateDataPtr place, const IColumn**, size_t, Arena*) const override {}
+
+    void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
+                                int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
+                                Arena* arena) const override {
+        WindowFunctionNTile::data(place).rows++;
+        int64_t bucket_size = columns[0]->get_int(0);
+        int64_t partition_size = partition_end - partition_start;
+        WindowFunctionNTile::data(place).bucket_index =
+                std::min(bucket_size, partition_size) *
+                        (WindowFunctionNTile::data(place).rows - 1) / partition_size +
+                1;
+    }
+
+    void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
+
+    void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
+        assert_cast<ColumnInt64&>(to).get_data().push_back(
+                WindowFunctionNTile::data(place).bucket_index);
+    }
+
+    void merge(AggregateDataPtr place, ConstAggregateDataPtr rhs, Arena*) const override {}
+    void serialize(ConstAggregateDataPtr place, BufferWritable& buf) const override {}
+    void deserialize(AggregateDataPtr place, BufferReadable& buf, Arena*) const override {}
+};
+
 struct Value {
 public:
     bool is_null() const { return _is_null; }
