@@ -139,7 +139,7 @@ WITH BROKER "broker_name"
 4. Export the row with k1 = 1 in the testTbl table to hdfs.
 
 ```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 
+EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" 
 WITH BROKER "broker_name" 
 (
   "username"="xxx",
