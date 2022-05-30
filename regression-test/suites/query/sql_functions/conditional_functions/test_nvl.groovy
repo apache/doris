@@ -14,15 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/Ifnull.cpp
-// and modified by Doris
 
-#include "function_ifnull.h"
-
-namespace doris::vectorized {
-void register_function_function_ifnull(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionIfNull>();
-    factory.register_alias(FunctionIfNull::name, "nvl");
+suite("test_nvl", "query") {
+    qt_select "select nvl(k6, \"false\") k from test_query_db.test order by k1"
 }
-} // namespace doris::vectorized
