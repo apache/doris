@@ -164,10 +164,10 @@ if [ x"$HELPER" != x"" ]; then
 fi
 
 if [ ${RUN_DAEMON} -eq 1 ]; then
-    nohup $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
+    nohup $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" >> $LOG_DIR/fe.out 2>&1 < /dev/null &
 else
     export DORIS_LOG_TO_STDERR=1
-    $LIMIT $JAVA $final_java_opt org.apache.doris.PaloFe ${HELPER} "$@" < /dev/null
+    $LIMIT $JAVA $final_java_opt -XX:OnOutOfMemoryError="kill -9 %p" org.apache.doris.PaloFe ${HELPER} "$@" < /dev/null
 fi
 
 echo $! > $pidfile
