@@ -175,6 +175,9 @@ under the License.
         <module name="StringLiteralEquality">
             <property name="severity" value="error"/>
         </module>
+        <module name="UnusedLocalVariable">
+            <property name="severity" value="error"/>
+        </module>
         <module name="VariableDeclarationUsageDistance"/>
 
         <!-- Headers -->
@@ -211,6 +214,7 @@ under the License.
         <module name="InvalidJavadocPosition"/>
         <module name="JavadocMethod">
             <property name="id" value="ProductionScope"/>
+            <property name="accessModifiers" value="public"/>
             <property name="allowMissingParamTags" value="true"/>
             <property name="allowMissingReturnTag" value="true"/>
             <property name="allowedAnnotations" value="Override, Test"/>
@@ -406,6 +410,9 @@ under the License.
                       value="COMMA, SEMI, POST_INC, POST_DEC, DOT,
                     LABELED_STAT, METHOD_REF"/>
             <property name="allowLineBreaks" value="true"/>
+            <property name="severity" value="error"/>
+        </module>
+        <module name="NoWhitespaceBeforeCaseDefaultColon">
             <property name="severity" value="error"/>
         </module>
         <module name="OperatorWrap">
