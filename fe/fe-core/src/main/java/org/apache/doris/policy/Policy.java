@@ -40,15 +40,15 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Save policy for filtering data.
+ * Base class for Policy.
  **/
 @Data
 public abstract class Policy implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(Policy.class);
 
-    @SerializedName(value = "id")
-    protected long id = -1;
+    @SerializedName(value = "policyId")
+    protected long policyId = -1;
 
     @SerializedName(value = "type")
     protected PolicyTypeEnum type = null;
@@ -56,7 +56,9 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     @SerializedName(value = "policyName")
     protected String policyName = null;
 
-    public Policy() {}
+    public Policy() {
+        policyId = Catalog.getCurrentCatalog().getNextId();
+    }
 
     /**
      * Base class for Policy.
@@ -65,6 +67,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      * @param policyName policy name
      */
     public Policy(final PolicyTypeEnum type, final String policyName) {
+        policyId = Catalog.getCurrentCatalog().getNextId();
         this.type = type;
         this.policyName = policyName;
     }
@@ -102,7 +105,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     protected boolean checkMatched(PolicyTypeEnum type, String policyName) {
         return (type == null || type.equals(this.type))
-            && (policyName == null || StringUtils.equals(policyName, this.policyName));
+               && (policyName == null || StringUtils.equals(policyName, this.policyName));
     }
 
     // it is used to check whether this policy is in PolicyMgr

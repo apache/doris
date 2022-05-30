@@ -1354,7 +1354,7 @@ create_stmt ::=
     {:
         RESULT = new CreateSqlBlockRuleStmt(ruleName, properties);
     :}
-    /* table policy */
+    /* row policy */
     | KW_CREATE KW_ROW KW_POLICY opt_if_not_exists:ifNotExists ident:policyName KW_ON table_name:tbl KW_AS ident:filterType KW_TO user_identity:user
     KW_USING LPAREN expr:wherePredicate RPAREN
     {:
