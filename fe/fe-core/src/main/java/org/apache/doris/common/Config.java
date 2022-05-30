@@ -1648,4 +1648,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_catalog = false; // 1 min
 
+    /**
+     * If set to TRUE, FE will: 
+     * 1. divide BE into high load and low load(no mid load) to force triggering tablet scheduling;
+     * 2. ignore whether the cluster can be more balanced during tablet scheduling;
+     *
+     * It's used to test the reliability in single replica case when tablet scheduling are frequent. 
+     * Default is false.
+     */    
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean be_rebalancer_fuzzy_test = false;
 }
