@@ -151,10 +151,10 @@ BACKUP的更多用法可参考 [这里](../../sql-manual/sql-reference/Data-Defi
 5. 当通过 `SHOW BACKUP` 或者 `SHOW RESTORE` 命令查看作业状态时。有可能会在 `TaskErrMsg` 一列中看到错误信息。但只要 `State` 列不为 `CANCELLED`，则说明作业依然在继续。这些 Task 有可能会重试成功。当然，有些 Task 错误，也会直接导致作业失败。
 
    常见的`TaskErrMsg` 错误如下：
+    
+      Q1：备份到HDFS，状态显示UPLOADING，TaskErrMsg 错误信息：[13333: Close broker writer failed, broker:TNetworkAddress(hostname=10.10.0.0,        port=8000) msg:errors while close file output stream, cause by: DataStreamer Exception: ]
 
-​         Q1：备份到HDFS，状态显示UPLOADING，TaskErrMsg 错误信息：[13333: Close broker writer failed, broker:TNetworkAddress(hostname=10.10.0.0,        port=8000) msg:errors while close file output stream, cause by: DataStreamer Exception: ]
-
-​         这个一般是网络通信问题，查看broker日志，看某个ip 或者端口不通，如果是云服务，则需要查看是否访问了内网，如果是可以在borker 配置文件下添加hdfs-site.xml，还需在hdfs-site.xml配置文件下添加dfs.client.use.datanode.hostname=true，并在broker节点上配置HADOOP 集群的主机名映射
+      这个一般是网络通信问题，查看broker日志，看某个ip 或者端口不通，如果是云服务，则需要查看是否访问了内网，如果是，则可以在borker配置文件下添加hdfs-site.xml，还需在hdfs-site.xml配置文件下添加dfs.client.use.datanode.hostname=true，并在broker节点上配置HADOOP集群的主机名映射。
 
 6. 如果恢复作业是一次覆盖操作（指定恢复数据到已经存在的表或分区中），那么从恢复作业的 `COMMIT` 阶段开始，当前集群上被覆盖的数据有可能不能再被还原。此时如果恢复作业失败或被取消，有可能造成之前的数据已损坏且无法访问。这种情况下，只能通过再次执行恢复操作，并等待作业完成。因此，我们建议，如无必要，尽量不要使用覆盖的方式恢复数据，除非确认当前数据已不再使用。
 
