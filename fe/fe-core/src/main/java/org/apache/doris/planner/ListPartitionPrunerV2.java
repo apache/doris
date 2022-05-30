@@ -132,14 +132,7 @@ public class ListPartitionPrunerV2 extends PartitionPrunerV2Base {
 
                 // Convert the grouped map to a RangeMap.
                 TreeRangeMap<ColumnBound, List<UniqueId>> candidateRangeMap = TreeRangeMap.create();
-                grouped.forEach((k, v) -> {
-                    List<UniqueId> uniqueIdList = candidateRangeMap.get(k.lowerEndpoint());
-                    if (uniqueIdList != null) {
-                        uniqueIdList.addAll(v);
-                        return;
-                    }
-                    candidateRangeMap.put(k, v);
-                });
+                grouped.forEach(candidateRangeMap::put);
 
                 return finalFilters.filters.stream()
                     .map(filter -> {
