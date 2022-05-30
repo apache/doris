@@ -66,7 +66,6 @@ Status VOlapScanner::get_block(RuntimeState* state, vectorized::Block* block, bo
             }
             _num_rows_read += block->rows();
             _update_realtime_counter();
-
             RETURN_IF_ERROR(
                     VExprContext::filter_block(_vconjunct_ctx, block, _tuple_desc->slots().size()));
         } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold &&
