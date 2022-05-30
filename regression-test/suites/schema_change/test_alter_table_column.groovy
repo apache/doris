@@ -30,36 +30,60 @@ suite("test_alter_table_column", "schema_change") {
     sql "ALTER TABLE ${tbName1} ADD COLUMN k2 INT KEY AFTER k1"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName1} ADD COLUMN value2 VARCHAR(255) AFTER value1"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName1} ADD COLUMN value3 VARCHAR(255) AFTER value2"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName1} MODIFY COLUMN value2 INT AFTER value3;"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName1} ORDER BY(k1,k2,value1,value2,value3);"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName1} DROP COLUMN value3;"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName1}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     sql "SHOW ALTER TABLE COLUMN"
@@ -83,12 +107,20 @@ suite("test_alter_table_column", "schema_change") {
     res = "null"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName2}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     res = "null"
     sql "ALTER TABLE ${tbName2} ADD COLUMN value2 INT SUM AFTER value1"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName2}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     sql "SHOW ALTER TABLE COLUMN"
