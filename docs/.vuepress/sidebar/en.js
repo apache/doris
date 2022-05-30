@@ -42,7 +42,7 @@ module.exports = [
     ],
   },
   {
-    title: "Install and deploy",
+    title: "Install And Deploy",
     directoryPath: "install/",
     initialOpenGroupIndex: -1,
     children: [
@@ -84,7 +84,7 @@ module.exports = [
     ],
   },
   {
-    title: "Data Operate",
+    title: "Data Operation",
     directoryPath: "data-operate/",
     initialOpenGroupIndex: -1,
     children: [
@@ -150,7 +150,7 @@ module.exports = [
     ],
   },
   {
-    title: "Advanced usage",
+    title: "Advanced Usage",
     directoryPath: "advanced/",
     initialOpenGroupIndex: -1,
     children: [
@@ -270,7 +270,7 @@ module.exports = [
     ],
   },
   {
-    title: "SQL manual",
+    title: "SQL Manual",
     directoryPath: "sql-manual/",
     initialOpenGroupIndex: -1,
     children: [
