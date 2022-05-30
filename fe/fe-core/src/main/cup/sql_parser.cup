@@ -4345,8 +4345,6 @@ join_operator ::=
   {: RESULT = JoinOperator.INNER_JOIN; :}
   | KW_LEFT opt_outer KW_JOIN
   {: RESULT = JoinOperator.LEFT_OUTER_JOIN; :}
-  | KW_MERGE KW_JOIN
-  {: RESULT = JoinOperator.MERGE_JOIN; :}
   | KW_RIGHT opt_outer KW_JOIN
   {: RESULT = JoinOperator.RIGHT_OUTER_JOIN; :}
   | KW_FULL opt_outer KW_JOIN

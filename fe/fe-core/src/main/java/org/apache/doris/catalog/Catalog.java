@@ -245,6 +245,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
@@ -3026,6 +3027,7 @@ public class Catalog {
      *     6.2. replicationNum
      *     6.3. inMemory
      *     6.4. storageFormat
+     *     6.5. compressionType
      * 7. set index meta
      * 8. check colocation properties
      * 9. create tablet in BE
@@ -3113,7 +3115,7 @@ public class Catalog {
                     throw new DdlException("Table[" + table.getName() + "] is external, not support rollup copy");
                 }
 
-                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false);
+                Catalog.getDdlStmt(stmt, stmt.getDbName(), table, createTableStmt, null, null, false, false, true);
                 if (createTableStmt.isEmpty()) {
                     ErrorReport.reportDdlException(ErrorCode.ERROR_CREATE_TABLE_LIKE_EMPTY, "CREATE");
                 }
@@ -3314,6 +3316,7 @@ public class Catalog {
                     singlePartitionDesc.isInMemory(),
                     olapTable.getStorageFormat(),
                     singlePartitionDesc.getTabletType(),
+                    olapTable.getCompressionType(),
                     olapTable.getDataSortInfo()
             );
 
@@ -3545,6 +3548,7 @@ public class Catalog {
                                                  boolean isInMemory,
                                                  TStorageFormat storageFormat,
                                                  TTabletType tabletType,
+                                                 TCompressionType compressionType,
                                                  DataSortInfo dataSortInfo) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
@@ -3612,7 +3616,8 @@ public class Catalog {
                             indexes,
                             isInMemory,
                             tabletType,
-                            dataSortInfo);
+                            dataSortInfo,
+                            compressionType);
                     task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
@@ -3730,6 +3735,15 @@ public class Catalog {
         }
         olapTable.setStorageFormat(storageFormat);
 
+        // get compression type
+        TCompressionType compressionType = TCompressionType.LZ4;
+        try {
+            compressionType = PropertyAnalyzer.analyzeCompressionType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setCompressionType(compressionType);
+
         // check data sort properties
         DataSortInfo dataSortInfo = PropertyAnalyzer.analyzeDataSortInfo(properties, keysType,
                 keysDesc.keysColumnSize(), storageFormat);
@@ -3777,6 +3791,7 @@ public class Catalog {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
+
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
@@ -3914,7 +3929,7 @@ public class Catalog {
                         partitionInfo.getReplicaAllocation(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory, storageFormat, tabletType, olapTable.getDataSortInfo());
+                        isInMemory, storageFormat, tabletType, compressionType, olapTable.getDataSortInfo());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
                 try {
@@ -3965,7 +3980,8 @@ public class Catalog {
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
                             isInMemory, storageFormat,
-                            partitionInfo.getTabletType(entry.getValue()), olapTable.getDataSortInfo());
+                            partitionInfo.getTabletType(entry.getValue()),
+                            compressionType, olapTable.getDataSortInfo());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -4142,6 +4158,14 @@ public class Catalog {
         if (!hudiTable.getFullSchema().isEmpty()) {
             HudiUtils.validateColumns(hudiTable, hiveTable);
         }
+        switch (hiveTable.getTableType()) {
+            case "EXTERNAL_TABLE":
+            case "MANAGED_TABLE":
+                break;
+            case "VIRTUAL_VIEW":
+            default:
+                throw new DdlException("unsupported hudi table type [" + hiveTable.getTableType() + "].");
+        }
         // check hive table if exists in doris database
         if (!db.createTableWithLock(hudiTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
@@ -4151,11 +4175,18 @@ public class Catalog {
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
                                   List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
-        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt, separatePartition, hidePassword);
+        getDdlStmt(null, null, table, createTableStmt, addPartitionStmt, createRollupStmt,
+                separatePartition, hidePassword, false);
     }
 
-    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
+    /**
+     * Get table ddl stmt.
+     *
+     * @param getDdlForLike Get schema for 'create table like' or not. when true, without hidden columns.
+     */
+    public static void getDdlStmt(DdlStmt ddlStmt, String dbName, Table table, List<String> createTableStmt,
+                                  List<String> addPartitionStmt, List<String> createRollupStmt,
+                                  boolean separatePartition, boolean hidePassword, boolean getDdlForLike) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -4180,7 +4211,14 @@ public class Catalog {
         }
         sb.append("`").append(table.getName()).append("` (\n");
         int idx = 0;
-        for (Column column : table.getBaseSchema()) {
+        List<Column> columns;
+        // when 'create table B like A', always return schema of A without hidden columns
+        if (getDdlForLike) {
+            columns = table.getBaseSchema(false);
+        } else {
+            columns = table.getBaseSchema();
+        }
+        for (Column column : columns) {
             if (idx++ != 0) {
                 sb.append(",\n");
             }
@@ -4338,6 +4376,11 @@ public class Catalog {
             if (!Strings.isNullOrEmpty(remoteStorageResource)) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_REMOTE_STORAGE_RESOURCE).append("\" = \"");
                 sb.append(remoteStorageResource).append("\"");
+            }
+            // compression type
+            if (olapTable.getCompressionType() != TCompressionType.LZ4F) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COMPRESSION).append("\" = \"");
+                sb.append(olapTable.getCompressionType()).append("\"");
             }
 
             sb.append("\n)");
@@ -6882,6 +6925,7 @@ public class Catalog {
                         copiedTbl.isInMemory(),
                         copiedTbl.getStorageFormat(),
                         copiedTbl.getPartitionInfo().getTabletType(oldPartitionId),
+                        copiedTbl.getCompressionType(),
                         copiedTbl.getDataSortInfo());
                 newPartitions.add(newPartition);
             }

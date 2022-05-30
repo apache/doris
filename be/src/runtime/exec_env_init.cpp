@@ -250,8 +250,9 @@ Status ExecEnv::_init_mem_tracker() {
         // Reason same as buffer_pool_limit
         storage_cache_limit = storage_cache_limit / 2;
     }
-    int32_t index_page_cache_percentage = config::index_page_cache_percentage;
-    StoragePageCache::create_global_cache(storage_cache_limit, index_page_cache_percentage);
+    int32_t index_percentage = config::index_page_cache_percentage;
+    uint32_t num_shards = config::storage_page_cache_shard_size;
+    StoragePageCache::create_global_cache(storage_cache_limit, index_percentage, num_shards);
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;

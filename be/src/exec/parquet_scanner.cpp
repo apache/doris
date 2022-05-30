@@ -17,12 +17,12 @@
 
 #include "exec/parquet_scanner.h"
 
+#include "exec/arrow/parquet_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/buffered_reader.h"
 #include "exec/decompressor.h"
 #include "exec/hdfs_reader_writer.h"
 #include "exec/local_file_reader.h"
-#include "exec/parquet_reader.h"
 #include "exec/s3_reader.h"
 #include "exec/text_converter.h"
 #include "runtime/exec_env.h"
@@ -141,14 +141,14 @@ Status ParquetScanner::open_next_reader() {
             file_reader->close();
             continue;
         }
+        int32_t num_of_columns_from_file = _src_slot_descs.size();
         if (range.__isset.num_of_columns_from_file) {
-            _cur_file_reader =
-                    new ParquetReaderWrap(file_reader.release(), range.num_of_columns_from_file);
-        } else {
-            _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _src_slot_descs.size());
+            num_of_columns_from_file = range.num_of_columns_from_file;
         }
+        _cur_file_reader = new ParquetReaderWrap(file_reader.release(), _state->batch_size(),
+                                                 num_of_columns_from_file);
 
-        Status status = _cur_file_reader->init_parquet_reader(_src_slot_descs, _state->timezone());
+        Status status = _cur_file_reader->init_reader(_src_slot_descs, _state->timezone());
 
         if (status.is_end_of_file()) {
             continue;
