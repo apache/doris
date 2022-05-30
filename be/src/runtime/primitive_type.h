@@ -73,7 +73,6 @@ bool has_variable_type(PrimitiveType type);
 
 // Returns the byte size of 'type'  Returns 0 for variable length types.
 int get_byte_size(PrimitiveType type);
-int get_real_byte_size(PrimitiveType type);
 // Returns the byte size of type when in a tuple
 int get_slot_size(PrimitiveType type);
 
