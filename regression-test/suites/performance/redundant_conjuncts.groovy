@@ -16,7 +16,10 @@
 // under the License.
 
 suite("redundant_conjuncts", "performance") {
-    // execute sql and ignore result
+    sql """
+        SET enable_vectorized_engine = true;
+    """
+
     sql """
     DROP TABLE IF EXISTS redundant_conjuncts;
     """
@@ -34,5 +37,9 @@ suite("redundant_conjuncts", "performance") {
     
     qt_redundant_conjuncts """
     EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+    """
+
+    qt_redundant_conjuncts_gnerated_by_extract_common_filter """
+    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
     """
 }
