@@ -112,4 +112,5 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     # Each query is executed 3 times and takes the average time
     res=$(mysqlslap -h$FE_HOST -u$USER -P$FE_QUERY_PORT --create-schema=$DB --query=$QUERIES_DIR/q${i}.sql -F '\r' -i 3 | sed -n '2p' | cut -d ' ' -f 9,10)
     echo "q$i: $res"
+    sleep 1
 done
