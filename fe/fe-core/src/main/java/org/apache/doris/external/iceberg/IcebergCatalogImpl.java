@@ -42,12 +42,12 @@ public class IcebergCatalogImpl implements IcebergCatalog {
 
     @Override
     public void initialize(IcebergProperty icebergProperty) {
-        this.catalogType = icebergProperty.getCatalogTypeOrImpl();
+        this.catalogType = icebergProperty.getCatalogType();
         Map<String, String> properties = Maps.newHashMap(icebergProperty.getCatalogProperties());
         // Hadoop configuration
         Configuration conf = new Configuration();
-        this.icebergCatalog =
-                CatalogUtil.buildIcebergCatalog(icebergProperty.getCatalogTypeOrImpl(), properties, conf);
+        this.icebergCatalog = CatalogUtil.loadCatalog(
+              icebergProperty.getCatalogImpl(), icebergProperty.getCatalogType(), properties, conf);
     }
 
     @Override

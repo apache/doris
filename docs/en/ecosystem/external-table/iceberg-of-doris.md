@@ -169,8 +169,7 @@ You can also create an Iceberg table by explicitly specifying the column definit
 - PROPERTIES property.
     - `iceberg.database`: the name of the database to which Iceberg is mounted
     - `iceberg.table`: the name of the table to which Iceberg is mounted, not required when mounting Iceberg database.
-    - `iceberg.catalog.type`: the catalog type used in Iceberg, the default is `HIVE` (simple name of `org.apache.iceberg.hive.HiveCatalog`).
-    - `iceberg.catalog.catalog-impl`: you could also use the full catalog name with this property. You should not use both `iceberg.catalog.type` and `iceberg.catalog.catalog-impl`.
+    - `iceberg.catalog.type`: the catalog type used in Iceberg, the default is `HIVE` (simple name of `org.apache.iceberg.hive.HiveCatalog`). Iceberg built-in supports two catalogs with a simple name: `HIVE` and `HADOOP`. You should use the full class name for other implementations.
     - `iceberg.catalog.pro_key_1`: the catalog properties for `iceberg.catalog.type`. For example, `iceberg.catalog.uri` for Iceberg HiveCatalog, `iceberg.catalog.warehouse` for Iceberg HadoopCatalog.
 - Deprecated property key.
     - `iceberg.hive.metastore.uris`: Please use `iceberg.catalog.uri` for Iceberg HiveCatalog directly.

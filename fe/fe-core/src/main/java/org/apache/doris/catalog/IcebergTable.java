@@ -186,7 +186,7 @@ public class IcebergTable extends Table {
                 LOG.info("Finished to load iceberg table: {}", name);
             } catch (Exception e) {
                 LOG.warn("Failed to load iceberg table {} from catalog: {} with catalog properties: {}",
-                        name, icebergProperty.getCatalogTypeOrImpl(), icebergProperty.getCatalogProperties(), e);
+                        name, icebergProperty.getCatalogType(), icebergProperty.getCatalogProperties(), e);
                 throw e;
             }
 

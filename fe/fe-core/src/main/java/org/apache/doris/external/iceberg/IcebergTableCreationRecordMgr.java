@@ -145,7 +145,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                 addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                 LOG.warn("Failed get Iceberg catalog[{}], catalog properties[{}], error: {}",
-                        icebergProperty.getCatalogTypeOrImpl(), icebergProperty.getCatalogProperties(),
+                        icebergProperty.getCatalogType(), icebergProperty.getCatalogProperties(),
                         e.getMessage());
             }
             List<TableIdentifier> icebergTables = null;
@@ -156,7 +156,7 @@ public class IcebergTableCreationRecordMgr extends MasterDaemon {
                 addTableCreationRecord(db.getId(), -1, db.getFullName(), "", FAIL,
                         prop.writeTimeFormat(new Date(System.currentTimeMillis())), e.getMessage());
                 LOG.warn("Failed list remote Iceberg database with Iceberg catalog[{}], catalog properties[{}], " +
-                        "database[{}], error: {}", icebergProperty.getCatalogTypeOrImpl(),
+                        "database[{}], error: {}", icebergProperty.getCatalogType(),
                         icebergProperty.getCatalogProperties(), icebergProperty.getDatabase(), e.getMessage());
             }
             for (TableIdentifier identifier : icebergTables) {

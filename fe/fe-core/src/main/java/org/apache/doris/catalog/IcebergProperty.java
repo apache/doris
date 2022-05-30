@@ -19,11 +19,18 @@ package org.apache.doris.catalog;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+
+import static org.apache.iceberg.CatalogUtil.ICEBERG_CATALOG_HADOOP;
+import static org.apache.iceberg.CatalogUtil.ICEBERG_CATALOG_HIVE;
+import static org.apache.iceberg.CatalogUtil.ICEBERG_CATALOG_TYPE_HADOOP;
+import static org.apache.iceberg.CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE;
 
 /**
  * Iceberg property contains information to connect a remote iceberg db or table.
@@ -50,8 +57,18 @@ public class IcebergProperty {
             this.exist = true;
             this.database = properties.get(ICEBERG_DATABASE);
             this.table = properties.get(ICEBERG_TABLE);
-            this.catalogType = properties.get(ICEBERG_CATALOG_TYPE);
-            this.catalogImpl = properties.get(ICEBERG_CATALOG_IMPL);
+
+            String catalogType = properties.get(ICEBERG_CATALOG_TYPE);
+            String catalogImpl = properties.get(ICEBERG_CATALOG_IMPL);
+            Preconditions.checkArgument(catalogType != null || catalogImpl != null, "Both 'iceberg.catalog.type' " +
+                  "and 'iceberg.catalog.catalog-impl' are null. One of them should be set");
+            if (catalogType == null) {
+                this.catalogType = catalogImpl;
+                this.catalogImpl = catalogImpl;
+            } else {
+                this.catalogType = catalogType;
+                this.catalogImpl = inferCatalogImpl(catalogType);
+            }
 
             // catalog properties
             ImmutableMap.Builder<String, String> catalogPropertiesBuilder = ImmutableMap.builder();
@@ -109,14 +126,6 @@ public class IcebergProperty {
     }
 
     /**
-     * Return catalog type or catalog impl. Because we do not allow to have both catalog type and catalog impl.
-     * So we will return one of them which is not null.
-     */
-    public String getCatalogTypeOrImpl() {
-        return catalogType != null ? catalogType : catalogImpl;
-    }
-
-    /**
      * Return the catalog properties, and the key of the map is prefixed with "iceberg.catalog.".
      */
     public Map<String, String> getCatalogPropertiesWithPrefix() {
@@ -157,5 +166,16 @@ public class IcebergProperty {
             .add("table", table)
             .add("catalogProperties", Joiner.on(",").withKeyValueSeparator(":").join(catalogProperties))
             .toString();
+    }
+
+    private String inferCatalogImpl(String catalogType) {
+        switch (catalogType.toLowerCase(Locale.ENGLISH)) {
+            case ICEBERG_CATALOG_TYPE_HIVE:
+                return ICEBERG_CATALOG_HIVE;
+            case ICEBERG_CATALOG_TYPE_HADOOP:
+                return ICEBERG_CATALOG_HADOOP;
+            default:
+                return catalogType;
+        }
     }
 }
