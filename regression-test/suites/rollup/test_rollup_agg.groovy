@@ -28,18 +28,35 @@ suite("test_rollup_agg", "rollup") {
             AGGREGATE KEY (siteid,citycode,username)
             DISTRIBUTED BY HASH(siteid) BUCKETS 5 properties("replication_num" = "1");
         """
-    sql "ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"
-    sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     String res = "null"
+    sql "ALTER TABLE ${tbName} ADD ROLLUP rollup_city(citycode, pv);"
     while (!res.contains("FINISHED")){
         res = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
+        Thread.sleep(1000)
+    }
+    res = "null"
+    sql "ALTER TABLE ${tbName} ADD COLUMN vv BIGINT SUM NULL DEFAULT '0' TO rollup_city;"
+    while (!res.contains("FINISHED")){
+        res = sql "SHOW ALTER TABLE COLUMN WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1;"
+        if(res.contains("CANCELLED")){
+            print("job is cancelled")
+            break
+        }
         Thread.sleep(1000)
     }
     sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}';"
     qt_sql "DESC ${tbName} ALL;"
-    sql "insert into ${tbName} values(1, 1, 'test1', 100,100);"
-    sql "insert into ${tbName} values(2, 1, 'test2', 100,100);"
-    qt_sql "EXPLAIN SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
+    sql "insert into ${tbName} values(1, 1, 'test1', 100,100,100);"
+    sql "insert into ${tbName} values(2, 1, 'test2', 100,100,100);"
+    explain{
+        sql("SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode")
+        contains("rollup: rollup_city")
+    }
+    qt_sql "SELECT citycode,SUM(pv) FROM ${tbName} GROUP BY citycode"
     sql "ALTER TABLE ${tbName} DROP ROLLUP rollup_city"
     sql "DROP TABLE ${tbName}"
 }
