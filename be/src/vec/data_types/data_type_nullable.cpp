@@ -57,9 +57,6 @@ void DataTypeNullable::to_string(const IColumn& column, size_t row_num, BufferWr
     const ColumnNullable& col =
             assert_cast<const ColumnNullable&>(*column.convert_to_full_column_if_const().get());
 
-    if (col.get_null_map_column_ptr()->size() <= row_num) {
-        LOG(INFO) << "to_string row_num:" << row_num;
-    }
     if (col.is_null_at(row_num)) {
         ostr.write("NULL", 4);
     } else {
@@ -68,22 +65,19 @@ void DataTypeNullable::to_string(const IColumn& column, size_t row_num, BufferWr
 }
 
 Status DataTypeNullable::from_string(ReadBuffer& rb, IColumn* column) const {
-    //ColumnNullable& col =
-    //        assert_cast<ColumnNullable&>(*column.convert_to_full_column_if_const().get());
     auto* null_column = assert_cast<ColumnNullable*>(column);
-    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position()) == 'U' &&
-        *(rb.position()) == 'L' && *(rb.position()) == 'L') {
+    if (rb.count() == 4 && *(rb.position()) == 'N' && *(rb.position() + 1) == 'U' &&
+        *(rb.position() + 2) == 'L' && *(rb.position() + 3) == 'L') {
         null_column->insert_data(nullptr, 0);
         return Status::OK();
     }
     auto st = nested_data_type->from_string(rb, &(null_column->get_nested_column()));
     if (!st.ok()) {
-        LOG(INFO) << st;
-        // fill null if parsing fail
-        null_column->insert_data(nullptr, 0);
+        // fill null if fail
+        null_column->insert_data(nullptr, 0); // 0 is meaningless here
         return Status::OK();
     }
-    // fill not null if parsing succ
+    // fill not null if succ
     null_column->get_null_map_data().push_back(0);
     return Status::OK();
 }

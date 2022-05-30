@@ -250,11 +250,6 @@ struct ConvertImplGenericFromString
 {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
-    //static ColumnPtr execute(
-    //    Block& block, const ColumnNumbers& arguments, size_t result,
-    //    ColumnsWithTypeAndName & arguments, const DataTypePtr & result_type, const ColumnNullable *, size_t input_rows_count)
-    //{
-        LOG(INFO) << "ConvertImplGenericFromString execute";
         static_assert(std::is_same_v<StringColumnType, ColumnString>,
                 "Can be used only to parse from ColumnString");
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
@@ -262,7 +257,6 @@ struct ConvertImplGenericFromString
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        LOG(INFO) << "ConvertImplGenericFromString execute";
         if (const StringColumnType * col_from_string = check_and_get_column<StringColumnType>(&col_from))
         {
             auto col_to = data_type_to->create_column();
@@ -278,7 +272,6 @@ struct ConvertImplGenericFromString
                 RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
             }
             block.replace_by_position(result, std::move(col_to));
-            LOG(INFO) << "ConvertImplGenericFromString result:" << result;
         }
         else {
             return Status::RuntimeError(
@@ -738,7 +731,6 @@ protected:
         if (arguments.size() > 2)
             new_arguments.insert(std::end(new_arguments), std::next(std::begin(arguments), 2),
                                  std::end(arguments));
-        LOG(INFO) << "execute_impl";
         return wrapper_function(context, block, new_arguments, result, input_rows_count);
     }
 
@@ -945,7 +937,6 @@ public:
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
                                 size_t /*result*/) const override {
-        LOG(INFO) << "prepare";
         return std::make_shared<PreparedFunctionCast>(
                 prepare_unpack_dictionaries(get_argument_types()[0], get_return_type()), name);
     }
@@ -1088,15 +1079,11 @@ private:
 
     WrapperType create_array_wrapper(const DataTypePtr & from_type_untyped, const DataTypeArray & to_type) const
     {
-        LOG(INFO) << "create_array_wrapper from_type_untyped:" << from_type_untyped->get_name();
-        LOG(INFO) << "create_array_wrapper to_type:" << to_type.get_name();
         /// Conversion from String through parsing.
         if (check_and_get_data_type<DataTypeString>(from_type_untyped.get()))
         {
-            LOG(INFO) << "create_array_wrapper DataTypeString";
             return &ConvertImplGenericFromString<ColumnString>::execute;
         }
-        LOG(INFO) << "create_array_wrapper other";
 
         const auto * from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
 
@@ -1118,13 +1105,10 @@ private:
 
         /// Prepare nested type conversion
         const auto nested_function = prepare_unpack_dictionaries(from_nested_type, to_nested_type);
-        LOG(INFO) << "create_array_wrapper nested_function";
 
         return [nested_function, from_nested_type, to_nested_type](
             FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                      const size_t result, size_t /*input_rows_count*/) -> Status { 
-                //ColumnsWithTypeAndName & arguments, const DataTypePtr &, const ColumnNullable * nullable_source, size_t /*input_rows_count*/) {
-            //block.get_by_position(result).column = block.get_by_position(arguments.front()).column;
             auto& from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
@@ -1134,7 +1118,6 @@ private:
                 ColumnWithTypeAndName from_nested_column{ from_col_array->get_data_ptr(), from_nested_type, "" };
 
                 /// convert nested column
-                // auto result_column = nested_function(nested_columns, to_nested_type, nullable_source, nested_columns.front().column->size());
                 ColumnNumbers new_arguments {block.columns()};
                 block.insert(from_nested_column);
                 
@@ -1145,7 +1128,6 @@ private:
 
                 /// set converted nested column to result
                 block.get_by_position(result).column = ColumnArray::create(nested_result_column, from_col_array->get_offsets_ptr());
-                LOG(INFO) << "create_array_wrapper nested_result:" << nested_result << " result:" << result;
             } else {
                 return Status::RuntimeError(fmt::format("Illegal column {} for function CAST AS Array",
                                                         from_column->get_name()));
@@ -1183,7 +1165,6 @@ private:
     WrapperType prepare_remove_nullable(const DataTypePtr& from_type, const DataTypePtr& to_type,
                                         bool skip_not_null_check) const {
         /// Determine whether pre-processing and/or post-processing must take place during conversion.
-        LOG(INFO) << "prepare_remove_nullable";
         bool source_is_nullable = from_type->is_nullable();
         bool result_is_nullable = to_type->is_nullable();
 
@@ -1191,7 +1172,6 @@ private:
                                     result_is_nullable);
 
         if (result_is_nullable) {
-            LOG(INFO) << "result_is_nullable";
             return [wrapper, source_is_nullable](FunctionContext* context, Block& block,
                                                  const ColumnNumbers& arguments,
                                                  const size_t result, size_t input_rows_count) {
@@ -1229,7 +1209,6 @@ private:
                 return Status::OK();
             };
         } else if (source_is_nullable) {
-            LOG(INFO) << "source_is_nullable";
             /// Conversion from Nullable to non-Nullable.
 
             return [wrapper, skip_not_null_check](FunctionContext* context, Block& block,
@@ -1349,14 +1328,12 @@ protected:
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        LOG(INFO) << "get_return_type_impl:" << arguments.back().dump_structure();
         const auto type_col =
                 check_and_get_column_const<ColumnString>(arguments.back().column.get());
         if (!type_col) {
             LOG(FATAL) << fmt::format(
                     "Second argument to {} must be a constant string describing type", get_name());
         }
-        LOG(INFO) << "get_return_type_impl:" << type_col->get_value<String>();
         auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
         DCHECK(type != nullptr);
 

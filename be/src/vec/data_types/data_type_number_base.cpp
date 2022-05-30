@@ -59,7 +59,7 @@ template <typename T>
 Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const { 
     auto* column_data = static_cast<ColumnVector<T>*>(column);
     if constexpr (std::is_same<T, UInt128>::value) {
-        // TODO support for uint128
+        // TODO support for Uint128
         return Status::InvalidArgument("uint128 is not support");
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val;
@@ -73,7 +73,8 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
             return Status::InvalidArgument(fmt::format("parse number fail, string: '{}'", std::string(rb.position(), rb.count()).c_str()));
         }
         column_data->insert_value(val);
-//} || std::numeric_limits<T>::is_iec559) {
+    } else {
+        DCHECK(false);
     }
     return Status::OK();
 }

@@ -244,20 +244,11 @@ static Status convert_offset_from_list_column(const arrow::Array* array, size_t 
     auto concrete_array = down_cast<const arrow::ListArray*>(array);
     auto arrow_offsets_array = concrete_array->offsets();
     auto arrow_offsets = down_cast<arrow::Int32Array* >(arrow_offsets_array.get());
-    //if (array_idx == 0) {
-    //    // init the first offset
-    //    offsets_data.emplace_back(0);
-    //}
-    //auto start = offsets_data.back();
     for (int64_t i = array_idx + 1; i < array_idx + num_elements + 1; ++i) {
-        //LOG(INFO) << "convert_offset_from_list_column offset - 1:" << arrow_offsets.Value(i - 1);
-        //LOG(INFO) << "convert_offset_from_list_column offset:" << arrow_offsets->Value(i);
         offsets_data.emplace_back(arrow_offsets->Value(i));
     }
     *start_idx_for_data =  arrow_offsets->Value(array_idx);
-    //*num_for_data =  arrow_offsets->Value(array_idx + num_elements - 1) - arrow_offsets->Value(array_idx) + 1;
     *num_for_data =  offsets_data.back() - *start_idx_for_data;
-    LOG(INFO) << "convert_offset_from_list_column start_idx_for_data:" << *start_idx_for_data << " num_for_data:" << *num_for_data;
 
     return Status::OK();
 }
@@ -288,7 +279,6 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
                 (*std::move(doirs_column)).mutate().get());
         fill_nullable_column(arrow_column, arrow_batch_cur_idx, nullable_column, num_elements);
-        LOG(INFO) << "fill_nullable_column arrow_batch_cur_idx:" << arrow_batch_cur_idx << " num_elements:" << num_elements;
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         data_column = (*std::move(doirs_column)).mutate();
