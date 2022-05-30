@@ -22,9 +22,8 @@
 
 #include <sstream>
 
-#include "olap/utils.h"
 #include "runtime/collection_value.h"
-#include "runtime/string_value.hpp"
+#include "runtime/large_int_value.h"
 #include "runtime/tuple.h"
 #include "util/types.h"
 

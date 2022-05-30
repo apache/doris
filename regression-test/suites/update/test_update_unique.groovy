@@ -15,14 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/functions/function_convert_tz.h"
-
-#include "vec/functions/simple_function_factory.h"
-
-namespace doris::vectorized {
-
-void register_function_convert_tz(SimpleFunctionFactory& factory) {
-    factory.register_function<FunctionConvertTZ>();
+suite("test_update_unique", "update") {
+    def tbName = "test_update_unique"
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName} (
+                k int,
+                value1 int,
+                value2 int,
+                date_value date
+            )
+            UNIQUE KEY(k)
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql "insert into ${tbName} values(1, 1, 1, '2000-01-01');"
+    sql "insert into ${tbName} values(2, 1, 1, '2000-01-01');"
+    sql "UPDATE ${tbName} SET value1 = 2 WHERE k=1;"
+    sql "UPDATE ${tbName} SET value1 = value1+1 WHERE k=2;"
+    qt_select_uniq_table "select * from ${tbName} order by k"
+    qt_desc_uniq_table "desc ${tbName}"
+    sql "DROP TABLE ${tbName}"
 }
-
-} // namespace doris::vectorized

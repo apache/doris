@@ -138,7 +138,7 @@ WITH BROKER "broker_name"
 4. 将 testTbl 表中 k1 = 1 的行导出到 hdfs 上。
 
 ```sql
-EXPORT TABLE testTbl TO "hdfs://hdfs_host:port/a/b/c" WHERE k1=1 
+EXPORT TABLE testTbl WHERE k1=1 TO "hdfs://hdfs_host:port/a/b/c" 
 WITH BROKER "broker_name" 
 (
   "username"="xxx",

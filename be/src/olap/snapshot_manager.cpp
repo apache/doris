@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -32,7 +33,6 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/storage_engine.h"
 #include "runtime/thread_context.h"

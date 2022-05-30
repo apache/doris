@@ -22,11 +22,7 @@
 #include <iostream>
 #include <string>
 
-#include "exec/schema_scanner.h"
 #include "function_test_util.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 using namespace ut_type;

@@ -21,18 +21,10 @@
 
 #include <algorithm>
 
-#include "env/env.h"
-#include "exec/broker_reader.h"
-#include "exec/buffered_reader.h"
-#include "exec/local_file_reader.h"
-#include "exec/plain_text_line_reader.h"
-#include "exec/s3_reader.h"
-#include "exprs/expr.h"
+#include "exec/line_reader.h"
 #include "exprs/json_functions.h"
-#include "gutil/strings/split.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "util/time.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
 

@@ -17,6 +17,10 @@
 
 #include "vec/function/function_test_util.h"
 
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_decimal.h"
+
 namespace doris::vectorized {
 int64_t str_to_date_time(std::string datetime_str, bool data_time) {
     VecDateTimeValue v;
