@@ -19,11 +19,14 @@
 
 #include <fmt/format.h>
 
+#include "runtime/large_int_value.h"
 #include "util/string_parser.hpp"
 #include "vec/core/field.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/runtime/vdatetime_value.h"
-namespace doris::vectorized {
+
+namespace doris {
+
+namespace vectorized {
 
 void VLiteral::init(const TExprNode& node) {
     Field field;
@@ -132,4 +135,5 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
     *result_column_id = res;
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace vectorized
+} // namespace doris

@@ -545,6 +545,20 @@ public class FEFunctions {
         return first instanceof NullLiteral ? second : first;
     }
 
+    // maybe use alias info to reduce redundant code
+    @FEFunctionList({
+        @FEFunction(name = "nvl", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR"),
+        @FEFunction(name = "nvl", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT"),
+        @FEFunction(name = "nvl", argTypes = {"INT", "INT"}, returnType = "INT"),
+        @FEFunction(name = "nvl", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
+        @FEFunction(name = "nvl", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
+        @FEFunction(name = "nvl", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
+        @FEFunction(name = "nvl", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
+    })
+    public static LiteralExpr nvl(LiteralExpr first, LiteralExpr second) throws AnalysisException {
+        return first instanceof NullLiteral ? second : first;
+    }
+
     @FEFunctionList({
         @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY"),
         @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY")

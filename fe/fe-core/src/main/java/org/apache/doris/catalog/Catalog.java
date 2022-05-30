@@ -4158,6 +4158,14 @@ public class Catalog {
         if (!hudiTable.getFullSchema().isEmpty()) {
             HudiUtils.validateColumns(hudiTable, hiveTable);
         }
+        switch (hiveTable.getTableType()) {
+            case "EXTERNAL_TABLE":
+            case "MANAGED_TABLE":
+                break;
+            case "VIRTUAL_VIEW":
+            default:
+                throw new DdlException("unsupported hudi table type [" + hiveTable.getTableType() + "].");
+        }
         // check hive table if exists in doris database
         if (!db.createTableWithLock(hudiTable, false, stmt.isSetIfNotExists()).first) {
             ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);

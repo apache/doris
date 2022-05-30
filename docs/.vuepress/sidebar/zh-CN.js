@@ -473,6 +473,7 @@ module.exports = [
               "coalesce",
               "if",
               "ifnull",
+              "nvl",
               "nullif"
             ],
           },
@@ -610,6 +611,7 @@ module.exports = [
                 initialOpenGroupIndex: -1,
                 children: [
                   "ALTER-DATABASE",
+                  "ALTER-RESOURCE",
                   "ALTER-SQL-BLOCK-RULE",
                   "ALTER-TABLE-COLUMN",
                   "ALTER-TABLE-PARTITION",

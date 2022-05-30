@@ -18,7 +18,8 @@
 #pragma once
 
 #include "util/bitmap_value.h"
-#include "vec/functions/simple_function_factory.h"
+#include "vec/columns/column_complex.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {

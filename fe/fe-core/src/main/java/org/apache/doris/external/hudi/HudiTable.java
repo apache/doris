@@ -117,7 +117,7 @@ public class HudiTable extends Table {
         thriftHudiTable.setTableName(getHmsTableName());
         thriftHudiTable.setProperties(getTableProperties());
 
-        TTableDescriptor thriftTableDescriptor = new TTableDescriptor(getId(), TTableType.HUDI_TABLE,
+        TTableDescriptor thriftTableDescriptor = new TTableDescriptor(getId(), TTableType.BROKER_TABLE,
                 fullSchema.size(), 0, getName(), "");
         thriftTableDescriptor.setHudiTable(thriftHudiTable);
         return thriftTableDescriptor;

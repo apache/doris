@@ -24,6 +24,7 @@
 
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/collection_value.h"
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "util/string_parser.hpp"
 
