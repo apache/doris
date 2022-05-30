@@ -115,29 +115,28 @@ using HashTableVariants =
                      I128FixedKeyHashTableContext<false>, I256FixedKeyHashTableContext<true>,
                      I256FixedKeyHashTableContext<false>>;
 
-using JoinOpVariants = std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::MERGE_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
-                                    std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+using JoinOpVariants =
+        std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::LEFT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::FULL_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_OUTER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::CROSS_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
 
-#define APPLY_FOR_JOINOP_VARIANTS(M)        \
-    M(INNER_JOIN)                           \
-    M(LEFT_SEMI_JOIN)                       \
-    M(LEFT_ANTI_JOIN)                       \
-    M(LEFT_OUTER_JOIN)                      \
-    M(FULL_OUTER_JOIN)                      \
-    M(RIGHT_OUTER_JOIN)                     \
-    M(CROSS_JOIN)                           \
-    M(MERGE_JOIN)                           \
-    M(RIGHT_SEMI_JOIN)                      \
-    M(RIGHT_ANTI_JOIN)                      \
+#define APPLY_FOR_JOINOP_VARIANTS(M) \
+    M(INNER_JOIN)                    \
+    M(LEFT_SEMI_JOIN)                \
+    M(LEFT_ANTI_JOIN)                \
+    M(LEFT_OUTER_JOIN)               \
+    M(FULL_OUTER_JOIN)               \
+    M(RIGHT_OUTER_JOIN)              \
+    M(CROSS_JOIN)                    \
+    M(RIGHT_SEMI_JOIN)               \
+    M(RIGHT_ANTI_JOIN)               \
     M(NULL_AWARE_LEFT_ANTI_JOIN)
 
 class VExprContext;

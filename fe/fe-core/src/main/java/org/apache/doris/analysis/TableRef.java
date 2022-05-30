@@ -605,8 +605,6 @@ public class TableRef implements ParseNode, Writable {
                 return "FULL OUTER JOIN";
             case CROSS_JOIN:
                 return "CROSS JOIN";
-            case MERGE_JOIN:
-                return "MERGE JOIN";
             default:
                 return "bad join op: " + joinOp.toString();
         }
