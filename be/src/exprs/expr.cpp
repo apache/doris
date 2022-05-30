@@ -359,7 +359,8 @@ Status Expr::create_expr(ObjectPool* pool, const TExprNode& texpr_node, Expr** e
             *expr = pool->add(new IfExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "nullif") {
             *expr = pool->add(new NullIfExpr(texpr_node));
-        } else if (texpr_node.fn.name.function_name == "ifnull") {
+        } else if (texpr_node.fn.name.function_name == "ifnull" ||
+                   texpr_node.fn.name.function_name == "nvl") {
             *expr = pool->add(new IfNullExpr(texpr_node));
         } else if (texpr_node.fn.name.function_name == "coalesce") {
             *expr = pool->add(new CoalesceExpr(texpr_node));

@@ -544,8 +544,8 @@ void OlapScanNode::remove_pushed_conjuncts(RuntimeState* state) {
 
     // set vconjunct_ctx is empty, if all conjunct
     if (_direct_conjunct_size == 0) {
-        if (_vconjunct_ctx_ptr.get() != nullptr) {
-            (*_vconjunct_ctx_ptr.get())->close(state);
+        if (_vconjunct_ctx_ptr != nullptr) {
+            (*_vconjunct_ctx_ptr)->close(state);
             _vconjunct_ctx_ptr = nullptr;
         }
     }
