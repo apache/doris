@@ -27,7 +27,6 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HiveTable;
-import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
@@ -37,7 +36,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -76,6 +74,7 @@ public class BrokerFileGroup implements Writable {
     private List<Long> fileSize;
 
     private List<String> fileFieldNames;
+    // partition columnNames
     private List<String> columnsFromPath;
     // columnExprList includes all fileFieldNames, columnsFromPath and column mappings
     // this param will be recreated by data desc when the log replay
@@ -119,15 +118,26 @@ public class BrokerFileGroup implements Writable {
         this.fileFormat = table.getFileFormat();
     }
 
-    // Used for hive table, no need to parse
-    public BrokerFileGroup(HiveTable table,
-                           String columnSeparator,
-                           String lineDelimiter,
+    /**
+     * Should used for hive/iceberg/hudi external table.
+     */
+    public BrokerFileGroup(long tableId,
                            String filePath,
-                           String fileFormat,
-                           List<String> columnsFromPath,
-                           List<ImportColumnDesc> columnExprList) throws AnalysisException {
-        this.tableId = table.getId();
+                           String fileFormat) throws AnalysisException {
+        this(tableId,  "|", "\n", filePath, fileFormat, null, null);
+    }
+
+    /**
+     * Should used for hive/iceberg/hudi external table.
+     */
+    public BrokerFileGroup(long tableId,
+            String columnSeparator,
+            String lineDelimiter,
+            String filePath,
+            String fileFormat,
+            List<String> columnsFromPath,
+            List<ImportColumnDesc> columnExprList) throws AnalysisException {
+        this.tableId = tableId;
         this.valueSeparator = Separator.convertSeparator(columnSeparator);
         this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
         this.isNegative = false;
@@ -135,15 +145,6 @@ public class BrokerFileGroup implements Writable {
         this.fileFormat = fileFormat;
         this.columnsFromPath = columnsFromPath;
         this.columnExprList = columnExprList;
-    }
-
-    // Used for iceberg table, no need to parse
-    public BrokerFileGroup(IcebergTable table) throws UserException {
-        this.tableId = table.getId();
-        this.isNegative = false;
-        this.valueSeparator = "|";
-        this.lineDelimiter = "\n";
-        this.fileFormat = table.getFileFormat();
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {

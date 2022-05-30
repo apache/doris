@@ -115,7 +115,7 @@ public class HiveScanNode extends BrokerScanNode {
 
         HiveTable hiveTable = (HiveTable) desc.getTable();
         fileGroups = Lists.newArrayList(
-                new BrokerFileGroup(hiveTable,
+                new BrokerFileGroup(hiveTable.getId(),
                         getColumnSeparator(),
                         getLineDelimiter(),
                         getPath(),
