@@ -26,10 +26,8 @@
 #include <string>
 #include <string_view>
 
-#include "common/logging.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
-#include "util/mysql_global.h"
 
 namespace doris {
 

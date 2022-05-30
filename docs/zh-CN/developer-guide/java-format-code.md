@@ -56,6 +56,10 @@ standard java package
 
 ![](/images/idea-checkstyle-version.png)
 
+**可以使用 `Checkstyle-IDEA` 插件来对代码进行 `Checkstyle` 检测**。
+
+![](/images/idea-checkstyle-plugin-cn.png)
+
 ### VS Code
 
 如果使用 VS Code 进行 Java 开发，请安装 `Checkstyle for Java` 插件，按照[文档](https://code.visualstudio.com/docs/java/java-linting)里的说明和动图进行配置。

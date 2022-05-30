@@ -18,6 +18,7 @@
 #include "vec/exprs/vexpr.h"
 
 #include <fmt/format.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <memory>
 

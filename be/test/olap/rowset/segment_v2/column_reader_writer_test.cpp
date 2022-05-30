@@ -19,7 +19,6 @@
 
 #include <iostream>
 
-#include "common/logging.h"
 #include "env/env.h"
 #include "olap/column_block.h"
 #include "olap/decimal12.h"
@@ -34,8 +33,12 @@
 #include "testutil/test_util.h"
 #include "util/file_utils.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_date.h"
+#include "vec/data_types/data_type_date_time.h"
+#include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_string.h"
 
 using std::string;
 

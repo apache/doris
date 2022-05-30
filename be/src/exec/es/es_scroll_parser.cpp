@@ -22,7 +22,6 @@
 #include <boost/algorithm/string.hpp>
 #include <string>
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "rapidjson/document.h"
 #include "rapidjson/rapidjson.h"
@@ -30,6 +29,7 @@
 #include "rapidjson/writer.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/string_value.h"
 #include "util/string_parser.hpp"
 #include "vec/runtime/vdatetime_value.h"
 
