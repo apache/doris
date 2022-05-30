@@ -96,7 +96,8 @@ void DataTypeArray::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
-    auto& data_column = assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+    auto& data_column =
+            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
     auto& offsets = data_column.get_offsets();
     // Since parquet is imported in batches, the offsets corresponding to each batch are continuous,
     // but the data in each batch(IColumn) are independent.
@@ -130,8 +131,9 @@ void DataTypeArray::to_string(const IColumn& column, size_t row_num, BufferWrita
     ostr.write("]", 1);
 }
 
-std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const  {
-    auto& data_column = assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
+std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) const {
+    auto& data_column =
+            assert_cast<const ColumnArray&>(*column.convert_to_full_column_if_const().get());
     auto& offsets = data_column.get_offsets();
 
     // calc relative start offset
@@ -145,7 +147,7 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
         // if is the first row, use start_offset insteed
         offset = start_offset;
     }
-    const IColumn & nested_column = data_column.get_data();
+    const IColumn& nested_column = data_column.get_data();
     std::stringstream ss;
     ss << "[";
     for (size_t i = offset; i < next_offset; ++i) {
@@ -165,7 +167,8 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
 
     IColumn& nested_column = array_column->get_data();
     if (*rb.position() != '[') {
-        return Status::InvalidArgument("Array does not start with '[' character, found '{}'", *rb.position());
+        return Status::InvalidArgument("Array does not start with '[' character, found '{}'",
+                                       *rb.position());
     }
     ++rb.position();
     bool first = true;
@@ -175,8 +178,9 @@ Status DataTypeArray::from_string(ReadBuffer& rb, IColumn* column) const {
             if (*rb.position() == ',') {
                 ++rb.position();
             } else {
-                return Status::InvalidArgument(fmt::format("Cannot read array from text, expected comma or end of array, found '{}'",
-                    *rb.position()));
+                return Status::InvalidArgument(fmt::format(
+                        "Cannot read array from text, expected comma or end of array, found '{}'",
+                        *rb.position()));
             }
         }
         first = false;

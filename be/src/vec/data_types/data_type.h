@@ -71,7 +71,7 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
-    virtual Status from_string(ReadBuffer& rb, IColumn* column) const; 
+    virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
 protected:
     virtual String do_get_name() const;

@@ -56,7 +56,7 @@ void DataTypeNumberBase<T>::to_string(const IColumn& column, size_t row_num,
 }
 
 template <typename T>
-Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const { 
+Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnVector<T>*>(column);
     if constexpr (std::is_same<T, UInt128>::value) {
         // TODO support for Uint128
@@ -64,13 +64,17 @@ Status DataTypeNumberBase<T>::from_string(ReadBuffer& rb, IColumn* column) const
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         T val;
         if (!read_float_text_fast_impl(val, rb)) {
-            return Status::InvalidArgument(fmt::format("parse number fail, string: '{}'", std::string(rb.position(), rb.count()).c_str()));
+            return Status::InvalidArgument(
+                    fmt::format("parse number fail, string: '{}'",
+                                std::string(rb.position(), rb.count()).c_str()));
         }
         column_data->insert_value(val);
     } else if constexpr (std::is_integral<T>::value) {
         T val;
         if (!read_int_text_impl(val, rb)) {
-            return Status::InvalidArgument(fmt::format("parse number fail, string: '{}'", std::string(rb.position(), rb.count()).c_str()));
+            return Status::InvalidArgument(
+                    fmt::format("parse number fail, string: '{}'",
+                                std::string(rb.position(), rb.count()).c_str()));
         }
         column_data->insert_value(val);
     } else {

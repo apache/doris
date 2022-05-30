@@ -64,7 +64,7 @@ public:
 
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
 
-    Status from_string(ReadBuffer& rb, IColumn* column) const override; 
+    Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     static void cast_to_date_time(Int64& x);
 

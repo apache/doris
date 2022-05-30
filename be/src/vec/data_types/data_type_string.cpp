@@ -66,7 +66,7 @@ void DataTypeString::to_string(const class doris::vectorized::IColumn& column, s
     ostr.write(s.data, s.size);
 }
 
-Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const { 
+Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnString*>(column);
     column_data->insert_data(rb.position(), rb.count());
     return Status::OK();

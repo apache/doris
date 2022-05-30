@@ -246,38 +246,34 @@ struct ConvertImplGenericToString {
 };
 
 template <typename StringColumnType>
-struct ConvertImplGenericFromString
-{
+struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
         static_assert(std::is_same_v<StringColumnType, ColumnString>,
-                "Can be used only to parse from ColumnString");
+                      "Can be used only to parse from ColumnString");
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IColumn & col_from = *col_with_type_and_name.column;
+        const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
         DCHECK(block.get_by_position(result).type != nullptr);
         auto data_type_to = block.get_by_position(result).type;
-        if (const StringColumnType * col_from_string = check_and_get_column<StringColumnType>(&col_from))
-        {
+        if (const StringColumnType* col_from_string =
+                    check_and_get_column<StringColumnType>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
             //IColumn & col_to = *res;
             size_t size = col_from.size();
             col_to->reserve(size);
 
-            for (size_t i = 0; i < size; ++i)
-            {
-                const auto & val = col_from_string->get_data_at(i);
+            for (size_t i = 0; i < size; ++i) {
+                const auto& val = col_from_string->get_data_at(i);
                 ReadBuffer read_buffer((char*)(val.data), val.size);
                 RETURN_IF_ERROR(data_type_to->from_string(read_buffer, col_to));
             }
             block.replace_by_position(result, std::move(col_to));
-        }
-        else {
-            return Status::RuntimeError(
-                    fmt::format("Illegal column {} of first argument of conversion function from string",
-                                col_from.get_name()));
-
+        } else {
+            return Status::RuntimeError(fmt::format(
+                    "Illegal column {} of first argument of conversion function from string",
+                    col_from.get_name()));
         }
         return Status::OK();
     }
@@ -1077,19 +1073,18 @@ private:
         };
     }
 
-    WrapperType create_array_wrapper(const DataTypePtr & from_type_untyped, const DataTypeArray & to_type) const
-    {
+    WrapperType create_array_wrapper(const DataTypePtr& from_type_untyped,
+                                     const DataTypeArray& to_type) const {
         /// Conversion from String through parsing.
-        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get()))
-        {
+        if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
             return &ConvertImplGenericFromString<ColumnString>::execute;
         }
 
-        const auto * from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
+        const auto* from_type = check_and_get_data_type<DataTypeArray>(from_type_untyped.get());
 
         if (!from_type) {
-            LOG(FATAL) << 
-                "CAST AS Array can only be performed between same-dimensional Array, String types";
+            LOG(FATAL) << "CAST AS Array can only be performed between same-dimensional Array, "
+                          "String types";
         }
 
         DataTypePtr from_nested_type = from_type->get_nested_type();
@@ -1097,40 +1092,45 @@ private:
         /// In query SELECT CAST([] AS Array(Array(String))) from type is Array(Nothing)
         bool from_empty_array = is_nothing(from_nested_type);
 
-        if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() && !from_empty_array)
-            LOG(FATAL) << 
-                "CAST AS Array can only be performed between same-dimensional array types";
+        if (from_type->get_number_of_dimensions() != to_type.get_number_of_dimensions() &&
+            !from_empty_array)
+            LOG(FATAL)
+                    << "CAST AS Array can only be performed between same-dimensional array types";
 
-        const DataTypePtr & to_nested_type = to_type.get_nested_type();
+        const DataTypePtr& to_nested_type = to_type.get_nested_type();
 
         /// Prepare nested type conversion
         const auto nested_function = prepare_unpack_dictionaries(from_nested_type, to_nested_type);
 
         return [nested_function, from_nested_type, to_nested_type](
-            FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                     const size_t result, size_t /*input_rows_count*/) -> Status { 
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
 
-            const ColumnArray* from_col_array = check_and_get_column<ColumnArray>(from_column.get());
+            const ColumnArray* from_col_array =
+                    check_and_get_column<ColumnArray>(from_column.get());
 
             if (from_col_array) {
                 /// create columns for converting nested column containing original and result columns
-                ColumnWithTypeAndName from_nested_column{ from_col_array->get_data_ptr(), from_nested_type, "" };
+                ColumnWithTypeAndName from_nested_column {from_col_array->get_data_ptr(),
+                                                          from_nested_type, ""};
 
                 /// convert nested column
                 ColumnNumbers new_arguments {block.columns()};
                 block.insert(from_nested_column);
-                
+
                 size_t nested_result = block.columns();
                 block.insert({to_nested_type, ""});
-                RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result, from_column->size()));
+                RETURN_IF_ERROR(nested_function(context, block, new_arguments, nested_result,
+                                                from_column->size()));
                 auto nested_result_column = block.get_by_position(nested_result).column;
 
                 /// set converted nested column to result
-                block.get_by_position(result).column = ColumnArray::create(nested_result_column, from_col_array->get_offsets_ptr());
+                block.get_by_position(result).column = ColumnArray::create(
+                        nested_result_column, from_col_array->get_offsets_ptr());
             } else {
-                return Status::RuntimeError(fmt::format("Illegal column {} for function CAST AS Array",
-                                                        from_column->get_name()));
+                return Status::RuntimeError(fmt::format(
+                        "Illegal column {} for function CAST AS Array", from_column->get_name()));
             }
             return Status::OK();
         };
@@ -1191,7 +1191,8 @@ private:
                 tmp_block.insert({nullptr, nested_type, ""});
 
                 /// Perform the requested conversion.
-                RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count));
+                RETURN_IF_ERROR(
+                        wrapper(context, tmp_block, arguments, tmp_res_index, input_rows_count));
 
                 const auto& tmp_res = tmp_block.get_by_position(tmp_res_index);
 
@@ -1289,7 +1290,7 @@ private:
         case TypeIndex::String:
             return create_string_wrapper(from_type);
         case TypeIndex::Array:
-            return create_array_wrapper(from_type, static_cast<const DataTypeArray &>(*to_type));
+            return create_array_wrapper(from_type, static_cast<const DataTypeArray&>(*to_type));
         default:
             break;
         }
