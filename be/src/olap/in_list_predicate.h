@@ -24,8 +24,8 @@
 
 #include "decimal12.h"
 #include "olap/column_predicate.h"
+#include "runtime/string_value.h"
 #include "uint24.h"
-#include "util/murmur_hash3.h"
 
 namespace std {
 // for string value

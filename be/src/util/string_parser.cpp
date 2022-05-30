@@ -20,6 +20,8 @@
 
 #include "string_parser.hpp"
 
+#include "runtime/large_int_value.h"
+
 namespace doris {
 
 template <>
