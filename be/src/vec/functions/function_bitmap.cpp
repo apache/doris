@@ -43,31 +43,23 @@ struct ToBitmap {
 
     static void vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
                        MutableColumnPtr& col_res) {
-        auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
-        auto& res_data = res_column->get_data();
-        size_t size = offsets.size();
-
-        for (size_t i = 0; i < size; ++i) {
-            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
-            size_t str_size = offsets[i] - offsets[i - 1] - 1;
-            StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-            uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(raw_str, str_size,
-                                                                                &parse_result);
-            if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
-                res_data[i].add(int_value);
-            }
-        }
+        execute<false>(data, offsets, nullptr, col_res);
     }
 
     static void vector_nullable(const ColumnString::Chars& data,
                                 const ColumnString::Offsets& offsets, const NullMap& nullmap,
                                 MutableColumnPtr& col_res) {
+        execute<true>(data, offsets, &nullmap, col_res);
+    }
+    template <bool arg_is_nullable>
+    static void execute(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                        const NullMap* nullmap, MutableColumnPtr& col_res) {
         auto* res_column = reinterpret_cast<ColumnBitmap*>(col_res.get());
         auto& res_data = res_column->get_data();
         size_t size = offsets.size();
 
         for (size_t i = 0; i < size; ++i) {
-            if (nullmap[i]) {
+            if (arg_is_nullable && ((*nullmap)[i])) {
                 continue;
             } else {
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
