@@ -46,9 +46,9 @@ import java.util.List;
  * Save policy for filtering data.
  **/
 @Data
-public class TablePolicy extends Policy {
+public class RowPolicy extends Policy {
 
-    private static final Logger LOG = LogManager.getLogger(TablePolicy.class);
+    private static final Logger LOG = LogManager.getLogger(RowPolicy.class);
 
     /**
      * Policy bind user.
@@ -68,9 +68,15 @@ public class TablePolicy extends Policy {
     @SerializedName(value = "filterType")
     private FilterType filterType = null;
 
+    /**
+     * Use for Serialization/deserialization.
+     **/
+    @SerializedName(value = "originStmt")
+    protected String originStmt;
+
     private Expr wherePredicate = null;
 
-    public TablePolicy() {}
+    public RowPolicy() {}
 
     /**
      * Policy for Table. Policy of ROW or others.
@@ -84,14 +90,15 @@ public class TablePolicy extends Policy {
      * @param filterType filter type
      * @param wherePredicate where predicate
      */
-    public TablePolicy(final PolicyTypeEnum type, final String policyName, long dbId,
-                  UserIdentity user, String originStmt, final long tableId,
-                  final FilterType filterType, final Expr wherePredicate) {
-        super(type, policyName, originStmt);
+    public RowPolicy(final PolicyTypeEnum type, final String policyName, long dbId,
+                     UserIdentity user, String originStmt, final long tableId,
+                     final FilterType filterType, final Expr wherePredicate) {
+        super(type, policyName);
         this.user = user;
         this.dbId = dbId;
         this.tableId = tableId;
         this.filterType = filterType;
+        this.originStmt = originStmt;
         this.wherePredicate = wherePredicate;
     }
 
@@ -108,9 +115,9 @@ public class TablePolicy extends Policy {
     /**
      * Read Table Policy from file.
      **/
-    public static TablePolicy read(DataInput in) throws IOException {
+    public static RowPolicy read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, TablePolicy.class);
+        return GsonUtils.GSON.fromJson(json, RowPolicy.class);
     }
 
     @Override
@@ -129,8 +136,8 @@ public class TablePolicy extends Policy {
     }
 
     @Override
-    public TablePolicy clone() {
-        return new TablePolicy(this.type, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
+    public RowPolicy clone() {
+        return new RowPolicy(this.type, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
                                this.filterType, this.wherePredicate);
     }
 
@@ -144,19 +151,20 @@ public class TablePolicy extends Policy {
     }
 
     @Override
-    public boolean matchPolicy(Policy policy) {
-        if (!(policy instanceof TablePolicy)) {
+    public boolean matchPolicy(Policy checkedPolicyCondition) {
+        if (!(checkedPolicyCondition instanceof RowPolicy)) {
             return false;
         }
-        TablePolicy tablePolicy = (TablePolicy) policy;
-        return checkMatched(tablePolicy.getDbId(), tablePolicy.getTableId(), tablePolicy.getType(),
-                            tablePolicy.getPolicyName(), tablePolicy.getUser());
+        RowPolicy rowPolicy = (RowPolicy) checkedPolicyCondition;
+        return checkMatched(rowPolicy.getDbId(), rowPolicy.getTableId(), rowPolicy.getType(),
+                            rowPolicy.getPolicyName(), rowPolicy.getUser());
     }
 
     @Override
-    public boolean matchPolicy(DropPolicyLog dropPolicyLog) {
-        return checkMatched(dropPolicyLog.getDbId(), dropPolicyLog.getTableId(), dropPolicyLog.getType(),
-                            dropPolicyLog.getPolicyName(), dropPolicyLog.getUser());
+    public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
+        return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
+                            checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
+                            checkedDropPolicyLogCondition.getUser());
     }
 
     @Override

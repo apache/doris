@@ -47,17 +47,14 @@ public abstract class Policy implements Writable, GsonPostProcessable {
 
     private static final Logger LOG = LogManager.getLogger(Policy.class);
 
+    @SerializedName(value = "id")
+    protected long id = -1;
+
     @SerializedName(value = "type")
     protected PolicyTypeEnum type = null;
 
     @SerializedName(value = "policyName")
     protected String policyName = null;
-
-    /**
-     * Use for Serialization/deserialization.
-     **/
-    @SerializedName(value = "originStmt")
-    protected String originStmt;
 
     public Policy() {}
 
@@ -66,12 +63,10 @@ public abstract class Policy implements Writable, GsonPostProcessable {
      *
      * @param type policy type
      * @param policyName policy name
-     * @param originStmt origin stmt sql
      */
-    public Policy(final PolicyTypeEnum type, final String policyName, String originStmt) {
+    public Policy(final PolicyTypeEnum type, final String policyName) {
         this.type = type;
         this.policyName = policyName;
-        this.originStmt = originStmt;
     }
 
     /**
@@ -89,7 +84,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
             case ROW:
             default:
                 Table table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new TablePolicy(stmt.getType(), stmt.getPolicyName(), db.getId(), userIdent,
+                return new RowPolicy(stmt.getType(), stmt.getPolicyName(), db.getId(), userIdent,
                     stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(),
                     stmt.getWherePredicate());
         }
@@ -111,12 +106,12 @@ public abstract class Policy implements Writable, GsonPostProcessable {
     }
 
     // it is used to check whether this policy is in PolicyMgr
-    public boolean matchPolicy(Policy policy) {
-        return checkMatched(policy.getType(), policy.getPolicyName());
+    public boolean matchPolicy(Policy checkedPolicyCondition) {
+        return checkMatched(checkedPolicyCondition.getType(), checkedPolicyCondition.getPolicyName());
     }
 
-    public boolean matchPolicy(DropPolicyLog dropPolicyLog) {
-        return checkMatched(dropPolicyLog.getType(), dropPolicyLog.getPolicyName());
+    public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
+        return checkMatched(checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName());
     }
 
     public abstract boolean isInvalid();
