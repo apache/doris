@@ -21,9 +21,23 @@ suite("test_window_funnel", "query") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
-    sql """ CREATE TABLE $tableName ( `xwho` varchar(50) NULL COMMENT 'xwho', `xwhen` datetime COMMENT 'xwhen', `xwhat` int NULL COMMENT 'xwhat' ) DUPLICATE KEY(xwho) DISTRIBUTED BY HASH(xwho) BUCKETS 3 PROPERTIES ( "replication_num" = "1" ); """
+    sql """ CREATE TABLE $tableName ( 
+                `xwho` varchar(50) NULL COMMENT 'xwho', 
+                `xwhen` datetime COMMENT 'xwhen', 
+                `xwhat` int NULL COMMENT 'xwhat' 
+                ) 
+                DUPLICATE KEY(xwho) 
+                DISTRIBUTED BY HASH(xwho) BUCKETS 3 
+                PROPERTIES ( 
+                  "replication_num" = "1"
+                ); 
+         """
 
-    sql """ INSERT into $tableName (xwho, xwhen, xwhat) values ('1', '2022-03-12 10:41:00', 1),('1', '2022-03-12 13:28:02', 2),('1', '2022-03-12 16:15:01', 3),('1', '2022-03-12 19:05:04', 4); """
+    sql """ INSERT into $tableName (xwho, xwhen, xwhat) values ('1', '2022-03-12 10:41:00', 1),
+                                                               ('1', '2022-03-12 13:28:02', 2),
+                                                               ('1', '2022-03-12 16:15:01', 3),
+                                                               ('1', '2022-03-12 19:05:04', 4); 
+        """
 
     sql """truncate table $tableName;"""
 
