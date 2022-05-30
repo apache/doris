@@ -18,11 +18,12 @@
 #include "vec/sink/mysql_result_writer.h"
 
 #include "runtime/buffer_control_block.h"
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
-#include "vec/core/types.h"
+#include "vec/data_types/data_type_array.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdatetime_value.h"
