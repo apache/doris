@@ -17,21 +17,31 @@
 
 package org.apache.doris.external.hudi;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.external.hive.util.HiveUtil;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hudi.hadoop.HoodieParquetInputFormat;
 import org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Hudi utils.
  */
 public class HudiUtils {
+    private static final Logger LOG = LogManager.getLogger(HudiUtils.class);
 
     private static final String PROPERTY_MISSING_MSG =
             "Hudi table %s is null. Please add properties('%s'='xxx') when create table";
@@ -117,12 +127,53 @@ public class HudiUtils {
         Set<String> hudiColumnNames = table.getFullSchema().stream()
                 .map(x -> x.getName()).collect(Collectors.toSet());
 
-        Set<String> hiveTableColumnNames = hiveTable.getSd().getCols()
-                .stream().map(x -> x.getName()).collect(Collectors.toSet());
+        Set<String> hiveTableColumnNames =
+                Stream.concat(hiveTable.getSd().getCols().stream(), hiveTable.getPartitionKeys().stream())
+                .map(x -> x.getName()).collect(Collectors.toSet());
         hudiColumnNames.removeAll(hiveTableColumnNames);
         if (hudiColumnNames.size() > 0) {
             throw new DdlException(String.format("Hudi table's column(s): {%s} didn't exist in hive table. ",
                     String.join(", ", hudiColumnNames)));
         }
     }
+
+    /**
+     * resolve hudi table from hive metaStore.
+     *
+     * @param table a doris hudi table
+     * @return a doris hudi table which has been resolved.
+     * @throws AnalysisException when remoteTable is not exist or not a hudi table
+     */
+    public static HudiTable resolveHudiTable(HudiTable table) throws AnalysisException {
+        String metastoreUris = table.getTableProperties().get(HudiProperty.HUDI_HIVE_METASTORE_URIS);
+        org.apache.hadoop.hive.metastore.api.Table remoteHiveTable = null;
+        try {
+            remoteHiveTable = HiveMetaStoreClientHelper.getTable(
+                    table.getHmsDatabaseName(),
+                    table.getHmsTableName(),
+                    metastoreUris);
+        } catch (DdlException e) {
+            LOG.error("Failed to get table from HiveMetaStore", e);
+            throw new AnalysisException(ErrorCode.ERR_UNKNOWN_ERROR.formatErrorMsg());
+        }
+        if (remoteHiveTable == null) {
+            throw new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(table.getHmsTableName(),
+                    "HiveMetaStore"));
+        }
+        if (!HudiUtils.isHudiTable(remoteHiveTable)) {
+            throw new AnalysisException(ErrorCode.ERR_UNKNOWN_TABLE.formatErrorMsg(table.getHmsTableName(),
+                    "HiveMetaStore"));
+        }
+
+        List<Column> newSchema = HiveUtil.transformHiveSchema(remoteHiveTable.getSd().getCols());
+        HudiTable tableWithSchema =  new HudiTable(table.getId(),
+                table.getName(),
+                newSchema,
+                table.getTableProperties());
+        return tableWithSchema;
+    }
+
+
+
+
 }
