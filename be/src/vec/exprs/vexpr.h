@@ -125,7 +125,7 @@ public:
     static std::string debug_string(const std::vector<VExpr*>& exprs);
     static std::string debug_string(const std::vector<VExprContext*>& ctxs);
 
-    bool is_and_expr() { return _fn.name.function_name == "and"; }
+    bool is_and_expr() const { return _fn.name.function_name == "and"; }
 
     const TFunction& fn() const { return _fn; }
 
@@ -157,12 +157,12 @@ protected:
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
     Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                 const FunctionBasePtr& function);
+                                 const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according
     /// the input `FunctionStateScope` argument. Called in `close` phase of VExpr.
     void close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                const FunctionBasePtr& function);
+                                const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
     TypeDescriptor _type;

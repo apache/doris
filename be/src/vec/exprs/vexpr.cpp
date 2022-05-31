@@ -181,7 +181,7 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     }
     int node_idx = 0;
     VExpr* e = nullptr;
-    Status status = create_tree_from_thrift(pool, texpr.nodes, NULL, &node_idx, &e, ctx);
+    Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
                 "Expression tree only partially reconstructed. Not all thrift nodes were used.");
@@ -228,7 +228,7 @@ Status VExpr::open(const std::vector<VExprContext*>& ctxs, RuntimeState* state) 
 
 Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
                                   std::vector<VExprContext*>* new_ctxs) {
-    DCHECK(new_ctxs != NULL);
+    DCHECK(new_ctxs != nullptr);
     if (!new_ctxs->empty()) {
         // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
         DCHECK_EQ(new_ctxs->size(), ctxs.size());
@@ -317,7 +317,7 @@ void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* 
 
 Status VExpr::init_function_context(VExprContext* context,
                                     FunctionContext::FunctionStateScope scope,
-                                    const FunctionBasePtr& function) {
+                                    const FunctionBasePtr& function) const {
     FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         std::vector<ColumnPtrWrapper*> constant_cols;
@@ -335,7 +335,7 @@ Status VExpr::init_function_context(VExprContext* context,
 }
 
 void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
-                                   const FunctionBasePtr& function) {
+                                   const FunctionBasePtr& function) const {
     if (_fn_context_index != -1) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
         function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
