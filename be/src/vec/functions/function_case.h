@@ -222,7 +222,8 @@ public:
     }
 
     template <typename ColumnType>
-    void update_result_auto_simd(MutableColumnPtr& result_column_ptr, uint8* __restrict then_idx,
+    void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
+                                 const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) {
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
@@ -331,6 +332,15 @@ public:
 
         return execute_get_type(case_state->result_type, block, arguments, result,
                                 input_rows_count);
+    }
+
+    Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            auto* state = reinterpret_cast<CaseState*>(
+                    context->get_function_state(FunctionContext::THREAD_LOCAL));
+            delete state;
+        }
+        return Status::OK();
     }
 };
 
