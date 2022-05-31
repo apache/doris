@@ -67,7 +67,7 @@ private:
     Status _open_next_reader();
     Status _next_arrow_batch();
     Status _init_arrow_batch_if_necessary();
-    Status _init_src_block();
+    Status _init_src_block() override;
     Status _append_batch_to_src_block(Block* block);
     Status _cast_src_block(Block* block);
 
