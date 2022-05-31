@@ -34,7 +34,7 @@ QUERIES_DIR=$CURDIR/ssb-flat-queries
 usage() {
     echo "
 This script is used to run SSB flat 13queries, 
-will use mysql client to connect Doris server which parameter is specified in doris-cluster.conf file.
+will use mysql client to connect Doris server which parameter is specified in 'doris-cluster.conf' file.
 Usage: $0 
   "
     exit 1
