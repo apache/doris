@@ -277,19 +277,6 @@ struct TTxnParams {
   10: optional double max_filter_ratio
 }
 
-// Definition of global dict, global dict is used to accelerate query performance of low cardinality data
-// struct TColumnDict {
-//   1: optional Types.TPrimitiveType type
-//   2: list<string> str_dict  // map one string to a integer, using offset as id
-// }
-
-// ExecPlanFragment
-
-// struct TGlobalDict {
-//   1: optional map<i32, TColumnDict> dicts,  // map dict_id to column dict
-//   2: optional map<i32, i32> slot_dicts // map from slot id to column dict id, because 2 or more column may share the dict
-// }
-
 // ExecPlanFragment
 struct TExecPlanFragmentParams {
   1: required PaloInternalServiceVersion protocol_version

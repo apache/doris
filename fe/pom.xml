@@ -924,11 +924,6 @@ under the License.
                 <artifactId>mariadb-java-client</artifactId>
                 <version>${mariadb-java-client.version}</version>
             </dependency>
-			<dependency>
-	            <groupId>org.apache.arrow</groupId>
-	            <artifactId>arrow-vector</artifactId>
-	            <version>${arrow.version}</version>
-        	</dependency>
         </dependencies>
     </dependencyManagement>
     <reporting>

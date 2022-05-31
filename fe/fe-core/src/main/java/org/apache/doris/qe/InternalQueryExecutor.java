@@ -31,7 +31,7 @@ public class InternalQueryExecutor extends StmtExecutor {
 
     private static final Logger LOG = LogManager.getLogger(InternalQueryExecutor.class);
     private static final int QUEUE_WAIT_SECONDS = 1; 
-	private volatile BlockingQueue<TResultBatch> resultQueue = Queues.newLinkedBlockingDeque(10);
+	private volatile BlockingQueue<TResultBatch> resultQueue = Queues.newLinkedBlockingDeque(100);
 	private volatile boolean eos = false;
 	private volatile Throwable exception = null;
 	private boolean isCancelled = false;
@@ -70,7 +70,7 @@ public class InternalQueryExecutor extends StmtExecutor {
 		while (exception == null && !isCancelled) {
 			LOG.info("getNext is called2");
 			TResultBatch res = resultQueue.poll(QUEUE_WAIT_SECONDS, TimeUnit.SECONDS);
-			if (res != null) {
+			if (res != null && res.getPacketSeq() >= 0 ) {
 				return res;
 			}
 			if (eos) {
@@ -115,7 +115,9 @@ public class InternalQueryExecutor extends StmtExecutor {
             	resultQueue.offer(batch.getBatch(), QUEUE_WAIT_SECONDS, TimeUnit.SECONDS);
             }
             if (batch.isEos()) {
-            	eos = true;
+				eos = true;
+				// add a persudo result batch to wake up the resultQueue's poll call
+				resultQueue.offer(new TResultBatch(null, false, -1), QUEUE_WAIT_SECONDS, TimeUnit.SECONDS);
                 break;
             }
         }

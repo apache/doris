@@ -54,19 +54,20 @@ suite("global_dict") {
             sql """ INSERT INTO ${tableName} VALUES( 0, ${strVal}, ${strVal}, ${strVal}, ${strVal}, ${strVal}, 
                                                         ${strVal}, ${strVal}, ${strVal}, ${strVal}, ${strVal} ) """
         }
-        if (i == 0) {
-            //make sure dict_table_0's global dict info is generated.
-            sleep(20000)
-        }
     }
 
+    //make sure global dict info is generated.
+    sleep(10000)
+
     try {
-        // only verify dict_table_0's global dict info is correct
-        for (int j = 1; j <= 10; ++j) {
-            def colName = """col_${j}"""
-            explain {
-                sql("SELECT COUNT(*), ${colName} FROM dict_table_0 GROUP BY ${colName}")
-                contains "VDecode Node"
+        for (int i = 0; i < tableCount; ++i) {
+            def tableName = """dict_table_${i}"""
+            for (int j = 1; j <= 10; ++j) {
+                def colName = """col_${j}"""
+                explain {
+                    sql("SELECT COUNT(*), ${colName} FROM ${tableName} GROUP BY ${colName}")
+                    contains "VDecode Node"
+                }
             }
         }
 
@@ -101,12 +102,15 @@ suite("global_dict") {
             }
         }
 
-        // verify dict_table_0's global dict info is removed
-        for (int j = 1; j <= 10; ++j) {
-            def colName = """col_${j}"""
-            explain {
-                sql("SELECT COUNT(*), ${colName} FROM dict_table_0 GROUP BY ${colName}")
-                notContains "VDecode Node"
+        // verify global dict info is removed
+        for (int i = 0; i < tableCount; ++i) {
+            def tableName = """dict_table_${i}"""
+            for (int j = 1; j <= 10; ++j) {
+                def colName = """col_${j}"""
+                explain {
+                    sql("SELECT COUNT(*), ${colName} FROM ${tableName} GROUP BY ${colName}")
+                    notContains "VDecode Node"
+                }
             }
         }
 
