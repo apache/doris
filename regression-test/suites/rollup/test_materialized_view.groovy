@@ -28,6 +28,7 @@ suite("test_materialized_view", "rollup") {
             ) 
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
+    sql "DROP TABLE IF EXISTS ${tbName2}"
     sql """
             CREATE TABLE ${tbName2}(
                 record_id int, 
@@ -71,10 +72,10 @@ suite("test_materialized_view", "rollup") {
         sql("SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id")
         contains("rollup: amt_sum")
     }
-    qt_sql "SELECT * FROM ${tbName1}"
-    qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id"
-    qt_sql "SELECT * FROM ${tbName2}"
-    qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id"
+    qt_sql "SELECT * FROM ${tbName1} order by record_id;"
+    qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName1} GROUP BY store_id order by store_id;"
+    qt_sql "SELECT * FROM ${tbName2} order by record_id;"
+    qt_sql "SELECT store_id, sum(sale_amt) FROM ${tbName2} GROUP BY store_id order by store_id;"
     sql "DROP TABLE ${tbName1}"
     sql "DROP TABLE ${tbName2}"
 }
