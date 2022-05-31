@@ -112,14 +112,6 @@ public class RowPolicy extends Policy {
                 this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
     }
 
-    /**
-     * Read Table Policy from file.
-     **/
-    public static RowPolicy read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, RowPolicy.class);
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
         if (wherePredicate != null) {

@@ -812,7 +812,7 @@ public class EditLog {
                     catalog.getAlterInstance().replayProcessModifyEngine(log);
                     break;
                 }
-                case OperationType.OP_CREATE_TABLE_POLICY: {
+                case OperationType.OP_CREATE_POLICY: {
                     RowPolicy log = (RowPolicy) journal.getData();
                     catalog.getPolicyMgr().replayCreate(log);
                     break;
@@ -1427,7 +1427,7 @@ public class EditLog {
 
     public void logCreatePolicy(Policy policy) {
         if (policy instanceof RowPolicy) {
-            logEdit(OperationType.OP_CREATE_TABLE_POLICY, policy);
+            logEdit(OperationType.OP_CREATE_POLICY, policy);
         } else {
             LOG.error("invalid policy: " + policy.getType().name());
         }
