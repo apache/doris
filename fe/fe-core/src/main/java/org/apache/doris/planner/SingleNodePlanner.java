@@ -1614,7 +1614,7 @@ public class SingleNodePlanner {
         final SelectStmt selectStmt = (SelectStmt) inlineViewRef.getViewStmt();
         if (selectStmt.hasAnalyticInfo()) {
             pushDownPredicates.addAll(getWindowsPushDownPredicates(candicatePredicates, viewPredicates,
-                    selectStmt.getAnalyticInfo(), pushDownFailedPredicates));
+                    selectStmt, pushDownFailedPredicates));
         } else {
             pushDownPredicates.addAll(candicatePredicates);
         }
@@ -1632,16 +1632,16 @@ public class SingleNodePlanner {
      */
     private List<Expr> getWindowsPushDownPredicates(
             List<Expr> predicates, List<Expr> viewPredicates,
-            AnalyticInfo analyticInfo, List<Expr> pushDownFailedPredicates) {
+            SelectStmt selectStmt, List<Expr> pushDownFailedPredicates) {
         final List<Expr> pushDownPredicates = Lists.newArrayList();
-        final List<Expr> partitionExprs = analyticInfo.getCommonPartitionExprs();
         final List<SlotId> partitionByIds = Lists.newArrayList();
-        for (Expr expr : partitionExprs) {
-            if (expr instanceof SlotRef) {
-                final SlotRef slotRef = (SlotRef) expr;
+
+        selectStmt.getSelectList().getItems().forEach(item -> {
+            if (item.getExpr() instanceof SlotRef) {
+                final SlotRef slotRef = (SlotRef) item.getExpr();
                 partitionByIds.add(slotRef.getSlotId());
             }
-        }
+        });
 
         if (partitionByIds.size() <= 0) {
             return pushDownPredicates;
